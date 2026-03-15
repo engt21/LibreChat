@@ -13,6 +13,7 @@ const {
   deleteUserById,
   deleteMessages,
   deletePresets,
+  deleteUserScheduledJobs,
   deleteUserKey,
   deleteConvos,
   deleteFiles,
@@ -259,6 +260,7 @@ const deleteUserController = async (req, res) => {
     await deleteFiles(null, user.id); // delete database files in case of orphaned files from previous steps
     await deleteToolCalls(user.id); // delete user tool calls
     await deleteUserAgents(user.id); // delete user agents
+    await deleteUserScheduledJobs(user.id); // delete user scheduled runs
     await AgentApiKey.deleteMany({ user: user._id }); // delete user agent API keys
     await Assistant.deleteMany({ user: user.id }); // delete user assistants
     await ConversationTag.deleteMany({ user: user.id }); // delete user conversation tags

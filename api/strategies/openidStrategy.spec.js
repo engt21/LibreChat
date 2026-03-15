@@ -34,8 +34,11 @@ jest.mock('~/models', () => ({
   createUser: jest.fn(),
   updateUser: jest.fn(),
 }));
+jest.mock('~/server/services/Admin/superadmin', () => ({
+  syncUserSuperAdminStatus: jest.fn(async (user) => user),
+}));
 jest.mock('@librechat/data-schemas', () => ({
-  ...jest.requireActual('@librechat/api'),
+  ...jest.requireActual('@librechat/data-schemas'),
   logger: {
     info: jest.fn(),
     warn: jest.fn(),

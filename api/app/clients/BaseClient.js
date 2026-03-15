@@ -1305,8 +1305,13 @@ class BaseClient {
    * @returns {Promise<void>}
    */
   async addFileContextToMessage(message, attachments) {
+    const contextAttachments = attachments.filter((file) => !this.isNativeToolFile(file));
+    if (contextAttachments.length === 0) {
+      return;
+    }
+
     const fileContext = await extractFileContext({
-      attachments,
+      attachments: contextAttachments,
       req: this.options?.req,
       tokenCountFn: (text) => countTokens(text),
     });
@@ -1314,6 +1319,22 @@ class BaseClient {
     if (fileContext) {
       message.fileContext = fileContext;
     }
+  }
+
+  isNativeToolFile(file, resourceType) {
+    const nativeTools = this.options.agent?.nativeTools;
+    if (!nativeTools || !file?.file_id) {
+      return false;
+    }
+
+    if (resourceType) {
+      return nativeTools[resourceType]?.file_ids?.includes(file.file_id) ?? false;
+    }
+
+    return Boolean(
+      nativeTools.execute_code?.file_ids?.includes(file.file_id) ||
+      nativeTools.file_search?.file_ids?.includes(file.file_id),
+    );
   }
 
   async processAttachments(message, attachments) {
@@ -1336,7 +1357,11 @@ class BaseClient {
         allFiles.push(file);
         continue;
       }
-      if (file.embedded === true || file.metadata?.fileIdentifier != null) {
+      if (
+        file.embedded === true ||
+        file.metadata?.fileIdentifier != null ||
+        this.isNativeToolFile(file)
+      ) {
         allFiles.push(file);
         continue;
       }

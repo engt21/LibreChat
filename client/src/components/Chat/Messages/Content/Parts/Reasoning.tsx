@@ -1,11 +1,12 @@
-import { memo, useMemo, useState, useCallback, useRef, useId } from 'react';
+import { memo, useMemo, useState, useCallback, useRef, useId, useContext } from 'react';
 import { useAtom } from 'jotai';
 import type { MouseEvent, FocusEvent } from 'react';
 import { ContentTypes } from 'librechat-data-provider';
 import { ThinkingContent, ThinkingButton, FloatingThinkingBar } from './Thinking';
 import { showThinkingAtom } from '~/store/showThinking';
-import { useMessageContext } from '~/Providers';
+import { MessagesViewContext, useMessageContext } from '~/Providers';
 import { useLocalize } from '~/hooks';
+import { shouldHideOllamaReasoning } from '~/utils/ollamaReasoning';
 import { cn } from '~/utils';
 
 type ReasoningProps = {
@@ -43,6 +44,8 @@ const Reasoning = memo(({ reasoning, isLast }: ReasoningProps) => {
   const [isBarVisible, setIsBarVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { isSubmitting, isLatestMessage, nextType } = useMessageContext();
+  const messagesViewContext = useContext(MessagesViewContext);
+  const hideOllamaReasoning = shouldHideOllamaReasoning(messagesViewContext?.conversation);
 
   // Strip <think> tags from the reasoning content (modern format)
   const reasoningText = useMemo(() => {
@@ -85,7 +88,7 @@ const Reasoning = memo(({ reasoning, isLast }: ReasoningProps) => {
     [effectiveIsSubmitting, localize, isLast],
   );
 
-  if (!reasoningText) {
+  if (hideOllamaReasoning || !reasoningText) {
     return null;
   }
 

@@ -207,6 +207,27 @@ describe('File Methods', () => {
       expect(files[0].file_id).toBe(contextFileId);
     });
 
+    it('should retrieve native file_search files', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const nativeFileId = uuidv4();
+
+      await fileMethods.createFile({
+        file_id: nativeFileId,
+        user: userId,
+        filename: 'native-search.txt',
+        filepath: '/uploads/native-search.txt',
+        type: 'text/plain',
+        bytes: 100,
+        metadata: { nativeTool: EToolResources.file_search },
+      });
+
+      const toolSet = new Set([EToolResources.file_search]);
+      const files = await fileMethods.getToolFilesByIds([nativeFileId], toolSet);
+
+      expect(files).toHaveLength(1);
+      expect(files[0].file_id).toBe(nativeFileId);
+    });
+
     it('should not retrieve execute_code files (handled by getCodeGeneratedFiles)', async () => {
       const userId = new mongoose.Types.ObjectId();
       const codeFileId = uuidv4();
@@ -407,6 +428,29 @@ describe('File Methods', () => {
 
       expect(updated).toHaveLength(1);
       expect((updated[0] as { usage: number }).usage).toBe(1);
+    });
+  });
+
+  describe('getUserCodeFiles', () => {
+    it('should retrieve native execute_code uploads', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const nativeCodeFileId = uuidv4();
+
+      await fileMethods.createFile({
+        file_id: nativeCodeFileId,
+        user: userId,
+        filename: 'native-code.csv',
+        filepath: '/uploads/native-code.csv',
+        type: 'text/csv',
+        bytes: 100,
+        context: FileContext.message_attachment,
+        metadata: { nativeTool: EToolResources.execute_code },
+      });
+
+      const files = await fileMethods.getUserCodeFiles([nativeCodeFileId]);
+
+      expect(files).toHaveLength(1);
+      expect(files[0].file_id).toBe(nativeCodeFileId);
     });
   });
 

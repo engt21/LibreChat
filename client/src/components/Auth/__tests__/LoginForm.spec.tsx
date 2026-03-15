@@ -18,8 +18,10 @@ const mockStartupConfig: TStartupConfig = {
   githubLoginEnabled: true,
   googleLoginEnabled: true,
   openidLoginEnabled: true,
+  appleLoginEnabled: false,
   openidLabel: 'Test OpenID',
   openidImageUrl: 'http://test-server.com',
+  openidAutoRedirect: false,
   samlLoginEnabled: true,
   samlLabel: 'Test SAML',
   samlImageUrl: 'http://test-server.com',
@@ -33,9 +35,16 @@ const mockStartupConfig: TStartupConfig = {
     enabled: false,
   },
   emailEnabled: false,
-  checkBalance: false,
   showBirthdayIcon: false,
   helpAndFaqURL: '',
+  sharedLinksEnabled: true,
+  publicSharedLinksEnabled: true,
+  instanceProjectId: 'test-project',
+};
+
+const defaultAuthProps = {
+  error: undefined,
+  setError: jest.fn(),
 };
 
 const setup = ({
@@ -106,15 +115,15 @@ beforeEach(() => {
 
 test('renders login form', () => {
   const { getByLabelText } = render(
-    <Login onSubmit={mockLogin} startupConfig={mockStartupConfig} />,
+    <Login onSubmit={mockLogin} startupConfig={mockStartupConfig} {...defaultAuthProps} />,
   );
   expect(getByLabelText(/email/i)).toBeInTheDocument();
   expect(getByLabelText(/password/i)).toBeInTheDocument();
 });
 
 test('submits login form', async () => {
-  const { getByLabelText, getByRole } = render(
-    <Login onSubmit={mockLogin} startupConfig={mockStartupConfig} />,
+  const { getByLabelText } = render(
+    <Login onSubmit={mockLogin} startupConfig={mockStartupConfig} {...defaultAuthProps} />,
   );
   const emailInput = getByLabelText(/email/i);
   const passwordInput = getByLabelText(/password/i);
@@ -128,8 +137,8 @@ test('submits login form', async () => {
 });
 
 test('displays validation error messages', async () => {
-  const { getByLabelText, getByRole, getByText } = render(
-    <Login onSubmit={mockLogin} startupConfig={mockStartupConfig} />,
+  const { getByLabelText, getByText } = render(
+    <Login onSubmit={mockLogin} startupConfig={mockStartupConfig} {...defaultAuthProps} />,
   );
   const emailInput = getByLabelText(/email/i);
   const passwordInput = getByLabelText(/password/i);

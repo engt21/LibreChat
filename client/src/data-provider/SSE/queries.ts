@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiBaseUrl, QueryKeys, request, dataService } from 'librechat-data-provider';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
-import type { Agents, TConversation } from 'librechat-data-provider';
+import type { Agents, TConversation, TGenTitleResponse } from 'librechat-data-provider';
 import { updateConvoInAllQueries } from '~/utils';
 
 export interface StreamStatusResponse {
@@ -101,7 +101,13 @@ export function useTitleGeneration(enabled = true) {
       queryKey: genTitleQueryKey(conversationId),
       queryFn: () => dataService.genTitle({ conversationId }),
       staleTime: Infinity,
-      retry: false,
+      retry: (failureCount, error: { response?: { status?: number } }) => {
+        const status = error?.response?.status;
+        return status === 404 && failureCount < 12;
+      },
+      retryDelay: 5000,
+      refetchInterval: (data: TGenTitleResponse | undefined) => (data?.pending ? 5000 : false),
+      refetchIntervalInBackground: true,
     })),
   });
 
@@ -110,7 +116,7 @@ export function useTitleGeneration(enabled = true) {
       const conversationId = readyToFetch[index];
       if (!conversationId || processedTitles.has(conversationId)) return;
 
-      if (titleQuery.isSuccess && titleQuery.data) {
+      if (titleQuery.isSuccess && titleQuery.data?.title) {
         const { title } = titleQuery.data;
         queryClient.setQueryData(
           [QueryKeys.conversation, conversationId],

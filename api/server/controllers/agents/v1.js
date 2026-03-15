@@ -47,6 +47,8 @@ const { refreshS3Url } = require('~/server/services/Files/S3/crud');
 const { filterFile } = require('~/server/services/Files/process');
 const { updateAction, getActions } = require('~/models/Action');
 const { getCachedTools } = require('~/server/services/Config');
+const { getModelsConfig } = require('~/server/controllers/ModelController');
+const { validateModelAccess } = require('~/server/services/ModelAccess');
 const { getLogStores } = require('~/cache');
 
 const systemTools = {
@@ -57,6 +59,20 @@ const systemTools = {
 
 const MAX_SEARCH_LEN = 100;
 const escapeRegex = (str = '') => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const ensureAgentModelAccess = async ({ req, res, provider, model }) => {
+  if (!provider || !model) {
+    return { isValid: true };
+  }
+
+  return await validateModelAccess({
+    req,
+    res,
+    endpoint: provider,
+    model,
+    modelsConfig: await getModelsConfig(req),
+  });
+};
 
 /**
  * Creates an Agent.
@@ -73,6 +89,17 @@ const createAgentHandler = async (req, res) => {
 
     if (agentData.model_parameters && typeof agentData.model_parameters === 'object') {
       agentData.model_parameters = removeNullishValues(agentData.model_parameters, true);
+    }
+
+    const validationResult = await ensureAgentModelAccess({
+      req,
+      res,
+      provider: agentData.provider,
+      model: agentData.model,
+    });
+
+    if (!validationResult.isValid) {
+      return res.status(400).json({ error: validationResult.text });
     }
 
     const { id: userId } = req.user;
@@ -252,6 +279,17 @@ const updateAgentHandler = async (req, res) => {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
+    const validationResult = await ensureAgentModelAccess({
+      req,
+      res,
+      provider: updateData.provider ?? existingAgent.provider,
+      model: updateData.model ?? existingAgent.model,
+    });
+
+    if (!validationResult.isValid) {
+      return res.status(400).json({ error: validationResult.text });
+    }
+
     // Convert legacy OCR tool resource to context format in existing agent
     const ocrConversion = mergeAgentOcrConversion(existingAgent, updateData);
     if (ocrConversion.tool_resources) {
@@ -359,6 +397,17 @@ const duplicateAgentHandler = async (req, res) => {
       id: newAgentId,
       author: userId,
     });
+
+    const validationResult = await ensureAgentModelAccess({
+      req,
+      res,
+      provider: newAgentData.provider,
+      model: newAgentData.model,
+    });
+
+    if (!validationResult.isValid) {
+      return res.status(400).json({ error: validationResult.text });
+    }
 
     const newActionsList = [];
     const originalActions = (await getActions({ agent_id: id }, true)) ?? [];
@@ -727,6 +776,18 @@ const revertAgentVersionHandler = async (req, res) => {
 
     if (!existingAgent) {
       return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const revertToVersion = existingAgent.versions?.[version_index];
+    const validationResult = await ensureAgentModelAccess({
+      req,
+      res,
+      provider: revertToVersion?.provider,
+      model: revertToVersion?.model,
+    });
+
+    if (!validationResult.isValid) {
+      return res.status(400).json({ error: validationResult.text });
     }
 
     // Permissions are enforced via route middleware (ACL EDIT)

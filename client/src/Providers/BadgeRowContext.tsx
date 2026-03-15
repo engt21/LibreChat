@@ -1,6 +1,13 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import { useSetRecoilState } from 'recoil';
-import { Tools, Constants, LocalStorageKeys, AgentCapabilities } from 'librechat-data-provider';
+import {
+  Tools,
+  Constants,
+  KnownEndpoints,
+  WebSearchModes,
+  LocalStorageKeys,
+  AgentCapabilities,
+} from 'librechat-data-provider';
 import type { TAgentsEndpoint } from 'librechat-data-provider';
 import {
   useMCPServerManager,
@@ -9,15 +16,21 @@ import {
   useCodeApiKeyForm,
   useToolToggle,
 } from '~/hooks';
+import { getNativeToolEndpointSupport } from '~/utils';
 import { getTimestampedValue } from '~/utils/timestamps';
 import { useGetStartupConfig } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
 
 interface BadgeRowContextType {
   conversationId?: string | null;
+  endpoint?: string | null;
+  isOllamaEndpoint: boolean;
+  usesNativeWebSearch: boolean;
+  usesNativeCodeInterpreter: boolean;
   storageContextKey?: string;
   agentsConfig?: TAgentsEndpoint | null;
   webSearch: ReturnType<typeof useToolToggle>;
+  webSearchMode: ReturnType<typeof useToolToggle>;
   artifacts: ReturnType<typeof useToolToggle>;
   fileSearch: ReturnType<typeof useToolToggle>;
   codeInterpreter: ReturnType<typeof useToolToggle>;
@@ -40,6 +53,7 @@ interface BadgeRowProviderProps {
   children: React.ReactNode;
   isSubmitting?: boolean;
   conversationId?: string | null;
+  endpoint?: string | null;
   specName?: string | null;
 }
 
@@ -47,6 +61,7 @@ export default function BadgeRowProvider({
   children,
   isSubmitting,
   conversationId,
+  endpoint,
   specName,
 }: BadgeRowProviderProps) {
   const lastContextKeyRef = useRef<string>('');
@@ -78,6 +93,17 @@ export default function BadgeRowProvider({
    */
   const isNewConvo = key === Constants.NEW_CONVO;
   const storageSuffix = isNewConvo && storageContextKey ? storageContextKey : key;
+  const isOllamaEndpoint = useMemo(() => {
+    return typeof endpoint === 'string' && endpoint.toLowerCase().startsWith(KnownEndpoints.ollama);
+  }, [endpoint]);
+  const { supportsNativeWebSearch, supportsNativeCodeInterpreter } = useMemo(
+    () => getNativeToolEndpointSupport(endpoint),
+    [endpoint],
+  );
+  const defaultWebSearchMode = isOllamaEndpoint
+    ? WebSearchModes.ollama_native
+    : WebSearchModes.librechat;
+  const initContextKey = `${storageSuffix}:${endpoint ?? ''}`;
 
   const setEphemeralAgent = useSetRecoilState(ephemeralAgentByConvoId(key));
 
@@ -96,17 +122,19 @@ export default function BadgeRowProvider({
       return;
     }
     // Check if this is a new conversation/spec or the first load
-    if (!hasInitializedRef.current || lastContextKeyRef.current !== storageSuffix) {
+    if (!hasInitializedRef.current || lastContextKeyRef.current !== initContextKey) {
       hasInitializedRef.current = true;
-      lastContextKeyRef.current = storageSuffix;
+      lastContextKeyRef.current = initContextKey;
 
       const codeToggleKey = `${LocalStorageKeys.LAST_CODE_TOGGLE_}${storageSuffix}`;
       const webSearchToggleKey = `${LocalStorageKeys.LAST_WEB_SEARCH_TOGGLE_}${storageSuffix}`;
+      const webSearchModeKey = `${LocalStorageKeys.LAST_WEB_SEARCH_MODE_}${storageSuffix}`;
       const fileSearchToggleKey = `${LocalStorageKeys.LAST_FILE_SEARCH_TOGGLE_}${storageSuffix}`;
       const artifactsToggleKey = `${LocalStorageKeys.LAST_ARTIFACTS_TOGGLE_}${storageSuffix}`;
 
       const codeToggleValue = getTimestampedValue(codeToggleKey);
       const webSearchToggleValue = getTimestampedValue(webSearchToggleKey);
+      const webSearchModeValue = getTimestampedValue(webSearchModeKey);
       const fileSearchToggleValue = getTimestampedValue(fileSearchToggleKey);
       const artifactsToggleValue = getTimestampedValue(artifactsToggleKey);
 
@@ -126,6 +154,16 @@ export default function BadgeRowProvider({
         } catch (e) {
           console.error('Failed to parse web search toggle value:', e);
         }
+      }
+
+      if (webSearchModeValue !== null) {
+        try {
+          initialValues.web_search_mode = JSON.parse(webSearchModeValue);
+        } catch (e) {
+          console.error('Failed to parse web search mode value:', e);
+        }
+      } else if (isOllamaEndpoint) {
+        initialValues.web_search_mode = defaultWebSearchMode;
       }
 
       if (fileSearchToggleValue !== null) {
@@ -190,7 +228,15 @@ export default function BadgeRowProvider({
         return changed ? result : prev;
       });
     }
-  }, [storageSuffix, specName, isSubmitting, setEphemeralAgent]);
+  }, [
+    defaultWebSearchMode,
+    initContextKey,
+    isOllamaEndpoint,
+    storageSuffix,
+    specName,
+    isSubmitting,
+    setEphemeralAgent,
+  ]);
 
   /** CodeInterpreter hooks */
   const codeApiKeyForm = useCodeApiKeyForm({});
@@ -202,15 +248,34 @@ export default function BadgeRowProvider({
     setIsDialogOpen: setCodeDialogOpen,
     toolKey: Tools.execute_code,
     localStorageKey: LocalStorageKeys.LAST_CODE_TOGGLE_,
-    authConfig: {
-      toolId: Tools.execute_code,
-      queryOptions: { retry: 1 },
-    },
+    isAuthenticated: supportsNativeCodeInterpreter ? true : undefined,
+    authConfig: supportsNativeCodeInterpreter
+      ? undefined
+      : {
+          toolId: Tools.execute_code,
+          queryOptions: { retry: 1 },
+        },
   });
 
   /** WebSearch hooks */
   const searchApiKeyForm = useSearchApiKeyForm({});
   const { setIsDialogOpen: setWebSearchDialogOpen } = searchApiKeyForm;
+
+  const webSearchMode = useToolToggle({
+    conversationId,
+    storageContextKey,
+    toolKey: 'web_search_mode',
+    localStorageKey: LocalStorageKeys.LAST_WEB_SEARCH_MODE_,
+    isAuthenticated: true,
+  });
+
+  const resolvedWebSearchMode = isOllamaEndpoint
+    ? ((webSearchMode.toolValue as WebSearchModes | false | undefined) ?? defaultWebSearchMode)
+    : WebSearchModes.librechat;
+
+  const usesLibreChatSearch = isOllamaEndpoint
+    ? resolvedWebSearchMode === WebSearchModes.librechat
+    : !supportsNativeWebSearch;
 
   const webSearch = useToolToggle({
     conversationId,
@@ -218,10 +283,13 @@ export default function BadgeRowProvider({
     toolKey: Tools.web_search,
     localStorageKey: LocalStorageKeys.LAST_WEB_SEARCH_TOGGLE_,
     setIsDialogOpen: setWebSearchDialogOpen,
-    authConfig: {
-      toolId: Tools.web_search,
-      queryOptions: { retry: 1 },
-    },
+    isAuthenticated: usesLibreChatSearch ? undefined : true,
+    authConfig: usesLibreChatSearch
+      ? {
+          toolId: Tools.web_search,
+          queryOptions: { retry: 1 },
+        }
+      : undefined,
   });
 
   /** FileSearch hook */
@@ -245,7 +313,12 @@ export default function BadgeRowProvider({
   const mcpServerManager = useMCPServerManager({ conversationId, storageContextKey });
 
   const value: BadgeRowContextType = {
+    endpoint,
+    isOllamaEndpoint,
+    usesNativeWebSearch: supportsNativeWebSearch,
+    usesNativeCodeInterpreter: supportsNativeCodeInterpreter,
     webSearch,
+    webSearchMode,
     artifacts,
     fileSearch,
     agentsConfig,

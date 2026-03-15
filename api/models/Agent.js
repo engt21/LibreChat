@@ -19,6 +19,7 @@ const {
 } = require('./Project');
 const { removeAllPermissions } = require('~/server/services/PermissionService');
 const { getMCPServerTools } = require('~/server/services/Config');
+const { applyOllamaWebSearchMode } = require('~/server/services/Tools/ollama');
 const { Agent, AclEntry, User } = require('~/db/models');
 const { getActions } = require('./Action');
 
@@ -124,9 +125,14 @@ const loadEphemeralAgent = async ({ req, spec, endpoint, model_parameters: _m })
   if (ephemeralAgent?.file_search === true || modelSpec?.fileSearch === true) {
     tools.push(Tools.file_search);
   }
-  if (ephemeralAgent?.web_search === true || modelSpec?.webSearch === true) {
-    tools.push(Tools.web_search);
-  }
+  applyOllamaWebSearchMode({
+    endpoint,
+    ephemeralAgent,
+    modelSpec,
+    requestBody: req.body,
+    tools,
+    mcpServers,
+  });
 
   const addedServers = new Set();
   if (mcpServers.size > 0) {

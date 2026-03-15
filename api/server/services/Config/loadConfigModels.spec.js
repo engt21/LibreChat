@@ -1,12 +1,14 @@
+jest.mock('@librechat/api', () => ({
+  fetchModels: jest.fn(),
+  isUserProvided: jest.fn((value) => value === 'user_provided'),
+}));
+jest.mock('./app', () => ({
+  getAppConfig: jest.fn(),
+}));
+
 const { fetchModels } = require('@librechat/api');
 const loadConfigModels = require('./loadConfigModels');
 const { getAppConfig } = require('./app');
-
-jest.mock('@librechat/api', () => ({
-  ...jest.requireActual('@librechat/api'),
-  fetchModels: jest.fn(),
-}));
-jest.mock('./app');
 
 const exampleConfig = {
   endpoints: {
@@ -335,6 +337,110 @@ describe('loadConfigModels', () => {
     );
 
     expect(result.FalsyFetchModel).toEqual(['defaultModel1', 'defaultModel2']);
+  });
+
+  it('uses strict Ollama detection and does not fall back to default models when no local tags are detected', async () => {
+    getAppConfig.mockResolvedValue({
+      endpoints: {
+        custom: [
+          {
+            name: 'Ollama',
+            apiKey: 'ollama',
+            baseURL: 'http://localhost:11434/v1/',
+            models: {
+              fetch: true,
+              default: ['gptossbigctx:latest'],
+            },
+          },
+        ],
+      },
+    });
+
+    fetchModels.mockResolvedValue([]);
+
+    const result = await loadConfigModels(mockRequest);
+
+    expect(fetchModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'ollama',
+        apiKey: 'ollama',
+        disableOllamaFallback: true,
+      }),
+    );
+    expect(result.ollama).toEqual([]);
+  });
+
+  it('can refresh only the Ollama endpoint models when requested', async () => {
+    getAppConfig.mockResolvedValue({
+      endpoints: {
+        custom: [
+          {
+            name: 'Ollama',
+            apiKey: 'ollama',
+            baseURL: 'http://localhost:11434/v1/',
+            models: {
+              fetch: true,
+              default: ['gptossbigctx:latest'],
+            },
+          },
+          {
+            name: 'LiteLLM',
+            apiKey: 'none',
+            baseURL: 'http://litellm:8000/v1',
+            models: {
+              fetch: true,
+              default: ['gpt-4o'],
+            },
+          },
+        ],
+      },
+    });
+
+    fetchModels.mockResolvedValue(['gptossbigctx:latest']);
+
+    const result = await loadConfigModels(mockRequest, { endpointNames: ['ollama'] });
+
+    expect(result).toEqual({ ollama: ['gptossbigctx:latest'] });
+    expect(fetchModels).toHaveBeenCalledTimes(1);
+    expect(fetchModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'ollama',
+        disableOllamaFallback: true,
+      }),
+    );
+  });
+
+  it('passes additional Ollama base URLs into discovery fetches', async () => {
+    getAppConfig.mockResolvedValue({
+      endpoints: {
+        custom: [
+          {
+            name: 'Ollama',
+            apiKey: 'ollama',
+            baseURL: 'http://192.168.50.201:11434/v1/',
+            baseURLs: ['http://192.168.50.4:8080/v1/'],
+            models: {
+              fetch: true,
+              default: ['gptossbigctx:latest'],
+            },
+          },
+        ],
+      },
+    });
+
+    fetchModels.mockResolvedValue(['gptossbigctx:latest', 'qwen2.5-7b-instruct']);
+
+    const result = await loadConfigModels(mockRequest, { endpointNames: ['ollama'] });
+
+    expect(result).toEqual({ ollama: ['gptossbigctx:latest', 'qwen2.5-7b-instruct'] });
+    expect(fetchModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'ollama',
+        baseURL: 'http://192.168.50.201:11434/v1/',
+        baseURLs: ['http://192.168.50.4:8080/v1/'],
+        disableOllamaFallback: true,
+      }),
+    );
   });
 
   it('normalizes Ollama endpoint name to lowercase', async () => {

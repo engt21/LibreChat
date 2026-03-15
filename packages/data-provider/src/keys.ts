@@ -50,6 +50,13 @@ export enum QueryKeys {
   health = 'health',
   userTerms = 'userTerms',
   banner = 'banner',
+  adminPermissions = 'adminPermissions',
+  adminUsers = 'adminUsers',
+  adminUser = 'adminUser',
+  adminUsage = 'adminUsage',
+  adminSettings = 'adminSettings',
+  adminObservability = 'adminObservability',
+  adminRoles = 'adminRoles',
   /* Memories */
   memories = 'memories',
   principalSearch = 'principalSearch',
@@ -64,6 +71,8 @@ export enum QueryKeys {
   activeJobs = 'activeJobs',
   /* Agent API Keys */
   agentApiKeys = 'agentApiKeys',
+  scheduledJobs = 'scheduledJobs',
+  scheduledJobNotifications = 'scheduledJobNotifications',
 }
 
 // Dynamic query keys that require parameters
@@ -92,6 +101,8 @@ export enum MutationKeys {
   deleteAgentAction = 'deleteAgentAction',
   revertAgentVersion = 'revertAgentVersion',
   deleteUser = 'deleteUser',
+  updateAdminUser = 'updateAdminUser',
+  updateAdminSettings = 'updateAdminSettings',
   updateRole = 'updateRole',
   enableTwoFactor = 'enableTwoFactor',
   verifyTwoFactor = 'verifyTwoFactor',

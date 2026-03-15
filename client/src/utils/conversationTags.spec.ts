@@ -1,12 +1,19 @@
 import type { TConversationTagsResponse } from 'librechat-data-provider';
 import { updateConversationTag } from './conversationTags';
 
+const createTag = (
+  overrides: Omit<TConversationTagsResponse[number], '_id'>,
+): TConversationTagsResponse[number] => ({
+  _id: `${overrides.tag}-id`,
+  ...overrides,
+});
+
 describe('ConversationTag Utilities', () => {
   let conversations: TConversationTagsResponse;
 
   beforeEach(() => {
     conversations = [
-      {
+      createTag({
         tag: 'saved',
         count: 1,
         position: 0,
@@ -14,8 +21,8 @@ describe('ConversationTag Utilities', () => {
         updatedAt: '2023-04-01T12:00:00Z',
         createdAt: '2023-04-01T12:00:00Z',
         user: 'user1',
-      },
-      {
+      }),
+      createTag({
         tag: 'tag1',
         count: 1,
         position: 1,
@@ -23,8 +30,8 @@ describe('ConversationTag Utilities', () => {
         updatedAt: '2023-04-01T12:00:00Z',
         createdAt: '2023-04-01T12:00:00Z',
         user: 'user1',
-      },
-      {
+      }),
+      createTag({
         tag: 'tag2',
         count: 20,
         position: 2,
@@ -32,8 +39,8 @@ describe('ConversationTag Utilities', () => {
         updatedAt: new Date().toISOString(),
         createdAt: '2023-04-01T12:00:00Z',
         user: 'user1',
-      },
-      {
+      }),
+      createTag({
         tag: 'tag3',
         count: 30,
         position: 3,
@@ -41,8 +48,8 @@ describe('ConversationTag Utilities', () => {
         updatedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         user: 'user1',
-      },
-      {
+      }),
+      createTag({
         tag: 'tag4',
         count: 40,
         position: 4,
@@ -50,8 +57,8 @@ describe('ConversationTag Utilities', () => {
         updatedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         user: 'user1',
-      },
-      {
+      }),
+      createTag({
         tag: 'tag5',
         count: 50,
         position: 5,
@@ -59,7 +66,7 @@ describe('ConversationTag Utilities', () => {
         updatedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         user: 'user1',
-      },
+      }),
     ];
   });
 
@@ -174,7 +181,7 @@ describe('ConversationTag Utilities', () => {
     const updated = updateConversationTag(
       conversations,
       { tag: 'newtag', description: 'newDescription' },
-      {
+      createTag({
         tag: 'newtag',
         description: 'newDescription',
         position: 1,
@@ -182,7 +189,7 @@ describe('ConversationTag Utilities', () => {
         createdAt: new Date().toISOString(),
         user: 'user1',
         count: 30,
-      },
+      }),
       // no tag tag specified
     );
 
@@ -207,7 +214,7 @@ describe('ConversationTag Utilities', () => {
     const updated = updateConversationTag(
       [],
       { tag: 'newtag', description: 'newDescription' },
-      {
+      createTag({
         tag: 'saved',
         description: 'newDescription',
         position: 0,
@@ -215,7 +222,7 @@ describe('ConversationTag Utilities', () => {
         createdAt: new Date().toISOString(),
         user: 'user1',
         count: 30,
-      },
+      }),
       // no tag tag specified
     );
     expect(updated.length).toBe(1);

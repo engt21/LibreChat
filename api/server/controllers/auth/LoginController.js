@@ -1,12 +1,15 @@
 const { logger } = require('@librechat/data-schemas');
 const { generate2FATempToken } = require('~/server/services/twoFactorService');
 const { setAuthTokens } = require('~/server/services/AuthService');
+const { syncUserSuperAdminStatus } = require('~/server/services/Admin/superadmin');
 
 const loginController = async (req, res) => {
   try {
     if (!req.user) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
+
+    req.user = await syncUserSuperAdminStatus(req.user);
 
     if (req.user.twoFactorEnabled) {
       const tempToken = generate2FATempToken(req.user._id);

@@ -337,7 +337,7 @@ export const openAISettings = {
 
 export const googleSettings = {
   model: {
-    default: 'gemini-1.5-flash-latest' as const,
+    default: 'gemini-2.5-flash' as const,
   },
   maxOutputTokens: {
     min: 1 as const,
@@ -1125,6 +1125,7 @@ export const openAIBaseSchema = tConversationSchema.pick({
   chatGptLabel: true,
   promptPrefix: true,
   temperature: true,
+  topK: true,
   top_p: true,
   presence_penalty: true,
   frequency_penalty: true,
@@ -1148,6 +1149,67 @@ export const openAIBaseSchema = tConversationSchema.pick({
 
 export const openAISchema = openAIBaseSchema
   .transform((obj: Partial<TConversation>) => removeNullishValues(obj, true))
+  .catch(() => ({}));
+
+function normalizeOllamaReasoningEffort(
+  value?: ReasoningEffort | null,
+): ReasoningEffort | null | undefined {
+  if (value === ReasoningEffort.minimal) {
+    return ReasoningEffort.low;
+  }
+
+  if (value === ReasoningEffort.xhigh) {
+    return ReasoningEffort.high;
+  }
+
+  return value;
+}
+
+export const ollamaBaseSchema = tConversationSchema.pick({
+  model: true,
+  modelLabel: true,
+  promptPrefix: true,
+  temperature: true,
+  topK: true,
+  top_p: true,
+  presence_penalty: true,
+  frequency_penalty: true,
+  resendFiles: true,
+  artifacts: true,
+  stop: true,
+  iconURL: true,
+  greeting: true,
+  spec: true,
+  maxContextTokens: true,
+  max_tokens: true,
+  reasoning_effort: true,
+  verbosity: true,
+  web_search: true,
+  fileTokenLimit: true,
+});
+
+export const ollamaSchema = ollamaBaseSchema
+  .transform((obj: Partial<TConversation>) =>
+    removeNullishValues(
+      {
+        ...obj,
+        reasoning_effort: normalizeOllamaReasoningEffort(obj.reasoning_effort),
+      },
+      true,
+    ),
+  )
+  .catch(() => ({}));
+
+export const compactOllamaSchema = ollamaBaseSchema
+  .transform((obj: Partial<TConversation>) =>
+    removeNullishValues(
+      {
+        ...obj,
+        reasoning_effort: normalizeOllamaReasoningEffort(obj.reasoning_effort),
+      },
+      true,
+    ),
+  )
   .catch(() => ({}));
 
 export const compactGoogleSchema = googleBaseSchema

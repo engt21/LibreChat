@@ -13,6 +13,9 @@ export default function VectorStoreListItem({
   deleteVectorStore,
 }: VectorStoreListItemProps) {
   const navigate = useNavigate();
+  const totalFiles = vectorStore.file_counts?.total ?? 0;
+  const sizeInKb = (vectorStore.bytes ?? 0) / 1000;
+
   return (
     <div
       onClick={() => {
@@ -26,7 +29,7 @@ export default function VectorStoreListItem({
       </div>
       <div className="w-2/6 text-gray-500">
         <p>
-          {vectorStore.file_counts.total} Files ({vectorStore.bytes / 1000}KB)
+          {totalFiles} Files ({sizeInKb}KB)
         </p>
         <p className="text-sm">{vectorStore.created_at.toString()}</p>
       </div>

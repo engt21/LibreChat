@@ -40,8 +40,11 @@ export default function AutoSendTextSelector() {
     }
   };
 
-  const handleInputChange = (value: number[] | null) => {
-    const newValue = value ? value[0] : 3;
+  const handleInputChange = (value: number | string | number[] | null) => {
+    const rawValue = Array.isArray(value) ? value[0] : value;
+    const parsedValue =
+      typeof rawValue === 'number' ? rawValue : rawValue != null ? Number.parseFloat(rawValue) : 3;
+    const newValue = Number.isFinite(parsedValue) ? parsedValue : 3;
     setDelayValue(newValue);
     if (isEnabled) {
       setAutoSendText(newValue);
@@ -92,7 +95,7 @@ export default function AutoSendTextSelector() {
             />
             <div className="w-2" />
             <InputNumber
-              value={`${delayValue} s`}
+              value={delayValue}
               disabled={!speechToText || !isEnabled}
               onChange={handleInputChange}
               min={0}

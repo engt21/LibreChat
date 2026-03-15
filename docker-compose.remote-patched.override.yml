@@ -1,0 +1,6 @@
+services:
+  api:
+    image: librechat-remote-patched:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.remote-patched

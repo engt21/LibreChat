@@ -1,5 +1,6 @@
 const { logger } = require('@librechat/data-schemas');
 const { createContentAggregator } = require('@librechat/agents');
+const getStream = require('get-stream');
 const {
   initializeAgent,
   validateAgentModel,
@@ -26,7 +27,15 @@ const { getConvoFiles } = require('~/models/Conversation');
 const { processAddedConvo } = require('./addedConvo');
 const { getAgent } = require('~/models/Agent');
 const { logViolation } = require('~/cache');
+const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const db = require('~/models');
+
+async function getFileBuffer(req, file) {
+  const source = file.source ?? 'local';
+  const { getDownloadStream } = getStrategyFunctions(source);
+  const stream = await getDownloadStream(req, file.filepath);
+  return getStream.buffer(stream);
+}
 
 /**
  * Creates a tool loader function for the agent.
@@ -91,9 +100,15 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
 
   /** @type {Array<UsageMetadata>} */
   const collectedUsage = [];
+  /** @type {Record<string, unknown>} */
+  const collectedMetadata = {};
   /** @type {ArtifactPromises} */
   const artifactPromises = [];
   const { contentParts, aggregateContent } = createContentAggregator();
+  const suppressReasoning =
+    typeof endpointOption.endpoint === 'string' &&
+    endpointOption.endpoint.toLowerCase().startsWith('ollama') &&
+    endpointOption.model_parameters?.reasoning_effort === 'none';
   const toolEndCallback = createToolEndCallback({ req, res, artifactPromises, streamId });
 
   /**
@@ -139,7 +154,9 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
     aggregateContent,
     toolEndCallback,
     collectedUsage,
+    collectedMetadata,
     streamId,
+    suppressReasoning,
   });
 
   if (!endpointOption.agent) {
@@ -193,8 +210,10 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
     {
       getConvoFiles,
       getFiles: db.getFiles,
+      getFileBuffer,
       getUserKey: db.getUserKey,
       getMessages: db.getMessages,
+      updateFile: db.updateFile,
       updateFilesUsage: db.updateFilesUsage,
       getUserKeyValues: db.getUserKeyValues,
       getUserCodeFiles: db.getUserCodeFiles,
@@ -256,8 +275,10 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
       {
         getConvoFiles,
         getFiles: db.getFiles,
+        getFileBuffer,
         getUserKey: db.getUserKey,
         getMessages: db.getMessages,
+        updateFile: db.updateFile,
         updateFilesUsage: db.updateFilesUsage,
         getUserKeyValues: db.getUserKeyValues,
         getUserCodeFiles: db.getUserCodeFiles,
@@ -394,6 +415,7 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
     agentConfigs,
     eventHandlers,
     collectedUsage,
+    collectedMetadata,
     aggregateContent,
     artifactPromises,
     agent: primaryConfig,

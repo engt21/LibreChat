@@ -1,6 +1,8 @@
 import { useState, memo, useRef } from 'react';
 import * as Menu from '@ariakit/react/menu';
-import { FileText, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { FileText, LogOut, Shield } from 'lucide-react';
+import { SystemRoles } from 'librechat-data-provider';
 import { LinkIcon, GearIcon, DropdownMenuSeparator, Avatar } from '@librechat/client';
 import { MyFilesModal } from '~/components/Chat/Input/Files/MyFilesModal';
 import { useGetStartupConfig, useGetUserBalance } from '~/data-provider';
@@ -9,6 +11,7 @@ import { useLocalize } from '~/hooks';
 import Settings from './Settings';
 
 function AccountSettings() {
+  const navigate = useNavigate();
   const localize = useLocalize();
   const { user, isAuthenticated, logout } = useAuthContext();
   const { data: startupConfig } = useGetStartupConfig();
@@ -18,6 +21,8 @@ function AccountSettings() {
   const [showSettings, setShowSettings] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
   const accountSettingsButtonRef = useRef<HTMLButtonElement>(null);
+  const canOpenAdminConsole =
+    user?.role === SystemRoles.ADMIN || (user?.adminRoleIds?.length ?? 0) > 0;
 
   return (
     <Menu.MenuProvider>
@@ -76,6 +81,12 @@ function AccountSettings() {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
+        {canOpenAdminConsole && (
+          <Menu.MenuItem onClick={() => navigate('/admin')} className="select-item text-sm">
+            <Shield className="icon-md" aria-hidden="true" />
+            {localize('com_nav_admin_console')}
+          </Menu.MenuItem>
+        )}
         <DropdownMenuSeparator />
         <Menu.MenuItem onClick={() => logout()} className="select-item text-sm">
           <LogOut className="icon-md" aria-hidden="true" />

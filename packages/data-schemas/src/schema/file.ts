@@ -73,6 +73,13 @@ const file: Schema<IMongoFile> = new Schema(
     height: Number,
     metadata: {
       fileIdentifier: String,
+      nativeTool: String,
+      openai: {
+        endpoint: String,
+        model: String,
+        fileId: String,
+        vectorStoreId: String,
+      },
     },
     expiresAt: {
       type: Date,

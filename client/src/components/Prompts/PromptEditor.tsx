@@ -41,7 +41,13 @@ const PromptEditor: React.FC<Props> = ({ name, isEditing, setIsEditing }) => {
     return isEditing ? SaveIcon : EditIcon;
   }, [isEditing, prompt]);
 
-  const rehypePlugins: PluggableList = [
+  const remarkPlugins = [
+    supersub,
+    remarkGfm,
+    [remarkMath, { singleDollarTextMath: false }],
+  ] as unknown as PluggableList;
+
+  const rehypePlugins = [
     [rehypeKatex],
     [
       rehypeHighlight,
@@ -51,7 +57,7 @@ const PromptEditor: React.FC<Props> = ({ name, isEditing, setIsEditing }) => {
         subset: langSubset,
       },
     ],
-  ];
+  ] as unknown as PluggableList;
 
   return (
     <div className="flex max-h-[85vh] flex-col sm:max-h-[85vh]">
@@ -127,13 +133,7 @@ const PromptEditor: React.FC<Props> = ({ name, isEditing, setIsEditing }) => {
                 style={{ minHeight: '4.5em', maxHeight: '21em', overflow: 'auto' }}
               >
                 <ReactMarkdown
-                  remarkPlugins={[
-                    /** @ts-ignore */
-                    supersub,
-                    remarkGfm,
-                    [remarkMath, { singleDollarTextMath: false }],
-                  ]}
-                  /** @ts-ignore */
+                  remarkPlugins={remarkPlugins}
                   rehypePlugins={rehypePlugins}
                   /** @ts-ignore */
                   components={{ p: PromptVariableGfm, code: codeNoExecution }}

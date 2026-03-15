@@ -10,6 +10,8 @@ const {
 const azureAssistants = require('~/server/services/Endpoints/azureAssistants');
 const assistants = require('~/server/services/Endpoints/assistants');
 const { getEndpointsConfig } = require('~/server/services/Config');
+const { getModelsConfig } = require('~/server/controllers/ModelController');
+const { filterModelSpecsConfig } = require('~/server/services/ModelAccess');
 const agents = require('~/server/services/Endpoints/agents');
 const { updateFilesUsage } = require('~/models');
 
@@ -48,9 +50,13 @@ async function buildEndpointOption(req, res, next) {
   }
 
   const appConfig = req.config;
-  if (appConfig.modelSpecs?.list && appConfig.modelSpecs?.enforce) {
+  const accessibleModelSpecs = appConfig.modelSpecs?.list
+    ? filterModelSpecsConfig(appConfig.modelSpecs, await getModelsConfig(req))
+    : appConfig.modelSpecs;
+
+  if (accessibleModelSpecs?.list && accessibleModelSpecs?.enforce) {
     /** @type {{ list: TModelSpec[] }}*/
-    const { list } = appConfig.modelSpecs;
+    const { list } = accessibleModelSpecs;
     const { spec } = parsedBody;
 
     if (!spec) {
@@ -81,9 +87,9 @@ async function buildEndpointOption(req, res, next) {
       logger.error(`Error parsing model spec for endpoint ${endpoint}`, error);
       return handleError(res, { text: 'Error parsing model spec' });
     }
-  } else if (parsedBody.spec && appConfig.modelSpecs?.list) {
+  } else if (parsedBody.spec && accessibleModelSpecs?.list) {
     // Non-enforced mode: if spec is selected, derive iconURL from model spec
-    const modelSpec = appConfig.modelSpecs.list.find((s) => s.name === parsedBody.spec);
+    const modelSpec = accessibleModelSpecs.list.find((s) => s.name === parsedBody.spec);
     if (modelSpec?.iconURL) {
       parsedBody.iconURL = modelSpec.iconURL;
     }

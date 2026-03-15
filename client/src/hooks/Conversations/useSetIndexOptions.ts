@@ -1,17 +1,24 @@
 import {
+  Constants,
   TPreset,
   TConversation,
   EModelEndpoint,
+  KnownEndpoints,
+  WebSearchModes,
   tConvoUpdateSchema,
 } from 'librechat-data-provider';
+import { useSetRecoilState } from 'recoil';
 import type { TSetExample, TSetOption, TSetOptionsPayload } from '~/common';
 import usePresetIndexOptions from './usePresetIndexOptions';
 import { useChatContext } from '~/Providers/ChatContext';
+import { ephemeralAgentByConvoId } from '~/store';
 
 type TUseSetOptions = (preset?: TPreset | boolean | null) => TSetOptionsPayload;
 
 const useSetIndexOptions: TUseSetOptions = (preset = false) => {
   const { conversation, setConversation } = useChatContext();
+  const conversationId = conversation?.conversationId ?? Constants.NEW_CONVO;
+  const setEphemeralAgent = useSetRecoilState(ephemeralAgentByConvoId(conversationId));
 
   const result = usePresetIndexOptions(preset);
 
@@ -22,6 +29,10 @@ const useSetIndexOptions: TUseSetOptions = (preset = false) => {
   const setOption: TSetOption = (param) => (newValue) => {
     const update = {};
     update[param] = newValue;
+    const currentEndpoint = conversation?.endpoint;
+    const isOllamaEndpoint =
+      typeof currentEndpoint === 'string' &&
+      currentEndpoint.toLowerCase().startsWith(KnownEndpoints.ollama);
 
     if (param === 'presetOverride') {
       const currentOverride = conversation?.presetOverride || {};
@@ -33,7 +44,6 @@ const useSetIndexOptions: TUseSetOptions = (preset = false) => {
 
     // Auto-enable Responses API when web search is enabled (only for OpenAI/Azure/Custom endpoints)
     if (param === 'web_search' && newValue === true) {
-      const currentEndpoint = conversation?.endpoint;
       const isOpenAICompatible =
         currentEndpoint === EModelEndpoint.openAI ||
         currentEndpoint === EModelEndpoint.azureOpenAI ||
@@ -45,6 +55,17 @@ const useSetIndexOptions: TUseSetOptions = (preset = false) => {
           update['useResponsesApi'] = true;
         }
       }
+    }
+
+    if (param === 'web_search' && isOllamaEndpoint) {
+      setEphemeralAgent((prevAgent) => ({
+        ...(prevAgent ?? {}),
+        web_search: newValue === true,
+        web_search_mode:
+          newValue === true
+            ? (prevAgent?.web_search_mode ?? WebSearchModes.ollama_native)
+            : prevAgent?.web_search_mode,
+      }));
     }
 
     setConversation(

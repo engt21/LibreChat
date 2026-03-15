@@ -17,6 +17,32 @@ jest.mock('@librechat/api', () => ({
   createMemoryProcessor: jest.fn(),
 }));
 
+jest.mock('@librechat/data-schemas', () => ({
+  logger: {
+    error: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn(),
+  },
+  CANCEL_RATE: 0.5,
+  createMethods: jest.fn(() => ({
+    updateBalance: jest.fn(),
+    bulkInsertTransactions: jest.fn(),
+    getUserKey: jest.fn(),
+    getUserKeyValues: jest.fn(),
+    getFiles: jest.fn(),
+    getMessages: jest.fn(),
+    initializeRoles: jest.fn(),
+    seedDefaultRoles: jest.fn(),
+    seedDefaultAdminRoles: jest.fn(),
+    ensureDefaultCategories: jest.fn(),
+  })),
+  createModels: jest.fn(() => ({
+    File: jest.fn(),
+    Transaction: jest.fn(),
+  })),
+}));
+
 jest.mock('~/models/Agent', () => ({
   loadAgent: jest.fn(),
 }));
@@ -2255,6 +2281,84 @@ describe('AgentClient - titleConvo', () => {
         }),
         expect.any(Object),
       );
+    });
+  });
+
+  describe('sendCompletion metadata', () => {
+    let client;
+    let mockReq;
+    let mockRes;
+    let mockAgent;
+    let mockOptions;
+
+    beforeEach(() => {
+      mockAgent = {
+        id: 'agent-123',
+        endpoint: EModelEndpoint.google,
+        provider: Providers.GOOGLE,
+        model_parameters: {
+          model: 'gemini-2.5-flash-lite',
+        },
+      };
+
+      mockReq = {
+        user: {
+          id: 'user-123',
+        },
+        body: {
+          model: 'gemini-2.5-flash-lite',
+          endpoint: EModelEndpoint.google,
+        },
+        config: {
+          endpoints: {},
+        },
+      };
+
+      mockRes = {};
+
+      mockOptions = {
+        req: mockReq,
+        res: mockRes,
+        agent: mockAgent,
+        collectedMetadata: {
+          additional_kwargs: {
+            groundingMetadata: {
+              groundingChunks: [{ web: { uri: 'https://example.com', title: 'Example' } }],
+            },
+          },
+          groundingMetadata: {
+            groundingChunks: [{ web: { uri: 'https://example.com', title: 'Example' } }],
+          },
+        },
+      };
+
+      client = new AgentClient(mockOptions);
+      client.contentParts = [{ type: 'text', text: 'Latest news' }];
+      client.chatCompletion = jest.fn().mockResolvedValue();
+    });
+
+    it('returns completion content and collected metadata', async () => {
+      const result = await client.sendCompletion('prompt');
+
+      expect(client.chatCompletion).toHaveBeenCalledWith({
+        payload: 'prompt',
+        onProgress: undefined,
+        userMCPAuthMap: undefined,
+        abortController: undefined,
+      });
+      expect(result).toEqual({
+        completion: [{ type: 'text', text: 'Latest news' }],
+        metadata: {
+          additional_kwargs: {
+            groundingMetadata: {
+              groundingChunks: [{ web: { uri: 'https://example.com', title: 'Example' } }],
+            },
+          },
+          groundingMetadata: {
+            groundingChunks: [{ web: { uri: 'https://example.com', title: 'Example' } }],
+          },
+        },
+      });
     });
   });
 });

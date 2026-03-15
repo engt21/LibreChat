@@ -10,7 +10,13 @@ const {
   createForkLimiters,
   configMiddleware,
 } = require('~/server/middleware');
-const { getConvosByCursor, deleteConvos, getConvo, saveConvo } = require('~/models/Conversation');
+const {
+  getConvosByCursor,
+  deleteConvos,
+  getConvo,
+  getConvoTitle,
+  saveConvo,
+} = require('~/models/Conversation');
 const { forkConversation, duplicateConversation } = require('~/server/utils/import/fork');
 const { storage, importFileFilter } = require('~/server/routes/files/multer');
 const { deleteAllSharedLinks, deleteConvoSharedLink } = require('~/models');
@@ -90,9 +96,26 @@ router.get('/gen_title/:conversationId', async (req, res) => {
     await titleCache.delete(key);
     res.status(200).json({ title });
   } else {
-    res.status(404).json({
-      message: "Title not found or method not implemented for the conversation's endpoint",
-    });
+    const persistedTitle = await getConvoTitle(req.user.id, conversationId);
+
+    if (persistedTitle === 'New Chat') {
+      const conversation = await getConvo(req.user.id, conversationId);
+      if (!conversation) {
+        return res.status(404).json({
+          message: 'Conversation not found',
+        });
+      }
+
+      return res.status(202).json({
+        pending: true,
+      });
+    }
+
+    if (persistedTitle) {
+      return res.status(200).json({ title: persistedTitle });
+    }
+
+    res.status(202).json({ pending: true });
   }
 });
 

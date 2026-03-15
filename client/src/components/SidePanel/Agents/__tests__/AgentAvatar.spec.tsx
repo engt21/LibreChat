@@ -8,6 +8,16 @@ import { FormProvider, useForm, type UseFormReturn } from 'react-hook-form';
 import type { AgentForm } from '~/common';
 import AgentAvatar from '../AgentAvatar';
 
+const defaultModelParameters = {
+  temperature: null,
+  maxContextTokens: null,
+  max_context_tokens: null,
+  max_output_tokens: null,
+  top_p: null,
+  frequency_penalty: null,
+  presence_penalty: null,
+};
+
 jest.mock('@librechat/client', () => ({
   useToastContext: () => ({
     showToast: jest.fn(),
@@ -41,7 +51,7 @@ const defaultFormValues: AgentForm = {
   description: null,
   instructions: null,
   model: 'gpt-4',
-  model_parameters: {},
+  model_parameters: defaultModelParameters,
   tools: [],
   provider: 'openai',
   agent_ids: [],
@@ -62,9 +72,9 @@ const defaultFormValues: AgentForm = {
 
 describe('AgentAvatar reset menu', () => {
   it('clears preview and file state when reset is triggered', () => {
-    let methodsRef: UseFormReturn<AgentForm>;
+    const methodsRef: { current: UseFormReturn<AgentForm> | null } = { current: null };
     const Wrapper = () => {
-      methodsRef = useForm<AgentForm>({
+      methodsRef.current = useForm<AgentForm>({
         defaultValues: {
           ...defaultFormValues,
           avatar_preview: 'data:image/png;base64,abc',
@@ -74,7 +84,7 @@ describe('AgentAvatar reset menu', () => {
       });
 
       return (
-        <FormProvider {...methodsRef}>
+        <FormProvider {...methodsRef.current}>
           <AgentAvatar
             avatar={{
               filepath: 'https://example.com/current.png',
@@ -88,8 +98,12 @@ describe('AgentAvatar reset menu', () => {
     const { getByTestId } = render(<Wrapper />);
     fireEvent.click(getByTestId('reset-avatar'));
 
-    expect(methodsRef.getValues('avatar_preview')).toBe('');
-    expect(methodsRef.getValues('avatar_file')).toBeNull();
-    expect(methodsRef.getValues('avatar_action')).toBe('reset');
+    if (methodsRef.current == null) {
+      throw new Error('Expected form methods to be initialized');
+    }
+
+    expect(methodsRef.current.getValues('avatar_preview')).toBe('');
+    expect(methodsRef.current.getValues('avatar_file')).toBeNull();
+    expect(methodsRef.current.getValues('avatar_action')).toBe('reset');
   });
 });

@@ -141,6 +141,22 @@ Multi-line imports count total character length across all lines. Consolidate va
 - Database: MongoDB
 - Backend runs on `http://localhost:3080/`; frontend dev server on `http://localhost:3090/`
 
+## Local Docker Runtime Rules
+
+- Do not use `.devcontainer/docker-compose.yml` to start the browser-facing LibreChat app. That compose file is only for the VS Code workspace container.
+- When asked to start or restart the local LibreChat app/services, default to the repo-root compose stack and build the latest local image from current source.
+- Default command for agents:
+
+```bash
+docker compose -f /pool/home/timeng/LibreChat/docker-compose.yml -f /pool/home/timeng/LibreChat/docker-compose.override.yml up -d --build
+docker compose -f /pool/home/timeng/librechat_exporter/prometheus-dev/docker-compose.yml up -d
+docker compose -f /pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml up -d
+```
+
+- This default path must use the local `api` image defined in `docker-compose.override.yml` (`librechat-local:latest`, built from `Dockerfile`), not the published upstream `registry.librechat.ai/danny-avila/librechat-dev:latest` image.
+- Admin observability links must resolve on the same host the user opened LibreChat from; do not leave them pointed at `localhost` unless the user is actually browsing from that same machine.
+- Use the stock upstream image only when the user explicitly asks for upstream/remote image behavior.
+
 ---
 
 ## Testing

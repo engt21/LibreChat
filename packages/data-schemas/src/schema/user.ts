@@ -23,6 +23,136 @@ const BackupCodeSchema = new Schema(
   { _id: false },
 );
 
+const ModelPermissionRuleSchema = new Schema(
+  {
+    endpoint: {
+      type: String,
+      required: true,
+    },
+    models: {
+      type: [String],
+      default: [],
+    },
+  },
+  { _id: false },
+);
+
+const ModelPermissionsSchema = new Schema(
+  {
+    enabled: {
+      type: Boolean,
+      default: false,
+    },
+    rules: {
+      type: [ModelPermissionRuleSchema],
+      default: [],
+    },
+  },
+  { _id: false },
+);
+
+const PushSubscriptionKeysSchema = new Schema(
+  {
+    p256dh: {
+      type: String,
+      required: true,
+    },
+    auth: {
+      type: String,
+      required: true,
+    },
+  },
+  { _id: false },
+);
+
+const PushSubscriptionSchema = new Schema(
+  {
+    endpoint: {
+      type: String,
+      required: true,
+    },
+    expirationTime: {
+      type: Number,
+      default: null,
+    },
+    keys: {
+      type: PushSubscriptionKeysSchema,
+      required: true,
+    },
+    userAgent: {
+      type: String,
+      default: '',
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false },
+);
+
+const NotificationsSchema = new Schema(
+  {
+    email: {
+      type: {
+        enabled: {
+          type: Boolean,
+          default: false,
+        },
+        address: {
+          type: String,
+          trim: true,
+          lowercase: true,
+          match: [/\S+@\S+\.\S+/, 'is invalid'],
+        },
+      },
+      default: {},
+    },
+    sms: {
+      type: {
+        enabled: {
+          type: Boolean,
+          default: false,
+        },
+        provider: {
+          type: String,
+          enum: ['twilio', 'carrier_gateway'],
+          default: 'twilio',
+        },
+        phoneNumber: {
+          type: String,
+          trim: true,
+        },
+        gatewayAddress: {
+          type: String,
+          trim: true,
+          lowercase: true,
+          match: [/\S+@\S+\.\S+/, 'is invalid'],
+        },
+      },
+      default: {},
+    },
+    push: {
+      type: {
+        enabled: {
+          type: Boolean,
+          default: false,
+        },
+        subscriptions: {
+          type: [PushSubscriptionSchema],
+          default: [],
+        },
+      },
+      default: {},
+    },
+  },
+  { _id: false },
+);
+
 const userSchema = new Schema<IUser>(
   {
     name: {
@@ -65,6 +195,10 @@ const userSchema = new Schema<IUser>(
     role: {
       type: String,
       default: SystemRoles.USER,
+    },
+    adminRoleIds: {
+      type: [String],
+      default: [],
     },
     googleId: {
       type: String,
@@ -141,6 +275,10 @@ const userSchema = new Schema<IUser>(
       },
       default: {},
     },
+    modelPermissions: {
+      type: ModelPermissionsSchema,
+      default: () => ({ enabled: false, rules: [] }),
+    },
     favorites: {
       type: [
         {
@@ -151,6 +289,11 @@ const userSchema = new Schema<IUser>(
         },
       ],
       default: [],
+    },
+    notifications: {
+      type: NotificationsSchema,
+      default: () => ({ email: {}, sms: {}, push: { subscriptions: [] } }),
+      select: false,
     },
     /** Field for external source identification (for consistency with TPrincipal schema) */
     idOnTheSource: {

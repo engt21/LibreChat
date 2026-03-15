@@ -155,6 +155,64 @@ describe('buildDefaultConvo - defaultParamsEndpoint', () => {
     });
   });
 
+  describe('custom endpoint with defaultParamsEndpoint: ollama', () => {
+    const models = ['gptossbigctx:latest'];
+
+    it('should preserve Ollama-specific compatible fields and strip hidden OpenAI-only ones', () => {
+      const preset: TConversation = {
+        ...baseConversation,
+        endpoint: 'Ollama' as EModelEndpoint,
+        endpointType: EModelEndpoint.custom,
+        model: 'gptossbigctx:latest',
+        temperature: 0.7,
+        top_p: 0.9,
+        topK: 20,
+        max_tokens: 8192,
+        reasoning_effort: 'high',
+        verbosity: 'low',
+        useResponsesApi: true,
+        disableStreaming: true,
+      };
+
+      const result = buildDefaultConvo({
+        models,
+        conversation: baseConversation,
+        endpoint: 'Ollama' as EModelEndpoint,
+        lastConversationSetup: preset,
+        defaultParamsEndpoint: 'ollama',
+      });
+
+      expect(result.temperature).toBe(0.7);
+      expect(result.top_p).toBe(0.9);
+      expect(result.topK).toBe(20);
+      expect(result.max_tokens).toBe(8192);
+      expect(result.reasoning_effort).toBe('high');
+      expect(result.verbosity).toBe('low');
+      expect(result.useResponsesApi).toBeUndefined();
+      expect(result.disableStreaming).toBeUndefined();
+    });
+
+    it('should normalize legacy Ollama reasoning effort values to supported levels', () => {
+      const preset: TConversation = {
+        ...baseConversation,
+        endpoint: 'Ollama' as EModelEndpoint,
+        endpointType: EModelEndpoint.custom,
+        model: 'gptossbigctx:latest',
+        reasoning_effort: 'minimal',
+      };
+
+      const result = buildDefaultConvo({
+        models,
+        conversation: baseConversation,
+        endpoint: 'Ollama' as EModelEndpoint,
+        lastConversationSetup: preset,
+        defaultParamsEndpoint: 'ollama',
+      });
+
+      expect(result.reasoning_effort).toBe('low');
+    });
+  });
+
   describe('cross-endpoint field isolation', () => {
     it('should not carry bedrock region to a custom endpoint', () => {
       const preset: TConversation = {

@@ -70,8 +70,8 @@ const addFileToResource = ({
 /**
  * Categorizes a file into the appropriate tool resource based on its properties
  * Files are categorized as:
- * - execute_code: Files with fileIdentifier metadata
- * - file_search: Files marked as embedded
+ * - execute_code: Files with fileIdentifier metadata or native execute_code metadata
+ * - file_search: Files marked as embedded or native file_search metadata
  * - image_edit: Image files in the request file set with dimensions
  * @param params - Parameters object
  * @param params.file - The file to categorize
@@ -90,7 +90,7 @@ const categorizeFileForToolResources = ({
   requestFileSet: Set<string>;
   processedResourceFiles: Set<string>;
 }): void => {
-  if (file.metadata?.fileIdentifier) {
+  if (file.metadata?.fileIdentifier || file.metadata?.nativeTool === EToolResources.execute_code) {
     addFileToResource({
       file,
       resourceType: EToolResources.execute_code,
@@ -100,7 +100,7 @@ const categorizeFileForToolResources = ({
     return;
   }
 
-  if (file.embedded === true) {
+  if (file.embedded === true || file.metadata?.nativeTool === EToolResources.file_search) {
     addFileToResource({
       file,
       resourceType: EToolResources.file_search,

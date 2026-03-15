@@ -1,6 +1,11 @@
 import { EModelEndpoint, getEndpointField } from 'librechat-data-provider';
 import type { TEndpointsConfig, TConfig } from 'librechat-data-provider';
-import { getAvailableEndpoints, getEndpointsFilter, mapEndpoints } from './endpoints';
+import {
+  getAvailableEndpoints,
+  getEndpointsFilter,
+  getNativeToolEndpointSupport,
+  mapEndpoints,
+} from './endpoints';
 
 const mockEndpointsConfig: TEndpointsConfig = {
   [EModelEndpoint.openAI]: { type: undefined, iconURL: 'openAI_icon.png', order: 0 },
@@ -81,5 +86,49 @@ describe('mapEndpoints', () => {
   it('returns sorted available endpoints', () => {
     const expectedOrder = [EModelEndpoint.openAI, EModelEndpoint.google, 'Mistral'];
     expect(mapEndpoints(mockEndpointsConfig)).toEqual(expectedOrder);
+  });
+});
+
+describe('getNativeToolEndpointSupport', () => {
+  it('enables native web search, code interpreter, and file search for OpenAI endpoints', () => {
+    expect(getNativeToolEndpointSupport(EModelEndpoint.openAI)).toEqual({
+      supportsNativeWebSearch: true,
+      supportsNativeCodeInterpreter: true,
+      supportsNativeFileSearch: true,
+    });
+
+    expect(getNativeToolEndpointSupport(EModelEndpoint.azureOpenAI)).toEqual({
+      supportsNativeWebSearch: true,
+      supportsNativeCodeInterpreter: true,
+      supportsNativeFileSearch: true,
+    });
+  });
+
+  it('enables native web search and code interpreter, but not file search, for Google endpoints', () => {
+    expect(getNativeToolEndpointSupport(EModelEndpoint.google)).toEqual({
+      supportsNativeWebSearch: true,
+      supportsNativeCodeInterpreter: true,
+      supportsNativeFileSearch: false,
+    });
+  });
+
+  it('disables native tool routing for unsupported endpoints', () => {
+    expect(getNativeToolEndpointSupport(EModelEndpoint.anthropic)).toEqual({
+      supportsNativeWebSearch: false,
+      supportsNativeCodeInterpreter: false,
+      supportsNativeFileSearch: false,
+    });
+
+    expect(getNativeToolEndpointSupport(EModelEndpoint.custom)).toEqual({
+      supportsNativeWebSearch: false,
+      supportsNativeCodeInterpreter: false,
+      supportsNativeFileSearch: false,
+    });
+
+    expect(getNativeToolEndpointSupport()).toEqual({
+      supportsNativeWebSearch: false,
+      supportsNativeCodeInterpreter: false,
+      supportsNativeFileSearch: false,
+    });
   });
 });

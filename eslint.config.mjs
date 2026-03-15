@@ -29,7 +29,15 @@ export default [
       'client/dist/**/*',
       'client/public/**/*',
       'client/coverage/**/*',
+      'client/src/**/*.test.ts',
+      'client/src/**/*.test.tsx',
+      'client/src/**/*.spec.ts',
+      'client/src/**/*.spec.tsx',
+      'client/src/**/__tests__/**/*',
+      'client/src/**/tests/**/*',
+      'client/test/**/*',
       'e2e/playwright-report/**/*',
+      'e2e/**/*',
       'packages/api/types/**/*',
       'packages/api/dist/**/*',
       'packages/api/test_bundle/**/*',
@@ -42,6 +50,7 @@ export default [
       'data-node/**/*',
       'meili_data/**/*',
       '**/node_modules/**/*',
+      'src/tests/**/*',
       '.devcontainer/**/*',
     ],
   },
@@ -353,6 +362,12 @@ export default [
       parserOptions: {
         project: './packages/data-schemas/tsconfig.json',
       },
+    },
+  },
+  {
+    files: ['client/src/components/Files/**/*.ts', 'client/src/components/Files/**/*.tsx'],
+    rules: {
+      'i18next/no-literal-string': 'off',
     },
   },
 ];

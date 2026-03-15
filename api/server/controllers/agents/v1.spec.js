@@ -1,3 +1,80 @@
+jest.mock('@librechat/data-schemas', () => {
+  const { Schema } = require('mongoose');
+
+  const buildAgentSchema = () => {
+    const schema = new Schema(
+      {
+        id: { type: String, index: true, unique: true, required: true },
+        name: { type: String },
+        description: { type: String },
+        instructions: { type: String },
+        avatar: { type: Schema.Types.Mixed, default: undefined },
+        provider: { type: String, required: true },
+        model: { type: String, required: true },
+        model_parameters: { type: Object },
+        artifacts: { type: String },
+        access_level: { type: Number },
+        recursion_limit: { type: Number },
+        tools: { type: [String], default: undefined },
+        tool_kwargs: { type: [{ type: Schema.Types.Mixed }] },
+        actions: { type: [String], default: undefined },
+        author: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+        authorName: { type: String, default: undefined },
+        hide_sequential_outputs: { type: Boolean },
+        end_after_tools: { type: Boolean },
+        agent_ids: { type: [String] },
+        edges: { type: [{ type: Schema.Types.Mixed }], default: [] },
+        isCollaborative: { type: Boolean, default: undefined },
+        conversation_starters: { type: [String], default: [] },
+        tool_resources: { type: Schema.Types.Mixed, default: {} },
+        projectIds: { type: [Schema.Types.ObjectId], ref: 'Project', index: true },
+        versions: { type: [Schema.Types.Mixed], default: [] },
+        category: { type: String, trim: true, index: true, default: 'general' },
+        support_contact: { type: Schema.Types.Mixed, default: undefined },
+        is_promoted: { type: Boolean, default: false, index: true },
+        mcpServerNames: { type: [String], default: [], index: true },
+        tool_options: { type: Schema.Types.Mixed, default: undefined },
+      },
+      { timestamps: true },
+    );
+
+    schema.index({ updatedAt: -1, _id: 1 });
+    schema.index({ 'edges.to': 1 });
+
+    return schema;
+  };
+
+  const agentSchema = buildAgentSchema();
+
+  return {
+    agentSchema,
+    createModels: (mongoose) => {
+      const userSchema = new Schema({
+        email: String,
+        name: String,
+        role: String,
+        adminRoleIds: [String],
+      });
+      const aclEntrySchema = new Schema({
+        resourceId: Schema.Types.ObjectId,
+        principalId: Schema.Types.ObjectId,
+      });
+
+      return {
+        Agent: mongoose.models.Agent || mongoose.model('Agent', buildAgentSchema()),
+        User: mongoose.models.User || mongoose.model('User', userSchema),
+        AclEntry: mongoose.models.AclEntry || mongoose.model('AclEntry', aclEntrySchema),
+      };
+    },
+    logger: {
+      error: jest.fn(),
+      debug: jest.fn(),
+      warn: jest.fn(),
+      info: jest.fn(),
+    },
+  };
+});
+
 const mongoose = require('mongoose');
 const { nanoid } = require('nanoid');
 const { v4: uuidv4 } = require('uuid');
@@ -11,6 +88,17 @@ jest.mock('~/server/services/Config', () => ({
     web_search: true,
     execute_code: true,
     file_search: true,
+  }),
+}));
+
+jest.mock('~/server/controllers/ModelController', () => ({
+  getModelsConfig: jest.fn().mockResolvedValue({
+    openai: ['gpt-4', 'gpt-3.5-turbo'],
+    azureOpenAI: ['gpt-4'],
+  }),
+  loadDefaultModels: jest.fn().mockResolvedValue({
+    openai: ['gpt-4', 'gpt-3.5-turbo'],
+    azureOpenAI: ['gpt-4'],
   }),
 }));
 

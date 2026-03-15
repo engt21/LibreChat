@@ -1,4 +1,9 @@
-import { EModelEndpoint, removeNullishValues } from 'librechat-data-provider';
+import {
+  EModelEndpoint,
+  KnownEndpoints,
+  ReasoningEffort,
+  removeNullishValues,
+} from 'librechat-data-provider';
 import type { BindToolsInput } from '@langchain/core/language_models/chat_models';
 import type { SettingDefinition } from 'librechat-data-provider';
 import type { AzureOpenAIInput } from '@langchain/openai';
@@ -76,6 +81,20 @@ function hasReasoningParams({
   );
 }
 
+function normalizeOllamaReasoningEffort(
+  reasoning_effort?: ReasoningEffort | null,
+): ReasoningEffort | null | undefined {
+  if (reasoning_effort === ReasoningEffort.minimal) {
+    return ReasoningEffort.low;
+  }
+
+  if (reasoning_effort === ReasoningEffort.xhigh) {
+    return ReasoningEffort.high;
+  }
+
+  return reasoning_effort;
+}
+
 /**
  * Extracts default parameters from customParams.paramDefinitions
  * @param paramDefinitions - Array of parameter definitions with key and default values
@@ -150,10 +169,13 @@ export function getOpenAILLMConfig({
     reasoning_summary,
     verbosity,
     web_search,
+    topK,
+    top_p,
     frequency_penalty,
     presence_penalty,
     ...modelOptions
   } = cleanedModelOptions;
+  const camelTopP = (cleanedModelOptions as Record<string, unknown>).topP as number | undefined;
 
   const llmConfig = Object.assign(
     {
@@ -169,9 +191,23 @@ export function getOpenAILLMConfig({
   if (presence_penalty != null) {
     llmConfig.presencePenalty = presence_penalty;
   }
+  if ((camelTopP ?? top_p) != null) {
+    llmConfig.topP = camelTopP ?? top_p;
+  }
 
   const modelKwargs: Record<string, unknown> = {};
   let hasModelKwargs = false;
+  const isOllamaEndpoint =
+    typeof endpoint === 'string' && endpoint.toLowerCase().startsWith(KnownEndpoints.ollama);
+  const normalizedReasoningEffort = isOllamaEndpoint
+    ? normalizeOllamaReasoningEffort(reasoning_effort)
+    : reasoning_effort;
+  const normalizedReasoningSummary = isOllamaEndpoint ? undefined : reasoning_summary;
+
+  if (isOllamaEndpoint && topK != null) {
+    modelKwargs.top_k = topK;
+    hasModelKwargs = true;
+  }
 
   if (verbosity != null && verbosity !== '') {
     modelKwargs.verbosity = verbosity;
@@ -187,6 +223,19 @@ export function getOpenAILLMConfig({
       if (key === 'web_search') {
         if (enableWebSearch === undefined && typeof value === 'boolean') {
           enableWebSearch = value;
+        }
+        continue;
+      }
+      if (key === 'top_p') {
+        if (llmConfig.topP === undefined && typeof value === 'number') {
+          llmConfig.topP = value;
+        }
+        continue;
+      }
+      if (isOllamaEndpoint && (key === 'topK' || key === 'top_k')) {
+        if (modelKwargs.top_k === undefined && typeof value === 'number') {
+          modelKwargs.top_k = value;
+          hasModelKwargs = true;
         }
         continue;
       }
@@ -213,6 +262,19 @@ export function getOpenAILLMConfig({
         }
         continue;
       }
+      if (key === 'top_p') {
+        if (typeof value === 'number') {
+          llmConfig.topP = value;
+        }
+        continue;
+      }
+      if (isOllamaEndpoint && (key === 'topK' || key === 'top_k')) {
+        if (typeof value === 'number') {
+          hasModelKwargs = true;
+          modelKwargs.top_k = value;
+        }
+        continue;
+      }
       if (knownOpenAIParams.has(key)) {
         (llmConfig as Record<string, unknown>)[key] = value;
       } else {
@@ -223,33 +285,65 @@ export function getOpenAILLMConfig({
   }
 
   if (useOpenRouter) {
-    if (hasReasoningParams({ reasoning_effort })) {
+    if (hasReasoningParams({ reasoning_effort: normalizedReasoningEffort })) {
       /**
        * OpenRouter uses a `reasoning` object — `summary` is not supported.
        * ChatOpenRouter treats `reasoning` and `include_reasoning` as mutually exclusive:
        * `include_reasoning` is legacy compat that maps to `{ enabled: true }` only when
        * no `reasoning` object is present, so we intentionally omit it here.
        */
-      modelKwargs.reasoning = { effort: reasoning_effort };
+      modelKwargs.reasoning = { effort: normalizedReasoningEffort };
       hasModelKwargs = true;
     } else {
       /** No explicit effort; fall back to legacy `include_reasoning` for reasoning token inclusion */
       llmConfig.include_reasoning = true;
     }
   } else if (
-    hasReasoningParams({ reasoning_effort, reasoning_summary }) &&
-    (llmConfig.useResponsesApi === true ||
-      (endpoint !== EModelEndpoint.openAI && endpoint !== EModelEndpoint.azureOpenAI))
+    hasReasoningParams({
+      reasoning_effort: normalizedReasoningEffort,
+      reasoning_summary: normalizedReasoningSummary,
+    }) &&
+    llmConfig.useResponsesApi === true
   ) {
     llmConfig.reasoning = removeNullishValues(
       {
-        effort: reasoning_effort,
-        summary: reasoning_summary,
+        effort: normalizedReasoningEffort,
+        summary: normalizedReasoningSummary,
       },
       true,
     ) as OpenAI.Reasoning;
-  } else if (hasReasoningParams({ reasoning_effort })) {
-    llmConfig.reasoning_effort = reasoning_effort;
+  } else if (
+    hasReasoningParams({
+      reasoning_effort: normalizedReasoningEffort,
+      reasoning_summary: normalizedReasoningSummary,
+    }) &&
+    isOllamaEndpoint
+  ) {
+    modelKwargs.reasoning = removeNullishValues(
+      {
+        effort: normalizedReasoningEffort,
+        summary: normalizedReasoningSummary,
+      },
+      true,
+    );
+    hasModelKwargs = true;
+  } else if (
+    hasReasoningParams({
+      reasoning_effort: normalizedReasoningEffort,
+      reasoning_summary: normalizedReasoningSummary,
+    }) &&
+    endpoint !== EModelEndpoint.openAI &&
+    endpoint !== EModelEndpoint.azureOpenAI
+  ) {
+    llmConfig.reasoning = removeNullishValues(
+      {
+        effort: normalizedReasoningEffort,
+        summary: normalizedReasoningSummary,
+      },
+      true,
+    ) as OpenAI.Reasoning;
+  } else if (hasReasoningParams({ reasoning_effort: normalizedReasoningEffort })) {
+    llmConfig.reasoning_effort = normalizedReasoningEffort;
   }
 
   if (llmConfig.max_tokens != null) {
@@ -268,7 +362,7 @@ export function getOpenAILLMConfig({
     /** OpenRouter expects web search as a plugins parameter */
     modelKwargs.plugins = [{ id: 'web' }];
     hasModelKwargs = true;
-  } else if (enableWebSearch) {
+  } else if (enableWebSearch && !isOllamaEndpoint) {
     /** Standard OpenAI web search uses tools API */
     llmConfig.useResponsesApi = true;
     tools.push({ type: 'web_search' });

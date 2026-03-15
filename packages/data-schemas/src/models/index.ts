@@ -7,8 +7,11 @@ import { createMessageModel } from './message';
 import { createAgentModel } from './agent';
 import { createAgentApiKeyModel } from './agentApiKey';
 import { createAgentCategoryModel } from './agentCategory';
+import { createAdminRoleModel } from './adminRole';
+import { createAppSettingsModel } from './appSettings';
 import { createMCPServerModel } from './mcpServer';
 import { createRoleModel } from './role';
+import { createScheduledJobModel } from './scheduledJob';
 import { createActionModel } from './action';
 import { createAssistantModel } from './assistant';
 import { createFileModel } from './file';
@@ -42,8 +45,11 @@ export function createModels(mongoose: typeof import('mongoose')) {
     Agent: createAgentModel(mongoose),
     AgentApiKey: createAgentApiKeyModel(mongoose),
     AgentCategory: createAgentCategoryModel(mongoose),
+    AdminRole: createAdminRoleModel(mongoose),
+    AppSettings: createAppSettingsModel(mongoose),
     MCPServer: createMCPServerModel(mongoose),
     Role: createRoleModel(mongoose),
+    ScheduledJob: createScheduledJobModel(mongoose),
     Action: createActionModel(mongoose),
     Assistant: createAssistantModel(mongoose),
     File: createFileModel(mongoose),

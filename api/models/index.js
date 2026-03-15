@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { createMethods } = require('@librechat/data-schemas');
 const methods = createMethods(mongoose);
+const { syncConfiguredSuperAdmins } = require('~/server/services/Admin/superadmin');
 const { comparePassword } = require('./userMethods');
 const {
   getMessage,
@@ -13,12 +14,23 @@ const {
 } = require('./Message');
 const { getConvoTitle, getConvo, saveConvo, deleteConvos } = require('./Conversation');
 const { getPreset, getPresets, savePreset, deletePresets } = require('./Preset');
+const {
+  ScheduledJob,
+  createScheduledJob,
+  getScheduledJob,
+  getScheduledJobs,
+  updateScheduledJob,
+  deleteScheduledJob,
+  deleteUserScheduledJobs,
+} = require('./ScheduledJob');
 const { File } = require('~/db/models');
 
 const seedDatabase = async () => {
   await methods.initializeRoles();
   await methods.seedDefaultRoles();
+  await methods.seedDefaultAdminRoles();
   await methods.ensureDefaultCategories();
+  await syncConfiguredSuperAdmins();
 };
 
 module.exports = {
@@ -43,6 +55,14 @@ module.exports = {
   getPresets,
   savePreset,
   deletePresets,
+
+  ScheduledJob,
+  createScheduledJob,
+  getScheduledJob,
+  getScheduledJobs,
+  updateScheduledJob,
+  deleteScheduledJob,
+  deleteUserScheduledJobs,
 
   Files: File,
 };

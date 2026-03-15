@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { TAttachment, Tools, SearchResultData } from 'librechat-data-provider';
 import { useLocalize } from '~/hooks';
+import { groundingMetadataToSearchResult } from '~/utils/googleGrounding';
 
 interface FileSource {
   fileId: string;
@@ -25,7 +26,13 @@ interface DeduplicatedSource {
  * @param attachments Array of attachment metadata
  * @returns A map of turn numbers to their corresponding search result data
  */
-export function useSearchResultsByTurn(attachments?: TAttachment[]) {
+export function useSearchResultsByTurn({
+  attachments,
+  messageMetadata,
+}: {
+  attachments?: TAttachment[];
+  messageMetadata?: Record<string, unknown>;
+}) {
   const localize = useLocalize();
   const searchResultsByTurn = useMemo(() => {
     const turnMap: { [key: string]: SearchResultData } = {};
@@ -42,7 +49,10 @@ export function useSearchResultsByTurn(attachments?: TAttachment[]) {
 
       // Handle agent file search attachments (following web search pattern)
       if (attachment.type === Tools.file_search && attachment[Tools.file_search]) {
-        const sources = attachment[Tools.file_search].sources;
+        const fileSearchData = attachment[Tools.file_search] as SearchResultData & {
+          sources?: FileSource[];
+        };
+        const sources = fileSearchData.sources ?? [];
 
         // Deduplicate sources by fileId and merge pages
         const deduplicatedSources = new Map<string, DeduplicatedSource>();
@@ -112,8 +122,13 @@ export function useSearchResultsByTurn(attachments?: TAttachment[]) {
       }
     });
 
+    const groundedSearchData = groundingMetadataToSearchResult(messageMetadata, 0);
+    if (groundedSearchData && turnMap['0'] == null) {
+      turnMap['0'] = groundedSearchData;
+    }
+
     return turnMap;
-  }, [attachments, localize]);
+  }, [attachments, localize, messageMetadata]);
 
   return searchResultsByTurn;
 }

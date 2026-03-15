@@ -21,6 +21,8 @@ type PartWithContextProps = {
   isLastPart: boolean;
   messageId: string;
   conversationId?: string | null;
+  messageMetadata?: Record<string, unknown>;
+  textOffset?: number;
   nextType?: string;
   isSubmitting: boolean;
   isLatestMessage?: boolean;
@@ -35,6 +37,8 @@ const PartWithContext = memo(function PartWithContext({
   isLastPart,
   messageId,
   conversationId,
+  messageMetadata,
+  textOffset,
   nextType,
   isSubmitting,
   isLatestMessage,
@@ -60,6 +64,8 @@ const PartWithContext = memo(function PartWithContext({
       <Part
         part={part}
         attachments={partAttachments}
+        messageMetadata={messageMetadata}
+        textOffset={textOffset}
         isSubmitting={isSubmitting}
         key={`part-${messageId}-${idx}`}
         isCreatedByUser={isCreatedByUser}
@@ -80,6 +86,7 @@ type ContentPartsProps = {
   isLast: boolean;
   isSubmitting: boolean;
   isLatestMessage?: boolean;
+  messageMetadata?: Record<string, unknown>;
   edit?: boolean;
   enterEdit?: (cancel?: boolean) => void | null | undefined;
   siblingIdx?: number;
@@ -106,11 +113,32 @@ const ContentParts = memo(function ContentParts({
   isSubmitting,
   setSiblingIdx,
   searchResults,
+  messageMetadata,
   conversationId,
   isCreatedByUser,
   isLatestMessage,
 }: ContentPartsProps) {
   const attachmentMap = useMemo(() => mapAttachments(attachments ?? []), [attachments]);
+  const textOffsets = useMemo(() => {
+    const offsets: Record<number, number> = {};
+    let currentOffset = 0;
+
+    content?.forEach((part, idx) => {
+      if (part?.type !== ContentTypes.TEXT) {
+        return;
+      }
+
+      const text = typeof part.text === 'string' ? part.text : part.text?.value;
+      if (typeof text !== 'string') {
+        return;
+      }
+
+      offsets[idx] = currentOffset;
+      currentOffset += text.length;
+    });
+
+    return offsets;
+  }, [content]);
   const effectiveIsSubmitting = isLatestMessage ? isSubmitting : false;
 
   const renderPart = useCallback(
@@ -125,6 +153,8 @@ const ContentParts = memo(function ContentParts({
           messageId={messageId}
           isLastPart={isLastPart}
           conversationId={conversationId}
+          messageMetadata={messageMetadata}
+          textOffset={textOffsets[idx] ?? 0}
           isLatestMessage={isLatestMessage}
           isCreatedByUser={isCreatedByUser}
           nextType={content?.[idx + 1]?.type}
@@ -142,6 +172,8 @@ const ContentParts = memo(function ContentParts({
       isLast,
       isLatestMessage,
       messageId,
+      messageMetadata,
+      textOffsets,
     ],
   );
 

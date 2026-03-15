@@ -6,6 +6,7 @@ import type * as t from './types';
 import { ContentTypes } from './types/runs';
 import {
   openAISchema,
+  ollamaSchema,
   googleSchema,
   EModelEndpoint,
   anthropicSchema,
@@ -14,24 +15,27 @@ import {
   compactAgentsSchema,
   compactGoogleSchema,
   compactAssistantSchema,
+  compactOllamaSchema,
 } from './schemas';
 import { bedrockInputSchema } from './bedrock';
-import { alternateName } from './config';
+import { alternateName, KnownEndpoints } from './config';
 
 type EndpointSchema =
   | typeof openAISchema
+  | typeof ollamaSchema
   | typeof googleSchema
   | typeof anthropicSchema
   | typeof assistantSchema
   | typeof compactAgentsSchema
   | typeof bedrockInputSchema;
 
-export type EndpointSchemaKey = EModelEndpoint;
+export type EndpointSchemaKey = EModelEndpoint | KnownEndpoints.ollama;
 
 const endpointSchemas: Record<EndpointSchemaKey, EndpointSchema> = {
   [EModelEndpoint.openAI]: openAISchema,
   [EModelEndpoint.azureOpenAI]: openAISchema,
   [EModelEndpoint.custom]: openAISchema,
+  [KnownEndpoints.ollama]: ollamaSchema,
   [EModelEndpoint.google]: googleSchema,
   [EModelEndpoint.anthropic]: anthropicSchema,
   [EModelEndpoint.assistants]: assistantSchema,
@@ -286,6 +290,7 @@ export const getResponseSender = (endpointOption: Partial<t.TEndpointOption>): s
 
 type CompactEndpointSchema =
   | typeof openAISchema
+  | typeof compactOllamaSchema
   | typeof compactAssistantSchema
   | typeof compactAgentsSchema
   | typeof compactGoogleSchema
@@ -296,6 +301,7 @@ const compactEndpointSchemas: Record<EndpointSchemaKey, CompactEndpointSchema> =
   [EModelEndpoint.openAI]: openAISchema,
   [EModelEndpoint.azureOpenAI]: openAISchema,
   [EModelEndpoint.custom]: openAISchema,
+  [KnownEndpoints.ollama]: compactOllamaSchema,
   [EModelEndpoint.assistants]: compactAssistantSchema,
   [EModelEndpoint.azureAssistants]: compactAssistantSchema,
   [EModelEndpoint.agents]: compactAgentsSchema,

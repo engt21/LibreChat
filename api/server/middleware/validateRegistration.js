@@ -1,11 +1,13 @@
-const { isEnabled } = require('@librechat/api');
+const { getEffectiveAppSettings } = require('~/server/services/Admin/appSettings');
 
-function validateRegistration(req, res, next) {
+async function validateRegistration(req, res, next) {
   if (req.invite) {
     return next();
   }
 
-  if (isEnabled(process.env.ALLOW_REGISTRATION)) {
+  const settings = await getEffectiveAppSettings();
+
+  if (settings.registrationEnabled) {
     next();
   } else {
     return res.status(403).json({

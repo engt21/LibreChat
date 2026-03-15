@@ -115,12 +115,94 @@ export function getSearchEnabled(): Promise<boolean> {
   return request.get(endpoints.searchEnabled());
 }
 
+export function getScheduledJobs(): Promise<t.TScheduledJob[]> {
+  return request.get(endpoints.schedules());
+}
+
+export function createScheduledJob(
+  payload: t.TScheduledJobCreatePayload,
+): Promise<t.TScheduledJob> {
+  return request.post(endpoints.schedules(), payload);
+}
+
+export function updateScheduledJob(
+  scheduleId: string,
+  payload: t.TScheduledJobUpdatePayload,
+): Promise<t.TScheduledJob> {
+  return request.patch(endpoints.schedules(scheduleId), payload);
+}
+
+export function deleteScheduledJob(scheduleId: string): Promise<void> {
+  return request.delete(endpoints.schedules(scheduleId));
+}
+
+export function runScheduledJob(scheduleId: string): Promise<t.TScheduledJobRunResult> {
+  return request.post(endpoints.runSchedule(scheduleId));
+}
+
+export function getScheduledJobNotifications(): Promise<t.TScheduledJobNotificationSettings> {
+  return request.get(endpoints.scheduleNotifications());
+}
+
+export function updateScheduledJobNotifications(
+  payload: t.TScheduledJobNotificationUpdatePayload,
+): Promise<t.TScheduledJobNotificationSettings> {
+  return request.put(endpoints.scheduleNotifications(), payload);
+}
+
+export function subscribeScheduledJobPush(subscription: PushSubscriptionJSON) {
+  return request.post(endpoints.schedulePushSubscribe(), { subscription });
+}
+
+export function unsubscribeScheduledJobPush(endpoint: string) {
+  return request.post(endpoints.schedulePushUnsubscribe(), { endpoint });
+}
+
 export function getUser(): Promise<t.TUser> {
   return request.get(endpoints.user());
 }
 
 export function getUserBalance(): Promise<t.TBalanceResponse> {
   return request.get(endpoints.balance());
+}
+
+export function getAdminPermissions(): Promise<t.TAdminPermissionsResponse> {
+  return request.get(endpoints.adminPermissions());
+}
+
+export function getAdminUsers(params: t.AdminListParams = {}): Promise<t.TAdminUserListResponse> {
+  return request.get(endpoints.adminUsers(params));
+}
+
+export function getAdminUser(userId: string): Promise<t.TAdminUserDetails> {
+  return request.get(endpoints.adminUser(userId));
+}
+
+export function updateAdminUser(
+  userId: string,
+  payload: t.TAdminUserUpdate,
+): Promise<t.TAdminUserDetails> {
+  return request.patch(endpoints.adminUser(userId), payload);
+}
+
+export function getAdminUsage(params: t.AdminListParams = {}): Promise<t.TAdminUsageResponse> {
+  return request.get(endpoints.adminUsage(params));
+}
+
+export function getAdminSettings(): Promise<t.TAdminSettings> {
+  return request.get(endpoints.adminSettings());
+}
+
+export function updateAdminSettings(payload: t.TAdminSettingsUpdate): Promise<t.TAdminSettings> {
+  return request.put(endpoints.adminSettings(), payload);
+}
+
+export function getAdminObservability(): Promise<t.TAdminObservability> {
+  return request.get(endpoints.adminObservability());
+}
+
+export function getAdminRoles(): Promise<t.TAdminRole[]> {
+  return request.get(endpoints.adminRoles());
 }
 
 export const updateTokenCount = (text: string) => {

@@ -3,6 +3,15 @@
  * calls and return values. Must be declared before require('./buildEndpointOption')
  * so the destructured reference in the middleware captures the wrapper.
  */
+jest.mock('@librechat/data-schemas', () => ({
+  logger: {
+    error: jest.fn(),
+    debug: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+  },
+}));
+
 jest.mock('librechat-data-provider', () => {
   const actual = jest.requireActual('librechat-data-provider');
   return {
@@ -37,6 +46,11 @@ jest.mock('~/server/services/Config', () => ({
   getEndpointsConfig: (...args) => mockGetEndpointsConfig(...args),
 }));
 
+const mockGetModelsConfig = jest.fn();
+jest.mock('~/server/controllers/ModelController', () => ({
+  getModelsConfig: (...args) => mockGetModelsConfig(...args),
+}));
+
 jest.mock('@librechat/api', () => ({
   handleError: jest.fn(),
 }));
@@ -57,6 +71,11 @@ const createRes = () => ({
 describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetModelsConfig.mockResolvedValue({
+      AnthropicClaude: ['anthropic/claude-opus-4.5'],
+      MyOpenRouter: ['gpt-4o'],
+      MyEndpoint: ['gpt-4o'],
+    });
   });
 
   it('should pass defaultParamsEndpoint to parseCompactConvo and preserve maxOutputTokens', async () => {

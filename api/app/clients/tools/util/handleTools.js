@@ -18,6 +18,7 @@ const { getMCPServersRegistry } = require('~/config');
 const {
   Tools,
   Constants,
+  WebSearchModes,
   Permissions,
   EToolResources,
   PermissionTypes,
@@ -44,6 +45,12 @@ const { createFileSearchTool, primeFiles: primeSearchFiles } = require('./fileSe
 const { getUserPluginAuthValue } = require('~/server/services/PluginService');
 const { createMCPTool, createMCPTools } = require('~/server/services/MCP');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
+const {
+  OLLAMA_WEB_FETCH_TOOL,
+  createOllamaWebFetchTool,
+  createOllamaWebSearchTool,
+  getOllamaWebSearchMode,
+} = require('~/server/services/Tools/ollama');
 const { getMCPServerTools } = require('~/server/services/Config');
 const { getRoleByName } = require('~/models/Role');
 
@@ -230,6 +237,16 @@ const loadTools = async ({
   };
 
   const requestedTools = {};
+  const ollamaWebSearchMode = getOllamaWebSearchMode({
+    endpoint: agent?.provider ?? endpoint,
+    ephemeralAgent: options.req?.body?.ephemeralAgent,
+    requestBody: options.req?.body,
+    agentTools: agent?.tools,
+    enabled:
+      tools.includes(Tools.web_search) ||
+      tools.includes(OLLAMA_WEB_FETCH_TOOL) ||
+      options.req?.body?.web_search === true,
+  });
 
   if (functions === true) {
     toolConstructors.dalle = DALLE3;
@@ -318,6 +335,15 @@ const loadTools = async ({
       };
       continue;
     } else if (tool === Tools.web_search) {
+      if (ollamaWebSearchMode === WebSearchModes.ollama_native) {
+        const { onSearchResults } = options?.[Tools.web_search] ?? {};
+        requestedTools[tool] = async () => {
+          toolContextMap[tool] = buildWebSearchContext();
+          return createOllamaWebSearchTool({ onSearchResults });
+        };
+        continue;
+      }
+
       const result = await loadWebSearchAuth({
         userId: user,
         loadAuthValues,
@@ -333,6 +359,13 @@ const loadTools = async ({
           logger,
         });
       };
+      continue;
+    } else if (tool === OLLAMA_WEB_FETCH_TOOL) {
+      if (ollamaWebSearchMode !== WebSearchModes.ollama_native) {
+        continue;
+      }
+
+      requestedTools[tool] = async () => createOllamaWebFetchTool();
       continue;
     } else if (tool && mcpToolPattern.test(tool)) {
       const [toolName, serverName] = tool.split(Constants.mcp_delimiter);

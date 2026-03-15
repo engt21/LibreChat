@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   QueryKeys,
   Constants,
+  EModelEndpoint,
   EToolResources,
   mergeFileConfig,
   isAssistantsEndpoint,
@@ -13,7 +14,7 @@ import {
   defaultAssistantsVersion,
 } from 'librechat-data-provider';
 import debounce from 'lodash/debounce';
-import type { EModelEndpoint, TEndpointsConfig, TError } from 'librechat-data-provider';
+import type { TEndpointsConfig, TError } from 'librechat-data-provider';
 import type { ExtendedFile, FileSetter } from '~/common';
 import type { TConversation } from 'librechat-data-provider';
 import { logger, validateFiles, cachePreview, getCachedPreview, removePreviewEntry } from '~/utils';
@@ -44,6 +45,23 @@ export type FileHandlingState = {
 };
 
 const noop = () => {};
+
+const getNativeUploadTool = ({
+  endpoint,
+  tool_resource,
+}: {
+  endpoint?: string;
+  tool_resource?: string;
+}) => {
+  if (
+    (endpoint === EModelEndpoint.openAI || endpoint === EModelEndpoint.azureOpenAI) &&
+    (tool_resource === EToolResources.execute_code || tool_resource === EToolResources.file_search)
+  ) {
+    return tool_resource;
+  }
+
+  return undefined;
+};
 
 const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: FileHandlingState) => {
   const localize = useLocalize();
@@ -218,6 +236,14 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       const tool_resource = extendedFile.tool_resource;
       if (tool_resource != null) {
         formData.append('tool_resource', tool_resource);
+
+        const nativeTool = getNativeUploadTool({
+          endpoint: endpointType ?? endpoint,
+          tool_resource,
+        });
+        if (nativeTool) {
+          formData.append('native_tool', nativeTool);
+        }
       }
       if (conversation?.agent_id != null && formData.get('agent_id') == null) {
         formData.append('agent_id', conversation.agent_id);

@@ -41,6 +41,20 @@ describe('getOpenAILLMConfig', () => {
       expect(result.llmConfig).toHaveProperty('presencePenalty', 0.3);
     });
 
+    it('should map top_p to topP for OpenAI-compatible requests', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        modelOptions: {
+          model: 'gpt-4',
+          top_p: 0.25,
+        },
+      });
+
+      expect(result.llmConfig).toHaveProperty('topP', 0.25);
+      expect(result.llmConfig).not.toHaveProperty('top_p');
+    });
+
     it('should handle max_tokens conversion to maxTokens', () => {
       const result = getOpenAILLMConfig({
         apiKey: 'test-api-key',
@@ -413,6 +427,21 @@ describe('getOpenAILLMConfig', () => {
 
       expect(result.tools).not.toContainEqual({ type: 'web_search' });
     });
+
+    it('should not wire OpenAI hosted web search for Ollama custom endpoints', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        endpoint: 'Ollama' as EModelEndpoint,
+        streaming: true,
+        modelOptions: {
+          model: 'gptossbigctx:latest',
+          web_search: true,
+        },
+      });
+
+      expect(result.llmConfig).not.toHaveProperty('useResponsesApi', true);
+      expect(result.tools).not.toContainEqual({ type: 'web_search' });
+    });
   });
 
   describe('GPT-5 max_tokens Handling', () => {
@@ -502,6 +531,58 @@ describe('getOpenAILLMConfig', () => {
         effort: ReasoningEffort.medium,
         summary: ReasoningSummary.detailed,
       });
+    });
+
+    it('should send Ollama reasoning through modelKwargs when not using Responses API', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        endpoint: 'Ollama' as EModelEndpoint,
+        streaming: true,
+        modelOptions: {
+          model: 'gptossbigctx:latest',
+          reasoning_effort: ReasoningEffort.high,
+          reasoning_summary: ReasoningSummary.concise,
+        },
+      });
+
+      expect(result.llmConfig).not.toHaveProperty('reasoning');
+      expect(result.llmConfig.modelKwargs).toMatchObject({
+        reasoning: {
+          effort: ReasoningEffort.high,
+        },
+      });
+    });
+
+    it('should normalize unsupported Ollama reasoning effort values', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        endpoint: 'Ollama' as EModelEndpoint,
+        streaming: true,
+        modelOptions: {
+          model: 'gptossbigctx:latest',
+          reasoning_effort: ReasoningEffort.minimal,
+        },
+      });
+
+      expect(result.llmConfig.modelKwargs).toMatchObject({
+        reasoning: {
+          effort: ReasoningEffort.low,
+        },
+      });
+    });
+
+    it('should send Ollama topK through modelKwargs as top_k', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        endpoint: 'Ollama' as EModelEndpoint,
+        streaming: true,
+        modelOptions: {
+          model: 'gptossbigctx:latest',
+          topK: 7,
+        },
+      });
+
+      expect(result.llmConfig.modelKwargs).toMatchObject({ top_k: 7 });
     });
   });
 

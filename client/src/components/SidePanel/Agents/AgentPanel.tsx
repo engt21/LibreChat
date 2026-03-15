@@ -310,10 +310,11 @@ export default function AgentPanel() {
           (key) =>
             !isAssistantsEndpoint(key) &&
             (allowedProviders.size > 0 ? allowedProviders.has(key) : true) &&
-            key !== EModelEndpoint.agents,
+            key !== EModelEndpoint.agents &&
+            (models[key]?.length ?? 0) > 0,
         )
         .map((provider) => createProviderOption(provider)),
-    [endpointsConfig, allowedProviders],
+    [endpointsConfig, allowedProviders, models],
   );
 
   /* Mutations */

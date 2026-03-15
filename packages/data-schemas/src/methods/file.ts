@@ -47,7 +47,7 @@ export function createFileMethods(mongoose: typeof import('mongoose')) {
   }
 
   /**
-   * Retrieves tool files (files that are embedded or have a fileIdentifier) from an array of file IDs.
+   * Retrieves tool files (files that are embedded or tagged for a native tool resource) from an array of file IDs.
    * Note: execute_code files are handled separately by getCodeGeneratedFiles.
    * @param fileIds - Array of file_id strings to search for
    * @param toolResourceSet - Optional filter for tool resources
@@ -69,6 +69,7 @@ export function createFileMethods(mongoose: typeof import('mongoose')) {
       }
       if (toolResourceSet.has(EToolResources.file_search)) {
         orConditions.push({ embedded: true });
+        orConditions.push({ 'metadata.nativeTool': EToolResources.file_search });
       }
 
       // If no conditions to match, return empty
@@ -143,7 +144,7 @@ export function createFileMethods(mongoose: typeof import('mongoose')) {
 
   /**
    * Retrieves user-uploaded execute_code files (not code-generated) by their file IDs.
-   * These are files with fileIdentifier metadata but context is NOT execute_code (e.g., agents or message_attachment).
+   * These are files with execute_code metadata or native execute_code tags, but context is NOT execute_code.
    * File IDs should be collected from message.files arrays in the current thread.
    * @param fileIds - Array of file IDs to fetch (from message.files in the thread)
    * @returns User-uploaded execute_code files
@@ -157,7 +158,10 @@ export function createFileMethods(mongoose: typeof import('mongoose')) {
       const filter: FilterQuery<IMongoFile> = {
         file_id: { $in: fileIds },
         context: { $ne: FileContext.execute_code },
-        'metadata.fileIdentifier': { $exists: true },
+        $or: [
+          { 'metadata.fileIdentifier': { $exists: true } },
+          { 'metadata.nativeTool': EToolResources.execute_code },
+        ],
       };
 
       const selectFields: SelectProjection = { text: 0 };

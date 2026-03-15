@@ -1,6 +1,45 @@
 import type { Document, Types } from 'mongoose';
 import { CursorPaginationParams } from '~/common';
 
+export interface IModelPermissionRule {
+  endpoint: string;
+  models: string[];
+}
+
+export interface IUserModelPermissions {
+  enabled?: boolean;
+  rules?: IModelPermissionRule[];
+}
+
+export interface IUserPushSubscription {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  userAgent?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface IUserNotifications {
+  email?: {
+    enabled?: boolean;
+    address?: string;
+  };
+  sms?: {
+    enabled?: boolean;
+    provider?: 'twilio' | 'carrier_gateway';
+    phoneNumber?: string;
+    gatewayAddress?: string;
+  };
+  push?: {
+    enabled?: boolean;
+    subscriptions?: IUserPushSubscription[];
+  };
+}
+
 export interface IUser extends Document {
   name?: string;
   username?: string;
@@ -10,6 +49,7 @@ export interface IUser extends Document {
   avatar?: string;
   provider: string;
   role?: string;
+  adminRoleIds?: string[];
   googleId?: string;
   facebookId?: string;
   openidId?: string;
@@ -34,11 +74,13 @@ export interface IUser extends Document {
   personalization?: {
     memories?: boolean;
   };
+  modelPermissions?: IUserModelPermissions;
   favorites?: Array<{
     agentId?: string;
     model?: string;
     endpoint?: string;
   }>;
+  notifications?: IUserNotifications;
   createdAt?: Date;
   updatedAt?: Date;
   /** Field for external source identification (for consistency with TPrincipal schema) */
@@ -63,6 +105,7 @@ export interface UpdateUserRequest {
   username?: string;
   email?: string;
   role?: string;
+  adminRoleIds?: string[];
   emailVerified?: boolean;
   avatar?: string;
   plugins?: string[];
@@ -71,6 +114,8 @@ export interface UpdateUserRequest {
   personalization?: {
     memories?: boolean;
   };
+  modelPermissions?: IUserModelPermissions;
+  notifications?: IUserNotifications;
 }
 
 export interface UserDeleteResult {

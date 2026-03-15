@@ -2444,6 +2444,97 @@ describe('models/Agent', () => {
       }
     });
 
+    test('should default Ollama ephemeral web search to native Ollama tools', async () => {
+      const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
+
+      getMCPServerTools.mockResolvedValue(null);
+
+      const mockReq = {
+        user: { id: 'user123' },
+        body: {
+          promptPrefix: 'Use hosted web tools',
+          ephemeralAgent: {
+            web_search: true,
+            mcp: [],
+          },
+        },
+      };
+
+      const result = await loadAgent({
+        req: mockReq,
+        agent_id: EPHEMERAL_AGENT_ID,
+        endpoint: 'ollama',
+        model_parameters: { model: 'gptossbigctx:latest' },
+      });
+
+      expect(result).toMatchObject({
+        provider: 'ollama',
+        model: 'gptossbigctx:latest',
+      });
+      expect(result.tools).toContain('web_search');
+      expect(result.tools).toContain('web_fetch');
+    });
+
+    test('should map Ollama sidebar web search to native Ollama tools', async () => {
+      const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
+
+      getMCPServerTools.mockResolvedValue(null);
+
+      const mockReq = {
+        user: { id: 'user123' },
+        body: {
+          web_search: true,
+        },
+      };
+
+      const result = await loadAgent({
+        req: mockReq,
+        agent_id: EPHEMERAL_AGENT_ID,
+        endpoint: 'Ollama',
+        model_parameters: { model: 'gptossbigctx:latest' },
+      });
+
+      expect(result.tools).toContain('web_search');
+      expect(result.tools).toContain('web_fetch');
+    });
+
+    test('should map Ollama MCP mode to the hidden MCP server', async () => {
+      const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
+      const { Constants } = require('librechat-data-provider');
+      const { OLLAMA_SEARCH_FETCH_MCP_SERVER } = require('~/server/services/Tools/ollama');
+
+      getMCPServerTools.mockImplementation(async (_userId, server) => {
+        if (server === OLLAMA_SEARCH_FETCH_MCP_SERVER) {
+          return null;
+        }
+        return null;
+      });
+
+      const mockReq = {
+        user: { id: 'user123' },
+        body: {
+          ephemeralAgent: {
+            web_search: true,
+            web_search_mode: 'ollama_mcp',
+            mcp: [],
+          },
+        },
+      };
+
+      const result = await loadAgent({
+        req: mockReq,
+        agent_id: EPHEMERAL_AGENT_ID,
+        endpoint: 'ollama',
+        model_parameters: { model: 'gptossbigctx:latest' },
+      });
+
+      expect(result.tools).not.toContain('web_search');
+      expect(result.tools).not.toContain('web_fetch');
+      expect(result.tools).toContain(
+        `${Constants.mcp_all}${Constants.mcp_delimiter}${OLLAMA_SEARCH_FETCH_MCP_SERVER}`,
+      );
+    });
+
     test('should return null for non-existent agent', async () => {
       const mockReq = { user: { id: 'user123' } };
       const result = await loadAgent({

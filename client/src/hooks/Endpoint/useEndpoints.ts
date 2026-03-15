@@ -6,6 +6,7 @@ import {
   EModelEndpoint,
   PermissionTypes,
   getEndpointField,
+  isAssistantsEndpoint,
 } from 'librechat-data-provider';
 import type {
   TEndpointsConfig,
@@ -66,11 +67,18 @@ export const useEndpoints = ({
       if (includedEndpoints.size > 0 && !includedEndpoints.has(endpoints[i])) {
         continue;
       }
+      if (
+        endpoints[i] !== EModelEndpoint.agents &&
+        !isAssistantsEndpoint(endpoints[i]) &&
+        (modelsQuery.data?.[endpoints[i]]?.length ?? 0) === 0
+      ) {
+        continue;
+      }
       result.push(endpoints[i]);
     }
 
     return result;
-  }, [endpoints, hasAgentAccess, includedEndpoints, interfaceConfig.modelSelect]);
+  }, [endpoints, hasAgentAccess, includedEndpoints, interfaceConfig.modelSelect, modelsQuery.data]);
 
   const endpointRequiresUserKey = useCallback(
     (ep: string) => {

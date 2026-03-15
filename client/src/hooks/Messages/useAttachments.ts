@@ -1,15 +1,17 @@
 import { useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
-import type { TAttachment } from 'librechat-data-provider';
+import type { TAttachment, TMessage } from 'librechat-data-provider';
 import { useSearchResultsByTurn } from './useSearchResultsByTurn';
 import store from '~/store';
 
 export default function useAttachments({
   messageId,
   attachments,
+  message,
 }: {
   messageId?: string;
   attachments?: TAttachment[];
+  message?: Pick<TMessage, 'metadata'>;
 }) {
   const messageAttachmentsMap = useRecoilValue(store.messageAttachmentsMap);
   const messageAttachments = useMemo(
@@ -17,7 +19,10 @@ export default function useAttachments({
     [attachments, messageAttachmentsMap, messageId],
   );
 
-  const searchResults = useSearchResultsByTurn(messageAttachments);
+  const searchResults = useSearchResultsByTurn({
+    attachments: messageAttachments,
+    messageMetadata: message?.metadata,
+  });
 
   return {
     attachments: messageAttachments,

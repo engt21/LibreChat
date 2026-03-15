@@ -3,6 +3,8 @@ const { ToolCallTypes } = require('librechat-data-provider');
 const validateAuthor = require('~/server/middleware/assistants/validateAuthor');
 const { validateAndUpdateTool } = require('~/server/services/ActionService');
 const { getCachedTools } = require('~/server/services/Config');
+const { getModelsConfig } = require('~/server/controllers/ModelController');
+const { validateModelAccess } = require('~/server/services/ModelAccess');
 const { updateAssistantDoc } = require('~/models/Assistant');
 const { manifestToolMap } = require('~/app/clients/tools');
 const { getOpenAIClient } = require('./helpers');
@@ -27,6 +29,18 @@ const createAssistant = async (req, res) => {
     } = req.body;
     delete assistantData.conversation_starters;
     delete assistantData.append_current_datetime;
+
+    const validationResult = await validateModelAccess({
+      req,
+      res,
+      endpoint,
+      model: assistantData.model,
+      modelsConfig: await getModelsConfig(req),
+    });
+
+    if (!validationResult.isValid) {
+      return res.status(400).json({ error: validationResult.text });
+    }
 
     const toolDefinitions = (await getCachedTools()) ?? {};
 
@@ -100,10 +114,33 @@ const createAssistant = async (req, res) => {
  * @param {AssistantUpdateParams} params.updateData
  * @returns {Promise<Assistant>} The updated assistant.
  */
-const updateAssistant = async ({ req, openai, assistant_id, updateData }) => {
+const updateAssistant = async ({ req, res, openai, assistant_id, updateData }) => {
   await validateAuthor({ req, openai });
   const tools = [];
   let conversation_starters = null;
+
+  if (updateData.model) {
+    const endpoint = req.body?.endpoint;
+    if (!endpoint) {
+      const error = new Error('Endpoint is required when updating an assistant model');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const validationResult = await validateModelAccess({
+      req,
+      res,
+      endpoint,
+      model: updateData.model,
+      modelsConfig: await getModelsConfig(req),
+    });
+
+    if (!validationResult.isValid) {
+      const error = new Error(validationResult.text);
+      error.statusCode = 400;
+      throw error;
+    }
+  }
 
   if (updateData?.conversation_starters) {
     const conversationStartersUpdate = await updateAssistantDoc(
@@ -218,6 +255,7 @@ const addResourceFileId = async ({ req, openai, assistant_id, tool_resource, fil
   delete assistant.id;
   return await updateAssistant({
     req,
+    res: req.res,
     openai,
     assistant_id,
     updateData: { tools: assistant.tools, tool_resources },
@@ -259,6 +297,7 @@ const deleteResourceFileId = async ({ req, openai, assistant_id, tool_resource, 
   delete assistant.id;
   return await updateAssistant({
     req,
+    res: req.res,
     openai,
     assistant_id,
     updateData: { tools: assistant.tools, tool_resources },
@@ -280,10 +319,13 @@ const patchAssistant = async (req, res) => {
     const assistant_id = req.params.id;
     const { endpoint: _e, ...updateData } = req.body;
     updateData.tools = updateData.tools ?? [];
-    const updatedAssistant = await updateAssistant({ req, openai, assistant_id, updateData });
+    const updatedAssistant = await updateAssistant({ req, res, openai, assistant_id, updateData });
     res.json(updatedAssistant);
   } catch (error) {
     logger.error('[/assistants/:id] Error updating assistant', error);
+    if (error.statusCode === 400) {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 };

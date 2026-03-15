@@ -1,9 +1,9 @@
 import React from 'react';
+import { Button } from '@librechat/client';
 import FileSidePanel from './FileList/FileSidePanel';
 import { Outlet, useNavigate, useParams } from 'react-router-dom';
 import FilesSectionSelector from './FilesSectionSelector';
 import { useLocalize } from '~/hooks';
-import { Button } from '../ui';
 
 export default function FilesListView() {
   const params = useParams();

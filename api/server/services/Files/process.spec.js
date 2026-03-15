@@ -73,7 +73,12 @@ jest.mock('~/server/services/Files/Audio/STTService', () => ({
   STTService: { getInstance: jest.fn() },
 }));
 
-const { EToolResources, FileSources, AgentCapabilities } = require('librechat-data-provider');
+const {
+  EModelEndpoint,
+  EToolResources,
+  FileSources,
+  AgentCapabilities,
+} = require('librechat-data-provider');
 const { mergeFileConfig } = require('librechat-data-provider');
 const { checkCapability } = require('~/server/services/Config');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
@@ -342,6 +347,78 @@ describe('processAgentFileUpload', () => {
       await expect(
         processAgentFileUpload({ req, res: mockRes, metadata: makeMetadata() }),
       ).resolves.not.toThrow();
+    });
+  });
+
+  describe('native OpenAI message uploads', () => {
+    test('stores execute_code message attachments locally when native OpenAI code interpreter is requested', async () => {
+      const { createFile } = require('~/models');
+      const { loadAuthValues } = require('~/server/services/Tools/credentials');
+      const uploadLocalFile = jest.fn().mockResolvedValue({
+        bytes: 12,
+        filename: 'native.csv',
+        filepath: '/uploads/native.csv',
+      });
+      getStrategyFunctions.mockReturnValue({ handleFileUpload: uploadLocalFile });
+
+      const req = makeReq({ mimetype: 'text/csv' });
+      const metadata = {
+        file_id: 'file-uuid-123',
+        tool_resource: EToolResources.execute_code,
+        native_tool: EToolResources.execute_code,
+        message_file: true,
+        endpointType: EModelEndpoint.openAI,
+      };
+
+      await processAgentFileUpload({ req, res: mockRes, metadata });
+
+      expect(loadAuthValues).not.toHaveBeenCalled();
+      expect(getStrategyFunctions).toHaveBeenCalledWith(FileSources.local);
+      expect(uploadLocalFile).toHaveBeenCalled();
+      expect(createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'file-uuid-123',
+          context: 'message_attachment',
+          metadata: { nativeTool: EToolResources.execute_code },
+        }),
+        true,
+      );
+    });
+
+    test('stores file_search message attachments without vectorizing when native OpenAI file search is requested', async () => {
+      const { createFile } = require('~/models');
+      const uploadLocalFile = jest.fn().mockResolvedValue({
+        bytes: 24,
+        filename: 'knowledge.txt',
+        filepath: '/uploads/knowledge.txt',
+      });
+      getStrategyFunctions.mockReturnValue({ handleFileUpload: uploadLocalFile });
+
+      const req = makeReq({ mimetype: 'text/plain' });
+      const metadata = {
+        file_id: 'file-uuid-123',
+        tool_resource: EToolResources.file_search,
+        native_tool: EToolResources.file_search,
+        message_file: true,
+        endpointType: EModelEndpoint.openAI,
+      };
+
+      await processAgentFileUpload({ req, res: mockRes, metadata });
+
+      expect(checkCapability).not.toHaveBeenCalledWith(
+        expect.anything(),
+        AgentCapabilities.file_search,
+      );
+      expect(getStrategyFunctions).toHaveBeenCalledWith(FileSources.local);
+      expect(uploadLocalFile).toHaveBeenCalled();
+      expect(createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'file-uuid-123',
+          context: 'message_attachment',
+          metadata: { nativeTool: EToolResources.file_search },
+        }),
+        true,
+      );
     });
   });
 });

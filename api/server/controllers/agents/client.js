@@ -76,6 +76,7 @@ class AgentClient extends BaseClient {
       agentConfigs,
       contentParts,
       collectedUsage,
+      collectedMetadata,
       artifactPromises,
       maxContextTokens,
       ...clientOptions
@@ -87,6 +88,8 @@ class AgentClient extends BaseClient {
     this.contentParts = contentParts;
     /** @type {Array<UsageMetadata>} */
     this.collectedUsage = collectedUsage;
+    /** @type {Record<string, unknown>} */
+    this.collectedMetadata = collectedMetadata ?? {};
     /** @type {ArtifactPromises} */
     this.artifactPromises = artifactPromises;
     /** @type {AgentClientOptions} */
@@ -275,11 +278,14 @@ class AgentClient extends BaseClient {
       if (this.message_file_map && this.message_file_map[message.messageId]) {
         const attachments = this.message_file_map[message.messageId];
         for (const file of attachments) {
+          if (this.isNativeToolFile(file, 'file_search')) {
+            continue;
+          }
           if (file.embedded) {
             this.contextHandlers?.processFile(file);
             continue;
           }
-          if (file.metadata?.fileIdentifier) {
+          if (file.metadata?.fileIdentifier || this.isNativeToolFile(file, 'execute_code')) {
             continue;
           }
           // orderedMessages[i].tokenCount += this.calculateImageTokenCost({
@@ -609,7 +615,12 @@ class AgentClient extends BaseClient {
     });
 
     const completion = filterMalformedContentParts(this.contentParts);
-    return { completion };
+    const metadata =
+      this.collectedMetadata && Object.keys(this.collectedMetadata).length > 0
+        ? this.collectedMetadata
+        : undefined;
+
+    return { completion, metadata };
   }
 
   /**

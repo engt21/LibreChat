@@ -1,5 +1,17 @@
 import { DotsIcon, TrashIcon } from '@librechat/client';
 
+const TABLE_HEADERS = {
+  name: 'Name',
+  date: 'Date',
+  size: 'Size',
+};
+
+const SAMPLE_ROW = {
+  name: 'File Transfer: Node to FastAPI',
+  date: 'June 11, 2023',
+  size: '11 mb',
+};
+
 export default function Template() {
   return (
     <div className="max-h-[28rem] overflow-y-auto rounded-md border border-black/10 dark:border-white/10">
@@ -7,13 +19,13 @@ export default function Template() {
         <thead>
           <tr>
             <th className="sticky top-0 rounded-t border-b border-black/10 bg-white px-4 py-2 text-left font-medium text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-100">
-              Name
+              {TABLE_HEADERS.name}
             </th>
             <th className="sticky top-0 rounded-t border-b border-black/10 bg-white px-4 py-2 text-left font-medium text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-100">
-              Date
+              {TABLE_HEADERS.date}
             </th>
             <th className="sticky top-0 rounded-t border-b border-black/10 bg-white px-4 py-2 text-left font-medium text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-100">
-              Size
+              {TABLE_HEADERS.size}
             </th>
             <th className="sticky top-0 rounded-t border-b border-black/10 bg-white px-4 py-2 text-right font-medium text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-100">
               <button
@@ -33,14 +45,18 @@ export default function Template() {
           <tr className="">
             <td className="border-b border-black/10 text-left text-gray-600 dark:border-white/10 dark:text-gray-300 [tr:last-child_&]:border-b-0">
               <div className="px-4 py-2 [tr[data-disabled=true]_&]:opacity-50">
-                File Transfer: Node to FastAPI
+                {SAMPLE_ROW.name}
               </div>
             </td>
             <td className="border-b border-black/10 text-left text-gray-600 dark:border-white/10 dark:text-gray-300 [tr:last-child_&]:border-b-0">
-              <div className="px-4 py-2 [tr[data-disabled=true]_&]:opacity-50">June 11, 2023</div>
+              <div className="px-4 py-2 [tr[data-disabled=true]_&]:opacity-50">
+                {SAMPLE_ROW.date}
+              </div>
             </td>
             <td className="border-b border-black/10 text-left text-gray-600 dark:border-white/10 dark:text-gray-300 [tr:last-child_&]:border-b-0">
-              <div className="px-4 py-2 [tr[data-disabled=true]_&]:opacity-50">11 mb</div>
+              <div className="px-4 py-2 [tr[data-disabled=true]_&]:opacity-50">
+                {SAMPLE_ROW.size}
+              </div>
             </td>
             <td className="border-b border-black/10 text-left text-gray-600 dark:border-white/10 dark:text-gray-300 [tr:last-child_&]:border-b-0">
               <div className="px-4 py-2 [tr[data-disabled=true]_&]:opacity-50">

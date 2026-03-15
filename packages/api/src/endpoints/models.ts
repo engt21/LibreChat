@@ -1,8 +1,15 @@
 import axios from 'axios';
 import { logger } from '@librechat/data-schemas';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { CacheKeys, KnownEndpoints, EModelEndpoint, defaultModels } from 'librechat-data-provider';
+import {
+  CacheKeys,
+  KnownEndpoints,
+  EModelEndpoint,
+  defaultModels,
+  buildGoogleModelCapabilitiesMap,
+} from 'librechat-data-provider';
 import type { IUser } from '@librechat/data-schemas';
+import type { TGoogleModelCapabilities } from 'librechat-data-provider';
 import {
   processModelData,
   extractBaseURL,
@@ -14,6 +21,22 @@ import {
 } from '~/utils';
 import { standardCache } from '~/cache';
 
+const GOOGLE_MODEL_CAPABILITIES_CACHE_KEY = `${EModelEndpoint.google}:capabilities`;
+const OLLAMA_MODEL_SOURCES_CACHE_KEY_PREFIX = `${KnownEndpoints.ollama}:sources:`;
+
+interface GoogleModelsResponse {
+  models?: TGoogleModelCapabilities[];
+}
+
+interface OllamaBaseURLConfig {
+  queryURL: string;
+  sourceURL: string;
+}
+
+type OllamaModelSourceMap = Record<string, string>;
+
+const ollamaModelSourceMaps = new Map<string, OllamaModelSourceMap>();
+
 export interface FetchModelsParams {
   /** User ID for API requests */
   user?: string;
@@ -21,6 +44,8 @@ export interface FetchModelsParams {
   apiKey: string;
   /** Base URL for the API */
   baseURL?: string;
+  /** Additional base URLs for the API */
+  baseURLs?: string[];
   /** Endpoint name (defaults to 'openAI') */
   name?: string;
   /** Whether directEndpoint was configured */
@@ -31,12 +56,39 @@ export interface FetchModelsParams {
   userIdQuery?: boolean;
   /** Whether to create token configuration from API response */
   createTokenConfig?: boolean;
+  /** Whether Ollama discovery should avoid falling back to OpenAI-compatible /models */
+  disableOllamaFallback?: boolean;
   /** Cache key for token configuration (uses name if omitted) */
   tokenKey?: string;
   /** Optional headers for the request */
   headers?: Record<string, string> | null;
   /** Optional user object for header resolution */
   userObject?: Partial<IUser>;
+}
+
+function dedupeURLs(urls: Array<string | null | undefined>): string[] {
+  return [...new Set(urls.filter((url): url is string => typeof url === 'string' && url !== ''))];
+}
+
+function getOllamaBaseURLConfigs({
+  baseURL,
+  baseURLs,
+  direct = false,
+}: {
+  baseURL?: string;
+  baseURLs?: string[];
+  direct?: boolean;
+}): OllamaBaseURLConfig[] {
+  const sourceURLs = dedupeURLs([baseURL, ...(baseURLs ?? [])]);
+
+  return sourceURLs.map((sourceURL) => ({
+    sourceURL,
+    queryURL: direct ? (extractBaseURL(sourceURL) ?? sourceURL) : sourceURL,
+  }));
+}
+
+function getOllamaModelSourcesCacheKey(tokenKey: string): string {
+  return `${OLLAMA_MODEL_SOURCES_CACHE_KEY_PREFIX}${tokenKey}`;
 }
 
 /**
@@ -60,15 +112,128 @@ async function fetchOllamaModels(
     user: options.user,
   });
 
-  const response = await axios.get<{ models: Array<{ name: string }> }>(
-    `${ollamaEndpoint}/api/tags`,
-    {
+  try {
+    const response = await axios.get<{ models: Array<{ name: string }> }>(
+      `${ollamaEndpoint}/api/tags`,
+      {
+        headers: resolvedHeaders,
+        timeout: 5000,
+      },
+    );
+
+    return response.data.models.map((tag) => tag.name);
+  } catch {
+    const response = await axios.get<{ data: Array<{ id: string }> }>(`${ollamaEndpoint}/models`, {
       headers: resolvedHeaders,
       timeout: 5000,
-    },
+    });
+
+    return response.data.data
+      .map((model) => model.id)
+      .filter((model) => model.toLowerCase() !== 'default');
+  }
+}
+
+async function fetchOllamaModelsFromEndpoints({
+  baseURL,
+  baseURLs,
+  direct = false,
+  headers,
+  userObject,
+  tokenKey,
+}: {
+  baseURL?: string;
+  baseURLs?: string[];
+  direct?: boolean;
+  headers?: Record<string, string> | null;
+  userObject?: Partial<IUser>;
+  tokenKey: string;
+}): Promise<{ models: string[]; sourceMap: OllamaModelSourceMap }> {
+  const urls = getOllamaBaseURLConfigs({ baseURL, baseURLs, direct });
+
+  if (urls.length === 0) {
+    return { models: [], sourceMap: {} };
+  }
+
+  const sourceMap: OllamaModelSourceMap = {};
+  const models = new Set<string>();
+  let lastError: Error | undefined;
+
+  for (const urlConfig of urls) {
+    try {
+      const endpointModels = await fetchOllamaModels(urlConfig.queryURL, {
+        headers,
+        user: userObject,
+      });
+
+      for (const model of endpointModels) {
+        if (sourceMap[model] == null) {
+          sourceMap[model] = urlConfig.sourceURL;
+        }
+
+        models.add(model);
+      }
+    } catch (error) {
+      lastError = error as Error;
+    }
+  }
+
+  if (models.size === 0 && lastError) {
+    throw lastError;
+  }
+
+  ollamaModelSourceMaps.set(tokenKey, sourceMap);
+
+  const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);
+  await modelsCache.set(getOllamaModelSourcesCacheKey(tokenKey), sourceMap);
+
+  return { models: [...models], sourceMap };
+}
+
+export async function resolveOllamaBaseURL({
+  baseURL,
+  baseURLs,
+  headers,
+  userObject,
+  model,
+  direct = false,
+  tokenKey,
+}: {
+  baseURL?: string;
+  baseURLs?: string[];
+  headers?: Record<string, string> | null;
+  userObject?: Partial<IUser>;
+  model?: string;
+  direct?: boolean;
+  tokenKey: string;
+}): Promise<string | undefined> {
+  const sourceURLs = getOllamaBaseURLConfigs({ baseURL, baseURLs, direct }).map(
+    (urlConfig) => urlConfig.sourceURL,
   );
 
-  return response.data.models.map((tag) => tag.name);
+  if (sourceURLs.length === 0) {
+    return baseURL;
+  }
+
+  if (!model) {
+    return sourceURLs[0];
+  }
+
+  let sourceMap = ollamaModelSourceMaps.get(tokenKey);
+
+  if (sourceMap?.[model] == null) {
+    const fetchedModels = await fetchOllamaModelsFromEndpoints({
+      baseURL,
+      baseURLs,
+      direct,
+      headers,
+      userObject,
+      tokenKey,
+    });
+    sourceMap = fetchedModels.sourceMap;
+  }
+
+  return sourceMap?.[model] ?? sourceURLs[0];
 }
 
 /**
@@ -86,6 +251,53 @@ export function splitAndTrim(input: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+async function fetchGoogleModelCapabilities(): Promise<
+  Record<string, TGoogleModelCapabilities> | undefined
+> {
+  const apiKey = process.env.GOOGLE_KEY;
+
+  if (!apiKey || isUserProvided(apiKey)) {
+    return undefined;
+  }
+
+  const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);
+  const cachedCapabilities = await modelsCache.get(GOOGLE_MODEL_CAPABILITIES_CACHE_KEY);
+
+  if (cachedCapabilities) {
+    return cachedCapabilities as Record<string, TGoogleModelCapabilities>;
+  }
+
+  try {
+    const options: {
+      timeout: number;
+      httpsAgent?: HttpsProxyAgent<string>;
+    } = {
+      timeout: 5000,
+    };
+
+    if (process.env.PROXY) {
+      options.httpsAgent = new HttpsProxyAgent(process.env.PROXY);
+    }
+
+    const url = new URL('https://generativelanguage.googleapis.com/v1beta/models');
+    url.searchParams.set('key', apiKey);
+
+    const response = await axios.get<GoogleModelsResponse>(url.toString(), options);
+    const googleModelCapabilities = buildGoogleModelCapabilitiesMap(response.data.models ?? []);
+
+    await modelsCache.set(GOOGLE_MODEL_CAPABILITIES_CACHE_KEY, googleModelCapabilities);
+
+    return googleModelCapabilities;
+  } catch (error) {
+    logAxiosError({
+      message: 'Failed to fetch models from Google Gemini API',
+      error: error as Error,
+    });
+
+    return undefined;
+  }
+}
+
 /**
  * Fetches models from the specified base API path or Azure, based on the provided configuration.
  *
@@ -96,19 +308,26 @@ export async function fetchModels({
   user,
   apiKey,
   baseURL: _baseURL,
+  baseURLs: _baseURLs,
   name = EModelEndpoint.openAI,
   direct = false,
   azure = false,
   userIdQuery = false,
   createTokenConfig = true,
+  disableOllamaFallback = false,
   tokenKey,
   headers,
   userObject,
 }: FetchModelsParams): Promise<string[]> {
   let models: string[] = [];
+  const ollamaBaseURLs = getOllamaBaseURLConfigs({
+    baseURL: _baseURL,
+    baseURLs: _baseURLs,
+    direct,
+  }).map((urlConfig) => urlConfig.sourceURL);
   const baseURL = direct ? extractBaseURL(_baseURL ?? '') : _baseURL;
 
-  if (!baseURL && !azure) {
+  if (!baseURL && ollamaBaseURLs.length === 0 && !azure) {
     return models;
   }
 
@@ -118,11 +337,24 @@ export async function fetchModels({
 
   if (name && name.toLowerCase().startsWith(KnownEndpoints.ollama)) {
     try {
-      return await fetchOllamaModels(baseURL ?? '', { headers, user: userObject });
+      const ollamaModels = await fetchOllamaModelsFromEndpoints({
+        baseURL: _baseURL,
+        baseURLs: _baseURLs,
+        direct,
+        headers,
+        userObject,
+        tokenKey: tokenKey ?? name,
+      });
+      return ollamaModels.models;
     } catch (ollamaError) {
-      const logMessage =
-        'Failed to fetch models from Ollama API. Attempting to fetch via OpenAI-compatible endpoint.';
+      const logMessage = disableOllamaFallback
+        ? 'Failed to fetch models from Ollama API while strict Ollama detection is enabled.'
+        : 'Failed to fetch models from Ollama API. Attempting to fetch via OpenAI-compatible endpoint.';
       logAxiosError({ message: logMessage, error: ollamaError as Error });
+
+      if (disableOllamaFallback) {
+        return [];
+      }
     }
   }
 
@@ -366,15 +598,29 @@ export async function getAnthropicModels(
   }
 }
 
+export async function getGoogleModelCapabilities(): Promise<
+  Record<string, TGoogleModelCapabilities> | undefined
+> {
+  return fetchGoogleModelCapabilities();
+}
+
 /**
- * Gets Google models from environment or defaults.
+ * Gets Google models from environment, API, or defaults.
  * @returns Array of model IDs
  */
-export function getGoogleModels(): string[] {
+export async function getGoogleModels(): Promise<string[]> {
   let models = defaultModels[EModelEndpoint.google];
+
   if (process.env.GOOGLE_MODELS) {
-    models = splitAndTrim(process.env.GOOGLE_MODELS);
+    return splitAndTrim(process.env.GOOGLE_MODELS);
   }
+
+  const googleModelCapabilities = await fetchGoogleModelCapabilities();
+
+  if (googleModelCapabilities && Object.keys(googleModelCapabilities).length > 0) {
+    models = Object.keys(googleModelCapabilities);
+  }
+
   return models;
 }
 

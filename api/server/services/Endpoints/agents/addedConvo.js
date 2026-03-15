@@ -1,9 +1,18 @@
 const { logger } = require('@librechat/data-schemas');
 const { initializeAgent, validateAgentModel } = require('@librechat/api');
+const getStream = require('get-stream');
 const { loadAddedAgent, setGetAgent, ADDED_AGENT_ID } = require('~/models/loadAddedAgent');
 const { getConvoFiles } = require('~/models/Conversation');
 const { getAgent } = require('~/models/Agent');
+const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const db = require('~/models');
+
+async function getFileBuffer(req, file) {
+  const source = file.source ?? 'local';
+  const { getDownloadStream } = getStrategyFunctions(source);
+  const stream = await getDownloadStream(req, file.filepath);
+  return getStream.buffer(stream);
+}
 
 // Initialize the getAgent dependency
 setGetAgent(getAgent);
@@ -101,8 +110,10 @@ const processAddedConvo = async ({
       {
         getConvoFiles,
         getFiles: db.getFiles,
+        getFileBuffer,
         getUserKey: db.getUserKey,
         getMessages: db.getMessages,
+        updateFile: db.updateFile,
         updateFilesUsage: db.updateFilesUsage,
         getUserCodeFiles: db.getUserCodeFiles,
         getUserKeyValues: db.getUserKeyValues,

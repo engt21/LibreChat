@@ -24,6 +24,7 @@ const {
   updateUser,
   findUser,
 } = require('~/models');
+const { applyDefaultModelPermissions } = require('~/server/services/ModelAccess');
 const { AclEntry, AccessRole, Group } = require('~/db/models');
 
 /** @type {boolean|null} */
@@ -355,7 +356,7 @@ const ensurePrincipalExists = async function (principal) {
       idOnTheSource: principal.idOnTheSource,
     };
 
-    const userId = await createUser(userData, true, true);
+    const userId = await createUser(applyDefaultModelPermissions(userData), true, true);
     return userId.toString();
   }
 

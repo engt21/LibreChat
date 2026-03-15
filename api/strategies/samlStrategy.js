@@ -7,6 +7,7 @@ const { hashToken, logger } = require('@librechat/data-schemas');
 const { Strategy: SamlStrategy } = require('@node-saml/passport-saml');
 const { getBalanceConfig, isEmailDomainAllowed } = require('@librechat/api');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+const { applyDefaultModelPermissions } = require('~/server/services/ModelAccess');
 const { findUser, createUser, updateUser } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
 const paths = require('~/config/paths');
@@ -239,7 +240,7 @@ async function setupSaml() {
               name: fullName,
             };
             const balanceConfig = getBalanceConfig(appConfig);
-            user = await createUser(user, balanceConfig, true, true);
+            user = await createUser(applyDefaultModelPermissions(user), balanceConfig, true, true);
           } else {
             user.provider = 'saml';
             user.samlId = profile.nameID;

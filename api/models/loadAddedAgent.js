@@ -1,5 +1,5 @@
-const { logger } = require('@librechat/data-schemas');
 const { getCustomEndpointConfig } = require('@librechat/api');
+const { logger } = require('@librechat/data-schemas');
 const {
   Tools,
   Constants,
@@ -8,6 +8,7 @@ const {
   appendAgentIdSuffix,
   encodeEphemeralAgentId,
 } = require('librechat-data-provider');
+const { applyOllamaWebSearchMode } = require('~/server/services/Tools/ollama');
 const { getMCPServerTools } = require('~/server/services/Config');
 
 const { mcp_all, mcp_delimiter } = Constants;
@@ -136,9 +137,14 @@ const loadAddedAgent = async ({ req, conversation, primaryAgent }) => {
   if (ephemeralAgent?.file_search === true || modelSpec?.fileSearch === true) {
     tools.push(Tools.file_search);
   }
-  if (ephemeralAgent?.web_search === true || modelSpec?.webSearch === true) {
-    tools.push(Tools.web_search);
-  }
+  applyOllamaWebSearchMode({
+    endpoint,
+    ephemeralAgent,
+    modelSpec,
+    requestBody: req.body,
+    tools,
+    mcpServers,
+  });
 
   const addedServers = new Set();
   if (mcpServers.size > 0) {

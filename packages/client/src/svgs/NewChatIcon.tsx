@@ -9,7 +9,6 @@ export default function NewChatIcon({ className = '' }: { className?: string }) 
       xmlns="http://www.w3.org/2000/svg"
       className={cn('text-black dark:text-white', className)}
       aria-hidden="true"
-      aria-hidden="true"
     >
       <path
         fillRule="evenodd"

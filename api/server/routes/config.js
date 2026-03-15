@@ -1,13 +1,18 @@
 const express = require('express');
 const { logger } = require('@librechat/data-schemas');
-const { isEnabled, getBalanceConfig } = require('@librechat/api');
+const { isEnabled, getBalanceConfig, getGoogleModelCapabilities } = require('@librechat/api');
 const { Constants, CacheKeys, defaultSocialLogins } = require('librechat-data-provider');
 const { getLdapConfig } = require('~/server/services/Config/ldap');
 const { getAppConfig } = require('~/server/services/Config/app');
+const optionalJwtAuth = require('~/server/middleware/optionalJwtAuth');
+const { getModelsConfig } = require('~/server/controllers/ModelController');
+const { filterModelSpecsConfig } = require('~/server/services/ModelAccess');
+const { getEffectiveAppSettings } = require('~/server/services/Admin/appSettings');
 const { getProjectByName } = require('~/models/Project');
 const { getLogStores } = require('~/cache');
 
 const router = express.Router();
+router.use(optionalJwtAuth);
 const emailLoginEnabled =
   process.env.ALLOW_EMAIL_LOGIN === undefined || isEnabled(process.env.ALLOW_EMAIL_LOGIN);
 const passwordResetEnabled = isEnabled(process.env.ALLOW_PASSWORD_RESET);
@@ -24,9 +29,40 @@ const openidReuseTokens = isEnabled(process.env.OPENID_REUSE_TOKENS);
 router.get('/', async function (req, res) {
   const cache = getLogStores(CacheKeys.CONFIG_STORE);
 
+  const filterStartupConfigForUser = async (startupConfig) => {
+    if (!req.user || !startupConfig?.modelSpecs?.list) {
+      return startupConfig;
+    }
+
+    const modelsConfig = await getModelsConfig(req);
+    return {
+      ...startupConfig,
+      modelSpecs: filterModelSpecsConfig(startupConfig.modelSpecs, modelsConfig),
+    };
+  };
+
   const cachedStartupConfig = await cache.get(CacheKeys.STARTUP_CONFIG);
   if (cachedStartupConfig) {
-    res.send(cachedStartupConfig);
+    const currentGoogleModelCapabilities = await getGoogleModelCapabilities().catch((error) => {
+      logger.error('Error fetching Google model capabilities:', error);
+      return undefined;
+    });
+
+    if (
+      JSON.stringify(cachedStartupConfig.googleModelCapabilities ?? null) !==
+      JSON.stringify(currentGoogleModelCapabilities ?? null)
+    ) {
+      const refreshedStartupConfig = {
+        ...cachedStartupConfig,
+        googleModelCapabilities: currentGoogleModelCapabilities,
+      };
+
+      await cache.set(CacheKeys.STARTUP_CONFIG, refreshedStartupConfig);
+      res.send(await filterStartupConfigForUser(refreshedStartupConfig));
+      return;
+    }
+
+    res.send(await filterStartupConfigForUser(cachedStartupConfig));
     return;
   }
 
@@ -41,6 +77,11 @@ router.get('/', async function (req, res) {
 
   try {
     const appConfig = await getAppConfig({ role: req.user?.role });
+    const appSettings = await getEffectiveAppSettings();
+    const googleModelCapabilities = await getGoogleModelCapabilities().catch((error) => {
+      logger.error('Error fetching Google model capabilities:', error);
+      return undefined;
+    });
 
     const isOpenIdEnabled =
       !!process.env.OPENID_CLIENT_ID &&
@@ -79,7 +120,7 @@ router.get('/', async function (req, res) {
       samlImageUrl: process.env.SAML_IMAGE_URL,
       serverDomain: process.env.DOMAIN_SERVER || 'http://localhost:3080',
       emailLoginEnabled,
-      registrationEnabled: !ldap?.enabled && isEnabled(process.env.ALLOW_REGISTRATION),
+      registrationEnabled: !ldap?.enabled && appSettings.registrationEnabled,
       socialLoginEnabled: isEnabled(process.env.ALLOW_SOCIAL_LOGIN),
       emailEnabled:
         (!!process.env.EMAIL_SERVICE || !!process.env.EMAIL_HOST) &&
@@ -95,6 +136,7 @@ router.get('/', async function (req, res) {
       interface: appConfig?.interfaceConfig,
       turnstile: appConfig?.turnstileConfig,
       modelSpecs: appConfig?.modelSpecs,
+      googleModelCapabilities,
       balance: balanceConfig,
       sharedLinksEnabled,
       publicSharedLinksEnabled,
@@ -146,7 +188,7 @@ router.get('/', async function (req, res) {
     }
 
     await cache.set(CacheKeys.STARTUP_CONFIG, payload);
-    return res.status(200).send(payload);
+    return res.status(200).send(await filterStartupConfigForUser(payload));
   } catch (err) {
     logger.error('Error in startup config', err);
     return res.status(500).send({ error: err.message });

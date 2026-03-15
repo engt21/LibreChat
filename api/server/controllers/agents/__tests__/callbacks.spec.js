@@ -1,3 +1,4 @@
+const { GraphEvents } = require('@librechat/agents');
 const { Tools } = require('librechat-data-provider');
 
 // Mock all dependencies before requiring the module
@@ -325,5 +326,110 @@ describe('createToolEndCallback', () => {
       expect(artifactPromises).toHaveLength(0);
       expect(res.write).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('getDefaultHandlers', () => {
+  let getDefaultHandlers;
+  let sendEvent;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    ({ sendEvent } = require('@librechat/api'));
+    ({ getDefaultHandlers } = require('../callbacks'));
+  });
+
+  it('collects relevant grounding metadata from model output additional_kwargs', async () => {
+    const aggregateContent = jest.fn();
+    const res = {};
+    const collectedUsage = [];
+    const collectedMetadata = {};
+    const handlers = getDefaultHandlers({
+      res,
+      aggregateContent,
+      collectedUsage,
+      collectedMetadata,
+    });
+
+    const graph = {
+      getAgentContext: jest.fn().mockReturnValue({
+        clientOptions: { model: 'gemini-2.5-flash-lite' },
+      }),
+    };
+
+    await handlers[GraphEvents.CHAT_MODEL_END].handle(
+      GraphEvents.CHAT_MODEL_END,
+      {
+        output: {
+          additional_kwargs: {
+            groundingMetadata: {
+              groundingChunks: [{ web: { uri: 'https://example.com', title: 'Example' } }],
+              groundingSupports: [{ segment: { text: 'Latest', startIndex: 0, endIndex: 6 } }],
+            },
+            reasoning: 'internal only',
+          },
+          usage_metadata: {
+            input_tokens: 10,
+            output_tokens: 20,
+          },
+        },
+      },
+      {
+        user_id: 'user-123',
+        run_id: 'run-123',
+        thread_id: 'thread-123',
+        ls_model_name: 'gemini-2.5-flash-lite',
+      },
+      graph,
+    );
+
+    expect(collectedUsage).toEqual([
+      {
+        input_tokens: 10,
+        output_tokens: 20,
+        model: 'gemini-2.5-flash-lite',
+      },
+    ]);
+    expect(collectedMetadata).toEqual({
+      additional_kwargs: {
+        groundingMetadata: {
+          groundingChunks: [{ web: { uri: 'https://example.com', title: 'Example' } }],
+          groundingSupports: [{ segment: { text: 'Latest', startIndex: 0, endIndex: 6 } }],
+        },
+      },
+      groundingMetadata: {
+        groundingChunks: [{ web: { uri: 'https://example.com', title: 'Example' } }],
+        groundingSupports: [{ segment: { text: 'Latest', startIndex: 0, endIndex: 6 } }],
+      },
+    });
+  });
+
+  it('suppresses reasoning delta aggregation and emission when requested', async () => {
+    const aggregateContent = jest.fn();
+    const res = {};
+    const handlers = getDefaultHandlers({
+      res,
+      aggregateContent,
+      collectedUsage: [],
+      collectedMetadata: {},
+      suppressReasoning: true,
+    });
+
+    await handlers[GraphEvents.ON_REASONING_DELTA].handle(
+      GraphEvents.ON_REASONING_DELTA,
+      {
+        id: 'step-1',
+        delta: {
+          content: [{ type: 'think', think: 'internal reasoning' }],
+        },
+      },
+      {
+        last_agent_id: 'agent-1',
+        langgraph_node: 'agent-1',
+      },
+    );
+
+    expect(aggregateContent).not.toHaveBeenCalled();
+    expect(sendEvent).not.toHaveBeenCalled();
   });
 });

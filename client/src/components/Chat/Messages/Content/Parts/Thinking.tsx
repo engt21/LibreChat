@@ -3,6 +3,7 @@ import { useAtomValue } from 'jotai';
 import { Clipboard, CheckMark, TooltipAnchor } from '@librechat/client';
 import { Lightbulb, ChevronDown, ChevronUp } from 'lucide-react';
 import type { FocusEvent, FC } from 'react';
+import MarkdownLite from '../MarkdownLite';
 import { showThinkingAtom } from '~/store/showThinking';
 import { fontSizeAtom } from '~/store/fontSize';
 import { useLocalize } from '~/hooks';
@@ -16,10 +17,40 @@ export const ThinkingContent: FC<{
   children: React.ReactNode;
 }> = memo(({ children }) => {
   const fontSize = useAtomValue(fontSizeAtom);
+  const proseStyle = useMemo(
+    () =>
+      ({
+        '--tw-prose-body': 'var(--text-secondary)',
+        '--tw-prose-headings': 'var(--text-primary)',
+        '--tw-prose-links': 'var(--text-primary)',
+        '--tw-prose-bold': 'var(--text-primary)',
+        '--tw-prose-counters': 'var(--text-secondary)',
+        '--tw-prose-bullets': 'var(--border-medium)',
+        '--tw-prose-hr': 'var(--border-medium)',
+        '--tw-prose-quotes': 'var(--text-secondary)',
+        '--tw-prose-quote-borders': 'var(--border-medium)',
+        '--tw-prose-code': 'var(--text-primary)',
+        '--tw-prose-th-borders': 'var(--border-medium)',
+        '--tw-prose-td-borders': 'var(--border-medium)',
+      }) as React.CSSProperties,
+    [],
+  );
 
   return (
     <div className="relative rounded-3xl border border-border-medium bg-surface-tertiary p-4 pb-10 text-text-secondary">
-      <p className={cn('whitespace-pre-wrap leading-[26px]', fontSize)}>{children}</p>
+      {typeof children === 'string' ? (
+        <div
+          className={cn(
+            'markdown prose message-content w-full max-w-none whitespace-pre-wrap break-words leading-[26px]',
+            fontSize,
+          )}
+          style={proseStyle}
+        >
+          <MarkdownLite content={children} codeExecution={false} softBreaks />
+        </div>
+      ) : (
+        <div className={cn('whitespace-pre-wrap leading-[26px]', fontSize)}>{children}</div>
+      )}
     </div>
   );
 });

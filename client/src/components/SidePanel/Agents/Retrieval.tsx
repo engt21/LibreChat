@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Capabilities } from 'librechat-data-provider';
+import { AgentCapabilities } from 'librechat-data-provider';
 import { useFormContext, Controller, useWatch } from 'react-hook-form';
 import {
   Checkbox,
@@ -21,11 +21,11 @@ export default function Retrieval({ retrievalModels }: { retrievalModels: Set<st
   const { control, setValue, getValues } = methods;
   const model = useWatch({ control, name: 'model' });
 
-  const isDisabled = useMemo(() => !retrievalModels.has(model), [model, retrievalModels]);
+  const isDisabled = useMemo(() => !model || !retrievalModels.has(model), [model, retrievalModels]);
 
   useEffect(() => {
     if (model && isDisabled) {
-      setValue(Capabilities.retrieval, false);
+      setValue(AgentCapabilities.file_search, false);
     }
   }, [model, setValue, isDisabled]);
 
@@ -34,16 +34,18 @@ export default function Retrieval({ retrievalModels }: { retrievalModels: Set<st
       <HoverCard openDelay={50}>
         <div className="flex items-center">
           <Controller
-            name={Capabilities.retrieval}
+            name={AgentCapabilities.file_search}
             control={control}
             render={({ field }) => (
               <Checkbox
                 {...field}
-                checked={field.value}
+                id={AgentCapabilities.file_search}
+                checked={Boolean(field.value)}
                 disabled={isDisabled}
                 onCheckedChange={field.onChange}
                 className="relative float-left mr-2 inline-flex h-4 w-4 cursor-pointer"
-                value={field.value?.toString()}
+                value={String(Boolean(field.value))}
+                aria-labelledby={AgentCapabilities.file_search}
               />
             )}
           />
@@ -53,10 +55,11 @@ export default function Retrieval({ retrievalModels }: { retrievalModels: Set<st
                 'form-check-label text-token-text-primary w-full select-none',
                 isDisabled ? 'cursor-no-drop opacity-50' : 'cursor-pointer',
               )}
-              htmlFor={Capabilities.retrieval}
+              htmlFor={AgentCapabilities.file_search}
               onClick={() =>
+                model != null &&
                 retrievalModels.has(model) &&
-                setValue(Capabilities.retrieval, !getValues(Capabilities.retrieval), {
+                setValue(AgentCapabilities.file_search, !getValues(AgentCapabilities.file_search), {
                   shouldDirty: true,
                 })
               }

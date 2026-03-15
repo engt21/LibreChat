@@ -37,7 +37,8 @@ export type TGenTitleRequest = {
 };
 
 export type TGenTitleResponse = {
-  title: string;
+  title?: string;
+  pending?: boolean;
 };
 
 export type PresetDeleteResponse = {

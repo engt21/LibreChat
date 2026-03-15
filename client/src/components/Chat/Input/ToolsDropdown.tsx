@@ -7,12 +7,14 @@ import {
   AuthType,
   Permissions,
   ArtifactModes,
+  WebSearchModes,
   PermissionTypes,
   defaultAgentCapabilities,
 } from 'librechat-data-provider';
 import { useLocalize, useHasAccess, useAgentCapabilities } from '~/hooks';
 import ArtifactsSubMenu from '~/components/Chat/Input/ArtifactsSubMenu';
 import MCPSubMenu from '~/components/Chat/Input/MCPSubMenu';
+import WebSearchSubMenu from '~/components/Chat/Input/WebSearchSubMenu';
 import { useGetStartupConfig } from '~/data-provider';
 import { useBadgeRowContext } from '~/Providers';
 import { cn } from '~/utils';
@@ -27,8 +29,12 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
   const [isPopoverActive, setIsPopoverActive] = useState(false);
   const {
     webSearch,
+    webSearchMode,
     artifacts,
     fileSearch,
+    isOllamaEndpoint,
+    usesNativeWebSearch,
+    usesNativeCodeInterpreter,
     agentsConfig,
     mcpServerManager,
     codeApiKeyForm,
@@ -48,6 +54,7 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
     isPinned: isSearchPinned,
     setIsPinned: setIsSearchPinned,
     authData: webSearchAuthData,
+    isAuthenticated: isWebSearchAuthenticated,
   } = webSearch;
   const {
     isPinned: isCodePinned,
@@ -78,20 +85,48 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
   });
 
   const showWebSearchSettings = useMemo(() => {
+    if (usesNativeWebSearch || !isWebSearchAuthenticated) {
+      return false;
+    }
     const authTypes = webSearchAuthData?.authTypes ?? [];
     if (authTypes.length === 0) return true;
     return !authTypes.every(([, authType]) => authType === AuthType.SYSTEM_DEFINED);
-  }, [webSearchAuthData?.authTypes]);
+  }, [usesNativeWebSearch, isWebSearchAuthenticated, webSearchAuthData?.authTypes]);
+
+  const currentWebSearchMode = useMemo(() => {
+    if (!isOllamaEndpoint) {
+      return WebSearchModes.librechat;
+    }
+
+    return (
+      (webSearchMode.toolValue as WebSearchModes | false | undefined) ||
+      WebSearchModes.ollama_native
+    );
+  }, [isOllamaEndpoint, webSearchMode.toolValue]);
 
   const showCodeSettings = useMemo(
-    () => codeAuthData?.message !== AuthType.SYSTEM_DEFINED,
-    [codeAuthData?.message],
+    () => !usesNativeCodeInterpreter && codeAuthData?.message !== AuthType.SYSTEM_DEFINED,
+    [usesNativeCodeInterpreter, codeAuthData?.message],
   );
 
   const handleWebSearchToggle = useCallback(() => {
     const newValue = !webSearch.toggleState;
     webSearch.debouncedChange({ value: newValue });
   }, [webSearch]);
+
+  const handleWebSearchModeChange = useCallback(
+    (mode: WebSearchModes) => {
+      webSearchMode.handleChange({ value: mode });
+
+      if (mode === WebSearchModes.librechat && !webSearch.authData?.authenticated) {
+        if (webSearch.toggleState) {
+          webSearch.handleChange({ value: false });
+        }
+        setIsSearchDialogOpen(true);
+      }
+    },
+    [setIsSearchDialogOpen, webSearch, webSearchMode],
+  );
 
   const handleCodeInterpreterToggle = useCallback(() => {
     const newValue = !codeInterpreter.toggleState;
@@ -168,55 +203,68 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
 
   if (canUseWebSearch && webSearchEnabled) {
     dropdownItems.push({
-      onClick: handleWebSearchToggle,
       hideOnClick: false,
-      render: (props) => (
-        <div {...props}>
-          <div className="flex items-center gap-2">
-            <Globe className="icon-md" aria-hidden="true" />
-            <span>{localize('com_ui_web_search')}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            {showWebSearchSettings && (
+      render: (props) =>
+        isOllamaEndpoint ? (
+          <WebSearchSubMenu
+            {...props}
+            currentMode={currentWebSearchMode}
+            enabled={!!webSearch.toggleState}
+            isPinned={isSearchPinned}
+            setIsPinned={setIsSearchPinned}
+            showSettings={showWebSearchSettings}
+            menuTriggerRef={searchMenuTriggerRef}
+            onToggle={handleWebSearchToggle}
+            onOpenSettings={() => setIsSearchDialogOpen(true)}
+            onSelectMode={handleWebSearchModeChange}
+          />
+        ) : (
+          <div {...props}>
+            <div className="flex items-center gap-2">
+              <Globe className="icon-md" aria-hidden="true" />
+              <span>{localize('com_ui_web_search')}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              {showWebSearchSettings && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsSearchDialogOpen(true);
+                  }}
+                  className={cn(
+                    'rounded p-1 transition-all duration-200',
+                    'hover:bg-surface-secondary hover:shadow-sm',
+                    'text-text-secondary hover:text-text-primary',
+                  )}
+                  aria-label="Configure web search"
+                  ref={searchMenuTriggerRef}
+                >
+                  <div className="h-4 w-4">
+                    <Settings className="h-4 w-4" aria-hidden="true" />
+                  </div>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setIsSearchDialogOpen(true);
+                  setIsSearchPinned(!isSearchPinned);
                 }}
                 className={cn(
                   'rounded p-1 transition-all duration-200',
                   'hover:bg-surface-secondary hover:shadow-sm',
-                  'text-text-secondary hover:text-text-primary',
+                  !isSearchPinned && 'text-text-secondary hover:text-text-primary',
                 )}
-                aria-label="Configure web search"
-                ref={searchMenuTriggerRef}
+                aria-label={isSearchPinned ? 'Unpin' : 'Pin'}
               >
                 <div className="h-4 w-4">
-                  <Settings className="h-4 w-4" aria-hidden="true" />
+                  <PinIcon unpin={isSearchPinned} />
                 </div>
               </button>
-            )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsSearchPinned(!isSearchPinned);
-              }}
-              className={cn(
-                'rounded p-1 transition-all duration-200',
-                'hover:bg-surface-secondary hover:shadow-sm',
-                !isSearchPinned && 'text-text-secondary hover:text-text-primary',
-              )}
-              aria-label={isSearchPinned ? 'Unpin' : 'Pin'}
-            >
-              <div className="h-4 w-4">
-                <PinIcon unpin={isSearchPinned} />
-              </div>
-            </button>
+            </div>
           </div>
-        </div>
-      ),
+        ),
     });
   }
 

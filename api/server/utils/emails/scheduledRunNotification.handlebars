@@ -1,0 +1,18 @@
+<p>Hello {{name}},</p>
+
+<p>Your scheduled LibreChat run <strong>{{scheduleName}}</strong> has {{status}}.</p>
+
+<p><strong>Prompt</strong></p>
+<p>{{prompt}}</p>
+
+<p><strong>Result preview</strong></p>
+<p>{{preview}}</p>
+
+{{#if error}}
+<p><strong>Error</strong></p>
+<p>{{error}}</p>
+{{/if}}
+
+{{#if conversationUrl}}
+<p><a href="{{conversationUrl}}">Open the conversation in {{appTitle}}</a></p>
+{{/if}}

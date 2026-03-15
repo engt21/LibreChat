@@ -4,6 +4,7 @@ import { useRecoilValue } from 'recoil';
 import { type TMessage } from 'librechat-data-provider';
 import type { TMessageProps, TMessageIcon } from '~/common';
 import MessageContent from '~/components/Chat/Messages/Content/MessageContent';
+import { useAttachments } from '~/hooks';
 import { useLocalize, useMessageActions, useContentMetadata } from '~/hooks';
 import PlaceholderRow from '~/components/Chat/Messages/ui/PlaceholderRow';
 import SiblingSwitch from '~/components/Chat/Messages/SiblingSwitch';
@@ -33,6 +34,11 @@ const MessageRender = memo(function MessageRender({
   isSubmitting = false,
 }: MessageRenderProps) {
   const localize = useLocalize();
+  const { searchResults } = useAttachments({
+    messageId: msg?.messageId,
+    attachments: msg?.attachments,
+    message: msg,
+  });
   const {
     ask,
     edit,
@@ -50,6 +56,7 @@ const MessageRender = memo(function MessageRender({
     latestMessageDepth,
   } = useMessageActions({
     message: msg,
+    searchResults,
     currentEditId,
     setCurrentEditId,
   });
@@ -160,6 +167,7 @@ const MessageRender = memo(function MessageRender({
                 isLast={isLast}
                 text={msg.text || ''}
                 message={msg}
+                searchResults={searchResults}
                 enterEdit={enterEdit}
                 error={!!(msg.error ?? false)}
                 isSubmitting={effectiveIsSubmitting}

@@ -1,6 +1,7 @@
 const { CacheKeys } = require('librechat-data-provider');
 const { logger, AppService } = require('@librechat/data-schemas');
 const { loadAndFormatTools } = require('~/server/services/start/tools');
+const { ensureOllamaSearchMCPServer } = require('~/server/services/Tools/ollama');
 const loadCustomConfig = require('./loadCustomConfig');
 const { setCachedTools } = require('./getCachedTools');
 const getLogStores = require('~/cache/getLogStores');
@@ -11,6 +12,7 @@ const BASE_CONFIG_KEY = '_BASE_';
 const loadBaseConfig = async () => {
   /** @type {TCustomConfig} */
   const config = (await loadCustomConfig()) ?? {};
+  ensureOllamaSearchMCPServer(config, paths.root);
   /** @type {Record<string, FunctionTool>} */
   const systemTools = loadAndFormatTools({
     adminFilter: config.filteredTools,

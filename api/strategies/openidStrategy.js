@@ -17,6 +17,8 @@ const {
   isEmailDomainAllowed,
 } = require('@librechat/api');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+const { applyDefaultModelPermissions } = require('~/server/services/ModelAccess');
+const { syncUserSuperAdminStatus } = require('~/server/services/Admin/superadmin');
 const { findUser, createUser, updateUser } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
 const getLogStores = require('~/cache/getLogStores');
@@ -514,7 +516,7 @@ async function processOpenIDAuth(tokenset, existingUsersOnly = false) {
     };
 
     const balanceConfig = getBalanceConfig(appConfig);
-    user = await createUser(user, balanceConfig, true, true);
+    user = await createUser(applyDefaultModelPermissions(user), balanceConfig, true, true);
   } else {
     user.provider = 'openid';
     user.openidId = userinfo.sub;
@@ -599,6 +601,7 @@ async function processOpenIDAuth(tokenset, existingUsersOnly = false) {
     }
   }
 
+  user = await syncUserSuperAdminStatus(user);
   user = await updateUser(user._id, user);
 
   logger.info(

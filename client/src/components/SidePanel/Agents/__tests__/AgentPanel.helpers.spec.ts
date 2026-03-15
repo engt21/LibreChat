@@ -11,6 +11,21 @@ import {
   isAvatarUploadOnlyDirty,
 } from '../AgentPanel';
 
+const defaultModelParameters = {
+  temperature: null,
+  maxContextTokens: null,
+  max_context_tokens: null,
+  max_output_tokens: null,
+  top_p: null,
+  frequency_penalty: null,
+  presence_penalty: null,
+};
+
+type UploadAvatarArgs = {
+  agent_id: string;
+  formData: FormData;
+};
+
 const createForm = (): AgentForm => ({
   agent: undefined,
   id: 'agent_123',
@@ -18,7 +33,7 @@ const createForm = (): AgentForm => ({
   description: null,
   instructions: null,
   model: 'gpt-4',
-  model_parameters: {},
+  model_parameters: defaultModelParameters,
   tools: [],
   provider: 'openai',
   agent_ids: [],
@@ -68,9 +83,9 @@ describe('composeAgentUpdatePayload', () => {
 
 describe('persistAvatarChanges', () => {
   it('returns false for ephemeral agents', async () => {
-    const uploadAvatar = jest.fn();
+    const uploadAvatar = jest.fn(async (_variables: UploadAvatarArgs) => ({} as Agent));
     const result = await persistAvatarChanges({
-      agentId: Constants.EPHEMERAL_AGENT_ID,
+      agentId: 'ephemeral',
       avatarActionState: 'upload',
       avatarFile: new File(['avatar'], 'avatar.png', { type: 'image/png' }),
       uploadAvatar,
@@ -81,7 +96,7 @@ describe('persistAvatarChanges', () => {
   });
 
   it('returns false when no upload is pending', async () => {
-    const uploadAvatar = jest.fn();
+    const uploadAvatar = jest.fn(async (_variables: UploadAvatarArgs) => ({} as Agent));
     const result = await persistAvatarChanges({
       agentId: 'agent_123',
       avatarActionState: null,
@@ -94,7 +109,7 @@ describe('persistAvatarChanges', () => {
   });
 
   it('uploads avatar when all prerequisites are met', async () => {
-    const uploadAvatar = jest.fn().mockResolvedValue({} as Agent);
+    const uploadAvatar = jest.fn(async (_variables: UploadAvatarArgs) => ({} as Agent));
     const file = new File(['avatar'], 'avatar.png', { type: 'image/png' });
 
     const result = await persistAvatarChanges({
@@ -106,7 +121,7 @@ describe('persistAvatarChanges', () => {
 
     expect(result).toBe(true);
     expect(uploadAvatar).toHaveBeenCalledTimes(1);
-    const callArgs = uploadAvatar.mock.calls[0][0];
+    const [[callArgs]] = uploadAvatar.mock.calls as [[UploadAvatarArgs]];
     expect(callArgs.agent_id).toBe('agent_123');
     expect(callArgs.formData).toBeInstanceOf(FormData);
   });

@@ -410,6 +410,29 @@ describe('getGoogleConfig', () => {
       });
     });
 
+    it('should use thinkingLevel for current latest Gemini aliases', () => {
+      const credentials = {
+        [AuthKeys.GOOGLE_API_KEY]: 'test-api-key',
+      };
+
+      const result = getGoogleConfig(credentials, {
+        modelOptions: {
+          model: 'gemini-pro-latest',
+          thinking: true,
+          thinkingLevel: ThinkingLevel.high,
+          thinkingBudget: 5000,
+        },
+      });
+
+      expect((result.llmConfig as Record<string, unknown>).thinkingConfig).toMatchObject({
+        includeThoughts: true,
+        thinkingLevel: ThinkingLevel.high,
+      });
+      expect((result.llmConfig as Record<string, unknown>).thinkingConfig).not.toHaveProperty(
+        'thinkingBudget',
+      );
+    });
+
     it('should omit thinkingLevel when unset (empty string) for Gemini 3', () => {
       const credentials = {
         [AuthKeys.GOOGLE_API_KEY]: 'test-api-key',

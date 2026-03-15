@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import { useRecoilValue } from 'recoil';
-import { useAuthContext, useLocalize } from '~/hooks';
+import type { SearchResultData, TAttachment } from 'librechat-data-provider';
+import { useAttachments, useAuthContext, useLocalize } from '~/hooks';
 import type { TMessageProps, TMessageIcon } from '~/common';
 import MinimalHoverButtons from '~/components/Chat/Messages/MinimalHoverButtons';
 import Icon from '~/components/Chat/Messages/MessageIcon';
@@ -22,14 +23,26 @@ const MessageAvatar = ({ iconData }: { iconData: TMessageIcon }) => (
   </div>
 );
 
-const MessageBody = ({ message, messageLabel, fontSize }) => (
+const MessageBody = ({
+  message,
+  messageLabel,
+  fontSize,
+  attachments,
+  searchResults,
+}: {
+  message: NonNullable<TMessageProps['message']>;
+  messageLabel: string;
+  fontSize: string;
+  attachments?: TAttachment[];
+  searchResults?: { [key: string]: SearchResultData };
+}) => (
   <div
     className={cn('relative flex w-11/12 flex-col', message.isCreatedByUser ? '' : 'agent-turn')}
   >
     <div className={cn('select-none font-semibold', fontSize)}>{messageLabel}</div>
-    <SearchContent message={message} />
+    <SearchContent message={message} attachments={attachments} searchResults={searchResults} />
     <SubRow classes="text-xs">
-      <MinimalHoverButtons message={message} />
+      <MinimalHoverButtons message={message} searchResults={searchResults} />
       <SearchButtons message={message} />
     </SubRow>
   </div>
@@ -40,6 +53,11 @@ export default function SearchMessage({ message }: Pick<TMessageProps, 'message'
   const UsernameDisplay = useRecoilValue<boolean>(store.UsernameDisplay);
   const { user } = useAuthContext();
   const localize = useLocalize();
+  const { attachments, searchResults } = useAttachments({
+    messageId: message?.messageId,
+    attachments: message?.attachments,
+    message,
+  });
 
   const iconData: TMessageIcon = useMemo(
     () => ({
@@ -76,7 +94,13 @@ export default function SearchMessage({ message }: Pick<TMessageProps, 'message'
       <div className="m-auto p-4 py-2 md:gap-6">
         <div className="final-completion group mx-auto flex flex-1 gap-3 md:max-w-3xl md:px-5 lg:max-w-[40rem] lg:px-1 xl:max-w-[48rem] xl:px-5">
           <MessageAvatar iconData={iconData} />
-          <MessageBody message={message} messageLabel={messageLabel} fontSize={fontSize} />
+          <MessageBody
+            message={message}
+            messageLabel={messageLabel}
+            fontSize={fontSize}
+            attachments={attachments}
+            searchResults={searchResults}
+          />
         </div>
       </div>
     </div>

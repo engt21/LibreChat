@@ -131,6 +131,19 @@ export const search = (q: string, cursor?: string | null) =>
 
 export const searchEnabled = () => `${BASE_URL}/api/search/enable`;
 
+const schedulesRoot = `${BASE_URL}/api/schedules`;
+
+export const schedules = (scheduleId?: string) =>
+  scheduleId ? `${schedulesRoot}/${scheduleId}` : schedulesRoot;
+
+export const runSchedule = (scheduleId: string) => `${schedulesRoot}/${scheduleId}/run`;
+
+export const scheduleNotifications = () => `${schedulesRoot}/notifications`;
+
+export const schedulePushSubscribe = () => `${schedulesRoot}/notifications/push/subscribe`;
+
+export const schedulePushUnsubscribe = () => `${schedulesRoot}/notifications/push/unsubscribe`;
+
 export const presets = () => `${BASE_URL}/api/presets`;
 
 export const deletePreset = () => `${BASE_URL}/api/presets/delete`;
@@ -371,6 +384,18 @@ export const updateRemoteAgentsPermissions = (roleName: string) =>
 
 export const updateMarketplacePermissions = (roleName: string) =>
   `${getRole(roleName)}/marketplace`;
+
+/* Admin */
+export const admin = () => `${BASE_URL}/api/admin`;
+export const adminPermissions = () => `${admin()}/permissions`;
+export const adminUsers = (params?: { q?: string; limit?: number }) =>
+  `${admin()}/users${buildQuery(params ?? {})}`;
+export const adminUser = (userId: string) => `${admin()}/users/${encodeURIComponent(userId)}`;
+export const adminUsage = (params?: { q?: string; limit?: number }) =>
+  `${admin()}/usage${buildQuery(params ?? {})}`;
+export const adminSettings = () => `${admin()}/settings`;
+export const adminObservability = () => `${admin()}/observability`;
+export const adminRoles = () => `${admin()}/rbac/roles`;
 
 /* Conversation Tags */
 export const conversationTags = (tag?: string) =>

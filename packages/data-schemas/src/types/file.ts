@@ -21,6 +21,13 @@ export interface IMongoFile extends Omit<Document, 'model'> {
   height?: number;
   metadata?: {
     fileIdentifier?: string;
+    nativeTool?: string;
+    openai?: {
+      endpoint?: string;
+      model?: string;
+      fileId?: string;
+      vectorStoreId?: string;
+    };
   };
   expiresAt?: Date;
   createdAt?: Date;

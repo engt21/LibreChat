@@ -38,6 +38,23 @@ const { getStrategyFunctions } = require('./strategies');
 const { determineFileType } = require('~/server/utils');
 const { STTService } = require('./Audio/STTService');
 
+const getNativeUploadTool = ({ endpoint, endpointType, messageAttachment, nativeTool }) => {
+  const effectiveEndpoint = endpointType || endpoint;
+  if (!messageAttachment) {
+    return undefined;
+  }
+
+  if (
+    (effectiveEndpoint === EModelEndpoint.openAI ||
+      effectiveEndpoint === EModelEndpoint.azureOpenAI) &&
+    (nativeTool === EToolResources.execute_code || nativeTool === EToolResources.file_search)
+  ) {
+    return nativeTool;
+  }
+
+  return undefined;
+};
+
 /**
  * Creates a modular file upload wrapper that ensures filename sanitization
  * across all storage strategies. This prevents storage-specific implementations
@@ -473,6 +490,13 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
   const { agent_id, tool_resource, file_id, temp_file_id = null } = metadata;
 
   let messageAttachment = !!metadata.message_file;
+  const nativeTool = getNativeUploadTool({
+    endpoint: metadata.endpoint,
+    endpointType: metadata.endpointType,
+    messageAttachment,
+    nativeTool: metadata.native_tool,
+  });
+  const effectiveToolResource = nativeTool ? undefined : tool_resource;
 
   if (agent_id && !tool_resource && !messageAttachment) {
     throw new Error('No tool resource provided for agent file upload');
@@ -487,10 +511,10 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
   }
 
   const isImage = file.mimetype.startsWith('image');
-  let fileInfoMetadata;
+  let fileInfoMetadata = nativeTool ? { nativeTool } : undefined;
   const entity_id = messageAttachment === true ? undefined : agent_id;
   const basePath = mime.getType(file.originalname)?.startsWith('image') ? 'images' : 'uploads';
-  if (tool_resource === EToolResources.execute_code) {
+  if (effectiveToolResource === EToolResources.execute_code) {
     const isCodeEnabled = await checkCapability(req, AgentCapabilities.execute_code);
     if (!isCodeEnabled) {
       throw new Error('Code execution is not enabled for Agents');
@@ -506,13 +530,13 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
       entity_id,
     });
     fileInfoMetadata = { fileIdentifier };
-  } else if (tool_resource === EToolResources.file_search) {
+  } else if (effectiveToolResource === EToolResources.file_search) {
     const isFileSearchEnabled = await checkCapability(req, AgentCapabilities.file_search);
     if (!isFileSearchEnabled) {
       throw new Error('File search is not enabled for Agents');
     }
     // Note: File search processing continues to dual storage logic below
-  } else if (tool_resource === EToolResources.context) {
+  } else if (effectiveToolResource === EToolResources.context) {
     const { file_id, temp_file_id = null } = metadata;
 
     /**
@@ -544,12 +568,12 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
         context: messageAttachment ? FileContext.message_attachment : FileContext.agents,
       });
 
-      if (!messageAttachment && tool_resource) {
+      if (!messageAttachment && effectiveToolResource) {
         await addAgentResourceFile({
           req,
           file_id,
           agent_id,
-          tool_resource,
+          tool_resource: effectiveToolResource,
         });
       }
       const result = await createFile(fileInfo, true);
@@ -637,7 +661,7 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
   const isImageFile = file.mimetype.startsWith('image');
   const source = getFileStrategy(appConfig, { isImage: isImageFile });
 
-  if (tool_resource === EToolResources.file_search) {
+  if (effectiveToolResource === EToolResources.file_search) {
     // FIRST: Upload to Storage for permanent backup (S3/local/etc.)
     const { handleFileUpload } = getStrategyFunctions(source);
     const sanitizedUploadFn = createSanitizedUploadWrapper(handleFileUpload);
@@ -677,19 +701,19 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
   let { bytes, filename, filepath: _filepath, height, width } = storageResult;
   // For RAG files, use embedding result; for others, use storage result
   let embedded = storageResult.embedded;
-  if (tool_resource === EToolResources.file_search) {
+  if (effectiveToolResource === EToolResources.file_search) {
     embedded = embeddingResult?.embedded;
     filename = embeddingResult?.filename || filename;
   }
 
   let filepath = _filepath;
 
-  if (!messageAttachment && tool_resource) {
+  if (!messageAttachment && effectiveToolResource) {
     await addAgentResourceFile({
       req,
       file_id,
       agent_id,
-      tool_resource,
+      tool_resource: effectiveToolResource,
     });
   }
 

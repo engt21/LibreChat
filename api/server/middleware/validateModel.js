@@ -1,7 +1,6 @@
 const { handleError } = require('@librechat/api');
-const { ViolationTypes } = require('librechat-data-provider');
 const { getModelsConfig } = require('~/server/controllers/ModelController');
-const { logViolation } = require('~/cache');
+const { validateModelAccess } = require('~/server/services/ModelAccess');
 /**
  * Validates the model of the request.
  *
@@ -18,30 +17,19 @@ const validateModel = async (req, res, next) => {
 
   const modelsConfig = await getModelsConfig(req);
 
-  if (!modelsConfig) {
-    return handleError(res, { text: 'Models not loaded' });
-  }
+  const validationResult = await validateModelAccess({
+    req,
+    res,
+    endpoint,
+    model,
+    modelsConfig,
+  });
 
-  const availableModels = modelsConfig[endpoint];
-  if (!availableModels) {
-    return handleError(res, { text: 'Endpoint models not loaded' });
-  }
-
-  let validModel = !!availableModels.find((availableModel) => availableModel === model);
-
-  if (validModel) {
+  if (validationResult.isValid) {
     return next();
   }
 
-  const { ILLEGAL_MODEL_REQ_SCORE: score = 1 } = process.env ?? {};
-
-  const type = ViolationTypes.ILLEGAL_MODEL_REQUEST;
-  const errorMessage = {
-    type,
-  };
-
-  await logViolation(req, res, type, errorMessage, score);
-  return handleError(res, { text: 'Illegal model request' });
+  return handleError(res, { text: validationResult.text });
 };
 
 module.exports = validateModel;

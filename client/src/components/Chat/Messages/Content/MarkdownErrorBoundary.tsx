@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import type { PluggableList } from 'unified';
 import { code, codeNoExecution, a, p } from './MarkdownComponents';
+import { softBreaksPlugin } from './softBreaksPlugin';
 import { CodeBlockProvider } from '~/Providers';
 import { langSubset } from '~/utils';
 
@@ -17,6 +18,7 @@ interface MarkdownErrorBoundaryProps {
   children: React.ReactNode;
   content: string;
   codeExecution?: boolean;
+  softBreaks?: boolean;
 }
 
 class MarkdownErrorBoundary extends React.Component<
@@ -44,9 +46,14 @@ class MarkdownErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
-      const { content, codeExecution = true } = this.props;
+      const { content, codeExecution = true, softBreaks = false } = this.props;
 
-      const rehypePlugins: PluggableList = [
+      const remarkPlugins = [
+        supersub,
+        remarkGfm,
+        ...(softBreaks ? [softBreaksPlugin] : []),
+      ] as unknown as PluggableList;
+      const rehypePlugins = [
         [
           rehypeHighlight,
           {
@@ -55,17 +62,12 @@ class MarkdownErrorBoundary extends React.Component<
             subset: langSubset,
           },
         ],
-      ];
+      ] as unknown as PluggableList;
 
       return (
         <CodeBlockProvider>
           <ReactMarkdown
-            remarkPlugins={[
-              /** @ts-ignore */
-              supersub,
-              remarkGfm,
-            ]}
-            /** @ts-ignore */
+            remarkPlugins={remarkPlugins}
             rehypePlugins={rehypePlugins}
             components={
               {

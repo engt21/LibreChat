@@ -1,16 +1,19 @@
-import { memo, Suspense, useMemo } from 'react';
+import { memo, Suspense, useContext, useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
 import { DelayedRender } from '@librechat/client';
-import type { TMessage } from 'librechat-data-provider';
+import type { SearchResultData, TMessage } from 'librechat-data-provider';
 import type { TMessageContentProps, TDisplayProps } from '~/common';
 import Error from '~/components/Messages/Content/Error';
-import { useMessageContext } from '~/Providers';
+import Sources from '~/components/Web/Sources';
+import { MessagesViewContext, SearchContext, useMessageContext } from '~/Providers';
 import MarkdownLite from './MarkdownLite';
 import EditMessage from './EditMessage';
 import Thinking from './Parts/Thinking';
 import { useLocalize } from '~/hooks';
 import Container from './Container';
 import Markdown from './Markdown';
+import { injectGroundingCitations } from '~/utils/googleGrounding';
+import { shouldHideOllamaReasoning } from '~/utils/ollamaReasoning';
 import { cn } from '~/utils';
 import store from '~/store';
 
@@ -141,12 +144,21 @@ const MessageContent = ({
   unfinished,
   isSubmitting,
   isLast,
+  searchResults,
   ...props
-}: TMessageContentProps) => {
+}: TMessageContentProps & {
+  searchResults?: { [key: string]: SearchResultData };
+}) => {
   const { message } = props;
   const { messageId } = message;
+  const messagesViewContext = useContext(MessagesViewContext);
+  const hideOllamaReasoning = shouldHideOllamaReasoning(messagesViewContext?.conversation);
 
   const { thinkingContent, regularContent } = useMemo(() => parseThinkingContent(text), [text]);
+  const groundedContent = useMemo(
+    () => injectGroundingCitations(regularContent, message?.metadata),
+    [message?.metadata, regularContent],
+  );
   const showRegularCursor = useMemo(() => isLast && isSubmitting, [isLast, isSubmitting]);
 
   const unfinishedMessage = useMemo(
@@ -170,18 +182,19 @@ const MessageContent = ({
   }
 
   return (
-    <>
-      {thinkingContent.length > 0 && (
+    <SearchContext.Provider value={{ searchResults }}>
+      <Sources messageId={messageId} conversationId={message.conversationId || undefined} />
+      {!hideOllamaReasoning && thinkingContent.length > 0 && (
         <Thinking key={`thinking-${messageId}`}>{thinkingContent}</Thinking>
       )}
       <DisplayMessage
         key={`display-${messageId}`}
         showCursor={showRegularCursor}
-        text={regularContent}
+        text={groundedContent}
         {...props}
       />
       {unfinishedMessage}
-    </>
+    </SearchContext.Provider>
   );
 };
 

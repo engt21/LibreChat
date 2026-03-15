@@ -131,9 +131,9 @@ jest.mock('../SmartLoader', () => ({
 }));
 
 jest.mock('../AgentCard', () => {
-  return function MockAgentCard({ agent, onClick }: { agent: t.Agent; onClick: () => void }) {
+  return function MockAgentCard({ agent, onSelect }: { agent: t.Agent; onSelect: () => void }) {
     return (
-      <div data-testid={`agent-card-${agent.id}`} onClick={onClick}>
+      <div data-testid={`agent-card-${agent.id}`} onClick={onSelect}>
         <h3>{agent.name}</h3>
         <p>{agent.description}</p>
       </div>

@@ -7,6 +7,8 @@ import { cn } from '~/utils';
 type ApiError =
   | string
   | Error
+  | null
+  | undefined
   | {
       message?: string;
       status?: number;

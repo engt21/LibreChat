@@ -1,5 +1,10 @@
 import { Providers } from '@librechat/agents';
-import { googleSettings, AuthKeys, removeNullishValues } from 'librechat-data-provider';
+import {
+  googleSettings,
+  AuthKeys,
+  removeNullishValues,
+  isGoogleThinkingLevelModel,
+} from 'librechat-data-provider';
 import type { GoogleClientOptions, VertexAIClientOptions } from '@librechat/agents';
 import type { GoogleAIToolType } from '@langchain/google-common';
 import type * as t from '~/types';
@@ -209,7 +214,7 @@ export function getGoogleConfig(
    * `@langchain/google-common`'s `formatGenerationConfig` reads it separately
    * from `thinkingConfig` — they serve different purposes in the request pipeline.
    */
-  const isGemini3Plus = /gemini-([3-9]|\d{2,})/i.test(modelName);
+  const isGemini3Plus = isGoogleThinkingLevelModel(modelName);
 
   if (isGemini3Plus && thinking) {
     const thinkingConfig: { includeThoughts: boolean; thinkingLevel?: string } = {

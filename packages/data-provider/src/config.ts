@@ -7,6 +7,7 @@ import { fileConfigSchema } from './file-config';
 import { apiBaseUrl } from './api-endpoints';
 import { FileSources } from './types/files';
 import { MCPServersSchema } from './mcp';
+import type { TGoogleModelCapabilities } from './google';
 
 export const defaultSocialLogins = ['google', 'facebook', 'openid', 'github', 'discord', 'saml'];
 
@@ -312,6 +313,7 @@ export const endpointSchema = baseEndpointSchema.merge(
     }),
     apiKey: z.string(),
     baseURL: z.string(),
+    baseURLs: z.array(z.string()).min(1).optional(),
     models: z.object({
       default: z.array(modelItemSchema).min(1),
       fetch: z.boolean().optional(),
@@ -778,6 +780,7 @@ export type TStartupConfig = {
   customFooter?: string;
   modelSpecs?: TSpecsConfig;
   modelDescriptions?: Record<string, Record<string, string>>;
+  googleModelCapabilities?: Record<string, TGoogleModelCapabilities>;
   sharedLinksEnabled: boolean;
   publicSharedLinksEnabled: boolean;
   analyticsGtmId?: string;
@@ -1197,6 +1200,14 @@ export const defaultModels = {
   [EModelEndpoint.assistants]: [...sharedOpenAIModels, 'chatgpt-4o-latest'],
   [EModelEndpoint.agents]: sharedOpenAIModels, // TODO: Add agent models (agentsModels)
   [EModelEndpoint.google]: [
+    // Stable Gemini models
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    // Latest aliases
+    'gemini-pro-latest',
+    'gemini-flash-latest',
+    'gemini-flash-lite-latest',
     // Gemini 3.1 Models
     'gemini-3.1-pro-preview',
     'gemini-3.1-pro-preview-customtools',
@@ -1204,13 +1215,19 @@ export const defaultModels = {
     // Gemini 3 Models
     'gemini-3-pro-preview',
     'gemini-3-flash-preview',
-    // Gemini 2.5 Models
-    'gemini-2.5-pro',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash-lite-preview-09-2025',
     // Gemini 2.0 Models
+    'gemini-2.0-flash',
     'gemini-2.0-flash-001',
     'gemini-2.0-flash-lite',
+    'gemini-2.0-flash-lite-001',
+    // Gemma models
+    'gemma-3-27b-it',
+    'gemma-3-12b-it',
+    'gemma-3-4b-it',
+    'gemma-3-1b-it',
+    'gemma-3n-e4b-it',
+    'gemma-3n-e2b-it',
   ],
   [EModelEndpoint.anthropic]: sharedAnthropicModels,
   [EModelEndpoint.openAI]: [
@@ -1790,6 +1807,12 @@ export enum Constants {
   PROGRAMMATIC_TOOL_CALLING = 'run_tools_with_code',
 }
 
+export enum WebSearchModes {
+  librechat = 'librechat',
+  ollama_native = 'ollama_native',
+  ollama_mcp = 'ollama_mcp',
+}
+
 export enum LocalStorageKeys {
   /** Key for the admin defined App Title */
   APP_TITLE = 'appTitle',
@@ -1829,6 +1852,8 @@ export enum LocalStorageKeys {
   LAST_CODE_TOGGLE_ = 'LAST_CODE_TOGGLE_',
   /** Last checked toggle for Web Search per conversation ID */
   LAST_WEB_SEARCH_TOGGLE_ = 'LAST_WEB_SEARCH_TOGGLE_',
+  /** Last selected web search mode per conversation ID */
+  LAST_WEB_SEARCH_MODE_ = 'LAST_WEB_SEARCH_MODE_',
   /** Last checked toggle for File Search per conversation ID */
   LAST_FILE_SEARCH_TOGGLE_ = 'LAST_FILE_SEARCH_TOGGLE_',
   /** Last checked toggle for Artifacts per conversation ID */

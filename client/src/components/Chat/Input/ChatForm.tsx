@@ -323,6 +323,7 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
                 }
                 isSubmitting={isSubmitting}
                 conversationId={conversationId}
+                endpoint={endpoint}
                 specName={conversation?.spec}
                 onChange={setBadges}
                 isInChat={

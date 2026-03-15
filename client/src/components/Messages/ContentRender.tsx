@@ -35,6 +35,7 @@ const ContentRender = memo(function ContentRender({
   const { attachments, searchResults } = useAttachments({
     messageId: msg?.messageId,
     attachments: msg?.attachments,
+    message: msg,
   });
   const {
     edit,
@@ -152,6 +153,7 @@ const ContentRender = memo(function ContentRender({
               siblingIdx={siblingIdx}
               messageId={msg.messageId}
               attachments={attachments}
+              messageMetadata={msg.metadata}
               searchResults={searchResults}
               setSiblingIdx={setSiblingIdx}
               isLatestMessage={isLatestMessage}

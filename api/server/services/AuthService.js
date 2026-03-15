@@ -32,6 +32,7 @@ const {
 } = require('~/models');
 const { registerSchema } = require('~/strategies/validators');
 const { getAppConfig } = require('~/server/services/Config');
+const { applyDefaultModelPermissions } = require('~/server/services/ModelAccess');
 const { sendEmail } = require('~/server/utils');
 
 const domains = {
@@ -229,7 +230,12 @@ const registerUser = async (user, additionalData = {}) => {
     const emailEnabled = checkEmailConfig();
     const disableTTL = isEnabled(process.env.ALLOW_UNVERIFIED_EMAIL_LOGIN);
 
-    const newUser = await createUser(newUserData, appConfig.balance, disableTTL, true);
+    const newUser = await createUser(
+      applyDefaultModelPermissions(newUserData),
+      appConfig.balance,
+      disableTTL,
+      true,
+    );
     newUserId = newUser._id;
     if (emailEnabled && !newUser.emailVerified) {
       await sendVerificationEmail({

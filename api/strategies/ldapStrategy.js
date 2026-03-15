@@ -5,6 +5,7 @@ const { SystemRoles, ErrorTypes } = require('librechat-data-provider');
 const { isEnabled, getBalanceConfig, isEmailDomainAllowed } = require('@librechat/api');
 const { createUser, findUser, updateUser, countUsers } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
+const { applyDefaultModelPermissions } = require('~/server/services/ModelAccess');
 
 const {
   LDAP_URL,
@@ -144,7 +145,7 @@ const ldapLogin = new LdapStrategy(ldapOptions, async (userinfo, done) => {
         role,
       };
       const balanceConfig = getBalanceConfig(appConfig);
-      const userId = await createUser(user, balanceConfig);
+      const userId = await createUser(applyDefaultModelPermissions(user), balanceConfig);
       user._id = userId;
     } else {
       // Users registered in LDAP are assumed to have their user information managed in LDAP,

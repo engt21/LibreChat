@@ -13,15 +13,88 @@ const { processCodeOutput } = require('~/server/services/Files/Code/process');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { saveBase64Image } = require('~/server/services/Files/process');
 
+const RELEVANT_LLM_METADATA_KEYS = new Set([
+  'groundingMetadata',
+  'grounding_metadata',
+  'groundingSupport',
+  'grounding_support',
+  'citationMetadata',
+  'citation_metadata',
+  'urlContextMetadata',
+  'url_context_metadata',
+]);
+
+function isRecord(value) {
+  return value != null && typeof value === 'object' && Array.isArray(value) === false;
+}
+
+function pickRelevantMetadata(source) {
+  if (!isRecord(source)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(source).filter(([key]) => RELEVANT_LLM_METADATA_KEYS.has(key));
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function mergeMessageMetadata(target, source) {
+  if (!isRecord(target) || !isRecord(source)) {
+    return target;
+  }
+
+  for (const [key, value] of Object.entries(source)) {
+    if (isRecord(value) && isRecord(target[key])) {
+      target[key] = {
+        ...target[key],
+        ...value,
+      };
+      continue;
+    }
+
+    target[key] = isRecord(value) ? { ...value } : value;
+  }
+
+  return target;
+}
+
+function collectMessageMetadata(output) {
+  if (!isRecord(output)) {
+    return {};
+  }
+
+  const metadata = {};
+  const directMetadata = pickRelevantMetadata(output);
+  const responseMetadata = pickRelevantMetadata(output.response_metadata);
+  const additionalKwargs = pickRelevantMetadata(output.additional_kwargs);
+
+  if (responseMetadata) {
+    metadata.response_metadata = responseMetadata;
+    mergeMessageMetadata(metadata, responseMetadata);
+  }
+
+  if (additionalKwargs) {
+    metadata.additional_kwargs = additionalKwargs;
+    mergeMessageMetadata(metadata, additionalKwargs);
+  }
+
+  if (directMetadata) {
+    mergeMessageMetadata(metadata, directMetadata);
+  }
+
+  return metadata;
+}
+
 class ModelEndHandler {
   /**
    * @param {Array<UsageMetadata>} collectedUsage
+   * @param {Record<string, unknown>} [collectedMetadata]
    */
-  constructor(collectedUsage) {
+  constructor(collectedUsage, collectedMetadata = null) {
     if (!Array.isArray(collectedUsage)) {
       throw new Error('collectedUsage must be an array');
     }
     this.collectedUsage = collectedUsage;
+    this.collectedMetadata = collectedMetadata;
   }
 
   finalize(errorMessage) {
@@ -48,6 +121,11 @@ class ModelEndHandler {
     let errorMessage;
     try {
       const agentContext = graph.getAgentContext(metadata);
+      const messageMetadata = collectMessageMetadata(data?.output);
+      if (this.collectedMetadata && Object.keys(messageMetadata).length > 0) {
+        mergeMessageMetadata(this.collectedMetadata, messageMetadata);
+      }
+
       if (data?.output?.additional_kwargs?.stop_reason === 'refusal') {
         const info = { ...data.output.additional_kwargs };
         errorMessage = JSON.stringify({
@@ -121,6 +199,7 @@ async function emitEvent(res, streamId, eventData) {
  * @param {ContentAggregator} options.aggregateContent - Content aggregator function.
  * @param {ToolEndCallback} options.toolEndCallback - Callback to use when tool ends.
  * @param {Array<UsageMetadata>} options.collectedUsage - The list of collected usage metadata.
+ * @param {Record<string, unknown>} [options.collectedMetadata] - Relevant message metadata from model outputs.
  * @param {string | null} [options.streamId] - The stream ID for resumable mode, or null for standard mode.
  * @param {ToolExecuteOptions} [options.toolExecuteOptions] - Options for event-driven tool execution.
  * @returns {Record<string, t.EventHandler>} The default handlers.
@@ -131,8 +210,10 @@ function getDefaultHandlers({
   aggregateContent,
   toolEndCallback,
   collectedUsage,
+  collectedMetadata,
   streamId = null,
   toolExecuteOptions = null,
+  suppressReasoning = false,
 }) {
   if (!res || !aggregateContent) {
     throw new Error(
@@ -140,7 +221,7 @@ function getDefaultHandlers({
     );
   }
   const handlers = {
-    [GraphEvents.CHAT_MODEL_END]: new ModelEndHandler(collectedUsage),
+    [GraphEvents.CHAT_MODEL_END]: new ModelEndHandler(collectedUsage, collectedMetadata),
     [GraphEvents.TOOL_END]: new ToolEndHandler(toolEndCallback, logger),
     [GraphEvents.ON_RUN_STEP]: {
       /**
@@ -231,6 +312,10 @@ function getDefaultHandlers({
        * @param {GraphRunnableConfig['configurable']} [metadata] The runnable metadata.
        */
       handle: async (event, data, metadata) => {
+        if (suppressReasoning) {
+          return;
+        }
+
         aggregateContent({ event, data });
         if (checkIfLastAgent(metadata?.last_agent_id, metadata?.langgraph_node)) {
           await emitEvent(res, streamId, { event, data });

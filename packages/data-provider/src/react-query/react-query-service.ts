@@ -187,7 +187,7 @@ export const useGetModelsQuery = (
     initialData: initialModelsConfig,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    refetchOnMount: false,
+    refetchOnMount: 'always',
     staleTime: Infinity,
     ...config,
   });

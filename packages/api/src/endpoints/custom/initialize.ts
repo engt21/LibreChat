@@ -3,6 +3,7 @@ import {
   ErrorTypes,
   envVarRegex,
   FetchTokenConfig,
+  KnownEndpoints,
   extractEnvVariable,
 } from 'librechat-data-provider';
 import type { TEndpoint } from 'librechat-data-provider';
@@ -10,7 +11,7 @@ import type { AppConfig } from '@librechat/data-schemas';
 import type { BaseInitializeParams, InitializeResultBase, EndpointTokenConfig } from '~/types';
 import { getOpenAIConfig } from '~/endpoints/openai/config';
 import { getCustomEndpointConfig } from '~/app/config';
-import { fetchModels } from '~/endpoints/models';
+import { fetchModels, resolveOllamaBaseURL } from '~/endpoints/models';
 import { isUserProvided, checkUserKeyExpiry } from '~/utils';
 import { standardCache } from '~/cache';
 
@@ -76,8 +77,15 @@ export async function initializeCustom({
     throw new Error(`Config not found for the ${endpoint} custom endpoint.`);
   }
 
+  const customEndpointConfig = endpointConfig as Partial<TEndpoint> & {
+    baseURLs?: string[];
+  };
+
   const CUSTOM_API_KEY = extractEnvVariable(endpointConfig.apiKey ?? '');
   const CUSTOM_BASE_URL = extractEnvVariable(endpointConfig.baseURL ?? '');
+  const CUSTOM_BASE_URLS = Array.isArray(customEndpointConfig.baseURLs)
+    ? customEndpointConfig.baseURLs.map((url: string) => extractEnvVariable(url))
+    : [];
 
   if (CUSTOM_API_KEY.match(envVarRegex)) {
     throw new Error(`Missing API Key for ${endpoint}.`);
@@ -85,6 +93,10 @@ export async function initializeCustom({
 
   if (CUSTOM_BASE_URL.match(envVarRegex)) {
     throw new Error(`Missing Base URL for ${endpoint}.`);
+  }
+
+  if (CUSTOM_BASE_URLS.some((url) => url.match(envVarRegex))) {
+    throw new Error(`Missing additional Base URL for ${endpoint}.`);
   }
 
   const userProvidesKey = isUserProvided(CUSTOM_API_KEY);
@@ -146,14 +158,43 @@ export async function initializeCustom({
     endpointConfig.models?.fetch &&
     !endpointTokenConfig
   ) {
-    await fetchModels({ apiKey, baseURL, name: endpoint, user: userId, tokenKey });
+    await fetchModels({
+      apiKey,
+      baseURL,
+      baseURLs: CUSTOM_BASE_URLS,
+      name: endpoint,
+      user: userId,
+      tokenKey,
+      headers: endpointConfig.headers,
+      userObject: req.user,
+      direct: endpointConfig.directEndpoint,
+    });
     endpointTokenConfig = (await cache.get(tokenKey)) as EndpointTokenConfig | undefined;
   }
+
+  let requestedModel: string | undefined;
+  if (typeof model_parameters?.model === 'string') {
+    requestedModel = model_parameters.model;
+  } else if (typeof req.body?.model === 'string') {
+    requestedModel = req.body.model;
+  }
+
+  const resolvedBaseURL = endpoint.toLowerCase().startsWith(KnownEndpoints.ollama)
+    ? await resolveOllamaBaseURL({
+        baseURL,
+        baseURLs: CUSTOM_BASE_URLS,
+        headers: endpointConfig.headers,
+        userObject: req.user,
+        model: requestedModel,
+        direct: endpointConfig.directEndpoint,
+        tokenKey,
+      })
+    : baseURL;
 
   const customOptions = buildCustomOptions(endpointConfig, appConfig, endpointTokenConfig);
 
   const clientOptions: Record<string, unknown> = {
-    reverseProxyUrl: baseURL ?? null,
+    reverseProxyUrl: resolvedBaseURL ?? null,
     proxy: PROXY ?? null,
     ...customOptions,
   };

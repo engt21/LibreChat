@@ -7,13 +7,29 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import type { PluggableList } from 'unified';
 import { code, codeNoExecution, a, p, img } from './MarkdownComponents';
+import { softBreaksPlugin } from './softBreaksPlugin';
 import { CodeBlockProvider, ArtifactProvider } from '~/Providers';
 import MarkdownErrorBoundary from './MarkdownErrorBoundary';
 import { langSubset } from '~/utils';
 
 const MarkdownLite = memo(
-  ({ content = '', codeExecution = true }: { content?: string; codeExecution?: boolean }) => {
-    const rehypePlugins: PluggableList = [
+  ({
+    content = '',
+    codeExecution = true,
+    softBreaks = false,
+  }: {
+    content?: string;
+    codeExecution?: boolean;
+    softBreaks?: boolean;
+  }) => {
+    const remarkPlugins = [
+      supersub,
+      remarkGfm,
+      [remarkMath, { singleDollarTextMath: false }],
+      ...(softBreaks ? [softBreaksPlugin] : []),
+    ] as unknown as PluggableList;
+
+    const rehypePlugins = [
       [rehypeKatex],
       [
         rehypeHighlight,
@@ -23,20 +39,18 @@ const MarkdownLite = memo(
           subset: langSubset,
         },
       ],
-    ];
+    ] as unknown as PluggableList;
 
     return (
-      <MarkdownErrorBoundary content={content} codeExecution={codeExecution}>
+      <MarkdownErrorBoundary
+        content={content}
+        codeExecution={codeExecution}
+        softBreaks={softBreaks}
+      >
         <ArtifactProvider>
           <CodeBlockProvider>
             <ReactMarkdown
-              remarkPlugins={[
-                /** @ts-ignore */
-                supersub,
-                remarkGfm,
-                [remarkMath, { singleDollarTextMath: false }],
-              ]}
-              /** @ts-ignore */
+              remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
               components={
                 {

@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
-    # restart: always
+    restart: unless-stopped
     links:
       - mongodb
       - meilisearch
@@ -42,14 +42,14 @@ services:
     # ports:
     #   - 27018:27017
     image: mongo
-    # restart: always
+    restart: unless-stopped
     volumes:
       - ./data-node:/data/db
     command: mongod --noauth
   meilisearch:
     container_name: chat-meilisearch
     image: getmeili/meilisearch:v1.5
-    # restart: always
+    restart: unless-stopped
     expose:
       - 7700
     # Uncomment this to access meilisearch from outside docker

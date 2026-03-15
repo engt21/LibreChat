@@ -1,7 +1,7 @@
 const accessPermissions = require('./accessPermissions');
 const assistants = require('./assistants');
 const categories = require('./categories');
-const adminAuth = require('./admin/auth');
+const adminAuth = require('./admin');
 const endpoints = require('./endpoints');
 const staticRoute = require('./static');
 const messages = require('./messages');
@@ -10,6 +10,7 @@ const presets = require('./presets');
 const prompts = require('./prompts');
 const balance = require('./balance');
 const actions = require('./actions');
+const schedules = require('./schedules');
 const apiKeys = require('./apiKeys');
 const banner = require('./banner');
 const search = require('./search');
@@ -33,6 +34,7 @@ module.exports = {
   adminAuth,
   keys,
   apiKeys,
+  schedules,
   user,
   tags,
   roles,

@@ -30,6 +30,11 @@ import {
 import { filterFilesByEndpointConfig } from '~/files';
 import { generateArtifactsPrompt } from '~/prompts';
 import { getProviderConfig } from '~/endpoints';
+import {
+  selectNativeTools,
+  buildNativeProviderTools,
+  mergeNativeProviderTools,
+} from './nativeTools';
 import { primeResources } from './resources';
 
 /**
@@ -52,6 +57,21 @@ export type InitializedAgent = Agent & {
   toolDefinitions?: LCTool[];
   /** Precomputed flag indicating if any tools have defer_loading enabled (for efficient runtime checks) */
   hasDeferredTools?: boolean;
+  /** Provider-native tool state used by downstream prompt/file handling */
+  nativeTools?: {
+    web_search?: {
+      provider: string;
+    };
+    execute_code?: {
+      provider: string;
+      file_ids: string[];
+    };
+    file_search?: {
+      provider: string;
+      file_ids: string[];
+      vector_store_ids: string[];
+    };
+  };
 };
 
 /**
@@ -113,6 +133,10 @@ export interface InitializeAgentDbMethods extends EndpointDbMethods {
   getToolFilesByIds: (fileIds: string[], toolSet: Set<EToolResources>) => Promise<unknown[]>;
   /** Get conversation file IDs */
   getConvoFiles: (conversationId: string) => Promise<string[] | null>;
+  /** Download a stored file into memory for provider-native tool uploads */
+  getFileBuffer?: (req: ServerRequest, file: IMongoFile) => Promise<Buffer>;
+  /** Persist updated file metadata */
+  updateFile?: (data: Partial<IMongoFile> & { file_id: string }) => Promise<IMongoFile | null>;
   /** Get code-generated files by conversation ID and optional message IDs */
   getCodeGeneratedFiles?: (conversationId: string, messageIds?: string[]) => Promise<unknown[]>;
   /** Get user-uploaded execute_code files by file IDs (from message.files in thread) */
@@ -277,6 +301,15 @@ export async function initializeAgent(
     requestFileSet: new Set(requestFiles?.map((file) => file.file_id)),
   });
 
+  const nativeToolSelection = selectNativeTools({
+    agentId: agent.id,
+    provider,
+    tools: agent.tools,
+    tool_resources,
+  });
+
+  const toolNames = (agent.tools ?? []).filter((tool) => !nativeToolSelection.stripTools.has(tool));
+
   const {
     toolRegistry,
     toolContextMap,
@@ -289,7 +322,7 @@ export async function initializeAgent(
     res,
     provider,
     agentId: agent.id,
-    tools: agent.tools ?? [],
+    tools: toolNames,
     model: agent.model,
     tool_options: agent.tool_options,
     tool_resources,
@@ -313,6 +346,8 @@ export async function initializeAgent(
   const finalModelOptions = {
     ...modelOptions,
     model: agent.model,
+    ...(nativeToolSelection.enableWebSearch ? { web_search: true } : {}),
+    ...(nativeToolSelection.requiresResponsesApi ? { useResponsesApi: true } : {}),
   };
 
   const options: InitializeResultBase = await getOptions({
@@ -321,6 +356,21 @@ export async function initializeAgent(
     model_parameters: finalModelOptions,
     db,
   });
+
+  const nativeProviderTools = await buildNativeProviderTools({
+    req,
+    provider,
+    llmConfig: {
+      ...((options.configOptions as Record<string, unknown> | undefined) ?? {}),
+      ...(options.llmConfig as Record<string, unknown>),
+    },
+    tool_resources,
+    selection: nativeToolSelection,
+    getFileBuffer: db.getFileBuffer,
+    updateFile: db.updateFile,
+  });
+
+  options.tools = mergeNativeProviderTools(options.tools, nativeProviderTools.tools);
 
   const llmConfig = options.llmConfig as Record<string, unknown>;
   const tokensModel =
@@ -409,6 +459,7 @@ export async function initializeAgent(
     userMCPAuthMap,
     toolDefinitions,
     hasDeferredTools,
+    nativeTools: nativeProviderTools.nativeTools,
     attachments: finalAttachments,
     toolContextMap: toolContextMap ?? {},
     useLegacyContent: !!options.useLegacyContent,

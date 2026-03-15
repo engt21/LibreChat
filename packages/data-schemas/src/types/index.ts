@@ -16,9 +16,12 @@ export * from './agentCategory';
 export * from './role';
 export * from './action';
 export * from './assistant';
+export * from './adminRole';
+export * from './appSettings';
 export * from './file';
 export * from './share';
 export * from './pluginAuth';
+export * from './scheduledJob';
 /* Memories */
 export * from './memory';
 /* Prompts */

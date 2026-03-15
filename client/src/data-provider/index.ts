@@ -1,5 +1,6 @@
 export * from './Auth';
 export * from './Agents';
+export * from './Admin';
 export * from './Endpoints';
 export * from './Files';
 /* Memories */
@@ -7,6 +8,7 @@ export * from './Memories';
 export * from './Messages';
 export * from './Misc';
 export * from './Tools';
+export * from './Schedules';
 export * from './connection';
 export * from './Favorites';
 export * from './mutations';

@@ -2,6 +2,7 @@ const { getBalanceConfig } = require('@librechat/api');
 const { FileSources } = require('librechat-data-provider');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { resizeAvatar } = require('~/server/services/Files/images/avatar');
+const { applyDefaultModelPermissions } = require('~/server/services/ModelAccess');
 const { updateUser, createUser, getUserById } = require('~/models');
 
 /**
@@ -98,7 +99,7 @@ const createSocialUser = async ({
   };
 
   const balanceConfig = getBalanceConfig(appConfig);
-  const newUserId = await createUser(update, balanceConfig);
+  const newUserId = await createUser(applyDefaultModelPermissions(update), balanceConfig);
   const fileStrategy = appConfig?.fileStrategy ?? process.env.CDN_PROVIDER;
   const isLocal = fileStrategy === FileSources.local;
 

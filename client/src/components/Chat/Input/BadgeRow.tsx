@@ -28,6 +28,7 @@ interface BadgeRowProps {
   onChange: (badges: Pick<BadgeItem, 'id'>[]) => void;
   onToggle?: (badgeId: string, currentActive: boolean) => void;
   conversationId?: string | null;
+  endpoint?: string | null;
   specName?: string | null;
   isSubmitting?: boolean;
   isInChat: boolean;
@@ -143,6 +144,7 @@ const dragReducer = (state: DragState, action: DragAction): DragState => {
 function BadgeRow({
   showEphemeralBadges,
   conversationId,
+  endpoint,
   specName,
   isSubmitting,
   onChange,
@@ -324,6 +326,7 @@ function BadgeRow({
   return (
     <BadgeRowProvider
       conversationId={conversationId}
+      endpoint={endpoint}
       specName={specName}
       isSubmitting={isSubmitting}
     >

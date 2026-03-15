@@ -34,6 +34,7 @@ jest.mock('@librechat/data-schemas', () => ({
 jest.mock('~/models/Conversation', () => ({
   getConvosByCursor: jest.fn(),
   getConvo: jest.fn(),
+  getConvoTitle: jest.fn(),
   deleteConvos: jest.fn(),
   saveConvo: jest.fn(),
 }));
@@ -109,8 +110,10 @@ describe('Convos Routes', () => {
   let app;
   let convosRouter;
   const { deleteAllSharedLinks, deleteConvoSharedLink } = require('~/models');
-  const { deleteConvos, saveConvo } = require('~/models/Conversation');
+  const { deleteConvos, getConvo, getConvoTitle, saveConvo } = require('~/models/Conversation');
   const { deleteToolCalls } = require('~/models/ToolCall');
+  const getLogStores = require('~/cache/getLogStores');
+  const { sleep } = require('@librechat/agents');
 
   beforeAll(() => {
     convosRouter = require('../convos');
@@ -129,6 +132,65 @@ describe('Convos Routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  describe('GET /gen_title/:conversationId', () => {
+    const titleCache = {
+      get: jest.fn(),
+      delete: jest.fn(),
+    };
+
+    beforeEach(() => {
+      getLogStores.mockReturnValue(titleCache);
+      sleep.mockResolvedValue(undefined);
+      titleCache.get.mockReset();
+      titleCache.delete.mockReset();
+      getConvo.mockReset();
+      getConvoTitle.mockReset();
+    });
+
+    it('should return a cached generated title', async () => {
+      titleCache.get.mockResolvedValueOnce('Ollama chat title');
+
+      const response = await request(app).get('/api/convos/gen_title/convo-1');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ title: 'Ollama chat title' });
+      expect(titleCache.delete).toHaveBeenCalledWith('test-user-123-convo-1');
+      expect(getConvoTitle).not.toHaveBeenCalled();
+    });
+
+    it('should fall back to the persisted conversation title when cache is empty', async () => {
+      titleCache.get.mockResolvedValue(undefined);
+      getConvoTitle.mockResolvedValue('Persisted Ollama Title');
+
+      const response = await request(app).get('/api/convos/gen_title/convo-2');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ title: 'Persisted Ollama Title' });
+    });
+
+    it('should return pending while title generation is still running', async () => {
+      titleCache.get.mockResolvedValue(undefined);
+      getConvoTitle.mockResolvedValue('New Chat');
+      getConvo.mockResolvedValue({ conversationId: 'convo-3', title: 'New Chat' });
+
+      const response = await request(app).get('/api/convos/gen_title/convo-3');
+
+      expect(response.status).toBe(202);
+      expect(response.body).toEqual({ pending: true });
+    });
+
+    it('should return 404 when the conversation no longer exists', async () => {
+      titleCache.get.mockResolvedValue(undefined);
+      getConvoTitle.mockResolvedValue('New Chat');
+      getConvo.mockResolvedValue(null);
+
+      const response = await request(app).get('/api/convos/gen_title/missing-convo');
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ message: 'Conversation not found' });
+    });
   });
 
   describe('DELETE /all', () => {

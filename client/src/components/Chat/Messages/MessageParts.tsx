@@ -21,6 +21,7 @@ export default function Message(props: TMessageProps) {
   const { attachments, searchResults } = useAttachments({
     messageId: message?.messageId,
     attachments: message?.attachments,
+    message,
   });
   const {
     edit,
@@ -136,6 +137,7 @@ export default function Message(props: TMessageProps) {
                     enterEdit={enterEdit}
                     siblingIdx={siblingIdx}
                     attachments={attachments}
+                    messageMetadata={message.metadata}
                     isSubmitting={isSubmitting}
                     searchResults={searchResults}
                     messageId={message.messageId}

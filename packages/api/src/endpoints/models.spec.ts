@@ -2,9 +2,11 @@ import axios from 'axios';
 import { EModelEndpoint, defaultModels } from 'librechat-data-provider';
 import {
   fetchModels,
+  resolveOllamaBaseURL,
   splitAndTrim,
   getOpenAIModels,
   getGoogleModels,
+  getGoogleModelCapabilities,
   getBedrockModels,
   getAnthropicModels,
 } from './models';
@@ -38,7 +40,20 @@ jest.mock('@librechat/data-schemas', () => ({
 }));
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
+const { standardCache } = jest.requireMock('~/cache');
 const { logAxiosError, resolveHeaders } = jest.requireMock('~/utils');
+const mockCacheData = new Map<string, unknown>();
+
+beforeEach(() => {
+  mockCacheData.clear();
+  standardCache.mockImplementation(() => ({
+    get: jest.fn().mockImplementation(async (key: string) => mockCacheData.get(key)),
+    set: jest.fn().mockImplementation(async (key: string, value: unknown) => {
+      mockCacheData.set(key, value);
+      return true;
+    }),
+  }));
+});
 
 mockedAxios.get.mockResolvedValue({
   data: {
@@ -347,25 +362,91 @@ describe('fetchModels with Ollama specific logic', () => {
     });
   });
 
-  it('should handle errors gracefully when fetching Ollama models fails and fallback to OpenAI-compatible fetch', async () => {
+  it('should fallback to router /models when Ollama /api/tags is unavailable', async () => {
     mockedAxios.get.mockRejectedValueOnce(new Error('Ollama API error'));
     mockedAxios.get.mockResolvedValueOnce({
       data: {
-        data: [{ id: 'fallback-model-1' }, { id: 'fallback-model-2' }],
+        data: [{ id: 'default' }, { id: 'fallback-model-1' }, { id: 'fallback-model-2' }],
       },
     });
 
     const models = await fetchModels({
       user: 'user789',
       apiKey: 'testApiKey',
-      baseURL: 'https://api.ollama.test.com',
+      baseURL: 'https://api.ollama.test.com/v1/',
       name: 'OllamaAPI',
     });
 
     expect(models).toEqual(['fallback-model-1', 'fallback-model-2']);
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(1, 'https://api.ollama.test.com/api/tags', {
+      headers: {},
+      timeout: 5000,
+    });
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(2, 'https://api.ollama.test.com/models', {
+      headers: {},
+      timeout: 5000,
+    });
+    expect(logAxiosError).not.toHaveBeenCalled();
+  });
+
+  it('should merge models discovered across multiple Ollama base URLs', async () => {
+    mockedAxios.get
+      .mockResolvedValueOnce({
+        data: {
+          models: [{ name: 'remote-model-1' }, { name: 'shared-model' }],
+        },
+      })
+      .mockRejectedValueOnce(new Error('Router has no /api/tags'))
+      .mockResolvedValueOnce({
+        data: {
+          data: [{ id: 'local-model-1' }, { id: 'shared-model' }, { id: 'default' }],
+        },
+      });
+
+    const models = await fetchModels({
+      user: 'user789',
+      apiKey: 'testApiKey',
+      baseURL: 'https://remote.ollama.test/v1/',
+      baseURLs: ['https://local-router.test/v1/'],
+      name: 'ollama',
+      disableOllamaFallback: true,
+      tokenKey: 'ollama',
+    });
+
+    expect(models).toEqual(['remote-model-1', 'shared-model', 'local-model-1']);
+    expect(
+      await resolveOllamaBaseURL({
+        baseURL: 'https://remote.ollama.test/v1/',
+        baseURLs: ['https://local-router.test/v1/'],
+        model: 'local-model-1',
+        tokenKey: 'ollama',
+      }),
+    ).toBe('https://local-router.test/v1/');
+    expect(
+      await resolveOllamaBaseURL({
+        baseURL: 'https://remote.ollama.test/v1/',
+        baseURLs: ['https://local-router.test/v1/'],
+        model: 'shared-model',
+        tokenKey: 'ollama',
+      }),
+    ).toBe('https://remote.ollama.test/v1/');
+  });
+
+  it('should skip the OpenAI-compatible fallback when strict Ollama detection is enabled', async () => {
+    mockedAxios.get.mockRejectedValueOnce(new Error('Ollama API error'));
+    mockedAxios.get.mockRejectedValueOnce(new Error('Router models unavailable'));
+
+    const models = await fetchModels({
+      user: 'user789',
+      apiKey: 'testApiKey',
+      baseURL: 'https://api.ollama.test.com',
+      name: 'ollama',
+      disableOllamaFallback: true,
+    });
+
+    expect(models).toEqual([]);
     expect(logAxiosError).toHaveBeenCalledWith({
-      message:
-        'Failed to fetch models from Ollama API. Attempting to fetch via OpenAI-compatible endpoint.',
+      message: 'Failed to fetch models from Ollama API while strict Ollama detection is enabled.',
       error: expect.any(Error),
     });
     expect(mockedAxios.get).toHaveBeenCalledTimes(2);
@@ -588,18 +669,103 @@ describe('getGoogleModels', () => {
 
   afterEach(() => {
     process.env = originalEnv;
+    jest.clearAllMocks();
+    mockedAxios.get.mockResolvedValue({
+      data: {
+        data: [{ id: 'model-1' }, { id: 'model-2' }],
+      },
+    });
   });
 
-  it('returns default models when GOOGLE_MODELS is not set', () => {
+  it('returns default models when GOOGLE_MODELS and GOOGLE_KEY are not set', async () => {
     delete process.env.GOOGLE_MODELS;
-    const models = getGoogleModels();
+    delete process.env.GOOGLE_KEY;
+
+    const models = await getGoogleModels();
+
     expect(models).toEqual(defaultModels[EModelEndpoint.google]);
   });
 
-  it('returns models from GOOGLE_MODELS when set', () => {
+  it('returns models from GOOGLE_MODELS when set', async () => {
     process.env.GOOGLE_MODELS = 'gemini-pro, bard ';
-    const models = getGoogleModels();
+
+    const models = await getGoogleModels();
+
     expect(models).toEqual(['gemini-pro', 'bard']);
+  });
+
+  it('fetches and filters text-compatible Google models when GOOGLE_KEY is configured', async () => {
+    delete process.env.GOOGLE_MODELS;
+    process.env.GOOGLE_KEY = 'test-google-key';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            name: 'models/gemini-2.5-flash',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+            thinking: true,
+          },
+          {
+            name: 'models/gemma-3-27b-it',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+          },
+          {
+            name: 'models/gemini-3-pro-image-preview',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+          },
+          {
+            name: 'models/gemini-2.5-flash-preview-tts',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+          },
+          {
+            name: 'models/gemini-embedding-001',
+            supportedGenerationMethods: ['embedContent', 'countTokens'],
+          },
+        ],
+      },
+    });
+
+    const models = await getGoogleModels();
+
+    expect(models).toEqual(['gemini-2.5-flash', 'gemma-3-27b-it']);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://generativelanguage.googleapis.com/v1beta/models?key=test-google-key',
+      expect.objectContaining({ timeout: 5000 }),
+    );
+  });
+
+  it('returns normalized Google model capabilities for text-compatible models', async () => {
+    delete process.env.GOOGLE_MODELS;
+    process.env.GOOGLE_KEY = 'test-google-key';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            name: 'models/gemini-3.1-pro-preview',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+            thinking: true,
+            outputTokenLimit: 65536,
+          },
+          {
+            name: 'models/gemini-3-pro-image-preview',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+          },
+        ],
+      },
+    });
+
+    const capabilities = await getGoogleModelCapabilities();
+
+    expect(capabilities).toEqual({
+      'gemini-3.1-pro-preview': {
+        name: 'gemini-3.1-pro-preview',
+        supportedGenerationMethods: ['generateContent', 'countTokens'],
+        thinking: true,
+        outputTokenLimit: 65536,
+      },
+    });
   });
 });
 

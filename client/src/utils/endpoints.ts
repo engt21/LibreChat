@@ -89,6 +89,18 @@ export function mapEndpoints(endpointsConfig: t.TEndpointsConfig) {
   );
 }
 
+export function getNativeToolEndpointSupport(endpoint?: EModelEndpoint | string | null) {
+  const isOpenAICompatibleEndpoint =
+    endpoint === EModelEndpoint.openAI || endpoint === EModelEndpoint.azureOpenAI;
+  const isGoogleEndpoint = endpoint === EModelEndpoint.google;
+
+  return {
+    supportsNativeWebSearch: isOpenAICompatibleEndpoint || isGoogleEndpoint,
+    supportsNativeCodeInterpreter: isOpenAICompatibleEndpoint || isGoogleEndpoint,
+    supportsNativeFileSearch: isOpenAICompatibleEndpoint,
+  };
+}
+
 const firstLocalConvoKey = LocalStorageKeys.LAST_CONVO_SETUP + '_0';
 
 /**
@@ -236,6 +248,7 @@ export function applyModelSpecEphemeralAgent({
     const toolStorageMap: Array<[keyof t.TEphemeralAgent, string]> = [
       ['execute_code', LocalStorageKeys.LAST_CODE_TOGGLE_],
       ['web_search', LocalStorageKeys.LAST_WEB_SEARCH_TOGGLE_],
+      ['web_search_mode', LocalStorageKeys.LAST_WEB_SEARCH_MODE_],
       ['file_search', LocalStorageKeys.LAST_FILE_SEARCH_TOGGLE_],
       ['artifacts', LocalStorageKeys.LAST_ARTIFACTS_TOGGLE_],
     ];

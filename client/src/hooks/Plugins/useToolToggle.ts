@@ -121,6 +121,7 @@ export function useToolToggle({
   return {
     toggleState: toolValue, // Return the actual value from ephemeralAgent
     handleChange,
+    isAuthenticated,
     isToolEnabled,
     toolValue,
     setToggleState: (value: ToolValue) => handleChange({ value }), // Adapter for direct setting

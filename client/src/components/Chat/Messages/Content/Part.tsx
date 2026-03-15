@@ -10,6 +10,7 @@ import { memo } from 'react';
 import type { TMessageContentParts, TAttachment } from 'librechat-data-provider';
 import { OpenAIImageGen, EmptyText, Reasoning, ExecuteCode, AgentUpdate, Text } from './Parts';
 import { ErrorMessage } from './MessageContent';
+import { injectGroundingCitations } from '~/utils/googleGrounding';
 import RetrievalCall from './RetrievalCall';
 import { getCachedPreview } from '~/utils';
 import AgentHandoff from './AgentHandoff';
@@ -27,6 +28,8 @@ type PartProps = {
   showCursor: boolean;
   isCreatedByUser: boolean;
   attachments?: TAttachment[];
+  messageMetadata?: Record<string, unknown>;
+  textOffset?: number;
 };
 
 const Part = memo(function Part({
@@ -36,6 +39,8 @@ const Part = memo(function Part({
   isLast,
   showCursor,
   isCreatedByUser,
+  messageMetadata,
+  textOffset = 0,
 }: PartProps) {
   if (!part) {
     return null;
@@ -67,15 +72,19 @@ const Part = memo(function Part({
     );
   } else if (part.type === ContentTypes.TEXT) {
     const text = typeof part.text === 'string' ? part.text : part.text?.value;
+    const renderedText =
+      typeof text === 'string'
+        ? injectGroundingCitations(text, messageMetadata, 0, textOffset)
+        : text;
 
-    if (typeof text !== 'string') {
+    if (typeof renderedText !== 'string') {
       return null;
     }
-    if (part.tool_call_ids != null && !text) {
+    if (part.tool_call_ids != null && !renderedText) {
       return null;
     }
     /** Handle whitespace-only text to avoid layout shift */
-    if (text.length > 0 && /^\s*$/.test(text)) {
+    if (renderedText.length > 0 && /^\s*$/.test(renderedText)) {
       /** Show placeholder for whitespace-only last part during streaming */
       if (isLast && showCursor) {
         return (
@@ -91,7 +100,7 @@ const Part = memo(function Part({
     }
     return (
       <Container>
-        <Text text={text} isCreatedByUser={isCreatedByUser} showCursor={showCursor} />
+        <Text text={renderedText} isCreatedByUser={isCreatedByUser} showCursor={showCursor} />
       </Container>
     );
   } else if (part.type === ContentTypes.THINK) {

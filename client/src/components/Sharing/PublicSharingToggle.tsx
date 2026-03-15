@@ -23,6 +23,7 @@ const accessDescriptions: Record<
   [ResourceType.AGENT]: 'com_ui_agent',
   [ResourceType.PROMPTGROUP]: 'com_ui_prompt',
   [ResourceType.MCPSERVER]: 'com_ui_mcp_server',
+  [ResourceType.REMOTE_AGENT]: 'com_ui_agent',
 };
 
 export default function PublicSharingToggle({

@@ -1,6 +1,8 @@
 const { logger } = require('@librechat/data-schemas');
-const { CacheKeys } = require('librechat-data-provider');
+const { CacheKeys, EModelEndpoint, KnownEndpoints } = require('librechat-data-provider');
+const { getGoogleModels } = require('@librechat/api');
 const { loadDefaultModels, loadConfigModels } = require('~/server/services/Config');
+const { filterModelsConfigForUser } = require('~/server/services/ModelAccess');
 const { getLogStores } = require('~/cache');
 
 /**
@@ -8,13 +10,8 @@ const { getLogStores } = require('~/cache');
  * @returns {Promise<TModelsConfig>} The models config.
  */
 const getModelsConfig = async (req) => {
-  const cache = getLogStores(CacheKeys.CONFIG_STORE);
-  let modelsConfig = await cache.get(CacheKeys.MODELS_CONFIG);
-  if (!modelsConfig) {
-    modelsConfig = await loadModels(req);
-  }
-
-  return modelsConfig;
+  const modelsConfig = await loadModels(req);
+  return filterModelsConfigForUser(modelsConfig, req.user);
 };
 
 /**
@@ -26,6 +23,32 @@ async function loadModels(req) {
   const cache = getLogStores(CacheKeys.CONFIG_STORE);
   const cachedModelsConfig = await cache.get(CacheKeys.MODELS_CONFIG);
   if (cachedModelsConfig) {
+    const googleModels = await getGoogleModels().catch(
+      () => cachedModelsConfig[EModelEndpoint.google],
+    );
+    const dynamicConfigModels = await loadConfigModels(req, {
+      endpointNames: [KnownEndpoints.ollama],
+    }).catch(() => ({ [KnownEndpoints.ollama]: cachedModelsConfig[KnownEndpoints.ollama] }));
+    const ollamaModels = dynamicConfigModels[KnownEndpoints.ollama];
+
+    if (
+      JSON.stringify(cachedModelsConfig[EModelEndpoint.google] ?? []) !==
+        JSON.stringify(googleModels ?? []) ||
+      JSON.stringify(cachedModelsConfig[KnownEndpoints.ollama] ?? []) !==
+        JSON.stringify(ollamaModels ?? [])
+    ) {
+      const refreshedModelsConfig = {
+        ...cachedModelsConfig,
+        [EModelEndpoint.google]: googleModels ?? [],
+        ...(ollamaModels !== undefined || cachedModelsConfig[KnownEndpoints.ollama] !== undefined
+          ? { [KnownEndpoints.ollama]: ollamaModels ?? [] }
+          : {}),
+      };
+
+      await cache.set(CacheKeys.MODELS_CONFIG, refreshedModelsConfig);
+      return refreshedModelsConfig;
+    }
+
     return cachedModelsConfig;
   }
   const defaultModelsConfig = await loadDefaultModels(req);
@@ -39,7 +62,7 @@ async function loadModels(req) {
 
 async function modelController(req, res) {
   try {
-    const modelConfig = await loadModels(req);
+    const modelConfig = await getModelsConfig(req);
     res.send(modelConfig);
   } catch (error) {
     logger.error('Error fetching models:', error);

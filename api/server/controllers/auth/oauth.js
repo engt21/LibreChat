@@ -7,6 +7,7 @@ const {
   generateAdminExchangeCode,
 } = require('@librechat/api');
 const { syncUserEntraGroupMemberships } = require('~/server/services/PermissionService');
+const { syncUserSuperAdminStatus } = require('~/server/services/Admin/superadmin');
 const { setAuthTokens, setOpenIDAuthTokens } = require('~/server/services/AuthService');
 const getLogStores = require('~/cache/getLogStores');
 const { checkBan } = require('~/server/middleware');
@@ -30,6 +31,8 @@ function createOAuthHandler(redirectUri = domains.client) {
       if (res.headersSent) {
         return;
       }
+
+      req.user = await syncUserSuperAdminStatus(req.user);
 
       await checkBan(req, res);
       if (req.banned) {

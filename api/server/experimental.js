@@ -27,6 +27,7 @@ const { jwtLogin, ldapLogin, passportLogin } = require('~/strategies');
 const { updateInterfacePermissions } = require('~/models/interface');
 const { checkMigrations } = require('./services/start/migration');
 const initializeMCPs = require('./services/initializeMCPs');
+const { startScheduledJobRunner } = require('./services/ScheduledJobs/runner');
 const configureSocialLogins = require('./socialLogins');
 const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
@@ -313,6 +314,7 @@ if (cluster.isMaster) {
     app.use('/api/balance', routes.balance);
     app.use('/api/models', routes.models);
     app.use('/api/config', routes.config);
+    app.use('/api/schedules', routes.schedules);
     app.use('/api/assistants', routes.assistants);
     app.use('/api/files', await routes.files.initialize());
     app.use('/images/', createValidateImageRequest(appConfig.secureImageLinks), routes.staticRoute);
@@ -374,8 +376,7 @@ if (cluster.isMaster) {
             `Worker ${process.pid} is the last worker and can perform special initialization tasks`,
           ),
         );
-        /** Add any one-time initialization tasks here */
-        /** For example: scheduled jobs, cleanup tasks, etc. */
+        startScheduledJobRunner();
       }
     });
   };

@@ -115,7 +115,16 @@ export type TFile = {
   height?: number;
   expiresAt?: string | Date;
   preview?: string;
-  metadata?: { fileIdentifier?: string };
+  metadata?: {
+    fileIdentifier?: string;
+    nativeTool?: EToolResources;
+    openai?: {
+      endpoint?: string;
+      model?: string;
+      fileId?: string;
+      vectorStoreId?: string;
+    };
+  };
   createdAt?: string | Date;
   updatedAt?: string | Date;
 };

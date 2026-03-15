@@ -10,6 +10,7 @@ import type {
   TMessageContentParts,
 } from 'librechat-data-provider';
 import { UnfinishedMessage } from './MessageContent';
+import { injectGroundingCitations } from '~/utils/googleGrounding';
 import Sources from '~/components/Web/Sources';
 import { cn, mapAttachments } from '~/utils';
 import { SearchContext } from '~/Providers';
@@ -52,6 +53,7 @@ const SearchContent = ({
                 isSubmitting={false}
                 isCreatedByUser={message.isCreatedByUser}
                 attachments={attachments}
+                messageMetadata={message.metadata}
                 part={part}
               />
             );
@@ -68,16 +70,19 @@ const SearchContent = ({
   }
 
   return (
-    <div
-      className={cn(
-        'markdown prose dark:prose-invert light w-full break-words',
-        message.isCreatedByUser && !enableUserMsgMarkdown && 'whitespace-pre-wrap',
-        message.isCreatedByUser ? 'dark:text-gray-20' : 'dark:text-gray-70',
-      )}
-      dir="auto"
-    >
-      <MarkdownLite content={message.text || ''} />
-    </div>
+    <SearchContext.Provider value={{ searchResults }}>
+      <Sources messageId={messageId} conversationId={message.conversationId || undefined} />
+      <div
+        className={cn(
+          'markdown prose dark:prose-invert light w-full break-words',
+          message.isCreatedByUser && !enableUserMsgMarkdown && 'whitespace-pre-wrap',
+          message.isCreatedByUser ? 'dark:text-gray-20' : 'dark:text-gray-70',
+        )}
+        dir="auto"
+      >
+        <MarkdownLite content={injectGroundingCitations(message.text || '', message.metadata)} />
+      </div>
+    </SearchContext.Provider>
   );
 };
 

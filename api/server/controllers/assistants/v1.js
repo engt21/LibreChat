@@ -5,6 +5,8 @@ const { uploadImageBuffer, filterFile } = require('~/server/services/Files/proce
 const validateAuthor = require('~/server/middleware/assistants/validateAuthor');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { deleteAssistantActions } = require('~/server/services/ActionService');
+const { getModelsConfig } = require('~/server/controllers/ModelController');
+const { validateModelAccess } = require('~/server/services/ModelAccess');
 const { updateAssistantDoc, getAssistants } = require('~/models/Assistant');
 const { getOpenAIClient, fetchAssistants } = require('./helpers');
 const { getCachedTools } = require('~/server/services/Config');
@@ -30,6 +32,18 @@ const createAssistant = async (req, res) => {
     } = req.body;
     delete assistantData.conversation_starters;
     delete assistantData.append_current_datetime;
+
+    const validationResult = await validateModelAccess({
+      req,
+      res,
+      endpoint,
+      model: assistantData.model,
+      modelsConfig: await getModelsConfig(req),
+    });
+
+    if (!validationResult.isValid) {
+      return res.status(400).json({ error: validationResult.text });
+    }
 
     const toolDefinitions = (await getCachedTools()) ?? {};
 
@@ -129,12 +143,21 @@ const patchAssistant = async (req, res) => {
     await validateAuthor({ req, openai });
 
     const assistant_id = req.params.id;
-    const {
-      endpoint: _e,
-      conversation_starters,
-      append_current_datetime,
-      ...updateData
-    } = req.body;
+    const { endpoint, conversation_starters, append_current_datetime, ...updateData } = req.body;
+
+    if (updateData.model) {
+      const validationResult = await validateModelAccess({
+        req,
+        res,
+        endpoint,
+        model: updateData.model,
+        modelsConfig: await getModelsConfig(req),
+      });
+
+      if (!validationResult.isValid) {
+        return res.status(400).json({ error: validationResult.text });
+      }
+    }
 
     const toolDefinitions = (await getCachedTools()) ?? {};
 

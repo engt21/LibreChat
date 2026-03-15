@@ -1,0 +1,67 @@
+ARG BASE_IMAGE=registry.librechat.ai/danny-avila/librechat-dev:latest
+
+FROM ${BASE_IMAGE} AS builder
+
+ARG NODE_MAX_OLD_SPACE_SIZE=6144
+
+USER node
+WORKDIR /app
+
+RUN npm ci --no-audit
+
+COPY --chown=node:node api/models/index.js /app/api/models/index.js
+COPY --chown=node:node api/server/controllers/AdminController.js /app/api/server/controllers/AdminController.js
+COPY --chown=node:node api/server/controllers/auth/LoginController.js /app/api/server/controllers/auth/LoginController.js
+COPY --chown=node:node api/server/controllers/auth/oauth.js /app/api/server/controllers/auth/oauth.js
+COPY --chown=node:node api/server/middleware/adminAccess.js /app/api/server/middleware/adminAccess.js
+COPY --chown=node:node api/server/middleware/validateRegistration.js /app/api/server/middleware/validateRegistration.js
+COPY --chown=node:node api/server/routes/config.js /app/api/server/routes/config.js
+COPY --chown=node:node api/server/routes/index.js /app/api/server/routes/index.js
+COPY --chown=node:node api/server/routes/admin/index.js /app/api/server/routes/admin/index.js
+COPY --chown=node:node api/server/services/Admin /app/api/server/services/Admin
+COPY --chown=node:node api/strategies/openidStrategy.js /app/api/strategies/openidStrategy.js
+
+COPY --chown=node:node client/src/components/Admin /app/client/src/components/Admin
+COPY --chown=node:node client/src/components/Nav/AccountSettings.tsx /app/client/src/components/Nav/AccountSettings.tsx
+COPY --chown=node:node client/src/data-provider/Admin /app/client/src/data-provider/Admin
+COPY --chown=node:node client/src/data-provider/index.ts /app/client/src/data-provider/index.ts
+COPY --chown=node:node client/src/locales/en/translation.json /app/client/src/locales/en/translation.json
+COPY --chown=node:node client/src/routes/index.tsx /app/client/src/routes/index.tsx
+
+COPY --chown=node:node \
+  packages/data-provider/src/admin.ts \
+  packages/data-provider/src/api-endpoints.ts \
+  packages/data-provider/src/data-service.ts \
+  packages/data-provider/src/index.ts \
+  packages/data-provider/src/keys.ts \
+  packages/data-provider/src/types.ts \
+  /app/packages/data-provider/src/
+
+COPY --chown=node:node packages/data-schemas/src/methods/adminRole.ts /app/packages/data-schemas/src/methods/adminRole.ts
+COPY --chown=node:node packages/data-schemas/src/methods/appSettings.ts /app/packages/data-schemas/src/methods/appSettings.ts
+COPY --chown=node:node packages/data-schemas/src/methods/index.ts /app/packages/data-schemas/src/methods/index.ts
+COPY --chown=node:node packages/data-schemas/src/models/adminRole.ts /app/packages/data-schemas/src/models/adminRole.ts
+COPY --chown=node:node packages/data-schemas/src/models/appSettings.ts /app/packages/data-schemas/src/models/appSettings.ts
+COPY --chown=node:node packages/data-schemas/src/models/index.ts /app/packages/data-schemas/src/models/index.ts
+COPY --chown=node:node packages/data-schemas/src/schema/adminRole.ts /app/packages/data-schemas/src/schema/adminRole.ts
+COPY --chown=node:node packages/data-schemas/src/schema/appSettings.ts /app/packages/data-schemas/src/schema/appSettings.ts
+COPY --chown=node:node packages/data-schemas/src/schema/index.ts /app/packages/data-schemas/src/schema/index.ts
+COPY --chown=node:node packages/data-schemas/src/schema/user.ts /app/packages/data-schemas/src/schema/user.ts
+COPY --chown=node:node packages/data-schemas/src/types/adminRole.ts /app/packages/data-schemas/src/types/adminRole.ts
+COPY --chown=node:node packages/data-schemas/src/types/appSettings.ts /app/packages/data-schemas/src/types/appSettings.ts
+COPY --chown=node:node packages/data-schemas/src/types/index.ts /app/packages/data-schemas/src/types/index.ts
+COPY --chown=node:node packages/data-schemas/src/types/user.ts /app/packages/data-schemas/src/types/user.ts
+
+RUN npm run build:data-provider && \
+    npm run build:data-schemas && \
+    cd client && NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}" npm run build
+
+FROM ${BASE_IMAGE}
+
+USER node
+WORKDIR /app
+
+COPY --from=builder --chown=node:node /app/api /app/api
+COPY --from=builder --chown=node:node /app/client/dist /app/client/dist
+COPY --from=builder --chown=node:node /app/packages/data-provider/dist /app/packages/data-provider/dist
+COPY --from=builder --chown=node:node /app/packages/data-schemas/dist /app/packages/data-schemas/dist

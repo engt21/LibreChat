@@ -12,7 +12,10 @@ import type { SettingDefinition } from './generate';
 import type { TMinimalFeedback } from './feedback';
 import type { ContentTypes } from './types/runs';
 import type { Agent } from './types/assistants';
+import type { WebSearchModes } from './config';
 
+export * from './admin';
+export * from './schedules';
 export * from './schemas';
 
 export type TMessages = TMessage[];
@@ -98,6 +101,7 @@ export type TEndpointOption = Pick<
 export type TEphemeralAgent = {
   mcp?: string[];
   web_search?: boolean;
+  web_search_mode?: WebSearchModes;
   file_search?: boolean;
   execute_code?: boolean;
   artifacts?: string;
@@ -200,6 +204,7 @@ export type TUser = {
   name: string;
   avatar: string;
   role: string;
+  adminRoleIds?: string[];
   provider: string;
   plugins?: string[];
   twoFactorEnabled?: boolean;

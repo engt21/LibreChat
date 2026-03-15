@@ -6,6 +6,7 @@ import { AgentApiKeys } from './AgentApiKeys';
 import { DeleteCache } from './DeleteCache';
 import { RevokeKeys } from './RevokeKeys';
 import { ClearChats } from './ClearChats';
+import ScheduledRuns from './ScheduledRuns';
 import SharedLinks from './SharedLinks';
 import { useHasAccess } from '~/hooks';
 
@@ -25,6 +26,9 @@ function Data() {
       </div>
       <div className="pb-3">
         <SharedLinks />
+      </div>
+      <div className="pb-3">
+        <ScheduledRuns />
       </div>
       {hasAccessToApiKeys && (
         <div className="pb-3">

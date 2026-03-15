@@ -69,14 +69,24 @@ class OllamaClient {
       user: options.user,
     });
 
-    /** @type {Promise<AxiosResponse<OllamaListResponse>>} */
-    const response = await axios.get(`${ollamaEndpoint}/api/tags`, {
-      headers: resolvedHeaders,
-      timeout: 5000,
-    });
+    try {
+      /** @type {Promise<AxiosResponse<OllamaListResponse>>} */
+      const response = await axios.get(`${ollamaEndpoint}/api/tags`, {
+        headers: resolvedHeaders,
+        timeout: 5000,
+      });
 
-    const models = response.data.models.map((tag) => tag.name);
-    return models;
+      return response.data.models.map((tag) => tag.name);
+    } catch {
+      const response = await axios.get(`${ollamaEndpoint}/models`, {
+        headers: resolvedHeaders,
+        timeout: 5000,
+      });
+
+      return response.data.data
+        .map((model) => model.id)
+        .filter((model) => model.toLowerCase() !== 'default');
+    }
   }
 
   /**

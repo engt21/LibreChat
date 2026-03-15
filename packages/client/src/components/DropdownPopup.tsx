@@ -15,6 +15,7 @@ interface DropdownProps {
   itemClassName?: string;
   sameWidth?: boolean;
   anchor?: { x: string; y: string };
+  placement?: Ariakit.MenuProps['placement'];
   gutter?: number;
   modal?: boolean;
   portal?: boolean;
