@@ -5,8 +5,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROMETHEUS_COMPOSE="/pool/home/timeng/librechat_exporter/prometheus-dev/docker-compose.yml"
 GRAFANA_COMPOSE="/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml"
 
+"$ROOT_DIR/local-services/ensure-runtime-files.sh"
+
 echo "== LibreChat =="
-docker compose -f "$ROOT_DIR/docker-compose.yml" -f "$ROOT_DIR/docker-compose.override.yml" ps
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-librechat}" \
+  docker compose -f "$ROOT_DIR/docker-compose.yml" -f "$ROOT_DIR/docker-compose.override.yml" ps
 
 echo
 echo "== Prometheus =="
