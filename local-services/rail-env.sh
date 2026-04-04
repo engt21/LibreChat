@@ -180,6 +180,8 @@ resolve_librechat_rail() {
       export LIBRECHAT_MONGO_BIND_HOST="127.0.0.1"
       export LIBRECHAT_MONGO_HOST_PORT="27018"
       export LIBRECHAT_MONGO_COMMAND="mongod --bind_ip_all"
+      # Dev MongoDB runs as root so it can access data synced from stable with mixed ownership.
+      export LIBRECHAT_MONGO_USER="0:0"
       export LIBRECHAT_LANGFUSE_WEB_HOST_PORT="3002"
       export LIBRECHAT_LANGFUSE_MINIO_API_HOST_PORT="19190"
       export LIBRECHAT_LANGFUSE_MINIO_CONSOLE_HOST_PORT="19192"
@@ -194,6 +196,23 @@ resolve_librechat_rail() {
       export LOCAL_CODE_SANDBOX_PYTHON_IMAGE="librechat-local-sandbox-python-dev:latest"
       export LIBRECHAT_API_MEM_LIMIT="1536m"
       export LIBRECHAT_API_NODE_MAX_OLD_SPACE="1024"
+      # Dev-specific Langfuse memory limits to coexist with stable under constrained host memory.
+      # These override the .env values that are tuned for production-scale stable workloads.
+      # ClickHouse needs enough headroom for background merges on synced data; the memory.xml
+      # config limits its internal usage to 60% of the cgroup limit (~384MB of 640MB).
+      export LIBRECHAT_LANGFUSE_CLICKHOUSE_MEM_LIMIT="640m"
+      export LIBRECHAT_LANGFUSE_WEB_MEM_LIMIT="640m"
+      export LIBRECHAT_LANGFUSE_WORKER_MEM_LIMIT="512m"
+      # Langfuse Node.js heap must be set explicitly because the default auto-detection
+      # underestimates when the container limit is low relative to total host RAM.
+      export LIBRECHAT_LANGFUSE_NODE_OPTIONS="--max-old-space-size=400"
+      export LIBRECHAT_LANGFUSE_SYNC_MEM_LIMIT="128m"
+      export LIBRECHAT_LANGFUSE_MINIO_MEM_LIMIT="128m"
+      export LIBRECHAT_LANGFUSE_REDIS_MEM_LIMIT="64m"
+      export LIBRECHAT_LANGFUSE_POSTGRES_MEM_LIMIT="96m"
+      export LIBRECHAT_RAG_MEM_LIMIT="192m"
+      export LIBRECHAT_MONGO_MEM_LIMIT="192m"
+      export LIBRECHAT_MEILI_MEM_LIMIT="128m"
       export LIBRECHAT_MANAGE_SHARED_SERVICES="false"
       ;;
     *)

@@ -209,7 +209,7 @@ services:
   mongodb:
     container_name: ${LIBRECHAT_MONGO_CONTAINER_NAME:-chat-mongodb}
     mem_limit: ${LIBRECHAT_MONGO_MEM_LIMIT:-256m}
-    user: "999:999"
+    user: "${LIBRECHAT_MONGO_USER:-999:999}"
     command: ${LIBRECHAT_MONGO_COMMAND:-mongod --auth --bind_ip_all}
     ports:
       - "${LIBRECHAT_MONGO_BIND_HOST:-192.168.50.4}:${LIBRECHAT_MONGO_HOST_PORT:-27017}:27017"
@@ -230,6 +230,8 @@ services:
     <<: *langfuse-env-file
     image: docker.io/langfuse/langfuse:3
     mem_limit: ${LIBRECHAT_LANGFUSE_WEB_MEM_LIMIT:-600m}
+    environment:
+      NODE_OPTIONS: "${LIBRECHAT_LANGFUSE_NODE_OPTIONS:---max-old-space-size=512}"
     depends_on: *langfuse-depends-on
     ports:
       - "${LIBRECHAT_LANGFUSE_WEB_HOST_PORT:-3000}:3000"
@@ -259,6 +261,10 @@ services:
     volumes:
       - langfuse_clickhouse_data:/var/lib/clickhouse
       - langfuse_clickhouse_logs:/var/log/clickhouse-server
+      - type: bind
+        source: ./config/clickhouse-memory.xml
+        target: /etc/clickhouse-server/config.d/memory-limit.xml
+        read_only: true
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 5s

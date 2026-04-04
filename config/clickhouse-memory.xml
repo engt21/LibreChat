@@ -1,0 +1,9 @@
+<!--
+  ClickHouse memory-limit override.
+  Reduces the server-to-RAM ratio so ClickHouse does not consume the full
+  cgroup limit set by Docker mem_limit.  This prevents OOM-kill restart churn
+  on memory-constrained hosts where stable and dev rails coexist.
+-->
+<clickhouse>
+    <max_server_memory_usage_to_ram_ratio>0.7</max_server_memory_usage_to_ram_ratio>
+</clickhouse>

@@ -112,7 +112,7 @@ echo
 # --- 3. Shared data mount check ---
 echo -e "${BOLD}== Shared data mount check ==${NC}"
 
-SAFE_SHARED_MOUNTS=".env librechat.yaml langfuse/.env images docker.sock logs"
+SAFE_SHARED_MOUNTS=".env librechat.yaml langfuse/.env images docker.sock logs clickhouse-memory.xml"
 
 is_safe_shared_mount() {
   local mount_path="$1"
@@ -190,6 +190,59 @@ docker stats --no-stream --format "{{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>/de
   | column -t -s$'\t'
 
 echo
+
+# --- 5. Langfuse health per running rail ---
+echo -e "${BOLD}== Langfuse health ==${NC}"
+
+langfuse_checked=false
+for project in librechat-stable librechat-dev; do
+  rail="${project#librechat-}"
+
+  # Only check Langfuse if this rail's ClickHouse container exists
+  ch_container="${project}-langfuse-clickhouse-1"
+  if ! docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${ch_container}$"; then
+    continue
+  fi
+  langfuse_checked=true
+
+  langfuse_ok=true
+  for svc in langfuse-clickhouse-1 langfuse-postgres-1 langfuse-redis-1 langfuse-minio-1 langfuse-web-1 langfuse-worker-1; do
+    cname="${project}-${svc}"
+    status="$(docker inspect "$cname" --format '{{.State.Status}}' 2>/dev/null || echo "missing")"
+    health="$(docker inspect "$cname" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' 2>/dev/null || echo "unknown")"
+    restarts="$(docker inspect "$cname" --format '{{.RestartCount}}' 2>/dev/null || echo "?")"
+
+    label="$svc"
+    if [[ "$status" != "running" ]]; then
+      echo -e "  ${RED}[$rail] $label: status=$status (restarts=$restarts)${NC}"
+      langfuse_ok=false
+    elif [[ "$health" == "unhealthy" ]]; then
+      echo -e "  ${RED}[$rail] $label: unhealthy (restarts=$restarts)${NC}"
+      langfuse_ok=false
+    elif [[ "$restarts" =~ ^[0-9]+$ ]] && [[ "$restarts" -gt 2 ]]; then
+      echo -e "  ${YELLOW}[$rail] $label: running but restart count=$restarts${NC}"
+      langfuse_ok=false
+    elif [[ "$health" == "healthy" || "$health" == "no-healthcheck" ]]; then
+      echo -e "  ${GREEN}[$rail] $label: $health (restarts=$restarts)${NC}"
+    else
+      echo -e "  ${YELLOW}[$rail] $label: status=$status health=$health (restarts=$restarts)${NC}"
+    fi
+  done
+
+  if ! $langfuse_ok; then
+    echo -e "  ${RED}[$rail] Langfuse is NOT healthy — dev validation evidence cannot be trusted until resolved.${NC}"
+    exit_code=1
+  else
+    echo -e "  ${GREEN}[$rail] Langfuse components all healthy.${NC}"
+  fi
+  echo
+done
+
+if ! $langfuse_checked; then
+  echo -e "  ${YELLOW}No Langfuse containers detected on any rail.${NC}"
+  echo
+fi
+
 if [[ $exit_code -eq 0 ]]; then
   echo -e "${GREEN}All checks passed.${NC}"
 else
