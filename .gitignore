@@ -12,6 +12,10 @@ pids
 *.pid
 *.seed
 .git
+__pycache__/
+*.py[cod]
+local-code-interpreter/data/
+.rails/
 
 # CI/CD data
 test-image*
@@ -169,13 +173,14 @@ claude-flow.config.json
 .swarm/
 .hive-mind/
 .claude-flow/
-memory/
+.local-sync/
+/memory/
 coordination/
-memory/claude-flow-data.json
-memory/sessions/*
-!memory/sessions/README.md
-memory/agents/*
-!memory/agents/README.md
+/memory/claude-flow-data.json
+/memory/sessions/*
+!/memory/sessions/README.md
+/memory/agents/*
+!/memory/agents/README.md
 coordination/memory_bank/*
 coordination/subtasks/*
 coordination/orchestration/*
