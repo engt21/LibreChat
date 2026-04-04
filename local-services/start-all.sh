@@ -27,8 +27,9 @@ done
 
 docker info >/dev/null
 
-LOCAL_CODE_SANDBOX_PYTHON_IMAGE="${LOCAL_CODE_SANDBOX_PYTHON_IMAGE:-librechat-local-sandbox-python:latest}"
-if [[ "$LOCAL_CODE_SANDBOX_PYTHON_IMAGE" == "librechat-local-sandbox-python:latest" ]]; then
+# LOCAL_CODE_SANDBOX_PYTHON_IMAGE is already set per-rail by resolve_librechat_rail.
+# Only rebuild if it carries the rail-specific default tag; a user override is left as-is.
+if [[ "$LOCAL_CODE_SANDBOX_PYTHON_IMAGE" == "librechat-local-sandbox-python-${LIBRECHAT_RAIL}:latest" ]]; then
   docker build \
     -t "$LOCAL_CODE_SANDBOX_PYTHON_IMAGE" \
     -f "$ROOT_DIR/local-code-interpreter/python-sandbox.Dockerfile" \

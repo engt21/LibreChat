@@ -42,6 +42,10 @@ MUSER="$(echo "$USERPASS" | cut -d: -f1)"
 MPASS="$(echo "$USERPASS" | cut -d: -f2-)"
 [[ -n "$MUSER" ]] || fail "Could not parse MongoDB credentials from remote .env"
 
+# Shell-escape credentials so metacharacters in passwords don't break remote commands.
+MUSER_ESC="$(printf '%q' "$MUSER")"
+MPASS_ESC="$(printf '%q' "$MPASS")"
+
 # ---------- option parsing ----------
 SKIP_RESTART=""
 SKIP_MONGO=""
@@ -65,17 +69,19 @@ if [[ -z "$SKIP_MONGO" ]]; then
   log "Dumping MongoDB from Linux stable rail..."
   DUMP_FILE="/tmp/librechat-stable-dump-$$.archive"
   ssh_cmd "docker exec librechat-stable-mongodb mongodump --db LibreChat \
-    -u $MUSER -p $MPASS --authenticationDatabase admin --archive --quiet" \
+    -u ${MUSER_ESC} -p ${MPASS_ESC} --authenticationDatabase admin --archive --quiet" \
     > "$DUMP_FILE"
   DUMP_SIZE="$(du -h "$DUMP_FILE" | cut -f1)"
   log "Dump complete ($DUMP_SIZE)"
 
+  STARTED_MONGO_TEMP=""
   if [[ -n "$LOCAL_WAS_RUNNING" ]]; then
     log "Restoring into running local MongoDB..."
     cat "$DUMP_FILE" | docker exec -i "$LIBRECHAT_MONGO_CONTAINER_NAME" \
       mongorestore --archive --drop --quiet
   else
     log "Starting MongoDB temporarily for restore..."
+    STARTED_MONGO_TEMP=1
     docker compose -p "$COMPOSE_PROJECT_NAME" \
       -f "$ROOT_DIR/docker-compose.yml" \
       -f "$ROOT_DIR/docker-compose.local.override.yml" \
@@ -89,6 +95,15 @@ if [[ -z "$SKIP_MONGO" ]]; then
   COUNTS="$(docker exec "$LIBRECHAT_MONGO_CONTAINER_NAME" mongosh --quiet LibreChat \
     --eval 'JSON.stringify({users:db.users.countDocuments(),conversations:db.conversations.countDocuments(),messages:db.messages.countDocuments(),files:db.files.countDocuments()})')"
   log "MongoDB restored: $COUNTS"
+
+  # Stop the temporary MongoDB if dev was not running before sync
+  if [[ -n "$STARTED_MONGO_TEMP" ]]; then
+    log "Stopping temporarily started MongoDB..."
+    docker compose -p "$COMPOSE_PROJECT_NAME" \
+      -f "$ROOT_DIR/docker-compose.yml" \
+      -f "$ROOT_DIR/docker-compose.local.override.yml" \
+      stop mongodb >/dev/null 2>&1
+  fi
 fi
 
 # ---------- files sync ----------
