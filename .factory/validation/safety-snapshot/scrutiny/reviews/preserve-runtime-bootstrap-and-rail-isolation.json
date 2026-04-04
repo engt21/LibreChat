@@ -1,0 +1,45 @@
+{
+  "featureId": "preserve-runtime-bootstrap-and-rail-isolation",
+  "reviewedAt": "2026-04-04T12:32:39Z",
+  "commitId": "59a820f2955056ab58fb38e80dcb1b3dadcfa408",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Current repo state still does not satisfy runtime rail-isolation and stable-to-dev refresh robustness requirements. The two prior blocking issues remain unchanged from commit 59a820f29 through HEAD.",
+    "issues": [
+      {
+        "file": "local-services/start-all.sh",
+        "line": 30,
+        "severity": "blocking",
+        "description": "Rail image isolation is still incomplete. The script defaults `LOCAL_CODE_SANDBOX_PYTHON_IMAGE` to a shared tag (`librechat-local-sandbox-python:latest`) and rebuilds it on start when unchanged. Because both rails also default to this same tag in compose (`docker-compose.local.override.yml:189`), dev rebuild/start can mutate the sandbox artifact used by stable, violating expected rail isolation by image tags."
+      },
+      {
+        "file": "local-services/sync-from-stable.sh",
+        "line": 67,
+        "severity": "blocking",
+        "description": "Stable-to-dev Mongo refresh still shells unescaped credentials into the remote command (`-u $MUSER -p $MPASS`). Passwords with shell metacharacters or spaces are valid and can break or alter command parsing, so the sync path is not robust for VAL-RUNTIME-008 behavior."
+      },
+      {
+        "file": "local-services/sync-from-stable.sh",
+        "line": 78,
+        "severity": "non_blocking",
+        "description": "When dev is initially stopped, the script starts MongoDB 'temporarily for restore' but has no corresponding stop path afterward unless the stack was already running. This can leave an unexpected partially running dev state."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "Procedure adherence evidence is inconsistent: the runtime skill requires reading contract-work docs and repo docs including README/CUSTOMIZATION docs, but the reviewed transcript skeleton does not show those reads while handoff.skillFeedback marks followedProcedure=true.",
+      "evidence": "Skill requirements: .factory/skills/runtime-migration-worker/SKILL.md:21-22. Transcript entry for session f923e9e9-572d-4827-b17e-12d74a91b634 lists mission/validation/AGENTS and runtime script reads, but not contract-work/area-backup-runtime.md, contract-work/cross-area-flows.md, README.md, CUSTOMIZATION_MASTER_DOC.md, or CUSTOMIZATION_MASTER_GUIDE.md."
+    },
+    {
+      "area": "services",
+      "observation": "Shared command manifest coverage is still partial for runtime helper operations introduced by this feature.",
+      "evidence": ".factory/services.yaml includes sync_from_stable (line 16) but does not expose export-dev-bundle.sh, import-dev-bundle.sh, remote-apply-dev-bundle.sh, sync-dev-with-remote.sh, or watch-dev-sync helpers committed in this runtime feature."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/safety-snapshot/scrutiny/reviews/preserve-runtime-bootstrap-and-rail-isolation.json",
+  "summary": "Re-run review remains FAIL. The previously identified blocking defects are still present in current HEAD: shared sandbox image rebuild/tag across rails and unescaped Mongo credentials in stable-to-dev sync. A non-blocking lifecycle issue (temporary Mongo not stopped) also remains."
+}

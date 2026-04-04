@@ -1,0 +1,26 @@
+{
+  "featureId": "normalize-azure-title-provider-behavior-for-safety-snapshot",
+  "reviewedAt": "2026-04-04T12:31:32.017116Z",
+  "commitId": "a093644f185ddd1f1c42d2881d3fc65dca50b3df",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Re-review confirms the feature commit is still correctly scoped to test expectations and aligns Azure title-provider assertions with current fork behavior. `client.js` resolves Azure title generation to `Providers.OPENAI` when `azureOpenAIApiInstanceName` is absent, and `llm.ts` removes that field on Responses API normalization; updated tests now match that behavior for instanceName and model-group cases while serverless and CURRENT_MODEL coverage remains present.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "services",
+      "observation": "The shared services manifest still lacks a targeted command for the Azure title-provider test surface, so workers fall back to broader `test:api` runs that are prone to timeout on this host.",
+      "evidence": "Handoff `/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/handoffs/2026-04-04T10-05-26-686Z__normalize-azure-title-provider-behavior-for-safety-snapshot__25409730-d405-4a1b-9cf9-becbbc478029.json` records a 600s timeout and `skillFeedback.suggestedChanges`; `/pool/home/timeng/LibreChat-custom/.factory/services.yaml` currently provides `test_api` but no scoped command for `api/server/controllers/agents/client.test.js`."
+    },
+    {
+      "area": "skills",
+      "observation": "Procedure-tracking appears inconsistent: the backend worker skill requires reading repo docs (`README.md`, `AGENTS.md`, customization docs), but this transcript skeleton does not show those reads even though handoff feedback marks `followedProcedure: true`.",
+      "evidence": "`/pool/home/timeng/LibreChat-custom/.factory/skills/backend-migration-worker/SKILL.md` (Required Skills) explicitly lists README/AGENTS/customization docs; worker transcript entry in `/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/worker-transcripts.jsonl` for session `25409730-d405-4a1b-9cf9-becbbc478029` shows reads of mission/validation/features/library/test files but no repo README/AGENTS/customization reads, while handoff `skillFeedback.followedProcedure` is true."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass on rerun. The commit remains a correct, low-risk test-alignment fix for Azure title-provider behavior, with no code-level defects found in scope and no new regression evidence in reviewed artifacts."
+}

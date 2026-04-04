@@ -1,0 +1,106 @@
+{
+  "milestone": "safety-snapshot",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && npm run test:all",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npm run build",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npx eslint api/ client/src/ packages/api/src/ packages/client/src/ packages/data-provider/src/ packages/data-schemas/src/ config/ --no-cache",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 7,
+    "passed": 4,
+    "failed": 3,
+    "failedFeatures": [
+      "backup-and-dev-bundle-recovery-foundation",
+      "preserve-runtime-bootstrap-and-rail-isolation",
+      "harden-backend-test-runtime-lifecycle-for-safety-snapshot"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "backup-and-dev-bundle-recovery-foundation",
+      "severity": "blocking",
+      "description": "VAL-RUNTIME-007 evidence gap: stale-overwrite protection was documented as tested, but real remote-apply execution timed out and validation fell back to token simulation instead of end-to-end script-path verification."
+    },
+    {
+      "featureId": "backup-and-dev-bundle-recovery-foundation",
+      "severity": "blocking",
+      "description": "VAL-RUNTIME-007A evidence gap: fresh-bundle restore was documented as tested, but verification was partial (bind-file round-trip and an export path that skipped ClickHouse volume scope)."
+    },
+    {
+      "featureId": "preserve-runtime-bootstrap-and-rail-isolation",
+      "severity": "blocking",
+      "description": "Rail isolation breach risk: dev startup rebuilds a sandbox image tag also used by stable (`librechat-local-sandbox-python:latest`), so dev rebuilds can mutate stable-adjacent artifacts."
+    },
+    {
+      "featureId": "preserve-runtime-bootstrap-and-rail-isolation",
+      "severity": "blocking",
+      "description": "Stable-to-dev sync fragility: Mongo credentials are shell-injected unescaped in `sync-from-stable.sh`, breaking valid passwords with shell metacharacters/spaces."
+    },
+    {
+      "featureId": "harden-backend-test-runtime-lifecycle-for-safety-snapshot",
+      "severity": "blocking",
+      "description": "Feature scope violation: out-of-scope production startup behavior changes were bundled into a lifecycle-fix feature that was supposed to avoid stable/dev startup behavior changes outside test mode."
+    },
+    {
+      "featureId": "harden-backend-test-runtime-lifecycle-for-safety-snapshot",
+      "severity": "blocking",
+      "description": "`stopAudioTranscriptionRunner()` clears the interval but does not await in-flight transcription tick/job completion, so shutdown is not guaranteed quiescent before Mongo disconnect."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Added an environment caveat noting `jq` is unavailable on this host and workers should use `python3`/Node for JSON filtering.",
+      "sourceFeature": "preserve-runtime-bootstrap-and-rail-isolation"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skills",
+      "suggestion": "Update runtime-migration-worker to require explicit long-running bundle export/apply verification guidance (timeouts/retries/observation windows) and forbid replacing required script-path validation with simulations.",
+      "evidence": "Backup feature review found stale-overwrite and fresh-restore checks documented as complete while real script-path validation timed out and was replaced with simulated token checks.",
+      "isSystemic": true
+    },
+    {
+      "target": "skills",
+      "suggestion": "Add a mandatory pre-commit scope audit step for dirty trees in backend/runtime worker skills (e.g., staged diff must match assigned feature intent before commit).",
+      "evidence": "Backend lifecycle feature commit included unrelated production startup deltas despite a test-lifecycle-only feature contract.",
+      "isSystemic": true
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Clarify validator command source-of-truth precedence so mission AGENTS lint guidance does not drift from `.factory/services.yaml` on constrained hosts.",
+      "evidence": "Reviews repeatedly observed confusion between generic `npm run lint` guidance and the scoped memory-safe lint command in services.yaml.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Add all newly introduced local-services helper scripts to `.factory/services.yaml` immediately.",
+      "reason": "ambiguous"
+    },
+    {
+      "observation": "Add feature-specific targeted test commands for each one-off failing test path into `.factory/services.yaml`.",
+      "reason": "ambiguous"
+    },
+    {
+      "observation": "Memory-hardening should be added to lint in services.yaml.",
+      "reason": "already-documented"
+    }
+  ],
+  "previousRound": null
+}

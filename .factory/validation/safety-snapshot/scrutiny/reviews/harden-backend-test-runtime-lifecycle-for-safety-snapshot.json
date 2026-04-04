@@ -1,0 +1,39 @@
+{
+  "featureId": "harden-backend-test-runtime-lifecycle-for-safety-snapshot",
+  "reviewedAt": "2026-04-04T08:31:41-04:00",
+  "commitId": "253aa75f599d2859182e836b1fcf971421137ef6",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Round-2 reassessment still finds the prior blocking findings unresolved in current repo state: the feature commit includes non-test runtime startup behavior changes, and runner shutdown does not guarantee in-flight transcription work is drained before Mongo teardown.",
+    "issues": [
+      {
+        "file": "api/server/index.js",
+        "line": 196,
+        "severity": "blocking",
+        "description": "The feature contract required lifecycle hardening without altering stable/dev startup behavior outside test mode, but this commit still wires runtime startup paths (`initializeRealtimeServer(server)` at line 196 and `startAudioTranscriptionRunner()` at line 216) in normal server boot. These remain out of scope for the assigned lifecycle-only fix."
+      },
+      {
+        "file": "api/server/services/Files/Audio/transcriptionQueue.js",
+        "line": 575,
+        "severity": "blocking",
+        "description": "`stopAudioTranscriptionRunner()` only clears `runnerHandle` and returns. It does not await an already-running `runAudioTranscriptionTick()` (line 525) or settle `activeJobs` (line 533 onward). Since interval ticks invoke `void runAudioTranscriptionTick()` (lines 568-569), queue work can continue after stop is called, so teardown is not guaranteed quiescent before Mongo disconnect."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Mission/repo guidance does not currently enforce a strict staged-diff scope gate for dirty-tree feature work, which allowed unrelated runtime deltas to be bundled into this lifecycle fix.",
+      "evidence": "Commit 253aa75f includes broad `api/server/index.js` startup deltas while the feature definition in `features.json` scopes behavior to test/runtime lifecycle hardening and explicitly says not to alter stable/dev startup behavior outside test mode."
+    },
+    {
+      "area": "skills",
+      "observation": "The backend-migration worker skill stresses minimal scoped changes but lacks an explicit pre-commit step requiring workers to prove staged files/lines only match feature intent when the worktree is already dirty.",
+      "evidence": "Transcript skeleton for session `d2f31f5c-fdf0-4f1f-be0d-82034d1dcff6` shows the worker noticed `index.js` had a much larger diff than expected, yet the final commit still captured those runtime changes."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/safety-snapshot/scrutiny/reviews/harden-backend-test-runtime-lifecycle-for-safety-snapshot.json",
+  "summary": "Fail (round 2): both prior blockers remain in current state—out-of-scope runtime startup changes are still part of the feature commit, and transcription-runner shutdown still does not guarantee in-flight work is drained before Mongo teardown."
+}

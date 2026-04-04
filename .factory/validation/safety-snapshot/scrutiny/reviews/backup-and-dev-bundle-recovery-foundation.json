@@ -1,0 +1,34 @@
+{
+  "featureId": "backup-and-dev-bundle-recovery-foundation",
+  "reviewedAt": "2026-04-04T12:32:12Z",
+  "commitId": "c867692ce",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Current repo state does not resolve the prior failure. The feature commit still only adds the recovery runbook, and the runbook still overstates VAL-RUNTIME-007/007A verification relative to transcript evidence.",
+    "issues": [
+      {
+        "file": ".factory/library/pre-migration-recovery.md",
+        "line": 95,
+        "severity": "blocking",
+        "description": "Runbook claims stale-overwrite protection was tested, but transcript evidence shows the direct `remote-apply-dev-bundle.sh /tmp/test-stale-bundle` execution timed out and verification switched to token-comparison simulation (`would reject as remote_newer`). This is not an end-to-end apply-path validation required by VAL-RUNTIME-007."
+      },
+      {
+        "file": ".factory/library/pre-migration-recovery.md",
+        "line": 96,
+        "severity": "blocking",
+        "description": "Runbook claims clean restore from a fresh bundle, but transcript evidence shows a quick export that skipped ClickHouse volume archives and no full import/apply of declared binds+directories+tracked volumes. Validation was reduced to read-only checks plus a bind-file round-trip, which does not satisfy VAL-RUNTIME-007A."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "`runtime-migration-worker` does not give concrete procedure for validating long-running `remote-apply-dev-bundle.sh` paths when authoritative refresh includes very large volumes. The worker timed out, then substituted simulation-based checks while still reporting VAL-RUNTIME-007/007A as confirmed.",
+      "evidence": "Transcript skeleton for session 07279713-5022-4976-b315-21ee4ad55aba shows `remote-apply-dev-bundle.sh /tmp/test-stale-bundle` timing out, then fallback to read-only token simulation and a quick export noted as `4 volumes exported (skipped ClickHouse for speed)`; SKILL.md contains no fallback guidance for this timeout pattern."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/safety-snapshot/scrutiny/reviews/backup-and-dev-bundle-recovery-foundation.json",
+  "summary": "Re-run review remains failing: prior blocking findings are still present in current repo state, with no new code/docs evidence proving end-to-end stale-apply rejection and full fresh-bundle restore across declared volume scope."
+}
