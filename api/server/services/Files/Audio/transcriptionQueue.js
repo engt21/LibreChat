@@ -45,7 +45,8 @@ const mediaExtensionPattern =
   /\.(aac|aif|aiff|amr|avi|caf|flac|m4a|m4b|m4p|m4r|mkv|mov|mp2|mp3|mp4|mpeg|mpga|oga|ogg|opus|wav|webm|wma)$/i;
 
 let runnerHandle = null;
-let tickInProgress = false;
+let stopped = false;
+let _tickPromise = null;
 const activeJobs = new Map();
 
 function isTranscribableMediaFile(file) {
@@ -522,32 +523,40 @@ async function processClaimedTranscription(file) {
   }
 }
 
-async function runAudioTranscriptionTick() {
-  if (tickInProgress) {
-    return;
-  }
+async function _runTickBody() {
+  while (activeJobs.size < MAX_CONCURRENT_TRANSCRIPTIONS) {
+    if (stopped) {
+      break;
+    }
 
-  tickInProgress = true;
+    const file = await claimNextQueuedTranscription();
+    if (!file) {
+      break;
+    }
 
-  try {
-    while (activeJobs.size < MAX_CONCURRENT_TRANSCRIPTIONS) {
-      const file = await claimNextQueuedTranscription();
-      if (!file) {
-        break;
-      }
-
-      const jobPromise = processClaimedTranscription(file).finally(() => {
-        activeJobs.delete(file.file_id);
+    const jobPromise = processClaimedTranscription(file).finally(() => {
+      activeJobs.delete(file.file_id);
+      if (!stopped) {
         setImmediate(() => {
           void runAudioTranscriptionTick();
         });
-      });
+      }
+    });
 
-      activeJobs.set(file.file_id, jobPromise);
-    }
-  } finally {
-    tickInProgress = false;
+    activeJobs.set(file.file_id, jobPromise);
   }
+}
+
+function runAudioTranscriptionTick() {
+  if (_tickPromise || stopped) {
+    return _tickPromise ?? Promise.resolve();
+  }
+
+  const p = _runTickBody().finally(() => {
+    _tickPromise = null;
+  });
+  _tickPromise = p;
+  return p;
 }
 
 function kickAudioTranscriptionRunner() {
@@ -560,6 +569,8 @@ function startAudioTranscriptionRunner() {
   if (runnerHandle) {
     return;
   }
+
+  stopped = false;
 
   logger.info(
     `[AudioTranscription] Starting runner ${RUNNER_ID} (poll=${POLL_INTERVAL_MS}ms, lease=${LEASE_MS}ms, maxConcurrent=${MAX_CONCURRENT_TRANSCRIPTIONS})`,
@@ -575,21 +586,36 @@ function startAudioTranscriptionRunner() {
 /**
  * Stop the audio transcription runner and optionally drain in-flight work.
  * When called without arguments (or `drain=false`), it stops the polling
- * interval immediately.  When called with `drain=true` it also awaits all
- * active transcription jobs so callers (e.g. test teardown) can be sure
- * no Mongo operations fire after the runner is stopped.
+ * interval immediately.  When called with `drain=true` it also awaits
+ * any in-progress tick **and** all active transcription jobs so callers
+ * (e.g. test teardown) can be sure no Mongo operations fire after the
+ * runner is stopped.
+ *
+ * Setting `stopped = true` first prevents the tick from claiming new work
+ * and prevents completed jobs from scheduling follow-up ticks.
  *
  * @param {{ drain?: boolean }} [options]
  * @returns {Promise<void>}
  */
 async function stopAudioTranscriptionRunner({ drain = false } = {}) {
+  stopped = true;
+
   if (runnerHandle) {
     clearInterval(runnerHandle);
     runnerHandle = null;
   }
 
-  if (drain && activeJobs.size > 0) {
-    await Promise.allSettled(Array.from(activeJobs.values()));
+  if (drain) {
+    // Await the in-progress tick so any job it is about to push into
+    // activeJobs lands before we snapshot.
+    if (_tickPromise) {
+      await _tickPromise;
+    }
+
+    // Now drain every job the tick may have started.
+    if (activeJobs.size > 0) {
+      await Promise.allSettled(Array.from(activeJobs.values()));
+    }
   }
 }
 
