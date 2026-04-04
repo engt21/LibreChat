@@ -1,7 +1,7 @@
 {
   "milestone": "safety-snapshot",
-  "round": 3,
-  "status": "fail",
+  "round": 4,
+  "status": "pass",
   "validatorsRun": {
     "test": {
       "passed": true,
@@ -20,27 +20,14 @@
     }
   },
   "reviewsSummary": {
-    "total": 3,
-    "passed": 2,
-    "failed": 1,
-    "failedFeatures": [
-      "restore-strict-backend-lifecycle-scope-for-safety-snapshot"
-    ]
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "restore-strict-backend-lifecycle-scope-for-safety-snapshot",
-      "severity": "blocking",
-      "description": "The scope-drift issue is fixed, but transcription runner drain remains incomplete: `stopAudioTranscriptionRunner({ drain: true })` still awaits only a snapshot of `activeJobs` and does not await an already-running `runAudioTranscriptionTick()`. A tick in progress can still claim/start new jobs after stop returns, so teardown is not yet guaranteed quiescent before Mongo disconnect."
-    }
-  ],
+  "blockingIssues": [],
   "appliedUpdates": [],
   "suggestedGuidanceUpdates": [],
-  "rejectedObservations": [
-    {
-      "observation": "Procedure-adherence reporting appears optimistic in runtime-worker handoffs when transcript skeletons do not show all mandatory reads but `followedProcedure=true` is still reported.",
-      "reason": "already-documented"
-    }
-  ],
-  "previousRound": ".factory/validation/safety-snapshot/scrutiny/synthesis.round2.json"
+  "rejectedObservations": [],
+  "previousRound": ".factory/validation/safety-snapshot/scrutiny/synthesis.round3.json"
 }

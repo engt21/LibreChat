@@ -1,0 +1,15 @@
+{
+  "featureId": "complete-transcription-runner-drain-for-safety-snapshot",
+  "reviewedAt": "2026-04-04T18:47:55.688040+00:00",
+  "commitId": "dfe9635c33434d45224ed5821f05cb9d73124f45",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed both lifecycle commits (4df7a6a0f and dfe9635c3) plus the fix-session transcript skeleton. The new drain logic now sets a stop gate first, awaits any in-progress runAudioTranscriptionTick via _tickPromise, then drains active jobs, which closes the previously identified race where stop could return before a running tick claimed/started work.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/pool/home/timeng/LibreChat-custom/.factory/validation/safety-snapshot/scrutiny/reviews/restore-strict-backend-lifecycle-scope-for-safety-snapshot.json",
+  "summary": "Pass: the fix resolves the prior blocking runner-drain gap by awaiting an in-progress tick and any jobs it spawns before drain-aware stop returns, and no new blocking regressions were found in the reviewed scope."
+}
