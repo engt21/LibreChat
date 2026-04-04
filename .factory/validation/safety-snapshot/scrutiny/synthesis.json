@@ -1,6 +1,6 @@
 {
   "milestone": "safety-snapshot",
-  "round": 2,
+  "round": 3,
   "status": "fail",
   "validatorsRun": {
     "test": {
@@ -20,87 +20,27 @@
     }
   },
   "reviewsSummary": {
-    "total": 7,
-    "passed": 4,
-    "failed": 3,
+    "total": 3,
+    "passed": 2,
+    "failed": 1,
     "failedFeatures": [
-      "backup-and-dev-bundle-recovery-foundation",
-      "harden-backend-test-runtime-lifecycle-for-safety-snapshot",
-      "preserve-runtime-bootstrap-and-rail-isolation"
+      "restore-strict-backend-lifecycle-scope-for-safety-snapshot"
     ]
   },
   "blockingIssues": [
     {
-      "featureId": "backup-and-dev-bundle-recovery-foundation",
+      "featureId": "restore-strict-backend-lifecycle-scope-for-safety-snapshot",
       "severity": "blocking",
-      "description": "Runbook claims stale-overwrite protection was tested, but transcript evidence shows the direct `remote-apply-dev-bundle.sh /tmp/test-stale-bundle` execution timed out and verification switched to token-comparison simulation (`would reject as remote_newer`). This is not an end-to-end apply-path validation required by VAL-RUNTIME-007."
-    },
-    {
-      "featureId": "backup-and-dev-bundle-recovery-foundation",
-      "severity": "blocking",
-      "description": "Runbook claims clean restore from a fresh bundle, but transcript evidence shows a quick export that skipped ClickHouse volume archives and no full import/apply of declared binds+directories+tracked volumes. Validation was reduced to read-only checks plus a bind-file round-trip, which does not satisfy VAL-RUNTIME-007A."
-    },
-    {
-      "featureId": "harden-backend-test-runtime-lifecycle-for-safety-snapshot",
-      "severity": "blocking",
-      "description": "The feature contract required lifecycle hardening without altering stable/dev startup behavior outside test mode, but this commit still wires runtime startup paths (`initializeRealtimeServer(server)` at line 196 and `startAudioTranscriptionRunner()` at line 216) in normal server boot. These remain out of scope for the assigned lifecycle-only fix."
-    },
-    {
-      "featureId": "harden-backend-test-runtime-lifecycle-for-safety-snapshot",
-      "severity": "blocking",
-      "description": "`stopAudioTranscriptionRunner()` only clears `runnerHandle` and returns. It does not await an already-running `runAudioTranscriptionTick()` (line 525) or settle `activeJobs` (line 533 onward). Since interval ticks invoke `void runAudioTranscriptionTick()` (lines 568-569), queue work can continue after stop is called, so teardown is not guaranteed quiescent before Mongo disconnect."
-    },
-    {
-      "featureId": "preserve-runtime-bootstrap-and-rail-isolation",
-      "severity": "blocking",
-      "description": "Rail image isolation is still incomplete. The script defaults `LOCAL_CODE_SANDBOX_PYTHON_IMAGE` to a shared tag (`librechat-local-sandbox-python:latest`) and rebuilds it on start when unchanged. Because both rails also default to this same tag in compose (`docker-compose.local.override.yml:189`), dev rebuild/start can mutate the sandbox artifact used by stable, violating expected rail isolation by image tags."
-    },
-    {
-      "featureId": "preserve-runtime-bootstrap-and-rail-isolation",
-      "severity": "blocking",
-      "description": "Stable-to-dev Mongo refresh still shells unescaped credentials into the remote command (`-u $MUSER -p $MPASS`). Passwords with shell metacharacters or spaces are valid and can break or alter command parsing, so the sync path is not robust for VAL-RUNTIME-008 behavior."
+      "description": "The scope-drift issue is fixed, but transcription runner drain remains incomplete: `stopAudioTranscriptionRunner({ drain: true })` still awaits only a snapshot of `activeJobs` and does not await an already-running `runAudioTranscriptionTick()`. A tick in progress can still claim/start new jobs after stop returns, so teardown is not yet guaranteed quiescent before Mongo disconnect."
     }
   ],
   "appliedUpdates": [],
-  "suggestedGuidanceUpdates": [
-    {
-      "target": "skills",
-      "suggestion": "Update runtime-migration-worker to require explicit handling for long-running dev-bundle apply/restore validation (timeouts, retries, observation windows) and to prohibit substituting simulation-only checks for required script-path verification.",
-      "evidence": "The backup feature review again found timeout on remote-apply validation followed by simulation-style token checks while claiming VAL-RUNTIME-007/007A coverage.",
-      "isSystemic": true
-    },
-    {
-      "target": "skills",
-      "suggestion": "Add a mandatory dirty-tree scope gate to backend/runtime worker skills before commit (explicit staged-diff audit proving changes match assigned feature intent).",
-      "evidence": "The backend lifecycle feature still includes out-of-scope runtime startup deltas, and reviewers reported missing hard guardrails to prevent this pattern.",
-      "isSystemic": true
-    },
-    {
-      "target": "AGENTS.md",
-      "suggestion": "Clarify validator command source-of-truth precedence so worker guidance explicitly follows `.factory/services.yaml` when host constraints differ from generic repo commands.",
-      "evidence": "Reviews continue to report lint/test command divergence between mission AGENTS guidance and services.yaml memory-safe/scoped commands.",
-      "isSystemic": true
-    },
-    {
-      "target": "skills",
-      "suggestion": "Tighten skill-procedure evidence requirements so `followedProcedure=true` requires explicit transcript evidence for mandatory doc reads, or forces deviations to be recorded.",
-      "evidence": "Multiple reviews observed missing required-read evidence in transcript skeletons while handoffs still marked followedProcedure=true.",
-      "isSystemic": true
-    }
-  ],
+  "suggestedGuidanceUpdates": [],
   "rejectedObservations": [
     {
-      "observation": "Add feature-specific targeted test commands to `.factory/services.yaml` for each reviewed test file path.",
-      "reason": "ambiguous"
-    },
-    {
-      "observation": "Add every runtime helper script from `local-services/` into `.factory/services.yaml` immediately.",
-      "reason": "ambiguous"
-    },
-    {
-      "observation": "Repeat prior lint command divergence recommendation as a new standalone issue.",
+      "observation": "Procedure-adherence reporting appears optimistic in runtime-worker handoffs when transcript skeletons do not show all mandatory reads but `followedProcedure=true` is still reported.",
       "reason": "already-documented"
     }
   ],
-  "previousRound": ".factory/validation/safety-snapshot/scrutiny/synthesis.round1.json"
+  "previousRound": ".factory/validation/safety-snapshot/scrutiny/synthesis.round2.json"
 }

@@ -1,0 +1,22 @@
+{
+  "featureId": "restore-strict-backend-lifecycle-scope-for-safety-snapshot",
+  "reviewedAt": "2026-04-04T17:59:05.522678+00:00",
+  "commitId": "4df7a6a0fc25c5c7c57f7676dfe96fdc2d359337",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The fix commit correctly removes the prior out-of-scope startup deltas from api/server/index.js, but the runner-drain implementation still does not fully guarantee teardown quiescence before Mongo disconnect.",
+    "issues": [
+      {
+        "file": "api/server/services/Files/Audio/transcriptionQueue.js",
+        "line": 585,
+        "severity": "blocking",
+        "description": "stopAudioTranscriptionRunner({ drain: true }) only awaits a snapshot of activeJobs (line 591) and does not await an already-running runAudioTranscriptionTick() (line 525). If a tick is in progress and activeJobs is still empty when stop is called, stop can return, then that tick can still execute claimNextQueuedTranscription() (line 534) and start new work after teardown proceeds. This does not fully satisfy the required 'true runner-drain semantics' / in-flight-work guarantee from the prior failure."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/pool/home/timeng/LibreChat-custom/.factory/validation/safety-snapshot/scrutiny/reviews/harden-backend-test-runtime-lifecycle-for-safety-snapshot.json",
+  "summary": "Fail: the scope-drift blocker is resolved, but the drain blocker is only partially addressed because stopAudioTranscriptionRunner still does not wait for an in-progress tick that can claim/start jobs after stop returns."
+}
