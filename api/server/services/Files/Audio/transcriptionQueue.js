@@ -572,10 +572,24 @@ function startAudioTranscriptionRunner() {
   kickAudioTranscriptionRunner();
 }
 
-function stopAudioTranscriptionRunner() {
+/**
+ * Stop the audio transcription runner and optionally drain in-flight work.
+ * When called without arguments (or `drain=false`), it stops the polling
+ * interval immediately.  When called with `drain=true` it also awaits all
+ * active transcription jobs so callers (e.g. test teardown) can be sure
+ * no Mongo operations fire after the runner is stopped.
+ *
+ * @param {{ drain?: boolean }} [options]
+ * @returns {Promise<void>}
+ */
+async function stopAudioTranscriptionRunner({ drain = false } = {}) {
   if (runnerHandle) {
     clearInterval(runnerHandle);
     runnerHandle = null;
+  }
+
+  if (drain && activeJobs.size > 0) {
+    await Promise.allSettled(Array.from(activeJobs.values()));
   }
 }
 

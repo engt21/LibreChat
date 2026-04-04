@@ -88,8 +88,10 @@ describe('Server Configuration', () => {
   afterAll(async () => {
     // Stop background runners before tearing down Mongo to prevent
     // MongoNotConnectedError from in-flight polling ticks.
+    // Drain the audio transcription runner so any in-flight work
+    // settles before the Mongo connection is torn down.
     stopScheduledJobRunner();
-    stopAudioTranscriptionRunner();
+    await stopAudioTranscriptionRunner({ drain: true });
 
     // Close the HTTP server so the listening socket is released.
     const httpServer = app?.server;
