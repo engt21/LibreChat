@@ -97,25 +97,62 @@ Dev bundle export/import captures the full dev-rail runtime state including:
 | Full scope coverage | Export/import covers bind files, bind dirs, tracked volumes | ✅ Real: `.env`, `librechat.yaml`, `langfuse/.env`, `images/`, `.rails/dev/uploads/`, `.rails/dev/data-node/`, `.rails/dev/meili_data_v1.35.1/`, `.rails/dev/local-code-interpreter/data/`, pgdata2, langfuse_postgres_data, langfuse_clickhouse_data, langfuse_minio_data, langfuse_redis_data all present in bundle and restored on apply |
 | Stable rail unaffected during backup | All backup operations target dev rail only | ✅ Real: `curl http://127.0.0.1:3080/` returned OK throughout all export/apply cycles |
 
-### End-to-End Evidence (2026-04-04)
+### End-to-End Evidence — Round 3 (2026-04-04, session 7e68e7a1)
+
+All evidence below was captured by running the real scripts end-to-end, not by simulation or token-comparison shortcuts.
+
+**Full export (VAL-RUNTIME-006):**
+1. Stopped dev rail via `stop-all.sh dev` (all 14 containers stopped cleanly).
+2. Ran `export-dev-bundle.sh .local-sync/dev/bundles/e2e-test-full-export` — completed in ~18 min.
+3. Bundle contained the complete declared scope:
+   - **3 bind files:** `.env` (29 KB), `librechat.yaml` (1 KB), `langfuse/.env` (3.4 KB)
+   - **5 bind-dir archives:** `images.tar.gz` (47 MB), `_dot_rails__dev__uploads.tar.gz` (1.8 GB), `_dot_rails__dev__data-node.tar.gz` (194 MB), `_dot_rails__dev__meili_data_v1_dot_35_dot_1.tar.gz` (682 KB), `_dot_rails__dev__local-code-interpreter__data.tar.gz` (1.3 KB)
+   - **5 volume archives:** `pgdata2.tar.gz` (6.7 MB), `langfuse_postgres_data.tar.gz` (15 MB), `langfuse_clickhouse_data.tar.gz` (7.1 GB), `langfuse_minio_data.tar.gz` (11 KB), `langfuse_redis_data.tar.gz` (34 KB)
+4. Total bundle size: ~9.1 GB. Export produced `metadata.env` with `base_token` matching the current authoritative token and `role=roadcopy`.
 
 **Stale-bundle rejection (VAL-RUNTIME-007):**
-1. Stopped dev rail (`stop-all.sh dev`)
-2. Exported bundle with a base_token from the previous authoritative snapshot
-3. Applied via `remote-apply-dev-bundle.sh` → `refresh_authoritative_bundle()` ran, token advanced
-4. Incoming base_token trailed current token → `status=remote_newer`
-5. Conflict archive created at `.local-sync/dev/conflicts/` with full bind+volume content preserved
+1. Created a stale test bundle by copying the full export and overwriting `metadata.env` with a `LIBRECHAT_SYNC_BASE_TOKEN` set to a deliberately old value that does not match the current authoritative token.
+2. Ran `remote-apply-dev-bundle.sh .local-sync/dev/bundles/e2e-stale-test` — the real script executed `refresh_authoritative_bundle()` (which itself runs a full export internally, ~19 min), compared tokens, and returned:
+   ```
+   status=remote_newer
+   current_token=<current-authoritative-token>
+   conflict_dir=.local-sync/dev/conflicts/2026-04-03T00:00:00Z-stale-test-machine
+   ```
+3. Verified the conflict archive contains the full stale bundle (3 bind files, 5 bind-dir archives, 5 volume archives) — the stale data was safely preserved, not discarded.
+4. Current token remained unchanged — no overwrite occurred.
+5. Stable rail confirmed OK on `3080` throughout.
 
 **Fresh-bundle restore (VAL-RUNTIME-007A):**
-1. Exported fresh bundle with base_token matching current token
-2. Applied via `remote-apply-dev-bundle.sh` → `status=accepted`
-3. `import-dev-bundle.sh` restored all declared bind files (3), bind directories (5), and tracked volumes (5)
-4. New token written and persisted, authoritative metadata updated with role=`accepted-roadcopy`
-5. Bind file checksums matched pre-import values (`.env`, `librechat.yaml`, `langfuse/.env`)
-6. Bind directories all present with correct file counts (images: 91, uploads: 15, data-node: 124, meili: 9, code-interpreter: 25)
-7. All 5 Docker volumes confirmed present via `docker volume inspect`
+1. Ran `export-dev-bundle.sh .local-sync/dev/bundles/e2e-fresh-apply-test` to produce a fresh bundle whose `base_token` matches the current authoritative token. Completed in ~18 min.
+2. Verified fresh bundle contains all declared scope (3 bind files, 5 bind-dir archives, 5 volume archives including 7.1 GB ClickHouse).
+3. Captured pre-apply checksums:
+   - `.env`: `0e052894...444ce3f`
+   - `librechat.yaml`: `f3f713bb...e629aa6`
+   - `langfuse/.env`: `4355e79b...39e0df`
+   - Pre-apply file counts: images=91, uploads=15, data-node=124, meili=9, code-interpreter=26
+4. Ran `remote-apply-dev-bundle.sh .local-sync/dev/bundles/e2e-fresh-apply-test` — the real script executed the full path (`refresh_authoritative_bundle()` → token comparison → `import-dev-bundle.sh` → token advancement → authoritative copy). Completed in ~23 min. Output:
+   ```
+   status=accepted
+   current_token=<new-advanced-token>
+   ```
+5. Post-apply verification:
+   - **Token advanced:** from previous value to a new timestamp-based token (confirming token advancement logic)
+   - **Bind file checksums match:** `.env` = `0e052894...444ce3f`, `librechat.yaml` = `f3f713bb...e629aa6`, `langfuse/.env` = `4355e79b...39e0df`
+   - **Bind dir file counts match:** images=91, uploads=15, data-node=124, meili=9, code-interpreter=26
+   - **All 5 Docker volumes present:** `librechat-dev_pgdata2`, `librechat-dev_langfuse_postgres_data`, `librechat-dev_langfuse_clickhouse_data`, `librechat-dev_langfuse_minio_data`, `librechat-dev_langfuse_redis_data`
+   - **Authoritative metadata updated** with `role=accepted-roadcopy` and new token
+6. Stable rail confirmed OK on `3080` throughout all apply operations.
 
-### Bug Fix Applied
+**Script timing reference (host: pve2, 4 CPU, ~29 GB RAM):**
+| Operation | Duration |
+|-----------|----------|
+| Full export (all 5 volumes) | ~18 min |
+| Stale apply (refresh + reject) | ~20 min |
+| Fresh apply (refresh + import + copy) | ~23 min |
+
+The ClickHouse volume (~7.1 GB compressed) dominates export/import time. Both the `refresh_authoritative_bundle()` internal re-export and the `import-dev-bundle.sh` restore operate on all declared volumes.
+
+### Bug Fix Applied (prior session)
 
 **Non-deterministic hash in `refresh_authoritative_bundle()`:** Docker tar archives produce different checksums for identical data due to timestamp and file-ordering variation. The original code compared archive hashes and advanced the token on every mismatch, making it impossible for any bundle to pass token comparison. Fixed by removing hash-based token advancement; tokens now advance only through actual imports and the accepted-apply path.
 
