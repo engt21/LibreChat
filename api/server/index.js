@@ -1,5 +1,6 @@
 require('dotenv').config();
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 require('module-alias')({ base: path.resolve(__dirname, '..') });
 const cors = require('cors');
@@ -23,12 +24,14 @@ const {
 } = require('@librechat/api');
 const { connectDb, indexSync } = require('~/db');
 const initializeOAuthReconnectManager = require('./services/initializeOAuthReconnectManager');
+const { initializeRealtimeServer } = require('./services/Realtime/broker');
 const createValidateImageRequest = require('./middleware/validateImageRequest');
 const { jwtLogin, ldapLogin, passportLogin } = require('~/strategies');
 const { updateInterfacePermissions } = require('~/models/interface');
 const { checkMigrations } = require('./services/start/migration');
 const initializeMCPs = require('./services/initializeMCPs');
 const { startScheduledJobRunner } = require('./services/ScheduledJobs/runner');
+const { startAudioTranscriptionRunner } = require('./services/Files/Audio/transcriptionQueue');
 const configureSocialLogins = require('./socialLogins');
 const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
@@ -44,6 +47,7 @@ const host = HOST || 'localhost';
 const trusted_proxy = Number(TRUST_PROXY) || 1; /* trust first proxy by default */
 
 const app = express();
+const server = http.createServer(app);
 
 const startServer = async () => {
   if (typeof Bun !== 'undefined') {
@@ -152,6 +156,7 @@ const startServer = async () => {
   app.use('/api/endpoints', routes.endpoints);
   app.use('/api/balance', routes.balance);
   app.use('/api/models', routes.models);
+  app.use('/api/realtime', routes.realtime);
   app.use('/api/config', routes.config);
   app.use('/api/assistants', routes.assistants);
   app.use('/api/files', await routes.files.initialize());
@@ -188,7 +193,9 @@ const startServer = async () => {
   /** Error handler (must be last - Express identifies error middleware by its 4-arg signature) */
   app.use(ErrorController);
 
-  app.listen(port, host, async (err) => {
+  initializeRealtimeServer(server);
+
+  server.listen(port, host, async (err) => {
     if (err) {
       logger.error('Failed to start server:', err);
       process.exit(1);
@@ -206,6 +213,7 @@ const startServer = async () => {
     await initializeOAuthReconnectManager();
     await checkMigrations();
     startScheduledJobRunner();
+    startAudioTranscriptionRunner();
 
     // Configure stream services (auto-detects Redis from USE_REDIS env var)
     const streamServices = createStreamServices();
@@ -279,4 +287,5 @@ process.on('uncaughtException', (err) => {
 });
 
 /** Export app for easier testing purposes */
+app.server = server;
 module.exports = app;

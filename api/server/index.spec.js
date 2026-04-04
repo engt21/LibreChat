@@ -2,6 +2,10 @@ const fs = require('fs');
 const request = require('supertest');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
+const { stopScheduledJobRunner } = require('~/server/services/ScheduledJobs/runner');
+const {
+  stopAudioTranscriptionRunner,
+} = require('~/server/services/Files/Audio/transcriptionQueue');
 
 jest.mock('~/server/services/Config', () => ({
   loadCustomConfig: jest.fn(() => Promise.resolve({})),
@@ -82,8 +86,19 @@ describe('Server Configuration', () => {
   });
 
   afterAll(async () => {
-    await mongoServer.stop();
+    // Stop background runners before tearing down Mongo to prevent
+    // MongoNotConnectedError from in-flight polling ticks.
+    stopScheduledJobRunner();
+    stopAudioTranscriptionRunner();
+
+    // Close the HTTP server so the listening socket is released.
+    const httpServer = app?.server;
+    if (httpServer && typeof httpServer.close === 'function') {
+      await new Promise((resolve) => httpServer.close(resolve));
+    }
+
     await mongoose.disconnect();
+    await mongoServer.stop();
   });
 
   it('should return OK for /health', async () => {
