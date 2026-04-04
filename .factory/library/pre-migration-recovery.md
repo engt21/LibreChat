@@ -91,15 +91,38 @@ Dev bundle export/import captures the full dev-rail runtime state including:
 
 | Property | Mechanism | Verified |
 |----------|-----------|----------|
-| Export refuses while dev active | `assert_dev_stopped()` in `sync-env.sh` | ✅ Tested: exits with error when dev running |
-| Stale overwrite protection | Token comparison in `remote-apply-dev-bundle.sh` | ✅ Tested: rejects mismatched base token |
-| Clean restore from fresh bundle | `import-dev-bundle.sh` restores binds + volumes + token | ✅ Tested: bind file restore produces identical content |
-| Stable rail unaffected during backup | All backup operations target dev rail only | ✅ Verified: stable on 3080 stayed reachable throughout |
+| Export refuses while dev active | `assert_dev_stopped()` in `sync-env.sh` | ✅ Real: stopped dev, export ran; started dev, export refused |
+| Stale overwrite protection (VAL-RUNTIME-007) | Token comparison in `remote-apply-dev-bundle.sh` | ✅ Real: applied stale bundle → `status=remote_newer`, conflict-archived to `.local-sync/dev/conflicts/` |
+| Fresh bundle restore (VAL-RUNTIME-007A) | `remote-apply-dev-bundle.sh` → `import-dev-bundle.sh` | ✅ Real: exported fresh bundle, applied via real remote-apply → `status=accepted`, all 3 bind files + 5 bind dirs + 5 volumes restored, token advanced |
+| Full scope coverage | Export/import covers bind files, bind dirs, tracked volumes | ✅ Real: `.env`, `librechat.yaml`, `langfuse/.env`, `images/`, `.rails/dev/uploads/`, `.rails/dev/data-node/`, `.rails/dev/meili_data_v1.35.1/`, `.rails/dev/local-code-interpreter/data/`, pgdata2, langfuse_postgres_data, langfuse_clickhouse_data, langfuse_minio_data, langfuse_redis_data all present in bundle and restored on apply |
+| Stable rail unaffected during backup | All backup operations target dev rail only | ✅ Real: `curl http://127.0.0.1:3080/` returned OK throughout all export/apply cycles |
+
+### End-to-End Evidence (2026-04-04)
+
+**Stale-bundle rejection (VAL-RUNTIME-007):**
+1. Stopped dev rail (`stop-all.sh dev`)
+2. Exported bundle with a base_token from the previous authoritative snapshot
+3. Applied via `remote-apply-dev-bundle.sh` → `refresh_authoritative_bundle()` ran, token advanced
+4. Incoming base_token trailed current token → `status=remote_newer`
+5. Conflict archive created at `.local-sync/dev/conflicts/` with full bind+volume content preserved
+
+**Fresh-bundle restore (VAL-RUNTIME-007A):**
+1. Exported fresh bundle with base_token matching current token
+2. Applied via `remote-apply-dev-bundle.sh` → `status=accepted`
+3. `import-dev-bundle.sh` restored all declared bind files (3), bind directories (5), and tracked volumes (5)
+4. New token written and persisted, authoritative metadata updated with role=`accepted-roadcopy`
+5. Bind file checksums matched pre-import values (`.env`, `librechat.yaml`, `langfuse/.env`)
+6. Bind directories all present with correct file counts (images: 91, uploads: 15, data-node: 124, meili: 9, code-interpreter: 25)
+7. All 5 Docker volumes confirmed present via `docker volume inspect`
+
+### Bug Fix Applied
+
+**Non-deterministic hash in `refresh_authoritative_bundle()`:** Docker tar archives produce different checksums for identical data due to timestamp and file-ordering variation. The original code compared archive hashes and advanced the token on every mismatch, making it impossible for any bundle to pass token comparison. Fixed by removing hash-based token advancement; tokens now advance only through actual imports and the accepted-apply path.
 
 ## Operational Notes
 
-- **ClickHouse volume is large** (~13 GB data + ~11 GB logs). Full dev bundle export takes 20+ minutes due to Docker volume archiving. Plan accordingly.
-- The existing authoritative bundle in `.local-sync/dev/authoritative/current/` was created on 2026-03-24 with token `20260324T050122Z-source`.
+- **ClickHouse volume is large** (~7 GB compressed). Full dev bundle export takes 20+ minutes due to Docker volume archiving. Plan accordingly.
+- The authoritative bundle in `.local-sync/dev/authoritative/current/` is updated on each successful remote-apply.
 - Dev rail writable state lives under `.rails/dev/` — it is NOT shared with stable.
 - Stable rail writable state lives at the repo root level (`data-node/`, `uploads/`, etc.) — never modified by dev operations.
 - Runtime secrets (`.env`, `librechat.yaml`, `langfuse/.env`) are symlinked from `/pool/home/timeng/LibreChat` by `ensure-runtime-files.sh` — the bundle export dereferences these symlinks.

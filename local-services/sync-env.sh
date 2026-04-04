@@ -394,13 +394,13 @@ refresh_authoritative_bundle() {
   local created_at="$LIBRECHAT_SYNC_CREATED_AT"
   local token_to_use="$current_token"
 
-  if [[ -f "$(authoritative_metadata_file)" ]]; then
-    # shellcheck disable=SC1090
-    source "$(authoritative_metadata_file)"
-    if [[ "$LIBRECHAT_SYNC_HASH" != "$refreshed_hash" ]]; then
-      token_to_use="$(generate_sync_token source)"
-    fi
-  elif [[ -z "$token_to_use" ]]; then
+  # Only bootstrap a new token when none exists yet. Hash-based token
+  # advancement is intentionally disabled because Docker tar archives are
+  # non-deterministic (timestamps and file ordering vary between runs),
+  # so the bundle hash changes even when the underlying data is identical.
+  # Tokens advance reliably through import-dev-bundle.sh and the
+  # accepted-apply path in remote-apply-dev-bundle.sh instead.
+  if [[ -z "$token_to_use" ]]; then
     token_to_use="$(generate_sync_token source)"
   fi
 
