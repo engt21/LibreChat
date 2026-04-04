@@ -1,0 +1,357 @@
+x-langfuse-env-file: &langfuse-env-file
+  env_file:
+    - ./langfuse/.env
+
+x-langfuse-depends-on: &langfuse-depends-on
+  langfuse-postgres:
+    condition: service_healthy
+  langfuse-minio:
+    condition: service_healthy
+  langfuse-redis:
+    condition: service_healthy
+  langfuse-clickhouse:
+    condition: service_healthy
+
+services:
+  api:
+    image: ${LIBRECHAT_API_IMAGE:-librechat-local:latest}
+    pull_policy: never
+    mem_limit: ${LIBRECHAT_API_MEM_LIMIT:-1536m}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NODE_MAX_OLD_SPACE_SIZE: 6144
+    depends_on:
+      mongodb:
+        condition: service_started
+      rag_api:
+        condition: service_healthy
+      rag_api_azure:
+        condition: service_healthy
+      rag_api_google:
+        condition: service_healthy
+      code-interpreter-local:
+        condition: service_healthy
+    user: "0:0"
+    environment:
+      NODE_OPTIONS: "--max-old-space-size=${LIBRECHAT_API_NODE_MAX_OLD_SPACE:-1024}"
+      MONGO_URI: ${MONGO_URI}
+      MEILI_HOST: http://meilisearch:7700
+      DOMAIN_SERVER: http://localhost:${LIBRECHAT_HOST_PORT:-3080}
+      PORT: ${LIBRECHAT_CONTAINER_PORT:-3080}
+      AZURE_API_KEY: user_provided
+      AZURE_OPENAI_BASEURL: user_provided
+      PROVIDER_LOGGING_ENABLED: "true"
+      PROVIDER_LOG_RAW_PAYLOADS: "false"
+      PROVIDER_LOG_STREAM_CHUNKS: "false"
+      PROVIDER_LOG_DIR: /app/logs
+      STEP_EVENT_LOGGING_ENABLED: "true"
+      STEP_EVENT_LOG_FILE: /app/logs/step-events.log
+      STEP_EVENT_MAX_FIELD_LENGTH: "2048"
+      LIBRECHAT_CODE_BASEURL: http://code-interpreter-local:8000/v1
+      LIBRECHAT_CODE_API_KEY: ${LIBRECHAT_CODE_API_KEY:-librechat-local-code-dev-key}
+      OPENAI_CODE_INTERPRETER_ROUTING: ${OPENAI_CODE_INTERPRETER_ROUTING:-librechat}
+      AZURE_OPENAI_CODE_INTERPRETER_ROUTING: ${AZURE_OPENAI_CODE_INTERPRETER_ROUTING:-librechat}
+      GOOGLE_CODE_INTERPRETER_ROUTING: ${GOOGLE_CODE_INTERPRETER_ROUTING:-librechat}
+      OPENAI_RAG_API_URL: ${OPENAI_RAG_API_URL:-http://rag_api:8000}
+      AZURE_OPENAI_RAG_API_URL: ${AZURE_OPENAI_RAG_API_URL:-http://rag_api_azure:8000}
+      GOOGLE_RAG_API_URL: ${GOOGLE_RAG_API_URL:-http://rag_api_google:8000}
+    volumes:
+      - type: bind
+        source: ./librechat.yaml
+        target: /app/librechat.yaml
+  rag_api:
+    container_name: ${LIBRECHAT_RAG_OPENAI_CONTAINER_NAME:-rag-api-openai-local}
+    image: ${LIBRECHAT_RAG_IMAGE:-librechat-local-rag-api:latest}
+    pull_policy: never
+    mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-192m}
+    build:
+      context: ${LOCAL_RAG_API_ROOT:-../rag_api}
+      dockerfile: Dockerfile.lite
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      DB_HOST: vectordb
+      DB_PORT: 5432
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      RAG_HOST: 0.0.0.0
+      RAG_PORT: 8000
+      JWT_SECRET: ${JWT_SECRET}
+      EMBEDDINGS_PROVIDER: openai
+      EMBEDDINGS_MODEL: ${RAG_OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      COLLECTION_NAME: ${RAG_OPENAI_COLLECTION_NAME:-librechat_rag_openai}
+      EMBEDDING_BATCH_SIZE: ${RAG_EMBEDDING_BATCH_SIZE:-500}
+    ports:
+      - "127.0.0.1:${LIBRECHAT_RAG_OPENAI_HOST_PORT:-8100}:8000"
+    depends_on:
+      vectordb:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+  rag_api_azure:
+    container_name: ${LIBRECHAT_RAG_AZURE_CONTAINER_NAME:-rag-api-azure-local}
+    image: ${LIBRECHAT_RAG_IMAGE:-librechat-local-rag-api:latest}
+    pull_policy: never
+    mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-192m}
+    build:
+      context: ${LOCAL_RAG_API_ROOT:-../rag_api}
+      dockerfile: Dockerfile.lite
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      DB_HOST: vectordb
+      DB_PORT: 5432
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      RAG_HOST: 0.0.0.0
+      RAG_PORT: 8000
+      JWT_SECRET: ${JWT_SECRET}
+      EMBEDDINGS_PROVIDER: azure
+      EMBEDDINGS_MODEL: ${RAG_AZURE_EMBEDDING_MODEL:-text-embedding-3-small}
+      RAG_AZURE_OPENAI_API_VERSION: ${RAG_AZURE_OPENAI_API_VERSION:-2023-05-15}
+      COLLECTION_NAME: ${RAG_AZURE_COLLECTION_NAME:-librechat_rag_azure}
+      EMBEDDING_BATCH_SIZE: ${RAG_EMBEDDING_BATCH_SIZE:-500}
+    ports:
+      - "127.0.0.1:${LIBRECHAT_RAG_AZURE_HOST_PORT:-8101}:8000"
+    depends_on:
+      vectordb:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+  rag_api_google:
+    container_name: ${LIBRECHAT_RAG_GOOGLE_CONTAINER_NAME:-rag-api-google-local}
+    image: ${LIBRECHAT_RAG_IMAGE:-librechat-local-rag-api:latest}
+    pull_policy: never
+    mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-192m}
+    build:
+      context: ${LOCAL_RAG_API_ROOT:-../rag_api}
+      dockerfile: Dockerfile.lite
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      DB_HOST: vectordb
+      DB_PORT: 5432
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      RAG_HOST: 0.0.0.0
+      RAG_PORT: 8000
+      JWT_SECRET: ${JWT_SECRET}
+      EMBEDDINGS_PROVIDER: google_genai
+      EMBEDDINGS_MODEL: ${RAG_GOOGLE_EMBEDDING_MODEL:-gemini-embedding-001}
+      COLLECTION_NAME: ${RAG_GOOGLE_COLLECTION_NAME:-librechat_rag_google}
+      EMBEDDING_BATCH_SIZE: ${RAG_EMBEDDING_BATCH_SIZE:-500}
+    ports:
+      - "127.0.0.1:${LIBRECHAT_RAG_GOOGLE_HOST_PORT:-8102}:8000"
+    depends_on:
+      vectordb:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+  code-interpreter-local:
+    container_name: ${LIBRECHAT_CODE_CONTAINER_NAME:-code-interpreter-local}
+    image: ${LIBRECHAT_CODE_IMAGE:-librechat-local-code-interpreter:latest}
+    pull_policy: never
+    mem_limit: ${LIBRECHAT_CODE_MEM_LIMIT:-128m}
+    build:
+      context: .
+      dockerfile: local-code-interpreter/Dockerfile
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      LOCAL_CODE_INTERPRETER_API_KEY: ${LIBRECHAT_CODE_API_KEY:-librechat-local-code-dev-key}
+      LOCAL_CODE_WORKSPACE_ROOT: /data/workspaces
+      LOCAL_CODE_WORKSPACE_HOST_ROOT: ${LOCAL_CODE_WORKSPACE_HOST_ROOT:-/workspace/local-code-interpreter/data/workspaces}
+      LOCAL_CODE_EXECUTION_TIMEOUT_SECONDS: ${LOCAL_CODE_EXECUTION_TIMEOUT_SECONDS:-60}
+      LOCAL_CODE_ALLOW_NETWORK: ${LOCAL_CODE_ALLOW_NETWORK:-false}
+      LOCAL_CODE_MEMORY_LIMIT: ${LOCAL_CODE_MEMORY_LIMIT:-1g}
+      LOCAL_CODE_NANO_CPUS: ${LOCAL_CODE_NANO_CPUS:-1000000000}
+      LOCAL_CODE_PIDS_LIMIT: ${LOCAL_CODE_PIDS_LIMIT:-256}
+      LOCAL_CODE_SANDBOX_PYTHON_IMAGE: ${LOCAL_CODE_SANDBOX_PYTHON_IMAGE:-librechat-local-sandbox-python:latest}
+    volumes:
+      - type: bind
+        source: ${LOCAL_CODE_INTERPRETER_DATA_DIR:-./local-code-interpreter/data}
+        target: /data
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+    ports:
+      - "127.0.0.1:${LIBRECHAT_CODE_HOST_PORT:-8190}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/health').read()
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+  mongodb:
+    container_name: ${LIBRECHAT_MONGO_CONTAINER_NAME:-chat-mongodb}
+    mem_limit: ${LIBRECHAT_MONGO_MEM_LIMIT:-256m}
+    user: "999:999"
+    command: ${LIBRECHAT_MONGO_COMMAND:-mongod --auth --bind_ip_all}
+    ports:
+      - "${LIBRECHAT_MONGO_BIND_HOST:-192.168.50.4}:${LIBRECHAT_MONGO_HOST_PORT:-27017}:27017"
+  meilisearch:
+    container_name: ${LIBRECHAT_MEILI_CONTAINER_NAME:-chat-meilisearch}
+    mem_limit: ${LIBRECHAT_MEILI_MEM_LIMIT:-256m}
+    user: "0:0"
+  vectordb:
+    container_name: ${LIBRECHAT_VECTORDB_CONTAINER_NAME:-vectordb}
+    mem_limit: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-128m}
+  langfuse-worker:
+    <<: *langfuse-env-file
+    image: docker.io/langfuse/langfuse-worker:3
+    mem_limit: ${LIBRECHAT_LANGFUSE_WORKER_MEM_LIMIT:-600m}
+    depends_on: *langfuse-depends-on
+    restart: unless-stopped
+  langfuse-web:
+    <<: *langfuse-env-file
+    image: docker.io/langfuse/langfuse:3
+    mem_limit: ${LIBRECHAT_LANGFUSE_WEB_MEM_LIMIT:-600m}
+    depends_on: *langfuse-depends-on
+    ports:
+      - "${LIBRECHAT_LANGFUSE_WEB_HOST_PORT:-3000}:3000"
+    restart: unless-stopped
+  langfuse-model-pricing-sync:
+    env_file:
+      - ./.env
+      - ./langfuse/.env
+    image: ${LIBRECHAT_API_IMAGE:-librechat-local:latest}
+    pull_policy: never
+    mem_limit: ${LIBRECHAT_LANGFUSE_SYNC_MEM_LIMIT:-256m}
+    depends_on:
+      - langfuse-web
+    command:
+      - python3
+      - /app/langfuse/sync_model_pricing.py
+      - --langfuse-url
+      - http://langfuse-web:3000
+      - --interval-seconds
+      - "300"
+    restart: unless-stopped
+  langfuse-clickhouse:
+    <<: *langfuse-env-file
+    image: docker.io/clickhouse/clickhouse-server
+    mem_limit: ${LIBRECHAT_LANGFUSE_CLICKHOUSE_MEM_LIMIT:-768m}
+    user: "101:101"
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+    restart: unless-stopped
+  langfuse-minio:
+    <<: *langfuse-env-file
+    image: cgr.dev/chainguard/minio
+    mem_limit: ${LIBRECHAT_LANGFUSE_MINIO_MEM_LIMIT:-256m}
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    ports:
+      - "127.0.0.1:${LIBRECHAT_LANGFUSE_MINIO_API_HOST_PORT:-19090}:9000"
+      - "127.0.0.1:${LIBRECHAT_LANGFUSE_MINIO_CONSOLE_HOST_PORT:-19092}:9001"
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+    restart: unless-stopped
+  langfuse-redis:
+    <<: *langfuse-env-file
+    image: docker.io/redis:7
+    mem_limit: ${LIBRECHAT_LANGFUSE_REDIS_MEM_LIMIT:-128m}
+    command: >
+      sh -c 'redis-server --requirepass "$${REDIS_AUTH}" --maxmemory-policy noeviction'
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_AUTH}\" ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+  langfuse-postgres:
+    <<: *langfuse-env-file
+    image: docker.io/postgres:17
+    mem_limit: ${LIBRECHAT_LANGFUSE_POSTGRES_MEM_LIMIT:-128m}
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+  metrics:
+    build:
+      context: ${LIBRECHAT_EXPORTER_ROOT:-../librechat_exporter}
+      dockerfile: Dockerfile
+    image: librechat-exporter-local:latest
+    mem_limit: ${LIBRECHAT_METRICS_MEM_LIMIT:-96m}
+    depends_on:
+      - mongodb
+    ports:
+      - "${LIBRECHAT_METRICS_HOST_PORT:-9091}:8000"
+    environment:
+      - MONGODB_URI=${MONGO_URI}
+      - MONGODB_DATABASE=LibreChat
+      - LOGGING_LEVEL=info
+      - METRICS_CACHE_ENABLED=true
+      - METRICS_CACHE_TTL=10
+      - ENABLE_BASIC_METRICS=true
+      - ENABLE_TOKEN_METRICS=true
+      - ENABLE_USER_METRICS=true
+      - ENABLE_MODEL_METRICS=true
+      - ENABLE_TIME_WINDOW_METRICS=true
+      - ENABLE_RATING_METRICS=true
+      - ENABLE_TOOL_METRICS=true
+      - ENABLE_FILE_METRICS=true
+      - ENABLE_PROVIDER_HEALTH_METRICS=true
+      - LIBRECHAT_CONFIG_PATH=/app/librechat.yaml
+      - LIBRECHAT_ENV_PATH=/app/librechat.env
+      - PROVIDER_HEALTH_TIMEOUT_SECONDS=5
+    volumes:
+      - type: bind
+        source: ./librechat.yaml
+        target: /app/librechat.yaml
+        read_only: true
+      - type: bind
+        source: ./.env
+        target: /app/librechat.env
+        read_only: true
+    restart: unless-stopped
+
+volumes:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
+  langfuse_redis_data:

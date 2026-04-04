@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+sibling_dir() {
+  local root_dir="$1"
+  local sibling_name="$2"
+
+  printf '%s/%s\n' "$(cd "$root_dir/.." && pwd)" "$sibling_name"
+}
+
+resolve_runtime_source_root() {
+  local root_dir="$1"
+
+  if [[ -n "${LIBRECHAT_RUNTIME_SOURCE:-}" ]]; then
+    printf '%s\n' "$LIBRECHAT_RUNTIME_SOURCE"
+    return
+  fi
+
+  local sibling_root
+  sibling_root="$(sibling_dir "$root_dir" "LibreChat")"
+
+  if [[ -e "$sibling_root" || -L "$sibling_root" ]]; then
+    printf '%s\n' "$sibling_root"
+    return
+  fi
+
+  printf '%s\n' "/pool/home/timeng/LibreChat"
+}
+
+resolve_local_rag_api_root() {
+  local root_dir="$1"
+
+  if [[ -n "${LOCAL_RAG_API_ROOT:-}" ]]; then
+    printf '%s\n' "$LOCAL_RAG_API_ROOT"
+    return
+  fi
+
+  local sibling_root
+  sibling_root="$(sibling_dir "$root_dir" "rag_api")"
+
+  if [[ -d "$sibling_root" ]]; then
+    printf '%s\n' "$sibling_root"
+    return
+  fi
+
+  printf '%s\n' "/pool/home/timeng/rag_api"
+}
+
+resolve_exporter_root() {
+  local root_dir="$1"
+
+  if [[ -n "${LIBRECHAT_EXPORTER_ROOT:-}" ]]; then
+    printf '%s\n' "$LIBRECHAT_EXPORTER_ROOT"
+    return
+  fi
+
+  local sibling_root
+  sibling_root="$(sibling_dir "$root_dir" "librechat_exporter")"
+
+  if [[ -d "$sibling_root" ]]; then
+    printf '%s\n' "$sibling_root"
+    return
+  fi
+
+  printf '%s\n' "/pool/home/timeng/librechat_exporter"
+}
+
+resolve_touchdown_log_dir() {
+  local root_dir="$1"
+
+  if [[ -n "${TOUCHDOWN_LOG_DIR:-}" ]]; then
+    printf '%s\n' "$TOUCHDOWN_LOG_DIR"
+    return
+  fi
+
+  local sibling_root
+  sibling_root="$(sibling_dir "$root_dir" "touchdown")"
+
+  if [[ -d "$sibling_root/logs" ]]; then
+    printf '%s\n' "$sibling_root/logs"
+    return
+  fi
+
+  printf '%s\n' "/pool/home/timeng/touchdown/logs"
+}
+
+resolve_touchdown_backwards_log_dir() {
+  local root_dir="$1"
+
+  if [[ -n "${TOUCHDOWN_BACKWARDS_LOG_DIR:-}" ]]; then
+    printf '%s\n' "$TOUCHDOWN_BACKWARDS_LOG_DIR"
+    return
+  fi
+
+  local sibling_root
+  sibling_root="$(sibling_dir "$root_dir" "touchdown")"
+
+  if [[ -d "$sibling_root/logs_backward" ]]; then
+    printf '%s\n' "$sibling_root/logs_backward"
+    return
+  fi
+
+  printf '%s\n' "/pool/home/timeng/touchdown/logs_backward"
+}
+
+resolve_shared_service_paths() {
+  local root_dir="$1"
+
+  export LIBRECHAT_RUNTIME_SOURCE="$(resolve_runtime_source_root "$root_dir")"
+  export LOCAL_RAG_API_ROOT="$(resolve_local_rag_api_root "$root_dir")"
+  export LIBRECHAT_EXPORTER_ROOT="$(resolve_exporter_root "$root_dir")"
+  export TOUCHDOWN_LOG_DIR="$(resolve_touchdown_log_dir "$root_dir")"
+  export TOUCHDOWN_BACKWARDS_LOG_DIR="$(resolve_touchdown_backwards_log_dir "$root_dir")"
+  export PROMETHEUS_COMPOSE="$LIBRECHAT_EXPORTER_ROOT/prometheus-dev/docker-compose.yml"
+  export GRAFANA_COMPOSE="$LIBRECHAT_EXPORTER_ROOT/grafana-loki-dev/docker-compose.yml"
+}
+
+shared_observability_available() {
+  [[ -f "${PROMETHEUS_COMPOSE:-}" && -f "${GRAFANA_COMPOSE:-}" ]]
+}
+
+metrics_build_context_available() {
+  [[ -f "${LIBRECHAT_EXPORTER_ROOT:-}/Dockerfile" ]]
+}
+
+resolve_librechat_rail() {
+  local root_dir="$1"
+  local requested_rail="${2:-${LIBRECHAT_RAIL:-stable}}"
+
+  resolve_shared_service_paths "$root_dir"
+
+  case "$requested_rail" in
+    stable)
+      export LIBRECHAT_RAIL="stable"
+      export COMPOSE_PROJECT_NAME="librechat-stable"
+      export LIBRECHAT_STACK_SLUG="librechat-stable"
+      export LIBRECHAT_API_IMAGE="librechat-local-stable:latest"
+      export LIBRECHAT_RAG_IMAGE="librechat-local-rag-api-stable:latest"
+      export LIBRECHAT_CODE_IMAGE="librechat-local-code-interpreter-stable:latest"
+      export LIBRECHAT_HOST_PORT="3080"
+      export LIBRECHAT_CONTAINER_PORT="3080"
+      export PORT="$LIBRECHAT_CONTAINER_PORT"
+      export LIBRECHAT_RAG_OPENAI_HOST_PORT="8100"
+      export LIBRECHAT_RAG_AZURE_HOST_PORT="8101"
+      export LIBRECHAT_RAG_GOOGLE_HOST_PORT="8102"
+      export LIBRECHAT_CODE_HOST_PORT="8190"
+      export LIBRECHAT_MONGO_BIND_HOST="192.168.50.4"
+      export LIBRECHAT_MONGO_HOST_PORT="27017"
+      export LIBRECHAT_MONGO_COMMAND="mongod --auth --bind_ip_all"
+      export LIBRECHAT_LANGFUSE_WEB_HOST_PORT="3000"
+      export LIBRECHAT_LANGFUSE_MINIO_API_HOST_PORT="19090"
+      export LIBRECHAT_LANGFUSE_MINIO_CONSOLE_HOST_PORT="19092"
+      export LIBRECHAT_METRICS_HOST_PORT="9091"
+      unset MONGO_URI
+      export LIBRECHAT_UPLOADS_DIR="$root_dir/uploads"
+      export LIBRECHAT_LOGS_DIR="$root_dir/logs"
+      export LIBRECHAT_MONGO_DATA_DIR="$root_dir/data-node"
+      export LIBRECHAT_MEILI_DATA_DIR="$root_dir/meili_data_v1.35.1"
+      export LOCAL_CODE_INTERPRETER_DATA_DIR="$root_dir/local-code-interpreter/data"
+      export LOCAL_CODE_WORKSPACE_HOST_ROOT="$root_dir/local-code-interpreter/data/workspaces"
+      export LIBRECHAT_API_MEM_LIMIT="3072m"
+      export LIBRECHAT_API_NODE_MAX_OLD_SPACE="2048"
+      export LIBRECHAT_MANAGE_SHARED_SERVICES="true"
+      ;;
+    dev)
+      export LIBRECHAT_RAIL="dev"
+      export COMPOSE_PROJECT_NAME="librechat-dev"
+      export LIBRECHAT_STACK_SLUG="librechat-dev"
+      export LIBRECHAT_API_IMAGE="librechat-local-dev:latest"
+      export LIBRECHAT_RAG_IMAGE="librechat-local-rag-api-dev:latest"
+      export LIBRECHAT_CODE_IMAGE="librechat-local-code-interpreter-dev:latest"
+      export LIBRECHAT_HOST_PORT="3081"
+      export LIBRECHAT_CONTAINER_PORT="3080"
+      export PORT="$LIBRECHAT_CONTAINER_PORT"
+      export LIBRECHAT_RAG_OPENAI_HOST_PORT="8110"
+      export LIBRECHAT_RAG_AZURE_HOST_PORT="8111"
+      export LIBRECHAT_RAG_GOOGLE_HOST_PORT="8112"
+      export LIBRECHAT_CODE_HOST_PORT="8191"
+      export LIBRECHAT_MONGO_BIND_HOST="127.0.0.1"
+      export LIBRECHAT_MONGO_HOST_PORT="27018"
+      export LIBRECHAT_MONGO_COMMAND="mongod --bind_ip_all"
+      export LIBRECHAT_LANGFUSE_WEB_HOST_PORT="3002"
+      export LIBRECHAT_LANGFUSE_MINIO_API_HOST_PORT="19190"
+      export LIBRECHAT_LANGFUSE_MINIO_CONSOLE_HOST_PORT="19192"
+      export LIBRECHAT_METRICS_HOST_PORT="9092"
+      export MONGO_URI="mongodb://mongodb:27017/LibreChat"
+      export LIBRECHAT_UPLOADS_DIR="$root_dir/.rails/dev/uploads"
+      export LIBRECHAT_LOGS_DIR="$root_dir/.rails/dev/logs"
+      export LIBRECHAT_MONGO_DATA_DIR="$root_dir/.rails/dev/data-node"
+      export LIBRECHAT_MEILI_DATA_DIR="$root_dir/.rails/dev/meili_data_v1.35.1"
+      export LOCAL_CODE_INTERPRETER_DATA_DIR="$root_dir/.rails/dev/local-code-interpreter/data"
+      export LOCAL_CODE_WORKSPACE_HOST_ROOT="$root_dir/.rails/dev/local-code-interpreter/data/workspaces"
+      export LIBRECHAT_API_MEM_LIMIT="1536m"
+      export LIBRECHAT_API_NODE_MAX_OLD_SPACE="1024"
+      export LIBRECHAT_MANAGE_SHARED_SERVICES="false"
+      ;;
+    *)
+      echo "Unsupported rail '$requested_rail'. Use 'stable' or 'dev'." >&2
+      return 1
+      ;;
+  esac
+
+  export LIBRECHAT_API_CONTAINER_NAME="${LIBRECHAT_STACK_SLUG}-api"
+  export LIBRECHAT_MONGO_CONTAINER_NAME="${LIBRECHAT_STACK_SLUG}-mongodb"
+  export LIBRECHAT_MEILI_CONTAINER_NAME="${LIBRECHAT_STACK_SLUG}-meilisearch"
+  export LIBRECHAT_VECTORDB_CONTAINER_NAME="${LIBRECHAT_STACK_SLUG}-vectordb"
+  export LIBRECHAT_RAG_OPENAI_CONTAINER_NAME="${LIBRECHAT_STACK_SLUG}-rag-openai"
+  export LIBRECHAT_RAG_AZURE_CONTAINER_NAME="${LIBRECHAT_STACK_SLUG}-rag-azure"
+  export LIBRECHAT_RAG_GOOGLE_CONTAINER_NAME="${LIBRECHAT_STACK_SLUG}-rag-google"
+  export LIBRECHAT_CODE_CONTAINER_NAME="${LIBRECHAT_STACK_SLUG}-code-interpreter"
+}
+
+prepare_librechat_rail_paths() {
+  mkdir -p \
+    "$LIBRECHAT_UPLOADS_DIR" \
+    "$LIBRECHAT_LOGS_DIR" \
+    "$LIBRECHAT_MONGO_DATA_DIR" \
+    "$LIBRECHAT_MEILI_DATA_DIR" \
+    "$LOCAL_CODE_INTERPRETER_DATA_DIR" \
+    "$LOCAL_CODE_WORKSPACE_HOST_ROOT"
+
+  chmod 0777 "$LIBRECHAT_MONGO_DATA_DIR" 2>/dev/null || true
+}

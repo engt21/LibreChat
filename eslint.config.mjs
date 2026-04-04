@@ -48,6 +48,7 @@ export default [
       'packages/data-provider/test_bundle/**/*',
       'packages/data-schemas/dist/**/*',
       'data-node/**/*',
+      '.rails/**/*',
       'meili_data/**/*',
       '**/node_modules/**/*',
       'src/tests/**/*',

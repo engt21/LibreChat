@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FALLBACK_ROOT_DIR="${LIBRECHAT_RUNTIME_SOURCE:-/pool/home/timeng/LibreChat}"
+source "$ROOT_DIR/local-services/rail-env.sh"
+
+FALLBACK_ROOT_DIR="$(resolve_runtime_source_root "$ROOT_DIR")"
 
 ensure_runtime_file() {
   local relative_path="$1"
@@ -30,7 +32,6 @@ ensure_runtime_file() {
 }
 
 ensure_runtime_file ".env"
-ensure_runtime_file "docker-compose.override.yml"
 ensure_runtime_file "librechat.yaml"
 ensure_runtime_file "data-node"
 ensure_runtime_file "meili_data_v1.35.1"
