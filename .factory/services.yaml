@@ -1,0 +1,42 @@
+commands:
+  install: cd /pool/home/timeng/LibreChat-custom && npm install
+  lint: cd /pool/home/timeng/LibreChat-custom && npm run lint
+  test: cd /pool/home/timeng/LibreChat-custom && npm run test:all
+  build: cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npm run build
+  test_api: cd /pool/home/timeng/LibreChat-custom && npm run test:api
+  test_client: cd /pool/home/timeng/LibreChat-custom && npm run test:client
+  test_packages_api: cd /pool/home/timeng/LibreChat-custom && npm run test:packages:api
+  test_packages_data_provider: cd /pool/home/timeng/LibreChat-custom && npm run test:packages:data-provider
+  test_packages_data_schemas: cd /pool/home/timeng/LibreChat-custom && npm run test:packages:data-schemas
+  build_packages: cd /pool/home/timeng/LibreChat-custom && npm run build:packages
+  ensure_runtime_files: /pool/home/timeng/LibreChat-custom/local-services/ensure-runtime-files.sh
+  status_all: /pool/home/timeng/LibreChat-custom/local-services/status-all.sh all
+  health_check: /pool/home/timeng/LibreChat-custom/local-services/health-check.sh
+  health_check_fix: /pool/home/timeng/LibreChat-custom/local-services/health-check.sh --fix
+  sync_from_stable: cd /pool/home/timeng/LibreChat-custom && ./local-services/sync-from-stable.sh
+  dev_smoke_admin_permissions: curl -i http://127.0.0.1:3081/api/admin/permissions
+  dev_smoke_schedules: curl -i http://127.0.0.1:3081/api/schedules
+  dev_smoke_realtime_models: curl -i http://127.0.0.1:3081/api/realtime/models
+
+services:
+  stable:
+    start: /pool/home/timeng/LibreChat-custom/local-services/start-all.sh stable
+    stop: /pool/home/timeng/LibreChat-custom/local-services/stop-all.sh stable
+    healthcheck: /pool/home/timeng/LibreChat-custom/local-services/status-all.sh stable && curl -sf http://127.0.0.1:3080/
+    port: 3080
+    depends_on: []
+
+  dev:
+    start: /pool/home/timeng/LibreChat-custom/local-services/start-all.sh dev
+    stop: /pool/home/timeng/LibreChat-custom/local-services/stop-all.sh dev
+    healthcheck: /pool/home/timeng/LibreChat-custom/local-services/status-all.sh dev && /pool/home/timeng/LibreChat-custom/local-services/health-check.sh && curl -sf http://127.0.0.1:3081/
+    port: 3081
+    depends_on: []
+
+  dev_langfuse:
+    start: /pool/home/timeng/LibreChat-custom/local-services/start-all.sh dev
+    stop: /pool/home/timeng/LibreChat-custom/local-services/stop-all.sh dev
+    healthcheck: docker compose -p librechat-dev -f /pool/home/timeng/LibreChat-custom/docker-compose.yml -f /pool/home/timeng/LibreChat-custom/docker-compose.local.override.yml ps langfuse-web langfuse-worker langfuse-clickhouse langfuse-model-pricing-sync && curl -sf http://127.0.0.1:3002/
+    port: 3002
+    depends_on:
+      - dev
