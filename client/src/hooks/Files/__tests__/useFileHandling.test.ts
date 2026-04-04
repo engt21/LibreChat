@@ -1,6 +1,12 @@
 import { renderHook, act } from '@testing-library/react';
 import { Constants, EModelEndpoint, getEndpointFileConfig } from 'librechat-data-provider';
 
+const mockNavigate = jest.fn();
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  useNavigate: () => mockNavigate,
+}));
+
 beforeAll(() => {
   global.URL.createObjectURL = jest.fn(() => 'blob:mock-url');
   global.URL.revokeObjectURL = jest.fn();
@@ -30,10 +36,15 @@ jest.mock('@librechat/client', () => ({
 jest.mock('recoil', () => ({
   ...jest.requireActual('recoil'),
   useSetRecoilState: jest.fn(() => jest.fn()),
+  useRecoilValue: jest.fn(() => ''),
+  useResetRecoilState: jest.fn(() => jest.fn()),
 }));
 
 jest.mock('~/store', () => ({
   ephemeralAgentByConvoId: jest.fn(() => ({ key: 'mock' })),
+  transcriptionModel: { key: 'transcriptionModel' },
+  transcriptionPrompt: { key: 'transcriptionPrompt' },
+  latestMessageFamily: jest.fn(() => ({ key: 'latestMessage' })),
 }));
 
 jest.mock('@tanstack/react-query', () => ({
