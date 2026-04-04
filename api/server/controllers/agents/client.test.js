@@ -758,8 +758,11 @@ describe('AgentClient - titleConvo', () => {
         );
       });
 
-      it('should use AZURE provider for Azure endpoints with instanceName', async () => {
-        // Set up Azure endpoint
+      it('should use OPENAI provider for Azure endpoints with instanceName when Responses API normalizes config', async () => {
+        // Set up Azure endpoint with instanceName.
+        // When useResponsesApi is enabled (automatic for supported models like gpt-4o),
+        // Azure configs are normalized to direct /openai/v1 URLs and azureOpenAIApiInstanceName
+        // is removed from llmConfig, so the provider resolves to OPENAI.
         mockAgent.endpoint = EModelEndpoint.azureOpenAI;
         mockAgent.provider = EModelEndpoint.azureOpenAI;
         mockReq.config = {
@@ -799,10 +802,12 @@ describe('AgentClient - titleConvo', () => {
 
         await client.titleConvo({ text, abortController });
 
-        // Verify provider remains AZURE with instanceName
+        // Provider is OPENAI because the Responses API path normalizes Azure instanceName
+        // configs into direct OpenAI-compatible URLs, removing azureOpenAIApiInstanceName
+        // from llmConfig. The title generation code detects this and uses Providers.OPENAI.
         expect(mockRun.generateTitle).toHaveBeenCalledWith(
           expect.objectContaining({
-            provider: Providers.AZURE,
+            provider: Providers.OPENAI,
             titleMethod: 'structured',
             titlePrompt: 'Azure instance title prompt',
           }),
@@ -930,10 +935,12 @@ describe('AgentClient - titleConvo', () => {
 
         await client.titleConvo({ text, abortController });
 
-        // Verify correct model and provider are used
+        // Provider is OPENAI because the Responses API path normalizes Azure instanceName
+        // configs into direct OpenAI-compatible URLs (azureOpenAIApiInstanceName is deleted
+        // from llmConfig), so the title generation code resolves to Providers.OPENAI.
         expect(mockRun.generateTitle).toHaveBeenCalledWith(
           expect.objectContaining({
-            provider: Providers.AZURE,
+            provider: Providers.OPENAI,
             titleMethod: 'completion',
           }),
         );
