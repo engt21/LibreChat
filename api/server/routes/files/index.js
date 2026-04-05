@@ -44,6 +44,7 @@ const initialize = async () => {
   });
 
   router.post('/', upload.single('file'));
+  router.post('/transcription-reference', upload.single('file'));
   router.post('/images', upload.single('file'));
   router.post('/images/avatar', upload.single('file'));
   router.post('/images/agents/:agent_id/avatar', upload.single('file'));

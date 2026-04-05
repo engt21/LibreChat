@@ -74,6 +74,41 @@ const file: Schema<IMongoFile> = new Schema(
     metadata: {
       fileIdentifier: String,
       nativeTool: String,
+      ragProvider: String,
+      ragModel: String,
+      transcriptionReference: {
+        durationSeconds: Number,
+      },
+      transcription: {
+        status: {
+          type: String,
+          enum: ['queued', 'processing', 'completed', 'failed'],
+        },
+        requestedAt: Date,
+        startedAt: Date,
+        completedAt: Date,
+        error: String,
+        language: String,
+        transcriptionModel: String,
+        prompt: String,
+        speakerReferences: [
+          {
+            id: String,
+            name: String,
+            file_id: String,
+          },
+        ],
+        requestMessageId: String,
+        responseMessageId: String,
+        conversationId: String,
+        chunkCount: Number,
+        provider: String,
+        model: String,
+        converted: Boolean,
+        attempts: Number,
+        lockUntil: Date,
+        lockedBy: String,
+      },
       openai: {
         endpoint: String,
         model: String,

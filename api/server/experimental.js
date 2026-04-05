@@ -28,6 +28,7 @@ const { updateInterfacePermissions } = require('~/models/interface');
 const { checkMigrations } = require('./services/start/migration');
 const initializeMCPs = require('./services/initializeMCPs');
 const { startScheduledJobRunner } = require('./services/ScheduledJobs/runner');
+const { startAudioTranscriptionRunner } = require('./services/Files/Audio/transcriptionQueue');
 const configureSocialLogins = require('./socialLogins');
 const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
@@ -377,6 +378,7 @@ if (cluster.isMaster) {
           ),
         );
         startScheduledJobRunner();
+        startAudioTranscriptionRunner();
       }
     });
   };

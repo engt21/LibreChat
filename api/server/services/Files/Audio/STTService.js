@@ -123,11 +123,10 @@ class STTService {
   /**
    * Creates a singleton instance of STTService.
    * @static
-   * @async
-   * @returns {Promise<STTService>} The STTService instance.
+   * @returns {STTService} The STTService instance.
    * @throws {Error} If the custom config is not found.
    */
-  static async getInstance() {
+  static getInstance() {
     return new STTService();
   }
 
@@ -190,24 +189,55 @@ class STTService {
    * @param {Stream} audioReadStream - The audio data to be transcribed.
    * @param {Object} audioFile - The audio file object (unused in OpenAI provider).
    * @param {string} language - The language code for the transcription.
+   * @param {Object} [overrides] - Optional overrides for model, prompt, response_format, chunking_strategy.
    * @returns {Array} An array containing the URL, data, and headers for the request.
    */
-  openAIProvider(sttSchema, audioReadStream, audioFile, language) {
+  openAIProvider(sttSchema, audioReadStream, audioFile, language, overrides = {}) {
     const url = sttSchema?.url || 'https://api.openai.com/v1/audio/transcriptions';
     const apiKey = extractEnvVariable(sttSchema.apiKey) || '';
+    const model = overrides.model || sttSchema.model;
 
-    const data = {
-      file: audioReadStream,
-      model: sttSchema.model,
-    };
+    const data = new FormData();
+    data.append('file', audioReadStream, {
+      filename: audioFile.originalname,
+      contentType: audioFile.mimetype,
+    });
+    data.append('model', model);
 
     const validLanguage = getValidatedLanguageCode(language);
     if (validLanguage) {
-      data.language = validLanguage;
+      data.append('language', validLanguage);
+    }
+
+    if (overrides.response_format) {
+      data.append('response_format', overrides.response_format);
+    }
+
+    if (overrides.prompt && model !== 'gpt-4o-transcribe-diarize') {
+      data.append('prompt', overrides.prompt);
+    }
+
+    if (overrides.chunking_strategy) {
+      data.append(
+        'chunking_strategy',
+        typeof overrides.chunking_strategy === 'string'
+          ? overrides.chunking_strategy
+          : JSON.stringify(overrides.chunking_strategy),
+      );
+    }
+
+    if (Array.isArray(overrides.known_speaker_names)) {
+      overrides.known_speaker_names.forEach((name) => data.append('known_speaker_names[]', name));
+    }
+
+    if (Array.isArray(overrides.known_speaker_references)) {
+      overrides.known_speaker_references.forEach((reference) =>
+        data.append('known_speaker_references[]', reference),
+      );
     }
 
     const headers = {
-      'Content-Type': 'multipart/form-data',
+      ...data.getHeaders(),
       ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
     };
     [headers].forEach(this.removeUndefined);
@@ -271,10 +301,11 @@ class STTService {
    * @param {Buffer} requestData.audioBuffer - The audio data to be transcribed.
    * @param {Object} requestData.audioFile - The audio file object containing originalname, mimetype, and size.
    * @param {string} requestData.language - The language code for the transcription.
-   * @returns {Promise<string>} A promise that resolves to the transcribed text.
+   * @param {Object} [requestData.overrides] - Optional overrides for model, prompt, response_format, chunking_strategy.
+   * @returns {Promise<string|Object>} A promise that resolves to the transcribed text, or the full response object when diarized_json is requested.
    * @throws {Error} If the provider is invalid, the response status is not 200, or the response data is missing.
    */
-  async sttRequest(provider, sttSchema, { audioBuffer, audioFile, language }) {
+  async sttRequest(provider, sttSchema, { audioBuffer, audioFile, language, overrides }) {
     const strategy = this.providerStrategies[provider];
     if (!strategy) {
       throw new Error('Invalid provider');
@@ -291,6 +322,7 @@ class STTService {
       audioReadStream,
       audioFile,
       language,
+      overrides,
     );
 
     const options = { headers };
@@ -304,6 +336,13 @@ class STTService {
 
       if (response.status !== 200) {
         throw new Error('Invalid response from the STT API');
+      }
+
+      if (overrides?.response_format === 'diarized_json') {
+        if (!response.data || (!response.data.segments && !response.data.text)) {
+          throw new Error('Missing data in diarized response from the STT API');
+        }
+        return response.data;
       }
 
       if (!response.data || !response.data.text) {

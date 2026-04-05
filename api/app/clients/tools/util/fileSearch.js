@@ -4,6 +4,7 @@ const { logger } = require('@librechat/data-schemas');
 const { generateShortLivedToken } = require('@librechat/api');
 const { Tools, EToolResources } = require('librechat-data-provider');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
+const { getRagRequestConfig } = require('~/server/services/Files/VectorDB/auth');
 const { getFiles } = require('~/models');
 
 const fileSearchJsonSchema = {
@@ -25,7 +26,7 @@ const fileSearchJsonSchema = {
  * @param {Agent['tool_resources']} options.tool_resources
  * @param {string} [options.agentId] - The agent ID for file access control
  * @returns {Promise<{
- *   files: Array<{ file_id: string; filename: string }>,
+ *   files: Array<{ file_id: string; filename: string; metadata?: import('librechat-data-provider').TFile['metadata'] }>,
  *   toolContext: string
  * }>}
  */
@@ -70,6 +71,7 @@ const primeFiles = async (options) => {
     files.push({
       file_id: file.file_id,
       filename: file.filename,
+      metadata: file.metadata,
     });
   }
 
@@ -80,12 +82,12 @@ const primeFiles = async (options) => {
  *
  * @param {Object} options
  * @param {string} options.userId
- * @param {Array<{ file_id: string; filename: string }>} options.files
+ * @param {Array<{ file_id: string; filename: string; metadata?: import('librechat-data-provider').TFile['metadata'] }>} options.files
  * @param {string} [options.entity_id]
  * @param {boolean} [options.fileCitations=false] - Whether to include citation instructions
  * @returns
  */
-const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = false }) => {
+const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = false, req }) => {
   return tool(
     async ({ query }) => {
       if (files.length === 0) {
@@ -114,34 +116,58 @@ const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = 
         return body;
       };
 
-      const queryPromises = files.map((file) =>
-        axios
-          .post(`${process.env.RAG_API_URL}/query`, createQueryBody(file), {
-            headers: {
-              Authorization: `Bearer ${jwtToken}`,
-              'Content-Type': 'application/json',
-            },
-          })
-          .catch((error) => {
-            logger.error('Error encountered in `file_search` while querying file:', error);
+      const queryResults = await Promise.all(
+        files.map(async (file) => {
+          const { ragApiUrl, headers: ragHeaders } = await getRagRequestConfig({
+            req,
+            provider: file?.metadata?.ragProvider,
+            metadata: file?.metadata,
+          });
+          if (!ragApiUrl) {
+            logger.error(
+              `[${Tools.file_search}] No RAG API URL configured for file`,
+              file?.file_id,
+            );
             return null;
-          }),
+          }
+
+          const response = await axios
+            .post(`${ragApiUrl}/query`, createQueryBody(file), {
+              headers: {
+                Authorization: `Bearer ${jwtToken}`,
+                'Content-Type': 'application/json',
+                ...ragHeaders,
+              },
+            })
+            .catch((error) => {
+              logger.error('Error encountered in `file_search` while querying file:', error);
+              return null;
+            });
+
+          if (!response) {
+            return null;
+          }
+
+          return { file, response };
+        }),
       );
 
-      const results = await Promise.all(queryPromises);
-      const validResults = results.filter((result) => result !== null);
+      const validResults = queryResults.filter((result) => result !== null);
 
       if (validResults.length === 0) {
         return ['No results found or errors occurred while searching the files.', undefined];
       }
 
       const formattedResults = validResults
-        .flatMap((result, fileIndex) =>
-          result.data.map(([docInfo, distance]) => ({
-            filename: docInfo.metadata.source.split('/').pop(),
+        .flatMap(({ file, response }) =>
+          response.data.map(([docInfo, distance]) => ({
+            filename:
+              docInfo.metadata?.source?.split('/')?.pop() ||
+              docInfo.metadata?.filename ||
+              file.filename,
             content: docInfo.page_content,
             distance,
-            file_id: files[fileIndex]?.file_id,
+            file_id: file.file_id,
             page: docInfo.metadata.page || null,
           })),
         )

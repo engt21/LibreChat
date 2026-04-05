@@ -353,94 +353,141 @@ const primeFiles = async (options, apiKey) => {
   const sessions = new Map();
   let toolContext = '';
 
+  const parseFileIdentifier = (fileIdentifier) => {
+    const [path, queryString] = fileIdentifier.split('?');
+    const [session_id, id] = path.split('/');
+
+    return {
+      path,
+      queryString,
+      session_id,
+      id,
+    };
+  };
+
   for (let i = 0; i < dbFiles.length; i++) {
     const file = dbFiles[i];
     if (!file) {
       continue;
     }
 
-    if (file.metadata.fileIdentifier) {
-      const [path, queryString] = file.metadata.fileIdentifier.split('?');
-      const [session_id, id] = path.split('/');
+    const pushFile = ({ id, session_id }) => {
+      if (!toolContext) {
+        toolContext = `- Note: The following files are available in the "${Tools.execute_code}" tool environment:`;
+      }
 
-      const pushFile = () => {
-        if (!toolContext) {
-          toolContext = `- Note: The following files are available in the "${Tools.execute_code}" tool environment:`;
-        }
+      let fileSuffix = '';
+      if (!agentResourceIds.has(file.file_id)) {
+        fileSuffix =
+          file.context === FileContext.execute_code
+            ? ' (from previous code execution)'
+            : ' (attached by user)';
+      }
 
-        let fileSuffix = '';
-        if (!agentResourceIds.has(file.file_id)) {
-          fileSuffix =
-            file.context === FileContext.execute_code
-              ? ' (from previous code execution)'
-              : ' (attached by user)';
-        }
+      toolContext += `\n\t- /mnt/data/${file.filename}${fileSuffix}`;
+      files.push({
+        id,
+        session_id,
+        name: file.filename,
+      });
+    };
 
-        toolContext += `\n\t- /mnt/data/${file.filename}${fileSuffix}`;
-        files.push({
-          id,
-          session_id,
-          name: file.filename,
-        });
+    let fileIdentifier = file.metadata?.fileIdentifier;
+    let parsedIdentifier = fileIdentifier ? parseFileIdentifier(fileIdentifier) : null;
+    let uploadedToCodeEnv = false;
+
+    const uploadToCodeEnvironment = async (queryParams = {}) => {
+      const source = file.source ?? FileSources.local;
+      const { getDownloadStream } = getStrategyFunctions(source);
+      const { handleFileUpload: uploadCodeEnvFile } = getStrategyFunctions(
+        FileSources.execute_code,
+      );
+      const stream = await getDownloadStream(options.req, file.filepath);
+      fileIdentifier = await uploadCodeEnvFile({
+        req: options.req,
+        stream,
+        filename: file.filename,
+        entity_id: queryParams.entity_id,
+        apiKey,
+      });
+
+      const updatedMetadata = {
+        ...(file.metadata ?? {}),
+        fileIdentifier,
       };
 
-      if (sessions.has(session_id)) {
-        pushFile();
+      await updateFile({
+        file_id: file.file_id,
+        metadata: updatedMetadata,
+      });
+
+      file.metadata = updatedMetadata;
+      parsedIdentifier = parseFileIdentifier(fileIdentifier);
+      uploadedToCodeEnv = true;
+    };
+
+    if (!fileIdentifier) {
+      if (file.metadata?.nativeTool !== EToolResources.execute_code) {
         continue;
       }
 
-      let queryParams = {};
-      if (queryString) {
-        queryParams = Object.fromEntries(new URLSearchParams(queryString).entries());
-      }
-
-      const reuploadFile = async () => {
-        try {
-          const { getDownloadStream } = getStrategyFunctions(file.source);
-          const { handleFileUpload: uploadCodeEnvFile } = getStrategyFunctions(
-            FileSources.execute_code,
-          );
-          const stream = await getDownloadStream(options.req, file.filepath);
-          const fileIdentifier = await uploadCodeEnvFile({
-            req: options.req,
-            stream,
-            filename: file.filename,
-            entity_id: queryParams.entity_id,
-            apiKey,
-          });
-
-          // Preserve existing metadata when adding fileIdentifier
-          const updatedMetadata = {
-            ...file.metadata, // Preserve existing metadata (like S3 storage info)
-            fileIdentifier, // Add fileIdentifier
-          };
-
-          await updateFile({
-            file_id: file.file_id,
-            metadata: updatedMetadata,
-          });
-          sessions.set(session_id, true);
-          pushFile();
-        } catch (error) {
-          logger.error(
-            `Error re-uploading file ${id} in session ${session_id}: ${error.message}`,
-            error,
-          );
-        }
-      };
-      const uploadTime = await getSessionInfo(file.metadata.fileIdentifier, apiKey);
-      if (!uploadTime) {
-        logger.warn(`Failed to get upload time for file ${id} in session ${session_id}`);
-        await reuploadFile();
+      try {
+        await uploadToCodeEnvironment();
+      } catch (error) {
+        logger.error(`Error uploading native code file ${file.file_id}: ${error.message}`, error);
         continue;
       }
-      if (!checkIfActive(uploadTime)) {
-        await reuploadFile();
-        continue;
-      }
-      sessions.set(session_id, true);
-      pushFile();
     }
+
+    if (!parsedIdentifier?.session_id || !parsedIdentifier?.id) {
+      continue;
+    }
+
+    if (uploadedToCodeEnv) {
+      sessions.set(parsedIdentifier.session_id, true);
+      pushFile(parsedIdentifier);
+      continue;
+    }
+
+    if (sessions.has(parsedIdentifier.session_id)) {
+      pushFile(parsedIdentifier);
+      continue;
+    }
+
+    let queryParams = {};
+    if (parsedIdentifier.queryString) {
+      queryParams = Object.fromEntries(new URLSearchParams(parsedIdentifier.queryString).entries());
+    }
+
+    const reuploadFile = async () => {
+      try {
+        await uploadToCodeEnvironment(queryParams);
+        sessions.set(parsedIdentifier.session_id, true);
+        pushFile(parsedIdentifier);
+      } catch (error) {
+        logger.error(
+          `Error re-uploading file ${file.file_id} in session ${parsedIdentifier.session_id}: ${error.message}`,
+          error,
+        );
+      }
+    };
+
+    const uploadTime = await getSessionInfo(fileIdentifier, apiKey);
+    if (!uploadTime) {
+      logger.warn(
+        `Failed to get upload time for file ${parsedIdentifier.id} in session ${parsedIdentifier.session_id}`,
+      );
+      await reuploadFile();
+      continue;
+    }
+
+    if (!checkIfActive(uploadTime)) {
+      await reuploadFile();
+      continue;
+    }
+
+    sessions.set(parsedIdentifier.session_id, true);
+    pushFile(parsedIdentifier);
   }
 
   return { files, toolContext };

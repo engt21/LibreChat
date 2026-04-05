@@ -9,6 +9,7 @@ const {
   fileConfig: defaultFileConfig,
 } = require('librechat-data-provider');
 const { getAppConfig } = require('~/server/services/Config');
+const { isTranscribableMediaFile } = require('~/server/services/Files/Audio/mediaFileTypes');
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -65,6 +66,16 @@ const createFileFilter = (customFileConfig) => {
     });
 
     if (!defaultFileConfig.checkType(file.mimetype, endpointFileConfig.supportedMimeTypes)) {
+      if (
+        req.body.message_file === 'true' &&
+        isTranscribableMediaFile({
+          filename: file.originalname,
+          mimetype: file.mimetype,
+        })
+      ) {
+        return cb(null, true);
+      }
+
       return cb(new Error('Unsupported file type: ' + file.mimetype), false);
     }
 

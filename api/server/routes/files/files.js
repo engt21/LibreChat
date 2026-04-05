@@ -2,11 +2,12 @@ const fs = require('fs').promises;
 const express = require('express');
 const { EnvVar } = require('@librechat/agents');
 const { logger } = require('@librechat/data-schemas');
-const { verifyAgentUploadPermission } = require('@librechat/api');
+const { verifyAgentUploadPermission, sanitizeFilename } = require('@librechat/api');
 const {
   Time,
   isUUID,
   CacheKeys,
+  FileContext,
   FileSources,
   ResourceType,
   EModelEndpoint,
@@ -20,6 +21,9 @@ const {
   processDeleteRequest,
   processAgentFileUpload,
 } = require('~/server/services/Files/process');
+const {
+  createAudioTranscriptionRequest,
+} = require('~/server/services/Files/Audio/transcriptionQueue');
 const { fileAccess } = require('~/server/middleware/accessResources/fileAccess');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { getOpenAIClient } = require('~/server/controllers/assistants/helpers');
@@ -27,14 +31,17 @@ const { checkPermission } = require('~/server/services/PermissionService');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { refreshS3FileUrls } = require('~/server/services/Files/S3/crud');
 const { hasAccessToFilesViaAgent } = require('~/server/services/Files');
-const { getFiles, batchUpdateFiles } = require('~/models');
+const { getFiles, batchUpdateFiles, createFile } = require('~/models');
 const { cleanFileName } = require('~/server/utils/files');
 const { getAssistant } = require('~/models/Assistant');
 const { getAgent } = require('~/models/Agent');
 const { getLogStores } = require('~/cache');
 const { Readable } = require('stream');
+const { probeMediaFile } = require('~/server/services/Files/Audio/transcribeMediaFile');
 
 const router = express.Router();
+const MIN_SPEAKER_REFERENCE_SECONDS = 2;
+const MAX_SPEAKER_REFERENCE_SECONDS = 10;
 
 router.get('/', async (req, res) => {
   try {
@@ -122,6 +129,103 @@ router.get('/config', async (req, res) => {
   } catch (error) {
     logger.error('[/files] Error getting fileConfig', error);
     res.status(400).json({ message: 'Error in request', error: error.message });
+  }
+});
+
+router.post('/transcribe', async (req, res) => {
+  try {
+    const result = await createAudioTranscriptionRequest(req);
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error('[/files/transcribe] Error queueing audio transcription:', error);
+    res
+      .status(error.statusCode ?? 400)
+      .json({ message: error.message ?? 'Failed to queue audio transcription' });
+  }
+});
+
+router.post('/transcription-reference', async (req, res) => {
+  let cleanup = true;
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No speaker reference clip provided.' });
+    }
+
+    const isSupported =
+      /\.(aac|aif|aiff|amr|avi|caf|flac|m4a|m4b|m4p|m4r|mkv|mov|mp2|mp3|mp4|mpeg|mpga|oga|ogg|opus|wav|webm|wma)$/i.test(
+        req.file.originalname,
+      );
+    const isAudioOrVideo =
+      req.file.mimetype.startsWith('audio/') || req.file.mimetype.startsWith('video/');
+
+    if (!isSupported && !isAudioOrVideo) {
+      return res.status(400).json({ message: 'Speaker references must be audio or video clips.' });
+    }
+
+    const { durationSeconds } = await probeMediaFile(req.file.path);
+    if (
+      !Number.isFinite(durationSeconds) ||
+      durationSeconds < MIN_SPEAKER_REFERENCE_SECONDS ||
+      durationSeconds > MAX_SPEAKER_REFERENCE_SECONDS
+    ) {
+      return res.status(400).json({
+        message: `Speaker references must be between ${MIN_SPEAKER_REFERENCE_SECONDS} and ${MAX_SPEAKER_REFERENCE_SECONDS} seconds long.`,
+      });
+    }
+
+    const source = req.config.fileStrategy;
+    const { handleFileUpload } = getStrategyFunctions(source);
+    const uploaded = await handleFileUpload({
+      req,
+      file: {
+        ...req.file,
+        originalname: sanitizeFilename(req.file.originalname),
+      },
+      file_id: req.file_id,
+    });
+
+    const result = await createFile(
+      {
+        user: req.user.id,
+        file_id: uploaded.id ?? req.file_id,
+        temp_file_id: req.body.file_id ?? null,
+        bytes: uploaded.bytes,
+        filepath: uploaded.filepath,
+        filename: uploaded.filename ?? sanitizeFilename(req.file.originalname),
+        context: FileContext.transcription_reference,
+        type: req.file.mimetype,
+        embedded: uploaded.embedded,
+        source,
+        height: uploaded.height,
+        width: uploaded.width,
+        metadata: {
+          transcriptionReference: {
+            durationSeconds,
+          },
+        },
+      },
+      true,
+    );
+
+    cleanup = false;
+    return res.status(200).json({ message: 'Speaker reference uploaded successfully', ...result });
+  } catch (error) {
+    logger.error('[/files/transcription-reference] Error uploading speaker reference:', error);
+    return res.status(500).json({ message: error.message ?? 'Error processing speaker reference' });
+  } finally {
+    if (req.file?.path) {
+      try {
+        await fs.unlink(req.file.path);
+      } catch (error) {
+        if (cleanup) {
+          logger.error(
+            '[/files/transcription-reference] Error deleting temp speaker reference:',
+            error,
+          );
+        }
+      }
+    }
   }
 });
 

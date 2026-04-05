@@ -45,6 +45,7 @@ jest.mock('~/server/services/Tools/credentials', () => ({
 
 jest.mock('~/models', () => ({
   createFile: jest.fn().mockResolvedValue({ file_id: 'created-file-id' }),
+  updateFile: jest.fn().mockResolvedValue({ file_id: 'created-file-id', text: 'updated text' }),
   updateFileUsage: jest.fn(),
   deleteFiles: jest.fn(),
 }));
@@ -347,6 +348,57 @@ describe('processAgentFileUpload', () => {
       await expect(
         processAgentFileUpload({ req, res: mockRes, metadata: makeMetadata() }),
       ).resolves.not.toThrow();
+    });
+  });
+
+  describe('image context uploads', () => {
+    test('stores image attachments and OCR text together when context mode is used', async () => {
+      const { createFile, updateFile } = require('~/models');
+      mergeFileConfig.mockReturnValue(makeFileConfig({ ocrSupportedMimeTypes: ['image/png'] }));
+
+      const ocrUpload = jest.fn().mockResolvedValue({
+        text: 'screenshot text',
+        bytes: 15,
+        filepath: 'ocr://result',
+      });
+      const imageUpload = jest.fn().mockResolvedValue({
+        filepath: '/images/screenshot.png',
+        bytes: 123,
+        width: 100,
+        height: 200,
+      });
+
+      getStrategyFunctions
+        .mockReturnValueOnce({ handleFileUpload: ocrUpload })
+        .mockReturnValueOnce({ handleImageUpload: imageUpload });
+
+      const req = makeReq({
+        mimetype: 'image/png',
+        ocrConfig: { strategy: FileSources.mistral_ocr },
+      });
+      req.file.originalname = 'screenshot.png';
+      req.config.imageOutputType = 'png';
+
+      const metadata = {
+        ...makeMetadata(),
+        message_file: true,
+      };
+
+      await expect(processAgentFileUpload({ req, res: mockRes, metadata })).resolves.not.toThrow();
+
+      expect(getStrategyFunctions).toHaveBeenCalledWith(FileSources.mistral_ocr);
+      expect(imageUpload).toHaveBeenCalled();
+      expect(createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'file-uuid-123',
+          filepath: '/images/screenshot.png',
+        }),
+        true,
+      );
+      expect(updateFile).toHaveBeenCalledWith({
+        file_id: 'created-file-id',
+        text: 'screenshot text',
+      });
     });
   });
 

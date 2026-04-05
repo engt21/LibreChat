@@ -22,6 +22,7 @@ export const scheduledJobTargetSchema = z.object({
     .object({
       web_search: z.boolean().optional(),
       web_search_mode: z.nativeEnum(WebSearchModes).optional(),
+      file_search: z.boolean().optional(),
       execute_code: z.boolean().optional(),
       artifacts: z.string().optional(),
       mcp: z.array(z.string()).optional(),

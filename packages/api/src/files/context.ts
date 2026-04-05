@@ -38,7 +38,7 @@ export async function extractFileContext({
 
   for (const file of attachments) {
     const source = file.source ?? FileSources.local;
-    if (source === FileSources.text && file.text) {
+    if (file.text) {
       const { text: limitedText, wasTruncated } = await processTextWithTokenLimit({
         text: file.text,
         tokenLimit: fileTokenLimit,
@@ -51,7 +51,8 @@ export async function extractFileContext({
         );
       }
 
-      resultText += `${!resultText ? 'Attached document(s):\n```md' : '\n\n---\n\n'}# "${file.filename}"\n${limitedText}\n`;
+      const extractedFromImage = source !== FileSources.text && file.type?.startsWith('image/');
+      resultText += `${!resultText ? 'Attached document(s):\n```md' : '\n\n---\n\n'}# "${file.filename}"${extractedFromImage ? ' (OCR text extracted from image)' : ''}\n${limitedText}\n`;
     }
   }
 

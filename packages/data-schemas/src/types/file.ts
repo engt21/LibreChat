@@ -22,6 +22,28 @@ export interface IMongoFile extends Omit<Document, 'model'> {
   metadata?: {
     fileIdentifier?: string;
     nativeTool?: string;
+    ragProvider?: string;
+    ragModel?: string;
+    transcription?: {
+      status?: 'queued' | 'processing' | 'completed' | 'failed';
+      requestedAt?: Date | null;
+      startedAt?: Date | null;
+      completedAt?: Date | null;
+      error?: string | null;
+      language?: string | null;
+      transcriptionModel?: string | null;
+      prompt?: string | null;
+      requestMessageId?: string | null;
+      responseMessageId?: string | null;
+      conversationId?: string | null;
+      chunkCount?: number | null;
+      provider?: string | null;
+      model?: string | null;
+      converted?: boolean;
+      attempts?: number;
+      lockUntil?: Date | null;
+      lockedBy?: string | null;
+    };
     openai?: {
       endpoint?: string;
       model?: string;

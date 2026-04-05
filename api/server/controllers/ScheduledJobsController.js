@@ -1,5 +1,5 @@
 const crypto = require('node:crypto');
-const { isAgentsEndpoint } = require('librechat-data-provider');
+const { WebSearchModes, isAgentsEndpoint } = require('librechat-data-provider');
 const {
   createScheduledJob,
   getScheduledJob,
@@ -23,6 +23,7 @@ const {
 const MAX_NAME_LENGTH = 120;
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_PROMPT_PREFIX_LENGTH = 4000;
+const VALID_WEB_SEARCH_MODES = new Set(Object.values(WebSearchModes));
 
 function isScheduleRunning(schedule) {
   return (
@@ -53,6 +54,11 @@ function normalizeNotifications(notifications = {}) {
 }
 
 function normalizeTarget(target = {}) {
+  const rawWebSearchMode =
+    typeof target.ephemeralAgent?.web_search_mode === 'string'
+      ? target.ephemeralAgent.web_search_mode.trim()
+      : undefined;
+
   const normalized = {
     endpoint: target.endpoint?.trim(),
   };
@@ -75,15 +81,18 @@ function normalizeTarget(target = {}) {
   if (target.ephemeralAgent && typeof target.ephemeralAgent === 'object') {
     normalized.ephemeralAgent = {
       web_search: target.ephemeralAgent.web_search === true,
+      web_search_mode:
+        rawWebSearchMode && VALID_WEB_SEARCH_MODES.has(rawWebSearchMode)
+          ? rawWebSearchMode
+          : undefined,
+      file_search: target.ephemeralAgent.file_search === true,
       execute_code: target.ephemeralAgent.execute_code === true,
       artifacts:
         typeof target.ephemeralAgent.artifacts === 'string'
           ? target.ephemeralAgent.artifacts.trim()
           : undefined,
       mcp: Array.isArray(target.ephemeralAgent.mcp)
-        ? target.ephemeralAgent.mcp
-            .map((value) => String(value).trim())
-            .filter(Boolean)
+        ? target.ephemeralAgent.mcp.map((value) => String(value).trim()).filter(Boolean)
         : undefined,
     };
   }
@@ -94,6 +103,13 @@ function normalizeTarget(target = {}) {
 function validateTarget(target) {
   if (!target?.endpoint) {
     throw new Error('A target endpoint is required');
+  }
+
+  if (
+    target?.ephemeralAgent?.web_search_mode &&
+    !VALID_WEB_SEARCH_MODES.has(target.ephemeralAgent.web_search_mode)
+  ) {
+    throw new Error('Invalid web search mode');
   }
 
   if (isAgentsEndpoint(target.endpoint)) {
@@ -131,9 +147,7 @@ function validateScheduleInput(payload) {
   }
 
   if (target.promptPrefix && target.promptPrefix.length > MAX_PROMPT_PREFIX_LENGTH) {
-    throw new Error(
-      `Prompt prefix must be ${MAX_PROMPT_PREFIX_LENGTH} characters or fewer`,
-    );
+    throw new Error(`Prompt prefix must be ${MAX_PROMPT_PREFIX_LENGTH} characters or fewer`);
   }
 
   validateTarget(target);
@@ -177,7 +191,10 @@ async function createScheduleController(req, res) {
 
 async function updateScheduleController(req, res) {
   try {
-    const existing = await getScheduledJob({ user: req.user.id, scheduleId: req.params.scheduleId });
+    const existing = await getScheduledJob({
+      user: req.user.id,
+      scheduleId: req.params.scheduleId,
+    });
     if (!existing) {
       return res.status(404).json({ message: 'Scheduled run not found' });
     }
@@ -195,6 +212,10 @@ async function updateScheduleController(req, res) {
       target: {
         ...(existing.target ?? {}),
         ...(req.body?.target ?? {}),
+        ephemeralAgent: {
+          ...(existing.target?.ephemeralAgent ?? {}),
+          ...(req.body?.target?.ephemeralAgent ?? {}),
+        },
       },
     };
 
@@ -217,7 +238,10 @@ async function updateScheduleController(req, res) {
 
 async function deleteScheduleController(req, res) {
   try {
-    const existing = await getScheduledJob({ user: req.user.id, scheduleId: req.params.scheduleId });
+    const existing = await getScheduledJob({
+      user: req.user.id,
+      scheduleId: req.params.scheduleId,
+    });
     if (!existing) {
       return res.status(404).json({ message: 'Scheduled run not found' });
     }

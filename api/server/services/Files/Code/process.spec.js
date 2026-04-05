@@ -29,7 +29,7 @@ jest.mock('librechat-data-provider', () => {
   };
 });
 
-const { FileContext } = require('librechat-data-provider');
+const { FileContext, FileSources, EToolResources } = require('librechat-data-provider');
 
 // Mock uuid
 jest.mock('uuid', () => ({
@@ -90,14 +90,14 @@ jest.mock('~/server/utils', () => ({
   determineFileType: jest.fn(),
 }));
 
-const { createFile, getFiles } = require('~/models');
+const { createFile, getFiles, updateFile } = require('~/models');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { convertImage } = require('~/server/services/Files/images/convert');
 const { determineFileType } = require('~/server/utils');
 const { logger } = require('@librechat/data-schemas');
 
 // Import after mocks
-const { processCodeOutput } = require('./process');
+const { processCodeOutput, primeFiles } = require('./process');
 
 describe('Code Process', () => {
   const mockReq = {
@@ -174,6 +174,76 @@ describe('Code Process', () => {
 
       expect(result.file_id).toBe('mock-uuid-1234');
       expect(result.usage).toBe(1);
+    });
+  });
+
+  describe('primeFiles', () => {
+    it('uploads native execute_code attachments into the code environment', async () => {
+      const getDownloadStream = jest.fn().mockResolvedValue('mock-stream');
+      const uploadCodeEnvFile = jest.fn().mockResolvedValue('session-456/file-789');
+
+      getFiles.mockResolvedValue([]);
+      getStrategyFunctions.mockImplementation((source) => {
+        if (source === FileSources.execute_code) {
+          return {
+            handleFileUpload: uploadCodeEnvFile,
+          };
+        }
+
+        return {
+          getDownloadStream,
+        };
+      });
+
+      const nativeAttachment = {
+        file_id: 'file-native-123',
+        filename: 'sample.xlsx',
+        filepath: '/uploads/sample.xlsx',
+        source: FileSources.local,
+        context: FileContext.message_attachment,
+        metadata: {
+          nativeTool: EToolResources.execute_code,
+        },
+      };
+
+      const result = await primeFiles(
+        {
+          req: mockReq,
+          agentId: 'agent-123',
+          tool_resources: {
+            [EToolResources.execute_code]: {
+              files: [nativeAttachment],
+              file_ids: [],
+            },
+          },
+        },
+        'test-api-key',
+      );
+
+      expect(getDownloadStream).toHaveBeenCalledWith(mockReq, '/uploads/sample.xlsx');
+      expect(uploadCodeEnvFile).toHaveBeenCalledWith({
+        req: mockReq,
+        stream: 'mock-stream',
+        filename: 'sample.xlsx',
+        entity_id: undefined,
+        apiKey: 'test-api-key',
+      });
+      expect(updateFile).toHaveBeenCalledWith({
+        file_id: 'file-native-123',
+        metadata: {
+          nativeTool: EToolResources.execute_code,
+          fileIdentifier: 'session-456/file-789',
+        },
+      });
+      expect(result.files).toEqual([
+        {
+          id: 'file-789',
+          session_id: 'session-456',
+          name: 'sample.xlsx',
+        },
+      ]);
+      expect(result.toolContext).toContain('/mnt/data/sample.xlsx');
+      expect(result.toolContext).toContain('(attached by user)');
     });
   });
 

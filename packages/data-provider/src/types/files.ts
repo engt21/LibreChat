@@ -1,4 +1,5 @@
 import { EToolResources } from './assistants';
+import type { TConversation, TMessage } from '../schemas';
 
 export enum FileSources {
   local = 'local',
@@ -27,6 +28,7 @@ export enum FileContext {
   execute_code = 'execute_code',
   image_generation = 'image_generation',
   assistants_output = 'assistants_output',
+  transcription_reference = 'transcription_reference',
   message_attachment = 'message_attachment',
   filename = 'filename',
   updatedAt = 'updatedAt',
@@ -118,6 +120,36 @@ export type TFile = {
   metadata?: {
     fileIdentifier?: string;
     nativeTool?: EToolResources;
+    ragProvider?: string;
+    ragModel?: string;
+    transcriptionReference?: {
+      durationSeconds?: number | null;
+    };
+    transcription?: {
+      status?: 'queued' | 'processing' | 'completed' | 'failed';
+      requestedAt?: string | Date | null;
+      startedAt?: string | Date | null;
+      completedAt?: string | Date | null;
+      error?: string | null;
+      language?: string | null;
+      transcriptionModel?: string | null;
+      prompt?: string | null;
+      speakerReferences?: {
+        id?: string;
+        name: string;
+        file_id: string;
+      }[];
+      requestMessageId?: string | null;
+      responseMessageId?: string | null;
+      conversationId?: string | null;
+      chunkCount?: number | null;
+      provider?: string | null;
+      model?: string | null;
+      converted?: boolean;
+      attempts?: number;
+      lockUntil?: string | Date | null;
+      lockedBy?: string | null;
+    };
     openai?: {
       endpoint?: string;
       model?: string;
@@ -139,6 +171,32 @@ export type AvatarUploadResponse = {
 
 export type SpeechToTextResponse = {
   text: string;
+};
+
+export type StartAudioTranscriptionRequest = {
+  file_id: string;
+  conversationId?: string;
+  endpoint?: string;
+  endpointType?: string;
+  model?: string;
+  agent_id?: string;
+  assistant_id?: string;
+  spec?: string;
+  iconURL?: string;
+  language?: string;
+  transcriptionModel?: string;
+  prompt?: string;
+  speakerReferences?: {
+    id?: string;
+    name: string;
+    file_id: string;
+  }[];
+};
+
+export type StartAudioTranscriptionResponse = {
+  conversation: TConversation;
+  messages: TMessage[];
+  responseMessageId: string;
 };
 
 export type VoiceResponse = string[];

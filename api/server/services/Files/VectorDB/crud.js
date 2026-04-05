@@ -4,6 +4,8 @@ const FormData = require('form-data');
 const { logger } = require('@librechat/data-schemas');
 const { FileSources } = require('librechat-data-provider');
 const { logAxiosError, generateShortLivedToken } = require('@librechat/api');
+const { getRagApiUrl } = require('./routing');
+const { getRagRequestConfig } = require('./auth');
 
 /**
  * Deletes a file from the vector database. This function takes a file object, constructs the full path, and
@@ -18,13 +20,16 @@ const { logAxiosError, generateShortLivedToken } = require('@librechat/api');
  *          file path is invalid or if there is an error in deletion.
  */
 const deleteVectors = async (req, file) => {
-  if (!file.embedded || !process.env.RAG_API_URL) {
+  const ragProvider = file?.metadata?.ragProvider;
+  const ragApiUrl = getRagApiUrl(ragProvider);
+
+  if (!file.embedded || !ragApiUrl) {
     return;
   }
   try {
     const jwtToken = generateShortLivedToken(req.user.id);
 
-    return await axios.delete(`${process.env.RAG_API_URL}/documents`, {
+    return await axios.delete(`${ragApiUrl}/documents`, {
       headers: {
         Authorization: `Bearer ${jwtToken}`,
         'Content-Type': 'application/json',
@@ -65,8 +70,10 @@ const deleteVectors = async (req, file) => {
  *            - bytes: The size of the file in bytes.
  */
 async function uploadVectors({ req, file, file_id, entity_id, storageMetadata }) {
-  if (!process.env.RAG_API_URL) {
-    throw new Error('RAG_API_URL not defined');
+  const { provider, model, ragApiUrl, headers: ragHeaders } = await getRagRequestConfig({ req });
+
+  if (!ragApiUrl) {
+    throw new Error('RAG API URL not defined');
   }
 
   try {
@@ -85,10 +92,11 @@ async function uploadVectors({ req, file, file_id, entity_id, storageMetadata })
 
     const formHeaders = formData.getHeaders();
 
-    const response = await axios.post(`${process.env.RAG_API_URL}/embed`, formData, {
+    const response = await axios.post(`${ragApiUrl}/embed`, formData, {
       headers: {
         Authorization: `Bearer ${jwtToken}`,
         accept: 'application/json',
+        ...ragHeaders,
         ...formHeaders,
       },
     });
@@ -109,6 +117,8 @@ async function uploadVectors({ req, file, file_id, entity_id, storageMetadata })
       filename: file.originalname,
       filepath: FileSources.vectordb,
       embedded: Boolean(responseData.known_type),
+      provider,
+      model,
     };
   } catch (error) {
     logAxiosError({

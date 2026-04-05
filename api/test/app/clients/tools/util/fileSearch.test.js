@@ -3,6 +3,12 @@ const axios = require('axios');
 jest.mock('axios');
 jest.mock('@librechat/api', () => ({
   generateShortLivedToken: jest.fn(),
+  isUserProvided: jest.fn(() => false),
+  resolveAzureOpenAIDirectConfig: jest.fn(({ apiKey, baseURL }) => ({
+    apiKey,
+    baseURL,
+    azureOptions: undefined,
+  })),
 }));
 
 jest.mock('@librechat/data-schemas', () => ({
@@ -15,14 +21,17 @@ jest.mock('@librechat/data-schemas', () => ({
 
 jest.mock('~/models', () => ({
   getFiles: jest.fn().mockResolvedValue([]),
+  getUserKey: jest.fn().mockResolvedValue(null),
+  getUserKeyValues: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('~/server/services/Files/permissions', () => ({
   filterFilesByAgentAccess: jest.fn((options) => Promise.resolve(options.files)),
 }));
 
-const { createFileSearchTool } = require('~/app/clients/tools/util/fileSearch');
+const { createFileSearchTool, primeFiles } = require('~/app/clients/tools/util/fileSearch');
 const { generateShortLivedToken } = require('@librechat/api');
+const { getFiles } = require('~/models');
 
 describe('fileSearch.js - tuple return validation', () => {
   beforeEach(() => {
@@ -80,6 +89,52 @@ describe('fileSearch.js - tuple return validation', () => {
   });
 
   describe('success cases should return tuple with artifact object', () => {
+    it('preserves provider metadata through primeFiles and routes queries to the matching RAG API', async () => {
+      generateShortLivedToken.mockReturnValue('mock-jwt-token');
+      process.env.GOOGLE_RAG_API_URL = 'http://localhost:8102';
+      getFiles.mockResolvedValue([
+        {
+          file_id: 'file-google',
+          filename: 'google.pdf',
+          metadata: { ragProvider: 'google' },
+        },
+      ]);
+
+      axios.post.mockResolvedValue({
+        data: [
+          [
+            {
+              page_content: 'Google indexed content',
+              metadata: { filename: 'google.pdf', page: 1 },
+            },
+            0.12,
+          ],
+        ],
+      });
+
+      const { files } = await primeFiles({
+        req: {},
+        tool_resources: {
+          file_search: {
+            file_ids: ['file-google'],
+          },
+        },
+      });
+
+      const fileSearchTool = await createFileSearchTool({
+        userId: 'user1',
+        files,
+      });
+
+      await fileSearchTool.func({ query: 'test query' });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        'http://localhost:8102/query',
+        expect.objectContaining({ file_id: 'file-google' }),
+        expect.any(Object),
+      );
+    });
+
     it('should return tuple with formatted results and sources artifact', async () => {
       generateShortLivedToken.mockReturnValue('mock-jwt-token');
 
@@ -227,6 +282,39 @@ describe('fileSearch.js - tuple return validation', () => {
       // Results are sorted by distance (ascending), so file-2 (0.15) comes before file-1 (0.25)
       expect(artifact.file_search.sources[0].fileId).toBe('file-2');
       expect(artifact.file_search.sources[1].fileId).toBe('file-1');
+    });
+
+    it('keeps file associations correct when some file queries fail', async () => {
+      generateShortLivedToken.mockReturnValue('mock-jwt-token');
+
+      axios.post.mockRejectedValueOnce(new Error('first file failed')).mockResolvedValueOnce({
+        data: [
+          [
+            {
+              page_content: 'Recovered content from file 2',
+              metadata: { page: 4 },
+            },
+            0.1,
+          ],
+        ],
+      });
+
+      const fileSearchTool = await createFileSearchTool({
+        userId: 'user1',
+        files: [
+          { file_id: 'file-1', filename: 'file1.pdf' },
+          { file_id: 'file-2', filename: 'file2.pdf' },
+        ],
+      });
+
+      const [, artifact] = await fileSearchTool.func({ query: 'test query' });
+
+      expect(artifact.file_search.sources).toHaveLength(1);
+      expect(artifact.file_search.sources[0]).toMatchObject({
+        fileId: 'file-2',
+        fileName: 'file2.pdf',
+        pages: [4],
+      });
     });
   });
 });

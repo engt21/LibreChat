@@ -24,15 +24,11 @@ const getScheduledJobs = async (user, filter = {}, projection = null) => {
 };
 
 const updateScheduledJob = async ({ user, scheduleId }, update, options = {}) => {
-  return await ScheduledJob.findOneAndUpdate(
-    { user, scheduleId },
-    update,
-    {
-      new: true,
-      runValidators: true,
-      ...options,
-    },
-  ).lean();
+  return await ScheduledJob.findOneAndUpdate({ user, scheduleId }, update, {
+    new: true,
+    runValidators: true,
+    ...options,
+  }).lean();
 };
 
 const deleteScheduledJob = async ({ user, scheduleId }) => {

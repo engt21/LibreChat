@@ -9,6 +9,8 @@ export type ScheduledJobTarget = {
   spec?: string;
   ephemeralAgent?: {
     web_search?: boolean;
+    web_search_mode?: string;
+    file_search?: boolean;
     execute_code?: boolean;
     mcp?: string[];
     artifacts?: string;

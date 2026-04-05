@@ -277,6 +277,50 @@ describe('File Methods', () => {
       expect(updated?.bytes).toBe(200);
       expect(updated?.expiresAt).toBeUndefined();
     });
+
+    it('should persist transcription metadata updates', async () => {
+      const fileId = uuidv4();
+      const userId = new mongoose.Types.ObjectId();
+      const requestedAt = new Date();
+
+      await fileMethods.createFile({
+        file_id: fileId,
+        user: userId,
+        filename: 'transcription.wav',
+        filepath: '/uploads/transcription.wav',
+        type: 'audio/wav',
+        bytes: 100,
+      });
+
+      const updated = await fileMethods.updateFile({
+        file_id: fileId,
+        conversationId: 'conv-123',
+        messageId: 'msg-request',
+        metadata: {
+          transcription: {
+            status: 'queued',
+            requestedAt,
+            requestMessageId: 'msg-request',
+            responseMessageId: 'msg-response',
+            conversationId: 'conv-123',
+            attempts: 0,
+          },
+        },
+      });
+
+      expect(updated).not.toBeNull();
+      expect(updated?.messageId).toBe('msg-request');
+      expect(updated?.metadata?.transcription?.status).toBe('queued');
+      expect(updated?.metadata?.transcription?.requestMessageId).toBe('msg-request');
+      expect(updated?.metadata?.transcription?.responseMessageId).toBe('msg-response');
+      expect(updated?.metadata?.transcription?.requestedAt?.toISOString()).toBe(
+        requestedAt.toISOString(),
+      );
+
+      const reloaded = await fileMethods.findFileById(fileId);
+      expect(reloaded?.metadata?.transcription?.conversationId).toBe('conv-123');
+      expect(reloaded?.metadata?.transcription?.attempts).toBe(0);
+    });
   });
 
   describe('updateFileUsage', () => {

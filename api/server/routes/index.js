@@ -15,6 +15,7 @@ const apiKeys = require('./apiKeys');
 const banner = require('./banner');
 const search = require('./search');
 const models = require('./models');
+const realtime = require('./realtime');
 const convos = require('./convos');
 const config = require('./config');
 const agents = require('./agents');
@@ -47,6 +48,7 @@ module.exports = {
   search,
   config,
   models,
+  realtime,
   prompts,
   actions,
   presets,

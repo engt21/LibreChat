@@ -75,19 +75,41 @@ export const fullMimeTypesList = [
   'video/flv',
   'video/webm',
   'video/mkv',
+  'video/matroska',
+  'video/x-matroska',
   'video/m4v',
+  'video/quicktime',
+  'video/x-msvideo',
+  'video/x-ms-wmv',
+  'video/x-flv',
   'video/3gp',
+  'video/3gpp',
   'video/ogv',
   // Audio formats
   'audio/mp3',
   'audio/wav',
+  'audio/wave',
+  'audio/x-wav',
   'audio/ogg',
+  'audio/vorbis',
+  'audio/oga',
   'audio/m4a',
+  'audio/mp4',
+  'audio/x-m4a',
   'audio/aac',
+  'audio/amr',
+  'audio/mp2',
+  'audio/mpga',
+  'audio/aiff',
+  'audio/x-aiff',
+  'audio/x-caf',
   'audio/flac',
+  'audio/x-flac',
   'audio/wma',
+  'audio/x-ms-wma',
   'audio/opus',
   'audio/mpeg',
+  'application/ogg',
   ...excelFileTypes,
 ];
 
@@ -183,14 +205,15 @@ export const textMimeTypes =
   /^(text\/(x-c|x-csharp|tab-separated-values|x-c\+\+|x-h|x-java|html|markdown|x-php|x-python|x-script\.python|x-ruby|x-tex|plain|css|vtt|javascript|csv|xml))$/;
 
 export const applicationMimeTypes =
-  /^(application\/(epub\+zip|csv|json|msword|pdf|x-tar|x-sh|typescript|sql|yaml|x-parquet|vnd\.apache\.parquet|vnd\.coffeescript|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|presentationml\.presentation|spreadsheetml\.sheet)|vnd\.oasis\.opendocument\.(text|spreadsheet|presentation|graphics)|xml|zip))$/;
+  /^(application\/(epub\+zip|csv|json|msword|ogg|pdf|x-tar|x-sh|typescript|sql|yaml|x-parquet|vnd\.apache\.parquet|vnd\.coffeescript|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|presentationml\.presentation|spreadsheetml\.sheet)|vnd\.oasis\.opendocument\.(text|spreadsheet|presentation|graphics)|xml|zip))$/;
 
 export const imageMimeTypes = /^image\/(jpeg|gif|png|webp|heic|heif)$/;
 
 export const audioMimeTypes =
-  /^audio\/(mp3|mpeg|mpeg3|wav|wave|x-wav|ogg|vorbis|mp4|m4a|x-m4a|flac|x-flac|webm|aac|wma|opus)$/;
+  /^audio\/(aac|aiff|amr|flac|mp2|mp3|mp4|mpga|mpeg|mpeg3|m4a|oga|ogg|opus|vorbis|wav|wave|webm|wma|x-aiff|x-caf|x-flac|x-m4a|x-ms-wma|x-wav)$/;
 
-export const videoMimeTypes = /^video\/(mp4|avi|mov|wmv|flv|webm|mkv|m4v|3gp|ogv)$/;
+export const videoMimeTypes =
+  /^video\/(3gp|3gpp|avi|flv|m4v|matroska|mkv|mov|mp4|ogv|quicktime|webm|wmv|x-flv|x-matroska|x-msvideo|x-ms-wmv)$/;
 
 export const defaultOCRMimeTypes = [
   imageMimeTypes,

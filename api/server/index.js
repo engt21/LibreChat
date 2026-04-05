@@ -29,6 +29,7 @@ const { updateInterfacePermissions } = require('~/models/interface');
 const { checkMigrations } = require('./services/start/migration');
 const initializeMCPs = require('./services/initializeMCPs');
 const { startScheduledJobRunner } = require('./services/ScheduledJobs/runner');
+const { startAudioTranscriptionRunner } = require('./services/Files/Audio/transcriptionQueue');
 const configureSocialLogins = require('./socialLogins');
 const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
@@ -207,6 +208,7 @@ const startServer = async () => {
     await initializeOAuthReconnectManager();
     await checkMigrations();
     startScheduledJobRunner();
+    startAudioTranscriptionRunner();
 
     // Configure stream services (auto-detects Redis from USE_REDIS env var)
     const streamServices = createStreamServices();

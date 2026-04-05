@@ -30,13 +30,14 @@ const { addResourceFileId, deleteResourceFileId } = require('~/server/controller
 const { addAgentResourceFile, removeAgentResourceFiles } = require('~/models/Agent');
 const { getOpenAIClient } = require('~/server/controllers/assistants/helpers');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
-const { createFile, updateFileUsage, deleteFiles } = require('~/models');
+const { createFile, updateFile, updateFileUsage, deleteFiles } = require('~/models');
 const { getFileStrategy } = require('~/server/utils/getFileStrategy');
 const { checkCapability } = require('~/server/services/Config');
 const { LB_QueueAsyncCall } = require('~/server/utils/queue');
 const { getStrategyFunctions } = require('./strategies');
 const { determineFileType } = require('~/server/utils');
 const { STTService } = require('./Audio/STTService');
+const { isTranscribableMediaFile } = require('./Audio/mediaFileTypes');
 
 const getNativeUploadTool = ({ endpoint, endpointType, messageAttachment, nativeTool }) => {
   const effectiveEndpoint = endpointType || endpoint;
@@ -582,6 +583,29 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
         .json({ message: 'Agent file uploaded and processed successfully', ...result });
     };
 
+    const createImageContextFile = async ({ text = '' }) => {
+      const imageResult = await processImageFile({
+        req,
+        metadata: { file_id, temp_file_id },
+        returnFile: true,
+      });
+
+      if (!text?.trim()) {
+        return res
+          .status(200)
+          .json({ message: 'Agent file uploaded and processed successfully', ...imageResult });
+      }
+
+      const result = await updateFile({
+        file_id: imageResult.file_id,
+        text,
+      });
+
+      return res
+        .status(200)
+        .json({ message: 'Agent file uploaded and processed successfully', ...result });
+    };
+
     const fileConfig = mergeFileConfig(appConfig.fileConfig);
 
     const shouldUseConfiguredOCR =
@@ -625,6 +649,11 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
       const ocrResult = await resolveDocumentText();
       if (ocrResult) {
         const { text, bytes, filepath: ocrFileURL } = ocrResult;
+
+        if (messageAttachment && file.mimetype.startsWith('image/')) {
+          return await createImageContextFile({ text });
+        }
+
         return await createTextFile({ text, bytes, filepath: ocrFileURL });
       }
       throw new Error(
@@ -683,8 +712,11 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
       entity_id,
     });
 
-    // Vector status will be stored at root level, no need for metadata
-    fileInfoMetadata = {};
+    fileInfoMetadata = removeNullishValues({
+      ...(fileInfoMetadata ?? {}),
+      ragProvider: embeddingResult?.provider,
+      ragModel: embeddingResult?.model,
+    });
   } else {
     // Standard single storage for non-RAG files
     const { handleFileUpload } = getStrategyFunctions(source);
@@ -1052,8 +1084,15 @@ function filterFile({ req, image, isAvatar }) {
     file.mimetype,
     endpointFileConfig.supportedMimeTypes,
   );
+  const isMessageAttachment = req.body.message_file === 'true';
+  const isTranscribableMedia = isMessageAttachment
+    ? isTranscribableMediaFile({
+        filename: file.originalname,
+        mimetype: file.mimetype,
+      })
+    : false;
 
-  if (!isSupportedMimeType) {
+  if (!isSupportedMimeType && !isTranscribableMedia) {
     throw new Error('Unsupported file type');
   }
 
