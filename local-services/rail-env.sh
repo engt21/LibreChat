@@ -161,6 +161,10 @@ resolve_librechat_rail() {
       export LOCAL_CODE_SANDBOX_PYTHON_IMAGE="librechat-local-sandbox-python-stable:latest"
       export LIBRECHAT_API_MEM_LIMIT="3072m"
       export LIBRECHAT_API_NODE_MAX_OLD_SPACE="2048"
+      # Stable does not override Langfuse NODE_OPTIONS; the container uses
+      # Node.js default heap sizing, which is appropriate for the higher
+      # memory limits available on the production rail.
+      export LIBRECHAT_LANGFUSE_NODE_OPTIONS=""
       export LIBRECHAT_MANAGE_SHARED_SERVICES="true"
       ;;
     dev)

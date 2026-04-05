@@ -198,9 +198,11 @@ langfuse_checked=false
 for project in librechat-stable librechat-dev; do
   rail="${project#librechat-}"
 
-  # Only check Langfuse if this rail's ClickHouse container exists
+  # Only check Langfuse if this rail's ClickHouse container is actually running.
+  # Using 'docker ps' (not 'docker ps -a') avoids false failures when a rail
+  # is intentionally stopped — stopped containers still appear in 'docker ps -a'.
   ch_container="${project}-langfuse-clickhouse-1"
-  if ! docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${ch_container}$"; then
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${ch_container}$"; then
     continue
   fi
   langfuse_checked=true

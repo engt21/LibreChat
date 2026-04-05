@@ -231,7 +231,7 @@ services:
     image: docker.io/langfuse/langfuse:3
     mem_limit: ${LIBRECHAT_LANGFUSE_WEB_MEM_LIMIT:-600m}
     environment:
-      NODE_OPTIONS: "${LIBRECHAT_LANGFUSE_NODE_OPTIONS:---max-old-space-size=512}"
+      NODE_OPTIONS: "${LIBRECHAT_LANGFUSE_NODE_OPTIONS:-}"
     depends_on: *langfuse-depends-on
     ports:
       - "${LIBRECHAT_LANGFUSE_WEB_HOST_PORT:-3000}:3000"
