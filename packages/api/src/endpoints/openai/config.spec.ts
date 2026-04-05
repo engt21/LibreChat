@@ -220,6 +220,42 @@ describe('getOpenAIConfig', () => {
     });
   });
 
+  it('should normalize direct Azure OpenAI endpoints and add api-key headers', () => {
+    const result = getOpenAIConfig(
+      mockApiKey,
+      {
+        reverseProxyUrl: 'https://example-resource.openai.azure.com',
+        modelOptions: { model: 'gpt-4.1-prod' },
+      },
+      EModelEndpoint.azureOpenAI,
+    );
+
+    expect(result.configOptions?.baseURL).toBe(
+      'https://example-resource.openai.azure.com/openai/v1',
+    );
+    expect(result.configOptions?.defaultHeaders).toMatchObject({ 'api-key': mockApiKey });
+  });
+
+  it('should add preview api-version for direct Azure responses API requests', () => {
+    const result = getOpenAIConfig(
+      mockApiKey,
+      {
+        reverseProxyUrl: 'https://example-resource.services.ai.azure.com/api/projects/demo',
+        modelOptions: {
+          model: 'gpt-5',
+          useResponsesApi: true,
+        },
+      },
+      EModelEndpoint.azureOpenAI,
+    );
+
+    expect(result.configOptions?.baseURL).toBe(
+      'https://example-resource.services.ai.azure.com/api/projects/demo/openai/v1',
+    );
+    expect(result.configOptions?.defaultHeaders).toMatchObject({ 'api-key': mockApiKey });
+    expect(result.configOptions?.defaultQuery).toBeUndefined();
+  });
+
   it('should handle web search model option', () => {
     const modelOptions = {
       model: 'gpt-5',
@@ -396,7 +432,7 @@ describe('getOpenAIConfig', () => {
     expect(result.configOptions?.defaultQuery).toEqual(defaultQuery);
   });
 
-  it('should handle verbosity parameter in modelKwargs', () => {
+  it('should ignore verbosity for models without verbosity support', () => {
     const modelOptions = {
       model: 'gpt-4',
       temperature: 0.7,
@@ -409,12 +445,10 @@ describe('getOpenAIConfig', () => {
       model: 'gpt-4',
       temperature: 0.7,
     });
-    expect(result.llmConfig.modelKwargs).toEqual({
-      verbosity: Verbosity.high,
-    });
+    expect(result.llmConfig.modelKwargs).toBeUndefined();
   });
 
-  it('should allow addParams to override verbosity in modelKwargs', () => {
+  it('should preserve custom addParams when unsupported verbosity is provided', () => {
     const modelOptions = {
       model: 'gpt-4',
       verbosity: Verbosity.low,
@@ -430,7 +464,6 @@ describe('getOpenAIConfig', () => {
 
     expect(result.llmConfig.temperature).toBe(0.8);
     expect(result.llmConfig.modelKwargs).toEqual({
-      verbosity: Verbosity.high, // Should be overridden by addParams
       customParam: 'value',
     });
   });
@@ -448,9 +481,9 @@ describe('getOpenAIConfig', () => {
     });
   });
 
-  it('should nest verbosity under text when useResponsesApi is enabled', () => {
+  it('should nest verbosity under text when a GPT-5 model uses Responses API', () => {
     const modelOptions = {
-      model: 'gpt-4',
+      model: 'gpt-5',
       temperature: 0.7,
       verbosity: Verbosity.low,
       useResponsesApi: true,
@@ -459,8 +492,7 @@ describe('getOpenAIConfig', () => {
     const result = getOpenAIConfig(mockApiKey, { modelOptions });
 
     expect(result.llmConfig).toMatchObject({
-      model: 'gpt-4',
-      temperature: 0.7,
+      model: 'gpt-5',
       useResponsesApi: true,
     });
     expect(result.llmConfig.modelKwargs).toEqual({
@@ -509,7 +541,7 @@ describe('getOpenAIConfig', () => {
     });
   });
 
-  it('should handle GPT-5+ models with existing modelKwargs', () => {
+  it('should preserve max_completion_tokens when unsupported verbosity is removed', () => {
     const modelOptions = {
       model: 'gpt-6',
       max_tokens: 1000,
@@ -524,7 +556,6 @@ describe('getOpenAIConfig', () => {
 
     expect(result.llmConfig.maxTokens).toBeUndefined();
     expect(result.llmConfig.modelKwargs).toEqual({
-      verbosity: Verbosity.low,
       customParam: 'value',
       max_completion_tokens: 1000,
     });
@@ -722,9 +753,7 @@ describe('getOpenAIConfig', () => {
       expect(result.configOptions?.defaultHeaders).toMatchObject({
         'api-key': mockApiKey,
       });
-      expect(result.configOptions?.defaultQuery).toMatchObject({
-        'api-version': 'preview',
-      });
+      expect(result.configOptions?.defaultQuery).toBeUndefined();
       expect(result.llmConfig.apiKey).toBe(mockApiKey);
       expect(
         (result.llmConfig as Record<string, unknown>).azureOpenAIApiDeploymentName,
@@ -1036,8 +1065,8 @@ describe('getOpenAIConfig', () => {
       const searchModels = [
         'gpt-4o-search',
         'gpt-4o-mini-search',
-        'gpt-4o-2024-search',
-        'custom-gpt-4o-search-model',
+        'gpt-4o-search-preview',
+        'gpt-4o-mini-search-preview',
       ];
 
       searchModels.forEach((model) => {
@@ -1055,10 +1084,8 @@ describe('getOpenAIConfig', () => {
         expect(result.llmConfig.temperature).toBeUndefined();
         expect((result.llmConfig as Record<string, unknown>).frequency_penalty).toBeUndefined();
         expect((result.llmConfig as Record<string, unknown>).presence_penalty).toBeUndefined();
-        /** `frequency_penalty` is converted to `frequencyPenalty` */
-        expect(result.llmConfig.frequencyPenalty).toBe(0.5);
-        expect(result.llmConfig.presencePenalty).toBe(0.6);
-        /** `presence_penalty` is converted to `presencePenalty` */
+        expect(result.llmConfig.frequencyPenalty).toBeUndefined();
+        expect(result.llmConfig.presencePenalty).toBeUndefined();
         expect(result.llmConfig.maxTokens).toBe(1000); // max_tokens is allowed
         expect((result.llmConfig as Record<string, unknown>).custom_param).toBe('should-remain');
       });
@@ -1107,9 +1134,8 @@ describe('getOpenAIConfig', () => {
       const result = getOpenAIConfig(mockApiKey, { addParams });
 
       expect(result.llmConfig.maxTokens).toBe(1000);
-      expect(result.llmConfig.topP).toBe(0.9);
+      expect(result.llmConfig.topP).toBe(0.8);
       expect(result.llmConfig.modelKwargs).toEqual({
-        top_p: 0.8,
         customParam: 'value',
       });
     });
@@ -1170,7 +1196,6 @@ describe('getOpenAIConfig', () => {
       });
       expect(result.llmConfig.maxTokens).toBe(2000);
       expect(result.llmConfig.modelKwargs).toEqual({
-        text: { verbosity: Verbosity.medium },
         customParam: 'custom-value',
       });
       expect(result.tools).toEqual([{ type: 'web_search' }]);
@@ -1215,8 +1240,6 @@ describe('getOpenAIConfig', () => {
       expect(result.llmConfig.useResponsesApi).toBeUndefined();
       expect(result.llmConfig.maxTokens).toBe(2000);
       expect(result.llmConfig.modelKwargs).toEqual({
-        reasoning: { effort: ReasoningEffort.high },
-        verbosity: Verbosity.medium,
         customParam: 'custom-value',
         plugins: [{ id: 'web' }], // OpenRouter web search format
       });

@@ -1,5 +1,5 @@
 import { Providers } from '@librechat/agents';
-import { AuthKeys, ThinkingLevel } from 'librechat-data-provider';
+import { AuthKeys, GoogleAuthMode, ThinkingLevel } from 'librechat-data-provider';
 import type * as t from '~/types';
 import { getGoogleConfig, getSafetySettings, knownGoogleParams } from './llm';
 
@@ -270,6 +270,52 @@ describe('getGoogleConfig', () => {
       });
 
       expect(result.provider).toBe(Providers.VERTEXAI);
+    });
+
+    it('should respect explicit Vertex service account auth mode when API key is also present', () => {
+      const credentials = {
+        [AuthKeys.GOOGLE_API_KEY]: 'test-api-key',
+        [AuthKeys.GOOGLE_AUTH_MODE]: GoogleAuthMode.VERTEX_SERVICE_ACCOUNT,
+        [AuthKeys.GOOGLE_SERVICE_KEY]: {
+          project_id: 'vertex-project',
+          client_email: 'vertex@test-project.iam.gserviceaccount.com',
+          private_key: 'test-private-key',
+        },
+      };
+
+      const result = getGoogleConfig(credentials, {
+        modelOptions: {
+          model: 'gemini-1.5-pro',
+        },
+      });
+
+      expect(result.provider).toBe(Providers.VERTEXAI);
+      expect(result.llmConfig).not.toHaveProperty('apiKey');
+      expect((result.llmConfig as Record<string, unknown>).authOptions).toMatchObject({
+        projectId: 'vertex-project',
+      });
+    });
+
+    it('should configure Vertex AI with application default credentials', () => {
+      const credentials = {
+        [AuthKeys.GOOGLE_AUTH_MODE]: GoogleAuthMode.VERTEX_APPLICATION_DEFAULT,
+        [AuthKeys.GOOGLE_VERTEX_PROJECT]: 'adc-project',
+      };
+
+      const result = getGoogleConfig(credentials, {
+        modelOptions: {
+          model: 'gemini-1.5-pro',
+        },
+      });
+
+      expect(result.provider).toBe(Providers.VERTEXAI);
+      expect(result.llmConfig).toHaveProperty('location', 'us-central1');
+      expect((result.llmConfig as Record<string, unknown>).authOptions).toMatchObject({
+        projectId: 'adc-project',
+      });
+      expect((result.llmConfig as Record<string, unknown>).authOptions).not.toHaveProperty(
+        'credentials',
+      );
     });
   });
 
@@ -576,7 +622,22 @@ describe('getGoogleConfig', () => {
   });
 
   describe('Web Search Functionality', () => {
-    it('should enable web search when web_search is true', () => {
+    it('should enable web search when web_search is true for supported Gemini families', () => {
+      const credentials = {
+        [AuthKeys.GOOGLE_API_KEY]: 'test-api-key',
+      };
+
+      const result = getGoogleConfig(credentials, {
+        modelOptions: {
+          model: 'gemini-2.5-flash',
+          web_search: true,
+        },
+      });
+
+      expect(result.tools).toContainEqual({ googleSearch: {} });
+    });
+
+    it('should ignore web search for unsupported Gemini families', () => {
       const credentials = {
         [AuthKeys.GOOGLE_API_KEY]: 'test-api-key',
       };
@@ -588,7 +649,7 @@ describe('getGoogleConfig', () => {
         },
       });
 
-      expect(result.tools).toContainEqual({ googleSearch: {} });
+      expect(result.tools).not.toContainEqual({ googleSearch: {} });
     });
 
     it('should not include web search tools when web_search is false', () => {
@@ -613,7 +674,7 @@ describe('getGoogleConfig', () => {
 
       const result = getGoogleConfig(credentials, {
         modelOptions: {
-          model: 'gemini-1.5-flash',
+          model: 'gemini-2.5-flash',
         },
         defaultParams: {
           web_search: true,
@@ -630,7 +691,7 @@ describe('getGoogleConfig', () => {
 
       const result = getGoogleConfig(credentials, {
         modelOptions: {
-          model: 'gemini-1.5-flash',
+          model: 'gemini-2.5-flash',
         },
         addParams: {
           web_search: true,
@@ -647,7 +708,7 @@ describe('getGoogleConfig', () => {
 
       const result = getGoogleConfig(credentials, {
         modelOptions: {
-          model: 'gemini-1.5-flash',
+          model: 'gemini-2.5-flash',
           web_search: true,
         },
         dropParams: ['web_search'],

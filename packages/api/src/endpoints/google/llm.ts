@@ -1,14 +1,15 @@
 import { Providers } from '@librechat/agents';
 import {
   googleSettings,
-  AuthKeys,
   removeNullishValues,
   isGoogleThinkingLevelModel,
+  getGoogleModelCapabilities as resolveGoogleModelCapabilities,
 } from 'librechat-data-provider';
 import type { GoogleClientOptions, VertexAIClientOptions } from '@librechat/agents';
 import type { GoogleAIToolType } from '@langchain/google-common';
 import type * as t from '~/types';
 import { isEnabled } from '~/utils';
+import { resolveGoogleClientAuth } from './auth';
 
 /** Known Google/Vertex AI parameters that map directly to the client config */
 export const knownGoogleParams = new Set([
@@ -128,28 +129,8 @@ export function getGoogleConfig(
   options: t.GoogleConfigOptions = {},
   acceptRawApiKey = false,
 ) {
-  let creds: t.GoogleCredentials = {};
-  if (acceptRawApiKey && typeof credentials === 'string') {
-    creds[AuthKeys.GOOGLE_API_KEY] = credentials;
-  } else if (typeof credentials === 'string') {
-    try {
-      creds = JSON.parse(credentials);
-    } catch (err: unknown) {
-      throw new Error(
-        `Error parsing string credentials: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      );
-    }
-  } else if (credentials && typeof credentials === 'object') {
-    creds = credentials;
-  }
-
-  const serviceKeyRaw = creds[AuthKeys.GOOGLE_SERVICE_KEY] ?? {};
-  const serviceKey =
-    typeof serviceKeyRaw === 'string' ? JSON.parse(serviceKeyRaw) : (serviceKeyRaw ?? {});
-
-  const apiKey = creds[AuthKeys.GOOGLE_API_KEY] ?? null;
-  const project_id = !apiKey ? (serviceKey?.project_id ?? null) : null;
-
+  const authConfig = resolveGoogleClientAuth(credentials, { acceptRawApiKey });
+  const apiKey = authConfig.apiKey ?? null;
   const reverseProxyUrl = options.reverseProxyUrl;
   const authHeader = options.authHeader;
 
@@ -179,30 +160,32 @@ export function getGoogleConfig(
   /** Used only for Safety Settings */
   llmConfig.safetySettings = getSafetySettings(llmConfig.model);
 
-  let provider;
+  const provider = authConfig.useVertex ? Providers.VERTEXAI : Providers.GOOGLE;
 
-  if (project_id) {
-    provider = Providers.VERTEXAI;
-  } else {
-    provider = Providers.GOOGLE;
-  }
-
-  // If we have a GCP project => Vertex AI
   if (provider === Providers.VERTEXAI) {
-    (llmConfig as VertexAIClientOptions).authOptions = {
-      credentials: { ...serviceKey },
-      projectId: project_id,
-    };
-    (llmConfig as VertexAIClientOptions).location = process.env.GOOGLE_LOC || 'us-central1';
+    const vertexAuthOptions = removeNullishValues(
+      {
+        ...(authConfig.serviceKey ? { credentials: { ...authConfig.serviceKey } } : {}),
+        ...(authConfig.projectId ? { projectId: authConfig.projectId } : {}),
+      },
+      true,
+    );
+
+    if (Object.keys(vertexAuthOptions).length > 0) {
+      (llmConfig as VertexAIClientOptions).authOptions = vertexAuthOptions;
+    }
+
+    (llmConfig as VertexAIClientOptions).location = authConfig.location;
   } else if (apiKey && provider === Providers.GOOGLE) {
     llmConfig.apiKey = apiKey;
   } else {
     throw new Error(
-      `Invalid credentials provided. Please provide either a valid API key or service account credentials for Google Cloud.`,
+      'Invalid credentials provided. Please provide a valid Google API key, Vertex AI service account JSON, or Vertex AI application default credentials.',
     );
   }
 
   const modelName = (modelOptions?.model ?? '') as string;
+  const modelCapabilities = resolveGoogleModelCapabilities(modelName);
 
   /**
    * Gemini 3+ uses a qualitative `thinkingLevel` ('minimal'|'low'|'medium'|'high')
@@ -270,7 +253,7 @@ export function getGoogleConfig(
     (llmConfig as GoogleClientOptions).baseUrl = reverseProxyUrl;
   }
 
-  if (authHeader) {
+  if (authHeader && apiKey) {
     (llmConfig as GoogleClientOptions).customHeaders = {
       Authorization: `Bearer ${apiKey}`,
     };
@@ -330,7 +313,7 @@ export function getGoogleConfig(
 
   const tools: GoogleAIToolType[] = [];
 
-  if (enableWebSearch) {
+  if (enableWebSearch && modelCapabilities.supportsWebSearch) {
     tools.push({ googleSearch: {} });
   }
 

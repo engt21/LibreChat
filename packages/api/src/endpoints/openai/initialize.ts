@@ -5,7 +5,14 @@ import type {
   OpenAIConfigOptions,
   UserKeyValues,
 } from '~/types';
-import { getAzureCredentials, resolveHeaders, isUserProvided, checkUserKeyExpiry } from '~/utils';
+import {
+  getAzureCredentials,
+  resolveAzureOpenAIDirectConfig,
+  resolveHeaders,
+  isUserProvided,
+  checkUserKeyExpiry,
+  supportsAzureOpenAIModelListing,
+} from '~/utils';
 import { getOpenAIConfig } from './config';
 
 /**
@@ -63,6 +70,14 @@ export async function initializeOpenAI({
 
   const isAzureOpenAI = endpoint === EModelEndpoint.azureOpenAI;
   const azureConfig = isAzureOpenAI && appConfig?.endpoints?.[EModelEndpoint.azureOpenAI];
+  const directAzureConfig =
+    isAzureOpenAI && !azureConfig
+      ? resolveAzureOpenAIDirectConfig({
+          apiKey,
+          baseURL,
+          models: userValues?.models,
+        })
+      : undefined;
   let isServerless = false;
 
   if (isAzureOpenAI && azureConfig) {
@@ -95,9 +110,11 @@ export async function initializeOpenAI({
     clientOptions.azure = !isServerless ? azureOptions : undefined;
 
     if (isServerless) {
-      clientOptions.defaultQuery = azureOptions.azureOpenAIApiVersion
-        ? { 'api-version': azureOptions.azureOpenAIApiVersion }
-        : undefined;
+      clientOptions.defaultQuery =
+        azureOptions.azureOpenAIApiVersion &&
+        !supportsAzureOpenAIModelListing(clientOptions.reverseProxyUrl)
+          ? { 'api-version': azureOptions.azureOpenAIApiVersion }
+          : undefined;
 
       if (!clientOptions.headers) {
         clientOptions.headers = {};
@@ -105,9 +122,26 @@ export async function initializeOpenAI({
       clientOptions.headers['api-key'] = apiKey;
     }
   } else if (isAzureOpenAI) {
-    clientOptions.azure =
-      userProvidesKey && userValues?.apiKey ? JSON.parse(userValues.apiKey) : getAzureCredentials();
-    apiKey = clientOptions.azure ? clientOptions.azure.azureOpenAIApiKey : undefined;
+    if (directAzureConfig?.baseURL) {
+      clientOptions.reverseProxyUrl = directAzureConfig.baseURL;
+      apiKey = directAzureConfig.apiKey;
+    }
+
+    if (directAzureConfig?.isLegacyCredentialPayload && directAzureConfig.azureOptions) {
+      clientOptions.azure = directAzureConfig.azureOptions;
+      apiKey = directAzureConfig.azureOptions.azureOpenAIApiKey;
+    } else if (!directAzureConfig?.baseURL) {
+      clientOptions.azure = getAzureCredentials();
+      apiKey = clientOptions.azure ? clientOptions.azure.azureOpenAIApiKey : undefined;
+    }
+  }
+
+  if (isAzureOpenAI && userProvidesURL && !clientOptions.reverseProxyUrl && !clientOptions.azure) {
+    throw new Error(
+      JSON.stringify({
+        type: ErrorTypes.NO_BASE_URL,
+      }),
+    );
   }
 
   if (userProvidesKey && !apiKey) {

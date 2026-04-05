@@ -6,7 +6,12 @@ import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm
 import { getOpenAILLMConfig, extractDefaultParams } from './llm';
 import { getGoogleConfig } from '~/endpoints/google/llm';
 import { transformToOpenAIConfig } from './transform';
-import { constructAzureURL } from '~/utils/azure';
+import {
+  constructAzureURL,
+  isAzureOpenAIEndpointCandidate,
+  normalizeAzureOpenAIBaseURL,
+  supportsAzureOpenAIModelListing,
+} from '~/utils/azure';
 import { createFetch } from '~/utils/generators';
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -31,7 +36,7 @@ export function getOpenAIConfig(
     directEndpoint,
     streaming = true,
     modelOptions = {},
-    reverseProxyUrl: baseURL,
+    reverseProxyUrl: rawBaseURL,
   } = options;
 
   /** Extract default params from customParams.paramDefinitions */
@@ -41,6 +46,16 @@ export function getOpenAIConfig(
   let tools: t.LLMConfigResult['tools'];
   const isAnthropic = options.customParams?.defaultParamsEndpoint === EModelEndpoint.anthropic;
   const isGoogle = options.customParams?.defaultParamsEndpoint === EModelEndpoint.google;
+  const isDirectAzureEndpoint =
+    !options.azure &&
+    isAzureOpenAIEndpointCandidate({
+      endpoint,
+      baseURL: rawBaseURL,
+      defaultParamsEndpoint: options.customParams?.defaultParamsEndpoint,
+    });
+  const baseURL = isDirectAzureEndpoint
+    ? (normalizeAzureOpenAIBaseURL(rawBaseURL) ?? rawBaseURL)
+    : rawBaseURL;
 
   const useOpenRouter =
     !isAnthropic &&
@@ -164,13 +179,30 @@ export function getOpenAIConfig(
         ...configOptions.defaultHeaders,
         'api-key': apiKey,
       };
+
+      if (!supportsAzureOpenAIModelListing(configOptions.baseURL)) {
+        configOptions.defaultQuery = {
+          ...configOptions.defaultQuery,
+          'api-version': configOptions.defaultQuery?.['api-version'] ?? 'preview',
+        };
+      }
+    };
+
+    constructAzureResponsesApi();
+  }
+
+  if (isDirectAzureEndpoint && !isAnthropic) {
+    configOptions.defaultHeaders = {
+      ...configOptions.defaultHeaders,
+      'api-key': apiKey,
+    };
+
+    if (llmConfig.useResponsesApi === true && !supportsAzureOpenAIModelListing(baseURL)) {
       configOptions.defaultQuery = {
         ...configOptions.defaultQuery,
         'api-version': configOptions.defaultQuery?.['api-version'] ?? 'preview',
       };
-    };
-
-    constructAzureResponsesApi();
+    }
   }
 
   if (process.env.OPENAI_ORGANIZATION && !isAnthropic) {

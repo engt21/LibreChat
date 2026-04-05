@@ -29,6 +29,9 @@ const openAIModels = {
   'gpt-3.5-turbo-1106': 16375, // -10 from max
   'gpt-3.5-turbo-0125': 16375, // -10 from max
   'gpt-3.5-turbo': 16375, // -10 from max
+  'gpt-3.5-turbo-instruct': 4095, // -1 from max
+  'davinci-002': 16384,
+  'babbage-002': 16384,
   'gpt-4': 8187, // -5 from max
   'gpt-4-0613': 8187, // -5 from max
   'gpt-4-32k': 32758, // -10 from max
@@ -114,6 +117,9 @@ const googleModels = {
   'gemini-3-pro-image': 1000000,
   'gemini-3.1': 1000000,
   'gemini-3.1-flash-lite': 1000000,
+  'gemini-pro-latest': 1000000,
+  'gemini-flash-latest': 1000000,
+  'gemini-flash-lite-latest': 1000000,
 };
 
 const anthropicModels = {
@@ -317,6 +323,8 @@ const xAIModels = {
   'grok-3-mini': 131072,
   'grok-3-mini-fast': 131072,
   'grok-code-fast': 256000, // 256K context
+  'grok-4.20-multi-agent': 2000000, // 2M context
+  'grok-4.20-beta': 2000000, // 2M context
   'grok-4': 256000, // 256K context
   'grok-4-fast': 2000000, // 2M context
   'grok-4-1-fast': 2000000, // 2M context (covers reasoning & non-reasoning variants)

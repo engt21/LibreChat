@@ -1,12 +1,12 @@
-import path from 'path';
-import { EModelEndpoint, AuthKeys } from 'librechat-data-provider';
+import { EModelEndpoint } from 'librechat-data-provider';
 import type {
   BaseInitializeParams,
   InitializeResultBase,
   GoogleConfigOptions,
   GoogleCredentials,
 } from '~/types';
-import { isEnabled, loadServiceKey, checkUserKeyExpiry } from '~/utils';
+import { isEnabled, checkUserKeyExpiry } from '~/utils';
+import { prepareGoogleCredentials } from './auth';
 import { getGoogleConfig } from './llm';
 
 /**
@@ -35,33 +35,10 @@ export async function initializeGoogle({
     userKey = await db.getUserKey({ userId: req.user?.id, name: EModelEndpoint.google });
   }
 
-  let serviceKey: Record<string, unknown> = {};
-
-  /** Check if GOOGLE_KEY is provided at all (including 'user_provided') */
-  const isGoogleKeyProvided =
-    (GOOGLE_KEY && GOOGLE_KEY.trim() !== '') || (isUserProvided && userKey != null);
-
-  if (!isGoogleKeyProvided && loadServiceKey) {
-    /** Only attempt to load service key if GOOGLE_KEY is not provided */
-    try {
-      const serviceKeyPath =
-        process.env.GOOGLE_SERVICE_KEY_FILE || path.join(process.cwd(), 'api', 'data', 'auth.json');
-      const loadedKey = await loadServiceKey(serviceKeyPath);
-      if (loadedKey) {
-        serviceKey = loadedKey;
-      }
-    } catch {
-      // Service key loading failed, but that's okay if not required
-      serviceKey = {};
-    }
-  }
-
-  const credentials: GoogleCredentials = isUserProvided
-    ? (userKey as GoogleCredentials)
-    : {
-        [AuthKeys.GOOGLE_SERVICE_KEY]: serviceKey,
-        [AuthKeys.GOOGLE_API_KEY]: GOOGLE_KEY,
-      };
+  const credentials: GoogleCredentials = await prepareGoogleCredentials({
+    credentials: isUserProvided ? (userKey as GoogleCredentials | null) : undefined,
+    rawApiKey: isUserProvided ? undefined : GOOGLE_KEY,
+  });
 
   let clientOptions: GoogleConfigOptions = {};
 

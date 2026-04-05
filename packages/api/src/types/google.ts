@@ -1,11 +1,15 @@
 import { z } from 'zod';
-import { AuthKeys, googleBaseSchema } from 'librechat-data-provider';
+import { AuthKeys, GoogleAuthMode, googleBaseSchema } from 'librechat-data-provider';
+import type { GoogleServiceKey } from '~/utils/key';
 
 export type GoogleParameters = z.infer<typeof googleBaseSchema>;
 
 export type GoogleCredentials = {
-  [AuthKeys.GOOGLE_SERVICE_KEY]?: string | Record<string, unknown>;
+  [AuthKeys.GOOGLE_SERVICE_KEY]?: string | GoogleServiceKey;
   [AuthKeys.GOOGLE_API_KEY]?: string;
+  [AuthKeys.GOOGLE_AUTH_MODE]?: GoogleAuthMode | string;
+  [AuthKeys.GOOGLE_VERTEX_PROJECT]?: string;
+  [AuthKeys.GOOGLE_VERTEX_LOCATION]?: string;
 };
 
 /**

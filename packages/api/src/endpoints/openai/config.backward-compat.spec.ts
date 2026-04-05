@@ -180,9 +180,6 @@ describe('getOpenAIConfig - Backward Compatibility', () => {
           defaultHeaders: {
             'api-key': 'some_azure_key',
           },
-          defaultQuery: {
-            'api-version': 'preview',
-          },
         },
         tools: [],
       });

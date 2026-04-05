@@ -6,16 +6,25 @@ import type { InitializeAgentDbMethods } from '../initialize';
 
 // Mock logger
 jest.mock('winston', () => ({
+  addColors: jest.fn(),
+  format: Object.assign(
+    jest.fn((transform) => transform),
+    {
+      combine: jest.fn((...args) => args),
+      colorize: jest.fn(() => 'colorize'),
+      simple: jest.fn(() => 'simple'),
+      errors: jest.fn(() => 'errors'),
+      splat: jest.fn(() => 'splat'),
+      timestamp: jest.fn(() => 'timestamp'),
+      printf: jest.fn((fn) => fn),
+      json: jest.fn(() => 'json'),
+    },
+  ),
   createLogger: jest.fn(() => ({
     debug: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
   })),
-  format: {
-    combine: jest.fn(),
-    colorize: jest.fn(),
-    simple: jest.fn(),
-  },
   transports: {
     Console: jest.fn(),
   },

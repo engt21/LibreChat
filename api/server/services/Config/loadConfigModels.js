@@ -1,25 +1,74 @@
-const { isUserProvided, fetchModels } = require('@librechat/api');
+const { isUserProvided, fetchModels, filterOpenAITextCompatibleModels } = require('@librechat/api');
 const {
   EModelEndpoint,
   KnownEndpoints,
   extractEnvVariable,
   normalizeEndpointName,
 } = require('librechat-data-provider');
+const { getUserKeyValues } = require('~/models');
 const { getAppConfig } = require('./app');
 
 const isStrictOllamaEndpoint = (name, endpoint) =>
   name === KnownEndpoints.ollama && endpoint?.models?.fetch === true;
 
+const isOpenAICompatibleEndpoint = (name, endpoint) => {
+  const defaultParamsEndpoint = (endpoint?.customParams?.defaultParamsEndpoint ?? '')
+    .trim()
+    .toLowerCase();
+
+  return defaultParamsEndpoint === EModelEndpoint.openAI.toLowerCase();
+};
+
+const getDefaultModels = (models = {}) =>
+  Array.isArray(models.default)
+    ? models.default.map((model) => (typeof model === 'string' ? model : model.name))
+    : [];
+
+async function resolveCustomEndpointValues(req, endpoint, includeUserProvidedFetch) {
+  const resolvedValues = {
+    apiKey: extractEnvVariable(endpoint.apiKey),
+    baseURL: extractEnvVariable(endpoint.baseURL),
+    baseURLs: Array.isArray(endpoint.baseURLs)
+      ? endpoint.baseURLs.map((url) => extractEnvVariable(url))
+      : [],
+  };
+
+  if (
+    includeUserProvidedFetch !== true ||
+    !req.user?.id ||
+    !endpoint.name ||
+    (!isUserProvided(resolvedValues.apiKey) && !isUserProvided(resolvedValues.baseURL))
+  ) {
+    return resolvedValues;
+  }
+
+  const userValues = await getUserKeyValues({
+    userId: req.user.id,
+    name: endpoint.name,
+  }).catch(() => null);
+
+  return {
+    apiKey: isUserProvided(resolvedValues.apiKey)
+      ? (userValues?.apiKey ?? '')
+      : resolvedValues.apiKey,
+    baseURL: isUserProvided(resolvedValues.baseURL)
+      ? (userValues?.baseURL ?? '')
+      : resolvedValues.baseURL,
+    baseURLs: resolvedValues.baseURLs,
+  };
+}
+
 /**
  * Load config endpoints from the cached configuration object
  * @function loadConfigModels
  * @param {ServerRequest} req - The Express request object.
- * @param {{ endpointNames?: string[] }} [options] - Optional endpoint filter.
+ * @param {{ endpointNames?: string[], includeUserProvidedFetch?: boolean }} [options] - Optional endpoint filter.
  */
 async function loadConfigModels(req, options = {}) {
   const endpointNameFilter = Array.isArray(options.endpointNames)
     ? new Set(options.endpointNames.map((name) => normalizeEndpointName(name)))
     : null;
+  const includeUserProvidedFetch = options.includeUserProvidedFetch === true;
   const appConfig = await getAppConfig({ role: req.user?.role });
   if (!appConfig) {
     return {};
@@ -93,24 +142,36 @@ async function loadConfigModels(req, options = {}) {
     const name = normalizeEndpointName(configName);
     endpointsMap[name] = endpoint;
 
-    const API_KEY = extractEnvVariable(apiKey);
-    const BASE_URL = extractEnvVariable(baseURL);
-    const BASE_URLS = Array.isArray(baseURLs) ? baseURLs.map((url) => extractEnvVariable(url)) : [];
+    const {
+      apiKey: resolvedApiKey,
+      baseURL: resolvedBaseURL,
+      baseURLs: resolvedBaseURLs,
+    } = await resolveCustomEndpointValues(
+      req,
+      { ...endpoint, apiKey, baseURL, baseURLs },
+      includeUserProvidedFetch,
+    );
 
-    const uniqueKey = `${BASE_URL}__${JSON.stringify(BASE_URLS)}__${API_KEY}`;
+    const uniqueKey = `${resolvedBaseURL}__${JSON.stringify(resolvedBaseURLs)}__${resolvedApiKey}`;
 
     modelsConfig[name] = [];
 
-    if (models.fetch && !isUserProvided(API_KEY) && !isUserProvided(BASE_URL)) {
+    if (
+      models.fetch &&
+      resolvedApiKey &&
+      resolvedBaseURL &&
+      !isUserProvided(resolvedApiKey) &&
+      !isUserProvided(resolvedBaseURL)
+    ) {
       const strictOllamaDetection = isStrictOllamaEndpoint(name, endpoint);
 
       fetchPromisesMap[uniqueKey] =
         fetchPromisesMap[uniqueKey] ||
         fetchModels({
           name,
-          apiKey: API_KEY,
-          baseURL: BASE_URL,
-          baseURLs: BASE_URLS,
+          apiKey: resolvedApiKey,
+          baseURL: resolvedBaseURL,
+          baseURLs: resolvedBaseURLs,
           user: req.user.id,
           userObject: req.user,
           headers: endpointHeaders,
@@ -123,11 +184,7 @@ async function loadConfigModels(req, options = {}) {
       continue;
     }
 
-    if (Array.isArray(models.default)) {
-      modelsConfig[name] = models.default.map((model) =>
-        typeof model === 'string' ? model : model.name,
-      );
-    }
+    modelsConfig[name] = getDefaultModels(models);
   }
 
   const fetchedData = await Promise.all(Object.values(fetchPromisesMap));
@@ -140,13 +197,19 @@ async function loadConfigModels(req, options = {}) {
 
     for (const name of associatedNames) {
       const endpoint = endpointsMap[name];
+      const discoveredModels = Array.isArray(modelData) ? modelData : [];
+      const filteredDiscoveredModels = isOpenAICompatibleEndpoint(name, endpoint)
+        ? filterOpenAITextCompatibleModels(discoveredModels)
+        : discoveredModels;
 
       if (isStrictOllamaEndpoint(name, endpoint)) {
-        modelsConfig[name] = Array.isArray(modelData) ? modelData : [];
+        modelsConfig[name] = discoveredModels;
         continue;
       }
 
-      modelsConfig[name] = !modelData?.length ? (endpoint.models.default ?? []) : modelData;
+      modelsConfig[name] = !filteredDiscoveredModels.length
+        ? getDefaultModels(endpoint.models)
+        : filteredDiscoveredModels;
     }
   }
 

@@ -1,12 +1,15 @@
 import axios from 'axios';
 import { EModelEndpoint, defaultModels } from 'librechat-data-provider';
+import type { AppConfig } from '@librechat/data-schemas';
 import {
   fetchModels,
   resolveOllamaBaseURL,
   splitAndTrim,
+  filterOpenAITextCompatibleModels,
   getOpenAIModels,
   getGoogleModels,
   getGoogleModelCapabilities,
+  getXAIModelCapabilities,
   getBedrockModels,
   getAnthropicModels,
 } from './models';
@@ -157,8 +160,133 @@ describe('fetchModels', () => {
     );
   });
 
+  it('uses Azure model listing with the api-key header and a normalized v1 base URL', async () => {
+    await fetchModels({
+      apiKey: 'azure-key',
+      baseURL: 'https://example-resource.openai.azure.com',
+      azure: true,
+      name: EModelEndpoint.azureOpenAI,
+    });
+
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://example-resource.openai.azure.com/openai/v1/models',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'api-key': 'azure-key',
+        }),
+      }),
+    );
+  });
+
+  it('normalizes Azure AI Foundry project endpoints before listing models', async () => {
+    await fetchModels({
+      apiKey: 'azure-key',
+      baseURL: 'https://example-resource.services.ai.azure.com/api/projects/demo-project',
+      azure: true,
+      name: EModelEndpoint.azureOpenAI,
+    });
+
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://example-resource.services.ai.azure.com/api/projects/demo-project/openai/v1/models',
+      expect.any(Object),
+    );
+  });
+
   afterEach(() => {
     jest.clearAllMocks();
+  });
+});
+
+describe('xAI model discovery', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('fetches xAI language models from /language-models and preserves aliases', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            id: 'grok-4.20-beta-0309-non-reasoning',
+            aliases: ['grok-4.20-beta-latest-non-reasoning'],
+            input_modalities: ['text', 'image'],
+            output_modalities: ['text'],
+          },
+          {
+            id: 'grok-imagine-1',
+            input_modalities: ['text'],
+            output_modalities: ['image'],
+          },
+        ],
+      },
+    });
+
+    const models = await fetchModels({
+      apiKey: 'xai-key',
+      baseURL: 'https://api.x.ai/v1',
+      name: 'Grok',
+      tokenKey: 'Grok',
+    });
+
+    expect(models).toEqual([
+      'grok-4.20-beta-0309-non-reasoning',
+      'grok-4.20-beta-latest-non-reasoning',
+    ]);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://api.x.ai/v1/language-models',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer xai-key' }),
+      }),
+    );
+  });
+
+  it('returns per-endpoint xAI capability maps from app config', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            id: 'grok-4-0709',
+            aliases: ['grok-4'],
+            input_modalities: ['text', 'image'],
+            output_modalities: ['text'],
+          },
+        ],
+      },
+    });
+
+    const capabilities = await getXAIModelCapabilities({
+      appConfig: {
+        endpoints: {
+          [EModelEndpoint.custom]: [
+            {
+              name: 'Grok',
+              apiKey: 'xai-key',
+              baseURL: 'https://api.x.ai/v1',
+              customParams: {
+                defaultParamsEndpoint: 'xai',
+              },
+            },
+          ],
+        },
+      } as AppConfig,
+    });
+
+    expect(capabilities).toEqual({
+      Grok: {
+        'grok-4-0709': {
+          id: 'grok-4-0709',
+          aliases: ['grok-4'],
+          input_modalities: ['text', 'image'],
+          output_modalities: ['text'],
+        },
+        'grok-4': {
+          id: 'grok-4-0709',
+          aliases: ['grok-4'],
+          input_modalities: ['text', 'image'],
+          output_modalities: ['text'],
+        },
+      },
+    });
   });
 });
 
@@ -226,10 +354,70 @@ describe('getOpenAIModels', () => {
     expect(models).toEqual(expect.arrayContaining(['azure-model', 'azure-model-2']));
   });
 
+  it('fetches Azure models from a direct Azure OpenAI endpoint when credentials are provided', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [{ id: 'gpt-4.1-prod' }, { id: 'gpt-4o-mini' }],
+      },
+    });
+
+    const models = await getOpenAIModels({
+      azure: true,
+      openAIApiKey: 'azure-key',
+      baseURL: 'https://example-resource.openai.azure.com',
+    });
+
+    expect(models).toEqual(['gpt-4.1-prod', 'gpt-4o-mini']);
+  });
+
+  it('returns manual Azure deployment names when model discovery is unavailable', async () => {
+    const models = await getOpenAIModels({
+      azure: true,
+      openAIApiKey: 'azure-key',
+      baseURL: 'https://example-resource.models.ai.azure.com/v1',
+      manualModels: ['deployment-a', 'deployment-b'],
+    });
+
+    expect(models).toEqual(['deployment-a', 'deployment-b']);
+  });
+
   it('returns `OPENAI_MODELS` with no flags (and fetch fails)', async () => {
     process.env.OPENAI_MODELS = 'openai-model,openai-model-2';
     const models = await getOpenAIModels({});
     expect(models).toEqual(expect.arrayContaining(['openai-model', 'openai-model-2']));
+  });
+
+  it('filters non-chat OpenAI models while keeping newly discovered GPT-5 variants', async () => {
+    process.env.OPENAI_API_KEY = 'mockedApiKey';
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [
+          { id: 'gpt-5-mini' },
+          { id: 'gpt-5-nano' },
+          { id: 'gpt-image-1' },
+          { id: 'gpt-4o-realtime-preview' },
+        ],
+      },
+    });
+
+    const models = await getOpenAIModels({ user: 'user456', forceRefresh: true });
+
+    expect(models).toEqual(['gpt-5-mini', 'gpt-5-nano']);
+  });
+
+  it('bypasses cached OpenAI discovery when forceRefresh is enabled', async () => {
+    process.env.OPENAI_API_KEY = 'mockedApiKey';
+    mockCacheData.set('https://api.openai.com/v1', ['stale-model']);
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [{ id: 'gpt-5-mini' }, { id: 'gpt-5-nano' }],
+      },
+    });
+
+    const models = await getOpenAIModels({ user: 'user456', forceRefresh: true });
+
+    expect(models).toEqual(['gpt-5-mini', 'gpt-5-nano']);
+    expect(mockedAxios.get).toHaveBeenCalledTimes(1);
   });
 
   it('utilizes proxy configuration when PROXY is set', async () => {
@@ -248,6 +436,20 @@ describe('getOpenAIModels', () => {
         httpsAgent: expect.anything(),
       }),
     );
+  });
+});
+
+describe('filterOpenAITextCompatibleModels', () => {
+  it('keeps chat-capable OpenAI models and drops non-chat catalogs', () => {
+    expect(
+      filterOpenAITextCompatibleModels([
+        'gpt-5-mini',
+        'gpt-5-nano',
+        'gpt-image-1',
+        'gpt-4o-realtime-preview',
+        'text-embedding-3-small',
+      ]),
+    ).toEqual(['gpt-5-mini', 'gpt-5-nano']);
   });
 });
 

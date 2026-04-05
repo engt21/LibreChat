@@ -185,7 +185,7 @@ export const StepTypes = {
  */
 export interface MessageDeltaData {
   id?: string;
-  content?: Array<{ type: string; text?: string }>;
+  content?: Array<{ type: string; text?: string; think?: string }>;
 }
 
 export interface RunStepDeltaData {
@@ -390,12 +390,15 @@ export class OpenAIReasoningDeltaHandler implements EventHandler {
     }
 
     for (const part of content) {
-      if (part.type === 'text' && part.text) {
+      // The agents SDK normalizes reasoning to type 'think' with a think field,
+      // but some providers may still send type 'text' with a text field.
+      const reasoningText = part.think ?? part.text;
+      if (reasoningText && (part.type === 'think' || part.type === 'text')) {
         // Mark that reasoning was emitted
         this.config.tracker.addReasoning();
 
         // Stream as delta.reasoning (OpenRouter convention)
-        const chunk = createChunk(this.config.context, { reasoning: part.text });
+        const chunk = createChunk(this.config.context, { reasoning: reasoningText });
         writeSSE(this.config.res, chunk);
       }
     }

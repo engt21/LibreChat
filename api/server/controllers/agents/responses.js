@@ -314,9 +314,11 @@ const createResponse = async (req, res) => {
   });
 
   try {
+    const requestConfig = req.config ?? appConfig;
+
     // Build allowed providers set
     const allowedProviders = new Set(
-      appConfig?.endpoints?.[EModelEndpoint.agents]?.allowedProviders,
+      requestConfig?.endpoints?.[EModelEndpoint.agents]?.allowedProviders,
     );
 
     // Create tool loader
@@ -455,6 +457,17 @@ const createResponse = async (req, res) => {
         on_chain_end: { handle: () => {} },
         on_agent_update: { handle: () => {} },
         on_custom_event: { handle: () => {} },
+        on_web_search_status: {
+          handle: (_event, data) => {
+            const event = {
+              type: 'librechat:web_search_status',
+              sequence_number: tracker.nextSequence(),
+              status: data?.status,
+            };
+            res.write(`event: ${event.type}\n`);
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+          },
+        },
         on_tool_execute: createToolExecuteHandler(toolExecuteOptions),
       };
 

@@ -1,14 +1,25 @@
 jest.mock('@librechat/api', () => ({
   fetchModels: jest.fn(),
+  filterOpenAITextCompatibleModels: jest.fn((models = []) =>
+    models.filter(
+      (model) =>
+        /^(?:text-davinci-003|chatgpt-|gpt-\d|o\d)/i.test(model) &&
+        !/(?:audio|realtime|image|embedding|moderation|transcribe|tts|whisper)/i.test(model),
+    ),
+  ),
   isUserProvided: jest.fn((value) => value === 'user_provided'),
 }));
 jest.mock('./app', () => ({
   getAppConfig: jest.fn(),
 }));
+jest.mock('~/models', () => ({
+  getUserKeyValues: jest.fn(),
+}));
 
 const { fetchModels } = require('@librechat/api');
 const loadConfigModels = require('./loadConfigModels');
 const { getAppConfig } = require('./app');
+const { getUserKeyValues } = require('~/models');
 
 const exampleConfig = {
   endpoints: {
@@ -70,8 +81,7 @@ describe('loadConfigModels', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
-    jest.resetAllMocks();
-    jest.resetModules();
+    jest.clearAllMocks();
     process.env = { ...originalEnv };
 
     // Default mock for getAppConfig
@@ -273,6 +283,104 @@ describe('loadConfigModels', () => {
         name: 'ollama',
       }),
     );
+  });
+
+  it('keeps xAI user-provided endpoints visible from default models before a user key exists', async () => {
+    getAppConfig.mockResolvedValue({
+      endpoints: {
+        custom: [
+          {
+            name: 'xai',
+            apiKey: 'user_provided',
+            baseURL: 'https://api.x.ai/v1',
+            customParams: {
+              defaultParamsEndpoint: 'xai',
+            },
+            models: {
+              default: ['grok-4-0709', 'grok-4.20-beta-latest-non-reasoning', 'grok-3-mini'],
+              fetch: true,
+            },
+          },
+        ],
+      },
+    });
+
+    const result = await loadConfigModels(mockRequest, { endpointNames: ['xai'] });
+
+    expect(fetchModels).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      xai: ['grok-4-0709', 'grok-4.20-beta-latest-non-reasoning', 'grok-3-mini'],
+    });
+  });
+
+  it('discovers xAI models from a saved user key when user-provided fetch is enabled', async () => {
+    getAppConfig.mockResolvedValue({
+      endpoints: {
+        custom: [
+          {
+            name: 'xai',
+            apiKey: 'user_provided',
+            baseURL: 'https://api.x.ai/v1',
+            customParams: {
+              defaultParamsEndpoint: 'xai',
+            },
+            models: {
+              default: ['grok-4-0709'],
+              fetch: true,
+            },
+          },
+        ],
+      },
+    });
+    getUserKeyValues.mockResolvedValue({ apiKey: 'xai-user-key' });
+    fetchModels.mockResolvedValue(['grok-4-1212', 'grok-3-mini']);
+
+    const result = await loadConfigModels(mockRequest, {
+      endpointNames: ['xai'],
+      includeUserProvidedFetch: true,
+    });
+
+    expect(getUserKeyValues).toHaveBeenCalledWith({ userId: 'testUserId', name: 'xai' });
+    expect(fetchModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'xai',
+        apiKey: 'xai-user-key',
+        baseURL: 'https://api.x.ai/v1',
+        user: 'testUserId',
+      }),
+    );
+    expect(result).toEqual({ xai: ['grok-4-1212', 'grok-3-mini'] });
+  });
+
+  it('filters non-chat catalogs from OpenAI-compatible custom endpoint discovery', async () => {
+    getAppConfig.mockResolvedValue({
+      endpoints: {
+        custom: [
+          {
+            name: 'OpenAI',
+            apiKey: 'openai-key',
+            baseURL: 'https://api.openai.com/v1',
+            customParams: {
+              defaultParamsEndpoint: 'openAI',
+            },
+            models: {
+              default: ['gpt-4o'],
+              fetch: true,
+            },
+          },
+        ],
+      },
+    });
+    fetchModels.mockResolvedValue([
+      'gpt-5-mini',
+      'gpt-5-nano',
+      'gpt-image-1',
+      'gpt-4o-realtime-preview',
+    ]);
+
+    const result = await loadConfigModels(mockRequest, { endpointNames: ['OpenAI'] });
+
+    expect(result).toEqual({ OpenAI: ['gpt-5-mini', 'gpt-5-nano'] });
   });
 
   it('falls back to default models if fetching returns an empty array', async () => {

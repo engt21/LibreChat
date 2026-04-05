@@ -4,8 +4,11 @@ import {
   ErrorTypes,
   EModelEndpoint,
   EToolResources,
+  KnownEndpoints,
   paramEndpoints,
   isAgentsEndpoint,
+  isXAIEndpointCandidate,
+  getXAIModelCapabilities as resolveXAIModelCapabilities,
   replaceSpecialVars,
   providerEndpointMap,
 } from 'librechat-data-provider';
@@ -27,6 +30,7 @@ import {
   getModelMaxTokens,
   getThreadData,
 } from '~/utils';
+import { getCustomEndpointConfig } from '~/app/config';
 import { filterFilesByEndpointConfig } from '~/files';
 import { generateArtifactsPrompt } from '~/prompts';
 import { getProviderConfig } from '~/endpoints';
@@ -301,14 +305,32 @@ export async function initializeAgent(
     requestFileSet: new Set(requestFiles?.map((file) => file.file_id)),
   });
 
+  const customEndpointConfig =
+    provider && !paramEndpoints.has(provider)
+      ? getCustomEndpointConfig({ endpoint: provider, appConfig: req.config })
+      : undefined;
+  const isXAIProvider = isXAIEndpointCandidate({
+    endpoint: provider,
+    baseURL: customEndpointConfig?.baseURL,
+    defaultParamsEndpoint: customEndpointConfig?.customParams?.defaultParamsEndpoint,
+  });
+  const xaiModelCapabilities = isXAIProvider
+    ? resolveXAIModelCapabilities(agent.model ?? null)
+    : null;
+  const nativeToolProvider = isXAIProvider ? KnownEndpoints.xai : provider;
+
   const nativeToolSelection = selectNativeTools({
     agentId: agent.id,
-    provider,
+    provider: nativeToolProvider,
     tools: agent.tools,
     tool_resources,
   });
 
-  const toolNames = (agent.tools ?? []).filter((tool) => !nativeToolSelection.stripTools.has(tool));
+  let toolNames = (agent.tools ?? []).filter((tool) => !nativeToolSelection.stripTools.has(tool));
+
+  if (isXAIProvider && xaiModelCapabilities && !xaiModelCapabilities.supportsFunctionCalling) {
+    toolNames = [];
+  }
 
   const {
     toolRegistry,
@@ -359,7 +381,7 @@ export async function initializeAgent(
 
   const nativeProviderTools = await buildNativeProviderTools({
     req,
-    provider,
+    provider: nativeToolProvider,
     llmConfig: {
       ...((options.configOptions as Record<string, unknown> | undefined) ?? {}),
       ...(options.llmConfig as Record<string, unknown>),
@@ -417,7 +439,8 @@ export async function initializeAgent(
   } else if (
     (agent.provider === Providers.OPENAI ||
       agent.provider === Providers.AZURE ||
-      agent.provider === Providers.ANTHROPIC) &&
+      agent.provider === Providers.ANTHROPIC ||
+      agent.provider === Providers.XAI) &&
     options.tools?.length &&
     structuredTools?.length
   ) {

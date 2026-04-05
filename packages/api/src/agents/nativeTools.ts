@@ -2,6 +2,7 @@ import OpenAI, { toFile } from 'openai';
 import { Providers } from '@librechat/agents';
 import {
   Tools,
+  KnownEndpoints,
   checkOpenAIStorage,
   EModelEndpoint,
   isEphemeralAgentId,
@@ -66,7 +67,13 @@ const googleProviders = new Set<string>([
   Providers.VERTEXAI,
 ]);
 
+const xaiProviders = new Set<string>([KnownEndpoints.xai, Providers.XAI]);
+
 const getProviderLabel = (provider: string) => {
+  if (xaiProviders.has(provider)) {
+    return Providers.XAI;
+  }
+
   if (googleProviders.has(provider)) {
     return Providers.GOOGLE;
   }
@@ -100,6 +107,54 @@ const getToolKey = (tool: unknown): string => {
 
 const isOpenAIProvider = (provider: string) => openAIProviders.has(provider);
 const isGoogleProvider = (provider: string) => googleProviders.has(provider);
+const isXAIProvider = (provider: string) => xaiProviders.has(provider);
+
+const PROVIDER_NATIVE_CODE_INTERPRETER = 'provider_native';
+const LIBRECHAT_MANAGED_CODE_INTERPRETER = 'librechat';
+
+const parseCodeInterpreterRouting = (value?: string) => {
+  if (typeof value !== 'string') {
+    return PROVIDER_NATIVE_CODE_INTERPRETER;
+  }
+
+  return value.trim().toLowerCase() === LIBRECHAT_MANAGED_CODE_INTERPRETER
+    ? LIBRECHAT_MANAGED_CODE_INTERPRETER
+    : PROVIDER_NATIVE_CODE_INTERPRETER;
+};
+
+const shouldUseProviderNativeCodeInterpreter = (provider: string) => {
+  if (provider === EModelEndpoint.azureOpenAI || provider === Providers.AZURE) {
+    return (
+      parseCodeInterpreterRouting(
+        process.env.AZURE_OPENAI_CODE_INTERPRETER_ROUTING ??
+          process.env.OPENAI_CODE_INTERPRETER_ROUTING,
+      ) === PROVIDER_NATIVE_CODE_INTERPRETER
+    );
+  }
+
+  if (provider === EModelEndpoint.openAI || provider === Providers.OPENAI) {
+    return (
+      parseCodeInterpreterRouting(process.env.OPENAI_CODE_INTERPRETER_ROUTING) ===
+      PROVIDER_NATIVE_CODE_INTERPRETER
+    );
+  }
+
+  if (provider === EModelEndpoint.google || provider === Providers.GOOGLE) {
+    return (
+      parseCodeInterpreterRouting(process.env.GOOGLE_CODE_INTERPRETER_ROUTING) ===
+      PROVIDER_NATIVE_CODE_INTERPRETER
+    );
+  }
+
+  if (provider === Providers.VERTEXAI) {
+    return (
+      parseCodeInterpreterRouting(process.env.GOOGLE_CODE_INTERPRETER_ROUTING) ===
+      PROVIDER_NATIVE_CODE_INTERPRETER
+    );
+  }
+
+  return false;
+};
 
 export const selectNativeTools = ({
   agentId,
@@ -128,8 +183,10 @@ export const selectNativeTools = ({
   const requestedTools = new Set(tools ?? []);
 
   if (isOpenAIProvider(provider)) {
+    const useProviderNativeCodeInterpreter = shouldUseProviderNativeCodeInterpreter(provider);
     selection.enableWebSearch = requestedTools.has(Tools.web_search);
-    selection.openAIExecuteCode = requestedTools.has(Tools.execute_code);
+    selection.openAIExecuteCode =
+      useProviderNativeCodeInterpreter && requestedTools.has(Tools.execute_code);
     selection.openAIFileSearch = requestedTools.has(Tools.file_search);
     selection.requiresResponsesApi =
       selection.enableWebSearch || selection.openAIExecuteCode || selection.openAIFileSearch;
@@ -147,6 +204,16 @@ export const selectNativeTools = ({
     return selection;
   }
 
+  if (isXAIProvider(provider)) {
+    selection.enableWebSearch = requestedTools.has(Tools.web_search);
+
+    if (selection.enableWebSearch) {
+      selection.stripTools.add(Tools.web_search);
+    }
+
+    return selection;
+  }
+
   if (!isGoogleProvider(provider)) {
     return selection;
   }
@@ -154,7 +221,9 @@ export const selectNativeTools = ({
   const codeFiles = tool_resources?.execute_code?.files ?? [];
   const enableGoogleWebSearch = requestedTools.has(Tools.web_search);
   const enableGoogleCodeExecution =
-    requestedTools.has(Tools.execute_code) && codeFiles.length === 0;
+    shouldUseProviderNativeCodeInterpreter(provider) &&
+    requestedTools.has(Tools.execute_code) &&
+    codeFiles.length === 0;
 
   const googleNativeToolSet = new Set<string>();
   if (enableGoogleWebSearch) {

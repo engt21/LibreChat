@@ -324,6 +324,15 @@ function getDefaultHandlers({
         }
       },
     },
+    /**
+     * Handle web search status events from OpenAI's native web_search_preview tool.
+     * Forwarded to the client so it can show "Searching the web..." activity indicators.
+     */
+    on_web_search_status: {
+      handle: async (_event, data) => {
+        await emitEvent(res, streamId, { event: 'on_web_search_status', data });
+      },
+    },
   };
 
   if (toolExecuteOptions) {

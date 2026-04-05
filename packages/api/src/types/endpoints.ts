@@ -10,6 +10,7 @@ export type TCustomEndpointsConfig = Partial<{ [key: string]: Omit<TConfig, 'ord
 export interface UserKeyValues {
   apiKey?: string;
   baseURL?: string;
+  models?: string;
 }
 
 /**

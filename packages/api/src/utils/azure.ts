@@ -1,5 +1,200 @@
+import { EModelEndpoint } from 'librechat-data-provider';
 import { isEnabled } from './common';
 import type { AzureOptions, GenericClient } from '~/types';
+
+const azureResourceHostRegex =
+  /(^|\.)((openai|cognitiveservices)\.azure\.com|services\.ai\.azure\.com)$/i;
+const azureLegacyInferenceHostRegex = /(^|\.)(models|inference)\.ai\.azure\.com$/i;
+
+const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
+
+const stripKnownAzureOperation = (pathname: string) => {
+  const cleanedPath = trimTrailingSlash(pathname || '/');
+
+  return cleanedPath
+    .replace(/\/(chat\/completions|completions|responses|embeddings|models)$/i, '')
+    .replace(/\/(chat\/completions|responses|embeddings|models)$/i, '');
+};
+
+const getAzureInstanceBaseURL = (instanceName?: string) => {
+  if (!instanceName) {
+    return undefined;
+  }
+
+  if (instanceName.startsWith('http://') || instanceName.startsWith('https://')) {
+    return instanceName;
+  }
+
+  if (instanceName.includes('.azure.com')) {
+    return `https://${instanceName}`;
+  }
+
+  return `https://${instanceName}.openai.azure.com`;
+};
+
+const isAzureOptions = (value: unknown): value is AzureOptions => {
+  if (value == null || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return [
+    'azureOpenAIApiKey',
+    'azureOpenAIApiInstanceName',
+    'azureOpenAIApiDeploymentName',
+    'azureOpenAIApiVersion',
+  ].some((key) => typeof record[key] === 'string' && record[key] !== '');
+};
+
+export interface AzureOpenAIDirectConfig {
+  apiKey?: string;
+  baseURL?: string;
+  manualModels: string[];
+  azureOptions?: AzureOptions;
+  isLegacyCredentialPayload: boolean;
+}
+
+export function isAzureOpenAIBaseURL(baseURL?: string | null): boolean {
+  if (!baseURL) {
+    return false;
+  }
+
+  try {
+    const url = new URL(baseURL);
+    return (
+      azureResourceHostRegex.test(url.hostname) || azureLegacyInferenceHostRegex.test(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeAzureOpenAIBaseURL(baseURL?: string | null): string | undefined {
+  if (!baseURL) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(baseURL);
+    const originalPathname = url.pathname || '/';
+    const originalTrimmedPathname = trimTrailingSlash(originalPathname) || '/';
+    const trimmedPathname = stripKnownAzureOperation(originalPathname);
+
+    if (azureResourceHostRegex.test(url.hostname)) {
+      if (
+        /^\/models$/i.test(originalTrimmedPathname) ||
+        /^\/openai\/v1$/i.test(originalTrimmedPathname)
+      ) {
+        url.pathname = originalPathname;
+      } else if (/^\/api\/projects\/[^/]+$/i.test(trimmedPathname)) {
+        url.pathname = `${trimmedPathname}/openai/v1`;
+      } else if (/^\/api\/projects\/[^/]+\/openai$/i.test(trimmedPathname)) {
+        url.pathname = `${trimmedPathname}/v1`;
+      } else if (/^\/api\/projects\/[^/]+\/openai\/v1$/i.test(originalTrimmedPathname)) {
+        url.pathname = originalPathname;
+      } else if (
+        trimmedPathname === '' ||
+        trimmedPathname === '/' ||
+        trimmedPathname === '/openai' ||
+        /^\/openai\/deployments\/[^/]+$/i.test(trimmedPathname)
+      ) {
+        url.pathname = '/openai/v1';
+      }
+    } else if (azureLegacyInferenceHostRegex.test(url.hostname)) {
+      if (/^\/v1$/i.test(originalTrimmedPathname)) {
+        url.pathname = originalPathname;
+      } else if (trimmedPathname === '' || trimmedPathname === '/') {
+        url.pathname = '/v1';
+      } else if (/^\/v1$/i.test(trimmedPathname)) {
+        url.pathname = '/v1';
+      }
+    }
+
+    return url.toString();
+  } catch {
+    return baseURL;
+  }
+}
+
+export function supportsAzureOpenAIModelListing(baseURL?: string | null): boolean {
+  const normalizedBaseURL = normalizeAzureOpenAIBaseURL(baseURL);
+  if (!normalizedBaseURL) {
+    return false;
+  }
+
+  try {
+    const url = new URL(normalizedBaseURL);
+    const pathname = trimTrailingSlash(url.pathname || '');
+    return (
+      azureResourceHostRegex.test(url.hostname) &&
+      (/^\/openai\/v1$/i.test(pathname) || /^\/api\/projects\/[^/]+\/openai\/v1$/i.test(pathname))
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isAzureOpenAIEndpointCandidate({
+  endpoint,
+  baseURL,
+  defaultParamsEndpoint,
+}: {
+  endpoint?: string | null;
+  baseURL?: string | null;
+  defaultParamsEndpoint?: string | null;
+}): boolean {
+  return (
+    endpoint === EModelEndpoint.azureOpenAI ||
+    defaultParamsEndpoint === EModelEndpoint.azureOpenAI ||
+    isAzureOpenAIBaseURL(baseURL)
+  );
+}
+
+export function resolveAzureOpenAIDirectConfig({
+  apiKey,
+  baseURL,
+  models,
+}: {
+  apiKey?: string | null;
+  baseURL?: string | null;
+  models?: string | string[] | null;
+}): AzureOpenAIDirectConfig {
+  let resolvedApiKey = apiKey?.trim() || undefined;
+  let azureOptions: AzureOptions | undefined;
+  let isLegacyCredentialPayload = false;
+
+  if (resolvedApiKey) {
+    try {
+      const parsedValue = JSON.parse(resolvedApiKey) as unknown;
+      if (isAzureOptions(parsedValue)) {
+        azureOptions = parsedValue;
+        resolvedApiKey = parsedValue.azureOpenAIApiKey;
+        isLegacyCredentialPayload = true;
+      }
+    } catch {
+      // Ignore non-JSON API key payloads.
+    }
+  }
+
+  const resolvedBaseURL = normalizeAzureOpenAIBaseURL(
+    baseURL ?? getAzureInstanceBaseURL(azureOptions?.azureOpenAIApiInstanceName),
+  );
+
+  const manualModels = Array.isArray(models)
+    ? models.map((model) => model.trim()).filter(Boolean)
+    : (models ?? '')
+        .split(',')
+        .map((model) => model.trim())
+        .filter(Boolean);
+
+  return {
+    apiKey: resolvedApiKey,
+    baseURL: resolvedBaseURL,
+    manualModels,
+    azureOptions,
+    isLegacyCredentialPayload,
+  };
+}
 
 /**
  * Sanitizes the model name to be used in the URL by removing or replacing disallowed characters.
