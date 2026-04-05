@@ -278,8 +278,9 @@ export function filterOpenAITextCompatibleModels(models: string[]): string[] {
   return models.filter((model) => isOpenAITextCompatibleModel(model));
 }
 
-function getXAIModelCapabilitiesCacheKey(tokenKey: string): string {
-  return `${XAI_MODEL_CAPABILITIES_CACHE_KEY_PREFIX}${tokenKey}`;
+function getXAIModelCapabilitiesCacheKey(tokenKey: string, userId?: string): string {
+  const userSuffix = userId ? `:user:${userId}` : '';
+  return `${XAI_MODEL_CAPABILITIES_CACHE_KEY_PREFIX}${tokenKey}${userSuffix}`;
 }
 
 async function fetchXAIModelCapabilities({
@@ -288,19 +289,22 @@ async function fetchXAIModelCapabilities({
   tokenKey,
   headers,
   userObject,
+  userId,
 }: {
   apiKey: string;
   baseURL?: string;
   tokenKey: string;
   headers?: Record<string, string> | null;
   userObject?: Partial<IUser>;
+  /** When provided, scopes the capability cache to this user so per-user credentials cannot leak across users. */
+  userId?: string;
 }): Promise<Record<string, TXAIModelCapabilities> | undefined> {
   if (!apiKey || !baseURL) {
     return undefined;
   }
 
   const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);
-  const cacheKey = getXAIModelCapabilitiesCacheKey(tokenKey);
+  const cacheKey = getXAIModelCapabilitiesCacheKey(tokenKey, userId);
   const cachedCapabilities = await modelsCache.get(cacheKey);
 
   if (cachedCapabilities) {
@@ -536,6 +540,7 @@ export async function fetchModels({
       tokenKey: tokenKey ?? name,
       headers,
       userObject,
+      userId: user,
     });
     const xaiModels = xaiModelCapabilities
       ? getXAITextCompatibleModelNames(Object.values(xaiModelCapabilities))

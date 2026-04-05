@@ -352,6 +352,65 @@ describe('loadConfigModels', () => {
     expect(result).toEqual({ xai: ['grok-4-1212', 'grok-3-mini'] });
   });
 
+  it('isolates xAI discovery per user when two users have the same endpoint name', async () => {
+    const xaiEndpointConfig = {
+      endpoints: {
+        custom: [
+          {
+            name: 'xai',
+            apiKey: 'user_provided',
+            baseURL: 'https://api.x.ai/v1',
+            customParams: {
+              defaultParamsEndpoint: 'xai',
+            },
+            models: {
+              default: ['grok-4-0709'],
+              fetch: true,
+            },
+          },
+        ],
+      },
+    };
+    getAppConfig.mockResolvedValue(xaiEndpointConfig);
+
+    // User A fetches with their key
+    getUserKeyValues.mockResolvedValueOnce({ apiKey: 'xai-user-a-key' });
+    fetchModels.mockResolvedValueOnce(['grok-4-1212']);
+
+    const reqA = { user: { id: 'user-A' } };
+    const resultA = await loadConfigModels(reqA, {
+      endpointNames: ['xai'],
+      includeUserProvidedFetch: true,
+    });
+    expect(resultA).toEqual({ xai: ['grok-4-1212'] });
+    expect(fetchModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: 'xai-user-a-key',
+        user: 'user-A',
+      }),
+    );
+
+    // User B fetches with their different key
+    getUserKeyValues.mockResolvedValueOnce({ apiKey: 'xai-user-b-key' });
+    fetchModels.mockResolvedValueOnce(['grok-3-mini', 'grok-3']);
+
+    const reqB = { user: { id: 'user-B' } };
+    const resultB = await loadConfigModels(reqB, {
+      endpointNames: ['xai'],
+      includeUserProvidedFetch: true,
+    });
+    expect(resultB).toEqual({ xai: ['grok-3-mini', 'grok-3'] });
+    expect(fetchModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: 'xai-user-b-key',
+        user: 'user-B',
+      }),
+    );
+
+    // Both calls should have independent user IDs
+    expect(fetchModels).toHaveBeenCalledTimes(2);
+  });
+
   it('filters non-chat catalogs from OpenAI-compatible custom endpoint discovery', async () => {
     getAppConfig.mockResolvedValue({
       endpoints: {

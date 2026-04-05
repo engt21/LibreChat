@@ -288,6 +288,145 @@ describe('xAI model discovery', () => {
       },
     });
   });
+
+  it('scopes xAI capability cache per user so different users do not share discovery results', async () => {
+    // User A discovers models with their API key
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            id: 'grok-4-0709',
+            aliases: ['grok-4'],
+            input_modalities: ['text', 'image'],
+            output_modalities: ['text'],
+          },
+        ],
+      },
+    });
+
+    const userAModels = await fetchModels({
+      user: 'user-A',
+      apiKey: 'xai-key-A',
+      baseURL: 'https://api.x.ai/v1',
+      name: 'xai',
+      tokenKey: 'xai',
+    });
+
+    expect(userAModels).toEqual(['grok-4-0709', 'grok-4']);
+
+    // User B discovers models with their different API key
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            id: 'grok-3-mini',
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+          },
+        ],
+      },
+    });
+
+    const userBModels = await fetchModels({
+      user: 'user-B',
+      apiKey: 'xai-key-B',
+      baseURL: 'https://api.x.ai/v1',
+      name: 'xai',
+      tokenKey: 'xai',
+    });
+
+    // User B should get their own discovery results, NOT user A's cached results
+    expect(userBModels).toEqual(['grok-3-mini']);
+    // Both users triggered actual API calls (no cross-user cache hit)
+    expect(mockedAxios.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares xAI capability cache when no userId is provided (server-level credentials)', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            id: 'grok-4-0709',
+            aliases: ['grok-4'],
+            input_modalities: ['text', 'image'],
+            output_modalities: ['text'],
+          },
+        ],
+      },
+    });
+
+    // First call without user (server-level)
+    const firstCallModels = await fetchModels({
+      apiKey: 'server-xai-key',
+      baseURL: 'https://api.x.ai/v1',
+      name: 'xai',
+      tokenKey: 'xai',
+    });
+
+    expect(firstCallModels).toEqual(['grok-4-0709', 'grok-4']);
+
+    // Second call without user should hit cache (no new API call)
+    const secondCallModels = await fetchModels({
+      apiKey: 'server-xai-key',
+      baseURL: 'https://api.x.ai/v1',
+      name: 'xai',
+      tokenKey: 'xai',
+    });
+
+    expect(secondCallModels).toEqual(['grok-4-0709', 'grok-4']);
+    // Only one API call - second was served from cache
+    expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let server-level cache contaminate user-specific discovery', async () => {
+    // Server-level discovery (no userId) caches results
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            id: 'grok-4-0709',
+            aliases: ['grok-4'],
+            input_modalities: ['text', 'image'],
+            output_modalities: ['text'],
+          },
+        ],
+      },
+    });
+
+    const serverModels = await fetchModels({
+      apiKey: 'server-xai-key',
+      baseURL: 'https://api.x.ai/v1',
+      name: 'xai',
+      tokenKey: 'xai',
+    });
+
+    expect(serverModels).toEqual(['grok-4-0709', 'grok-4']);
+
+    // User-specific discovery with different API key should NOT use server cache
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            id: 'grok-3-mini',
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+          },
+        ],
+      },
+    });
+
+    const userModels = await fetchModels({
+      user: 'user-1',
+      apiKey: 'user-xai-key',
+      baseURL: 'https://api.x.ai/v1',
+      name: 'xai',
+      tokenKey: 'xai',
+    });
+
+    // User gets their own results, not the server-cached results
+    expect(userModels).toEqual(['grok-3-mini']);
+    expect(mockedAxios.get).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('fetchModels with createTokenConfig true', () => {
