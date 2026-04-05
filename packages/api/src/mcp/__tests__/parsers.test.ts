@@ -437,4 +437,116 @@ describe('formatToolContent', () => {
       expect(artifacts).toBeUndefined();
     });
   });
+
+  describe('Arcade provider-consent continuation (VAL-MCP-004)', () => {
+    /**
+     * Arcade-hosted MCP tools (e.g., Microsoft tools via Arcade) may return
+     * provider-consent prompts as tool call responses rather than causing MCP
+     * initialization failure. The tool content typically includes JSON with
+     * `authorization_url` and/or `llm_instructions` fields that the LLM should
+     * relay to the user as continuation metadata.
+     *
+     * These tests pin the behavior that such responses are surfaced normally
+     * through formatToolContent, not dropped or treated as errors.
+     */
+
+    it('should surface authorization_url continuation as normal text content for OpenAI', () => {
+      const consentJson = JSON.stringify({
+        authorization_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc&scope=User.Read',
+        llm_instructions: 'The user needs to authorize access to their Microsoft account. Please share the authorization URL.',
+      });
+      const result: t.MCPToolCallResponse = {
+        content: [{ type: 'text', text: consentJson }],
+        isError: false,
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'openai');
+      // The consent JSON must be surfaced as text, not dropped or error-flagged
+      expect(content).toEqual([{ type: 'text', text: consentJson }]);
+      expect(artifacts).toBeUndefined();
+    });
+
+    it('should surface authorization_url continuation as normal text content for Google', () => {
+      const consentJson = JSON.stringify({
+        authorization_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+        llm_instructions: 'Please share the authorization link with the user.',
+      });
+      const result: t.MCPToolCallResponse = {
+        content: [{ type: 'text', text: consentJson }],
+        isError: false,
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'google');
+      expect(content).toEqual([{ type: 'text', text: consentJson }]);
+      expect(artifacts).toBeUndefined();
+    });
+
+    it('should surface authorization_url continuation as normal text content for Anthropic', () => {
+      const consentJson = JSON.stringify({
+        authorization_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+        llm_instructions: 'Authorization required. Please direct the user to the URL.',
+      });
+      const result: t.MCPToolCallResponse = {
+        content: [{ type: 'text', text: consentJson }],
+        isError: false,
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'anthropic');
+      expect(content).toEqual([{ type: 'text', text: consentJson }]);
+      expect(artifacts).toBeUndefined();
+    });
+
+    it('should surface multi-part consent responses with additional context text', () => {
+      const consentJson = JSON.stringify({
+        authorization_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+        llm_instructions: 'The user must grant access before this tool can proceed.',
+      });
+      const result: t.MCPToolCallResponse = {
+        content: [
+          { type: 'text', text: 'Microsoft Outlook authorization required.' },
+          { type: 'text', text: consentJson },
+        ],
+        isError: false,
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'openai');
+      // Multi-part text is joined with double newline separators
+      expect(content).toEqual([{
+        type: 'text',
+        text: `Microsoft Outlook authorization required.\n\n${consentJson}`,
+      }]);
+      expect(artifacts).toBeUndefined();
+    });
+
+    it('should not treat consent continuation as an error even when isError is true', () => {
+      // Some providers may set isError: true on consent-required responses
+      const consentJson = JSON.stringify({
+        authorization_url: 'https://cloud.arcade.dev/oauth2/authorize',
+        llm_instructions: 'Provider authorization needed.',
+      });
+      const result: t.MCPToolCallResponse = {
+        content: [{ type: 'text', text: consentJson }],
+        isError: true,
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'openai');
+      // Even with isError, the text content must be surfaced for the LLM
+      expect(content).toEqual([{ type: 'text', text: consentJson }]);
+      expect(artifacts).toBeUndefined();
+    });
+
+    it('should surface authorization_url-only continuation without llm_instructions', () => {
+      const consentJson = JSON.stringify({
+        authorization_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+      });
+      const result: t.MCPToolCallResponse = {
+        content: [{ type: 'text', text: consentJson }],
+        isError: false,
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'openai');
+      expect(content).toEqual([{ type: 'text', text: consentJson }]);
+      expect(artifacts).toBeUndefined();
+    });
+  });
 });

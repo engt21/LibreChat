@@ -791,6 +791,86 @@ describe('MCPManager', () => {
     });
   });
 
+  describe('callTool - Arcade Provider Consent Continuation (VAL-MCP-004)', () => {
+    /**
+     * Arcade-hosted MCP tools (e.g., Microsoft tools via Arcade) may require
+     * provider-level consent after MCP initialization succeeds. When a tool
+     * invocation returns `authorization_url` and/or `llm_instructions` in
+     * the response content, this must be surfaced as continuation metadata
+     * rather than causing an MCP initialization failure.
+     *
+     * This test pins the behavior that formatToolContent processes such
+     * responses normally, allowing the LLM to relay the authorization prompt.
+     */
+    const mockUser: Partial<IUser> = {
+      id: 'user-arcade',
+      provider: 'openid',
+      openidId: 'oidc-sub-arcade',
+    };
+
+    const mockFlowManager = {
+      getState: jest.fn(),
+      setState: jest.fn(),
+      clearState: jest.fn(),
+    };
+
+    it('should surface provider-consent continuation metadata in tool call result', async () => {
+      const consentJson = JSON.stringify({
+        authorization_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc&scope=User.Read',
+        llm_instructions: 'The user needs to authorize access to their Microsoft account. Please share the authorization URL with the user.',
+      });
+
+      const mockConsentConnection = {
+        isConnected: jest.fn().mockResolvedValue(true),
+        setRequestHeaders: jest.fn(),
+        timeout: 30000,
+        client: {
+          request: jest.fn().mockResolvedValue({
+            content: [{ type: 'text', text: consentJson }],
+            isError: false,
+          }),
+        },
+      } as unknown as MCPConnection;
+
+      mockAppConnections({
+        get: jest.fn().mockResolvedValue(mockConsentConnection),
+      });
+
+      (mockRegistryInstance.getServerConfig as jest.Mock).mockResolvedValue({
+        type: 'sse',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools',
+      });
+
+      const manager = await MCPManager.createInstance(newMCPServersConfig());
+
+      const result = await manager.callTool({
+        user: mockUser as IUser,
+        serverName: 'arcade-microsoft',
+        toolName: 'Microsoft_ListCalendarEvents',
+        provider: 'openai',
+        flowManager: mockFlowManager as unknown as Parameters<
+          typeof manager.callTool
+        >[0]['flowManager'],
+      });
+
+      // Result should contain the consent continuation metadata as text content
+      const [content] = result;
+      expect(content).toEqual([{ type: 'text', text: consentJson }]);
+
+      // The connection should have been used (tool was called, not init failure)
+      expect(mockConsentConnection.client.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'tools/call',
+          params: expect.objectContaining({
+            name: 'Microsoft_ListCalendarEvents',
+          }),
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+  });
+
   describe('discoverServerTools', () => {
     const mockTools = [
       { name: 'tool1', description: 'First tool', inputSchema: { type: 'object' } },
