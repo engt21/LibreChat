@@ -62,6 +62,42 @@ const defaultFormValues = {
   models: '',
 };
 
+const AZURE_LEGACY_KEYS = [
+  'azureOpenAIApiKey',
+  'azureOpenAIApiInstanceName',
+  'azureOpenAIApiDeploymentName',
+  'azureOpenAIApiVersion',
+] as const;
+
+const isLegacyAzurePayload = (obj: Record<string, unknown>): boolean =>
+  AZURE_LEGACY_KEYS.some((key) => typeof obj[key] === 'string' && obj[key] !== '');
+
+const legacyInstanceToBaseURL = (instanceName?: string): string => {
+  if (!instanceName) {
+    return '';
+  }
+  if (instanceName.startsWith('http://') || instanceName.startsWith('https://')) {
+    return instanceName;
+  }
+  if (instanceName.includes('.azure.com')) {
+    return `https://${instanceName}/openai/v1`;
+  }
+  return `https://${instanceName}.openai.azure.com/openai/v1`;
+};
+
+const extractLegacyAzureFields = (
+  obj: Record<string, unknown>,
+): { apiKey: string; baseURL: string; models: string } => ({
+  apiKey: typeof obj.azureOpenAIApiKey === 'string' ? obj.azureOpenAIApiKey : '',
+  baseURL: legacyInstanceToBaseURL(
+    typeof obj.azureOpenAIApiInstanceName === 'string'
+      ? obj.azureOpenAIApiInstanceName
+      : undefined,
+  ),
+  models:
+    typeof obj.azureOpenAIApiDeploymentName === 'string' ? obj.azureOpenAIApiDeploymentName : '',
+});
+
 const parseSavedFormValues = (value: string) => {
   if (!value) {
     return defaultFormValues;
@@ -77,6 +113,14 @@ const parseSavedFormValues = (value: string) => {
       };
     }
 
+    // Top-level legacy Azure payload (no current-format apiKey key present)
+    if (isLegacyAzurePayload(parsedValue) && !('apiKey' in parsedValue)) {
+      return extractLegacyAzureFields(parsedValue);
+    }
+
+    let apiKey = typeof parsedValue.apiKey === 'string' ? parsedValue.apiKey : '';
+    let baseURL = typeof parsedValue.baseURL === 'string' ? parsedValue.baseURL : '';
+
     let models = '';
     if (typeof parsedValue.models === 'string') {
       models = parsedValue.models;
@@ -84,11 +128,31 @@ const parseSavedFormValues = (value: string) => {
       models = parsedValue.models.join(',');
     }
 
-    return {
-      apiKey: typeof parsedValue.apiKey === 'string' ? parsedValue.apiKey : '',
-      baseURL: typeof parsedValue.baseURL === 'string' ? parsedValue.baseURL : '',
-      models,
-    };
+    // Nested legacy Azure payload inside apiKey (JSON-in-apiKey)
+    if (apiKey) {
+      try {
+        const nested = JSON.parse(apiKey);
+        if (
+          nested != null &&
+          typeof nested === 'object' &&
+          !Array.isArray(nested) &&
+          isLegacyAzurePayload(nested)
+        ) {
+          const legacy = extractLegacyAzureFields(nested);
+          apiKey = legacy.apiKey;
+          if (!baseURL) {
+            baseURL = legacy.baseURL;
+          }
+          if (!models) {
+            models = legacy.models;
+          }
+        }
+      } catch {
+        // apiKey is not JSON — keep as-is
+      }
+    }
+
+    return { apiKey, baseURL, models };
   } catch {
     return {
       ...defaultFormValues,

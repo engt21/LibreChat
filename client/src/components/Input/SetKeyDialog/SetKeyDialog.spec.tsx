@@ -205,4 +205,139 @@ describe('SetKeyDialog', () => {
 
     expect(screen.getByTestId('input-anthropic')).toHaveAttribute('type', 'password');
   });
+
+  it('hydrates legacy top-level Azure saved payload into editable fields', async () => {
+    mockUseUserKey.mockReturnValue({
+      getExpiry: () => 'never',
+      getValue: () =>
+        JSON.stringify({
+          azureOpenAIApiKey: 'legacy-azure-key',
+          azureOpenAIApiInstanceName: 'example-instance',
+          azureOpenAIApiDeploymentName: 'gpt-4.1-prod',
+          azureOpenAIApiVersion: '2024-10-21',
+        }),
+      saveUserKey: jest.fn(),
+      isLoading: false,
+    });
+
+    render(
+      <SetKeyDialog
+        open={true}
+        onOpenChange={jest.fn()}
+        endpoint={EModelEndpoint.azureOpenAI}
+        userProvideURL={true}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('input-apiKey')).toHaveValue('legacy-azure-key');
+    });
+
+    expect(screen.getByTestId('input-baseURL')).toHaveValue(
+      'https://example-instance.openai.azure.com/openai/v1',
+    );
+    expect(screen.getByTestId('input-models')).toHaveValue('gpt-4.1-prod');
+  });
+
+  it('hydrates legacy Azure payload with full domain instanceName', async () => {
+    mockUseUserKey.mockReturnValue({
+      getExpiry: () => 'never',
+      getValue: () =>
+        JSON.stringify({
+          azureOpenAIApiKey: 'legacy-key',
+          azureOpenAIApiInstanceName: 'my-instance.cognitiveservices.azure.com',
+          azureOpenAIApiDeploymentName: 'dep',
+          azureOpenAIApiVersion: '2024-10-21',
+        }),
+      saveUserKey: jest.fn(),
+      isLoading: false,
+    });
+
+    render(
+      <SetKeyDialog
+        open={true}
+        onOpenChange={jest.fn()}
+        endpoint={EModelEndpoint.azureOpenAI}
+        userProvideURL={true}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('input-apiKey')).toHaveValue('legacy-key');
+    });
+
+    expect(screen.getByTestId('input-baseURL')).toHaveValue(
+      'https://my-instance.cognitiveservices.azure.com/openai/v1',
+    );
+  });
+
+  it('hydrates nested JSON-in-apiKey legacy Azure payload', async () => {
+    const nestedLegacy = JSON.stringify({
+      azureOpenAIApiKey: 'nested-key',
+      azureOpenAIApiInstanceName: 'nested-instance',
+      azureOpenAIApiDeploymentName: 'gpt-4o',
+      azureOpenAIApiVersion: '2024-10-21',
+    });
+
+    mockUseUserKey.mockReturnValue({
+      getExpiry: () => 'never',
+      getValue: () => JSON.stringify({ apiKey: nestedLegacy }),
+      saveUserKey: jest.fn(),
+      isLoading: false,
+    });
+
+    render(
+      <SetKeyDialog
+        open={true}
+        onOpenChange={jest.fn()}
+        endpoint={EModelEndpoint.azureOpenAI}
+        userProvideURL={true}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('input-apiKey')).toHaveValue('nested-key');
+    });
+
+    expect(screen.getByTestId('input-baseURL')).toHaveValue(
+      'https://nested-instance.openai.azure.com/openai/v1',
+    );
+    expect(screen.getByTestId('input-models')).toHaveValue('gpt-4o');
+  });
+
+  it('keeps outer baseURL and models when nested legacy only provides apiKey', async () => {
+    const nestedLegacy = JSON.stringify({
+      azureOpenAIApiKey: 'nested-only-key',
+    });
+
+    mockUseUserKey.mockReturnValue({
+      getExpiry: () => 'never',
+      getValue: () =>
+        JSON.stringify({
+          apiKey: nestedLegacy,
+          baseURL: 'https://explicit-base.openai.azure.com/openai/v1',
+          models: 'explicit-dep',
+        }),
+      saveUserKey: jest.fn(),
+      isLoading: false,
+    });
+
+    render(
+      <SetKeyDialog
+        open={true}
+        onOpenChange={jest.fn()}
+        endpoint={EModelEndpoint.azureOpenAI}
+        userProvideURL={true}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('input-apiKey')).toHaveValue('nested-only-key');
+    });
+
+    expect(screen.getByTestId('input-baseURL')).toHaveValue(
+      'https://explicit-base.openai.azure.com/openai/v1',
+    );
+    expect(screen.getByTestId('input-models')).toHaveValue('explicit-dep');
+  });
 });
