@@ -1,0 +1,60 @@
+{
+  "groupId": "runtime-cli-round1",
+  "milestone": "backend-foundation",
+  "surface": "runtime-cli",
+  "testedAt": "2026-04-05T10:36:13Z",
+  "isolation": {
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "repoRoot": "/pool/home/timeng/LibreChat-custom",
+    "devRail": "http://127.0.0.1:3081",
+    "stableRail": "http://127.0.0.1:3080",
+    "boundary": "runtime-cli"
+  },
+  "assertionsAssigned": [],
+  "assertionsTested": [],
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "commandsRun": [
+    {
+      "command": "/pool/home/timeng/LibreChat-custom/local-services/status-all.sh all",
+      "exitCode": 0,
+      "observation": "Stable and dev rail compose stacks were listed as running; dev API exposed on :3081 and stable API on :3080."
+    },
+    {
+      "command": "/pool/home/timeng/LibreChat-custom/local-services/health-check.sh",
+      "exitCode": 1,
+      "observation": "Health-check reported no orphan/duplicate/shared-mount issues and healthy Langfuse components, but exited non-zero due memory summary warning (swap 100% used)."
+    },
+    {
+      "command": "curl -i http://127.0.0.1:3081/api/admin/permissions",
+      "exitCode": 0,
+      "observation": "HTTP/1.1 401 Unauthorized (expected auth-gated behavior)."
+    },
+    {
+      "command": "curl -i http://127.0.0.1:3081/api/schedules",
+      "exitCode": 0,
+      "observation": "HTTP/1.1 401 Unauthorized (expected auth-gated behavior)."
+    },
+    {
+      "command": "curl -i http://127.0.0.1:3081/api/realtime/models",
+      "exitCode": 0,
+      "observation": "HTTP/1.1 401 Unauthorized (expected auth-gated behavior)."
+    }
+  ],
+  "toolsUsed": [
+    "Execute",
+    "Read",
+    "LS"
+  ],
+  "frictions": [
+    {
+      "description": "health-check.sh exited with code 1 because swap was fully utilized, even though core route and Langfuse checks were healthy.",
+      "resolved": false,
+      "resolution": "No disruptive remediation performed per isolation constraints; recorded as runtime readiness friction.",
+      "affectedAssertions": []
+    }
+  ],
+  "blockers": [],
+  "summary": "No backend-foundation assertions were assigned to this flow validator (0 assigned, 0 tested). Runtime readiness evidence was captured with status-all, health-check, and three dev auth-gated route smokes; all route smokes returned expected 401, with one non-blocking friction from health-check non-zero due swap pressure."
+}

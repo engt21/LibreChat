@@ -1,0 +1,19 @@
+{
+  "milestone": "backend-foundation",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null,
+  "sourceFlowReports": [
+    ".factory/validation/backend-foundation/user-testing/flows/runtime-cli-round1.json"
+  ]
+}
