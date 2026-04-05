@@ -94,14 +94,21 @@ async function handleConnection(socket, req, user) {
             throw new Error('Realtime session.start requires a model.');
           }
 
-          validateRealtimeModelAccess({ user, endpoint, model });
-
           const appConfig = await getAppConfig({ role: user.role });
           const providerConfig = await resolveRealtimeSessionConfig({
             req: { user },
             appConfig,
             endpoint,
             model,
+          });
+
+          // Validate against the resolved model so providers that legitimately
+          // resolve a default model server-side (e.g. xAI) are not rejected
+          // prematurely when the client omits `model`.
+          validateRealtimeModelAccess({
+            user,
+            endpoint,
+            model: providerConfig.model,
           });
 
           adapter = createAdapter({

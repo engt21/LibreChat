@@ -1,4 +1,18 @@
 const { EModelEndpoint, GoogleAuthMode, SystemRoles } = require('librechat-data-provider');
+
+jest.mock('@librechat/api', () => {
+  const actual = jest.requireActual('@librechat/api');
+  return {
+    ...actual,
+    fetchModels: jest.fn().mockResolvedValue([]),
+  };
+});
+
+jest.mock('~/models', () => ({
+  getUserKeyValues: jest.fn().mockResolvedValue(null),
+}));
+
+const { fetchModels } = require('@librechat/api');
 const {
   buildAzureRealtimeURL,
   buildOpenAIRealtimeURL,
@@ -6,7 +20,10 @@ const {
   resolveRealtimeSessionConfig,
   validateRealtimeModelAccess,
 } = require('~/server/services/Realtime/modelService');
-const { isXAIRealtimeModel } = require('~/server/services/Realtime/constants');
+const {
+  DEFAULT_XAI_REALTIME_MODELS,
+  isXAIRealtimeModel,
+} = require('~/server/services/Realtime/constants');
 
 describe('realtime model service URL builders', () => {
   const originalEnv = process.env;
@@ -282,6 +299,159 @@ describe('validateRealtimeModelAccess', () => {
         },
         endpoint: EModelEndpoint.openAI,
         model: 'gpt-realtime-1.5',
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe('xAI omitted-model fallback under policy', () => {
+  const originalEnv = process.env;
+  const xaiEndpointName = 'xai';
+
+  const xaiAppConfig = {
+    endpoints: {
+      [EModelEndpoint.custom]: [
+        {
+          name: xaiEndpointName,
+          baseURL: 'https://api.x.ai/v1',
+          apiKey: 'test-xai-key',
+          customParams: { defaultParamsEndpoint: 'xai' },
+        },
+      ],
+    },
+  };
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    fetchModels.mockReset();
+    fetchModels.mockResolvedValue([]);
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('resolves the default xAI model when model is omitted from session.start', async () => {
+    const config = await resolveRealtimeSessionConfig({
+      req: { user: { id: 'user-1' } },
+      appConfig: xaiAppConfig,
+      endpoint: xaiEndpointName,
+      model: undefined,
+    });
+
+    expect(config.model).toBe(DEFAULT_XAI_REALTIME_MODELS[0]);
+    expect(config.provider).toBe('xai');
+    expect(config.endpoint).toBe(xaiEndpointName);
+  });
+
+  it('allows omitted-model xAI session when the resolved default is in the user policy', async () => {
+    const config = await resolveRealtimeSessionConfig({
+      req: { user: { id: 'user-1' } },
+      appConfig: xaiAppConfig,
+      endpoint: xaiEndpointName,
+      model: undefined,
+    });
+
+    const restrictedUser = {
+      role: SystemRoles.USER,
+      modelPermissions: {
+        enabled: true,
+        rules: [{ endpoint: xaiEndpointName, models: [DEFAULT_XAI_REALTIME_MODELS[0]] }],
+      },
+    };
+
+    expect(() =>
+      validateRealtimeModelAccess({
+        user: restrictedUser,
+        endpoint: xaiEndpointName,
+        model: config.model,
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects omitted-model xAI session when the resolved default is not in the user policy', async () => {
+    const config = await resolveRealtimeSessionConfig({
+      req: { user: { id: 'user-1' } },
+      appConfig: xaiAppConfig,
+      endpoint: xaiEndpointName,
+      model: undefined,
+    });
+
+    const restrictedUser = {
+      role: SystemRoles.USER,
+      modelPermissions: {
+        enabled: true,
+        rules: [{ endpoint: xaiEndpointName, models: ['some-other-model'] }],
+      },
+    };
+
+    expect(() =>
+      validateRealtimeModelAccess({
+        user: restrictedUser,
+        endpoint: xaiEndpointName,
+        model: config.model,
+      }),
+    ).toThrow(/not available for your account/);
+  });
+
+  it('rejects omitted-model xAI session when the user has no xAI endpoint rules', async () => {
+    const config = await resolveRealtimeSessionConfig({
+      req: { user: { id: 'user-1' } },
+      appConfig: xaiAppConfig,
+      endpoint: xaiEndpointName,
+      model: undefined,
+    });
+
+    const restrictedUser = {
+      role: SystemRoles.USER,
+      modelPermissions: {
+        enabled: true,
+        rules: [{ endpoint: EModelEndpoint.openAI, models: ['gpt-realtime-1.5'] }],
+      },
+    };
+
+    expect(() =>
+      validateRealtimeModelAccess({
+        user: restrictedUser,
+        endpoint: xaiEndpointName,
+        model: config.model,
+      }),
+    ).toThrow(/not available for your account/);
+  });
+
+  it('allows omitted-model xAI session for admin users without restriction checks', async () => {
+    const config = await resolveRealtimeSessionConfig({
+      req: { user: { id: 'admin-1' } },
+      appConfig: xaiAppConfig,
+      endpoint: xaiEndpointName,
+      model: undefined,
+    });
+
+    expect(() =>
+      validateRealtimeModelAccess({
+        user: { role: SystemRoles.ADMIN },
+        endpoint: xaiEndpointName,
+        model: config.model,
+      }),
+    ).not.toThrow();
+  });
+
+  it('allows omitted-model xAI session for unrestricted users', async () => {
+    const config = await resolveRealtimeSessionConfig({
+      req: { user: { id: 'user-1' } },
+      appConfig: xaiAppConfig,
+      endpoint: xaiEndpointName,
+      model: undefined,
+    });
+
+    expect(() =>
+      validateRealtimeModelAccess({
+        user: {
+          role: SystemRoles.USER,
+          modelPermissions: { enabled: false, rules: [] },
+        },
+        endpoint: xaiEndpointName,
+        model: config.model,
       }),
     ).not.toThrow();
   });
