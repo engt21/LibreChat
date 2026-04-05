@@ -1,0 +1,113 @@
+{
+  "groupId": "runtime-round2",
+  "surface": "runtime-cli",
+  "assertions": [
+    {
+      "id": "VAL-RUNTIME-002",
+      "status": "pass",
+      "reason": "Stable and dev remained concurrently reachable on 3080/3081, with isolated compose projects, image tags, ports, bind mounts, and named volumes; after multiple dev-side disruptive operations, stable container identities and reachability remained unchanged.",
+      "evidence": [
+        {
+          "command": "/pool/home/timeng/LibreChat-custom/local-services/status-all.sh all",
+          "observation": "Both rails up with distinct host ports and rail-scoped services/images (stable on 3080, dev on 3081). See 01-status-all-initial.log and 18-status-all-final.log."
+        },
+        {
+          "command": "docker ps --format ...; docker volume ls --format ... | grep '^(librechat-stable_|librechat-dev_)' ; docker inspect ...",
+          "observation": "Compose project labels split by librechat-stable vs librechat-dev; volume names are rail-prefixed; stable uses /uploads,/logs,/data-node while dev uses /.rails/dev/* writable mounts. See 03-isolation-artifacts-pre.log and 04-bind-mount-isolation.log."
+        },
+        {
+          "command": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3080/ && curl ...3081/",
+          "observation": "Both rails returned HTTP 200 on root before and after dev-side operations. See 02-curl-baseline.log and 17-post-sync-from-stable-state.log."
+        },
+        {
+          "command": "docker inspect -f '{{.Id}}' librechat-stable-api librechat-stable-mongodb",
+          "observation": "Stable API and Mongo container IDs stayed unchanged across dev stop/export/apply/start/sync operations. See 19-stable-container-unchanged-check.log."
+        }
+      ]
+    },
+    {
+      "id": "VAL-RUNTIME-006",
+      "status": "pass",
+      "reason": "Dev bundle export correctly refused while dev services were active, then succeeded from a stopped dev rail with metadata/hash plus all declared bind and volume archives.",
+      "evidence": [
+        {
+          "command": "/pool/home/timeng/LibreChat-custom/local-services/export-dev-bundle.sh <bundle-dir> (while dev running)",
+          "observation": "Exited with code 1 and explicit message: 'Dev rail must be stopped before exporting or importing state.' See 05-export-while-dev-active.log."
+        },
+        {
+          "command": "/pool/home/timeng/LibreChat-custom/local-services/stop-all.sh dev",
+          "observation": "Stopped only dev containers before export. See 06-stop-dev.log and 07-curl-after-dev-stop.log."
+        },
+        {
+          "command": "/pool/home/timeng/LibreChat-custom/local-services/export-dev-bundle.sh /home/timeng/.../bundle-fresh",
+          "observation": "Exited 0; exported 3 bind files, 5 bind dirs, 5 volumes; computed bundle hash; wrote metadata.env. See 08-export-fresh.log and 09-bundle-fresh-contents.log."
+        }
+      ]
+    },
+    {
+      "id": "VAL-RUNTIME-007",
+      "status": "pass",
+      "reason": "Applying a stale incoming bundle (older base token) was rejected with remote_newer and conflict archiving instead of overwrite.",
+      "evidence": [
+        {
+          "command": "python3 (copy fresh bundle -> bundle-stale and set LIBRECHAT_SYNC_BASE_TOKEN to stale-token)",
+          "observation": "Prepared stale incoming bundle metadata for mismatch test. See 10-create-stale-bundle.log."
+        },
+        {
+          "command": "/pool/home/timeng/LibreChat-custom/local-services/remote-apply-dev-bundle.sh /home/timeng/.../bundle-stale",
+          "observation": "Returned status=remote_newer with conflict_dir after token mismatch check. See 11-apply-stale-bundle.log."
+        },
+        {
+          "command": "find /pool/home/timeng/LibreChat-custom/.local-sync/dev/conflicts/2026-04-05T06:09:33Z-pve2- -maxdepth 2 -type f",
+          "observation": "Conflict archive exists and contains metadata plus bind/volume archives. See 21-stale-conflict-archive-check.log."
+        }
+      ]
+    },
+    {
+      "id": "VAL-RUNTIME-007A",
+      "status": "pass",
+      "reason": "A freshly exported bundle imported cleanly into stopped dev state, returned accepted, restored declared bind+volume artifacts, and left token/hash metadata aligned.",
+      "evidence": [
+        {
+          "command": "/pool/home/timeng/LibreChat-custom/local-services/remote-apply-dev-bundle.sh /home/timeng/.../bundle-fresh",
+          "observation": "Returned status=accepted; import step restored 3 bind files, 5 bind dirs, and 5 volumes. See 12-apply-fresh-bundle.log."
+        },
+        {
+          "command": "source bundle metadata + compare with /pool/home/timeng/LibreChat-custom/.local-sync/dev/current_token and authoritative metadata",
+          "observation": "fresh_token_matches_current=yes; auth_token_matches_current=yes; fresh_hash_matches_authoritative=yes. See 13-post-apply-token-hash-checks.log."
+        },
+        {
+          "command": "/pool/home/timeng/LibreChat-custom/local-services/start-all.sh dev && curl http://127.0.0.1:3081/",
+          "observation": "Dev rail started successfully after apply and served HTTP 200. See 14-start-dev.log and 17-post-sync-from-stable-state.log."
+        }
+      ]
+    },
+    {
+      "id": "VAL-RUNTIME-008",
+      "status": "pass",
+      "reason": "sync-from-stable copied stable MongoDB and user-file state into dev, restarted only dev-side consumers, and left stable serving continuously.",
+      "evidence": [
+        {
+          "command": "/pool/home/timeng/LibreChat-custom/local-services/sync-from-stable.sh",
+          "observation": "Ran in Local-direct mode; dumped stable Mongo, restored into dev, synced images/uploads, then restarted dev API + Meilisearch. Exit 0. See 16-sync-from-stable.log."
+        },
+        {
+          "command": "docker inspect stable/dev API and dev Meilisearch before/after sync",
+          "observation": "Stable API ID and startedAt unchanged; dev API/Meilisearch startedAt moved due dev-side restart. See 15-pre-sync-from-stable-state.log and 17-post-sync-from-stable-state.log."
+        },
+        {
+          "command": "curl http://127.0.0.1:3080/ and /api/admin/permissions before/after sync",
+          "observation": "Stable remained reachable (200 root, 401 admin permissions) after sync while dev remained reachable/auth-gated. See 17-post-sync-from-stable-state.log."
+        }
+      ]
+    }
+  ],
+  "frictions": [
+    "start-all.sh dev health check reported one unrelated orphan container (cranky_cannon) and high host swap pressure; this did not block assertion execution.",
+    "Sensitive token values are redacted in command output, so evidence relies on status lines and explicit match booleans rather than raw token text."
+  ],
+  "blockers": [],
+  "toolsUsed": [
+    "runtime-cli"
+  ]
+}

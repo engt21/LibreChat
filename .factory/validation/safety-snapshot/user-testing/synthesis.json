@@ -1,0 +1,28 @@
+{
+  "milestone": "safety-snapshot",
+  "round": 2,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-RUNTIME-002",
+    "VAL-RUNTIME-006",
+    "VAL-RUNTIME-007",
+    "VAL-RUNTIME-007A",
+    "VAL-RUNTIME-008"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Updated sync-from-stable guidance to reflect verified local-direct mode behavior (SSH key no longer required for local path).",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": ".factory/validation/safety-snapshot/user-testing/synthesis.round1.json"
+}

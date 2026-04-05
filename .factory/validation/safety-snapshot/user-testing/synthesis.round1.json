@@ -1,0 +1,52 @@
+{
+  "milestone": "safety-snapshot",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 8,
+    "passed": 3,
+    "failed": 0,
+    "blocked": 5
+  },
+  "passedAssertions": [
+    "VAL-RUNTIME-001",
+    "VAL-RUNTIME-003",
+    "VAL-RUNTIME-004"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-RUNTIME-002",
+      "blockedBy": "Could not validate the 'dev remains reachable' portion due 3081 connection resets/empty replies during sampled checks."
+    },
+    {
+      "id": "VAL-RUNTIME-006",
+      "blockedBy": "Long-running ClickHouse volume archival prevented completion in this session window; successful restorable bundle could not be confirmed."
+    },
+    {
+      "id": "VAL-RUNTIME-007",
+      "blockedBy": "remote-apply path did not complete within bounded window (authoritative refresh/export path remained long-running), so stale-overwrite decision could not be observed."
+    },
+    {
+      "id": "VAL-RUNTIME-007A",
+      "blockedBy": "Could not obtain a completed fresh bundle or completed apply transaction in-session."
+    },
+    {
+      "id": "VAL-RUNTIME-008",
+      "blockedBy": "Blocked by missing SSH credential prerequisite for sync-from-stable."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added Flow Validator Guidance: runtime-cli section with isolation boundaries and stable protection rules.",
+      "source": "setup"
+    },
+    {
+      "target": "user-testing.md",
+      "description": "Added runtime testing gotchas from flow report (sync-from-stable SSH key prerequisite, long ClickHouse export windows, intermittent dev 3081 resets under memory pressure).",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": null
+}

@@ -39,7 +39,7 @@ Rationale: planning measured only ~1.2–1.3 GiB available RAM on a ~29 GiB host
   - `/api/schedules` -> `401`
   - `/api/realtime/models` -> `401`
 - For this mission, a momentary web response is not enough for Langfuse; the blocker is sustained ClickHouse stability.
-- `./local-services/sync-from-stable.sh` currently hard-fails if `/home/timeng/.ssh/id_rsa` is missing; ensure credentials exist before using this flow in validation.
+- `./local-services/sync-from-stable.sh` now supports local-direct mode on this host (no `/home/timeng/.ssh/id_rsa` required); ensure SSH credentials only when explicitly using remote mode.
 - `./local-services/export-dev-bundle.sh` can take a long time on ClickHouse volume archival; allow long execution windows and verify bundle metadata/hashes exist before treating export as complete.
 - Under high memory/swap pressure, dev `:3081` may intermittently return connection reset/empty reply; capture repeated samples with health-check context instead of a single curl.
 - Runtime-reconciliation recheck (round 3): `/api/realtime/models` returns `401` on dev (auth-gated readiness confirmed), orphan/shared-mount checks are clean, and sampled dev API logs show both `[ScheduledJobs] Starting scheduler runner ...` and `[AudioTranscription] Starting runner ...` on normal startup; VAL-CROSS-006 now passes.
