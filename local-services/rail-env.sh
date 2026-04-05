@@ -180,8 +180,6 @@ resolve_librechat_rail() {
       export LIBRECHAT_MONGO_BIND_HOST="127.0.0.1"
       export LIBRECHAT_MONGO_HOST_PORT="27018"
       export LIBRECHAT_MONGO_COMMAND="mongod --bind_ip_all"
-      # Dev MongoDB runs as root so it can access data synced from stable with mixed ownership.
-      export LIBRECHAT_MONGO_USER="0:0"
       export LIBRECHAT_LANGFUSE_WEB_HOST_PORT="3002"
       export LIBRECHAT_LANGFUSE_MINIO_API_HOST_PORT="19190"
       export LIBRECHAT_LANGFUSE_MINIO_CONSOLE_HOST_PORT="19192"
@@ -241,4 +239,29 @@ prepare_librechat_rail_paths() {
     "$LOCAL_CODE_WORKSPACE_HOST_ROOT"
 
   chmod 0777 "$LIBRECHAT_MONGO_DATA_DIR" 2>/dev/null || true
+
+  # Normalize MongoDB data ownership so the container user (default 999:999) can
+  # access files that may have been created when dev Mongo previously ran as root.
+  # This removes the need for LIBRECHAT_MONGO_USER=0:0 on the dev rail.
+  normalize_dev_mongo_ownership
+}
+
+normalize_dev_mongo_ownership() {
+  # Use the compose-file default (999:999) unless overridden by LIBRECHAT_MONGO_USER.
+  local mongo_user="${LIBRECHAT_MONGO_USER:-999:999}"
+  local mongo_uid="${mongo_user%%:*}"
+  local mongo_gid="${mongo_user#*:}"
+
+  # Skip normalization for root-user containers (uid 0) or stable rail.
+  if [[ "$mongo_uid" == "0" || "${LIBRECHAT_RAIL:-stable}" == "stable" ]]; then
+    return 0
+  fi
+
+  # Only fix ownership if there are root-owned files in the Mongo data dir.
+  if [[ -d "$LIBRECHAT_MONGO_DATA_DIR" ]] && \
+     find "$LIBRECHAT_MONGO_DATA_DIR" -maxdepth 1 -user 0 -print -quit 2>/dev/null | grep -q .; then
+    echo "[rail-env] Normalizing dev MongoDB data ownership to ${mongo_uid}:${mongo_gid}..." >&2
+    chown -R "${mongo_uid}:${mongo_gid}" "$LIBRECHAT_MONGO_DATA_DIR" 2>/dev/null || \
+      echo "[rail-env][warn] Could not normalize MongoDB data ownership; dev Mongo may fail to start" >&2
+  fi
 }

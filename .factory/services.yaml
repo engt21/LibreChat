@@ -1,6 +1,6 @@
 commands:
   install: cd /pool/home/timeng/LibreChat-custom && npm install
-  lint: cd /pool/home/timeng/LibreChat-custom && npm run lint
+  lint: cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npx eslint api/ client/src/ packages/api/src/ packages/client/src/ packages/data-provider/src/ packages/data-schemas/src/ config/ --no-cache
   test: cd /pool/home/timeng/LibreChat-custom && npm run test:all
   build: cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npm run build
   test_api: cd /pool/home/timeng/LibreChat-custom && npm run test:api

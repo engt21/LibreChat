@@ -82,6 +82,9 @@ if [[ -z "$SKIP_MONGO" ]]; then
   else
     log "Starting MongoDB temporarily for restore..."
     STARTED_MONGO_TEMP=1
+    # Ensure dev data directories exist and have correct ownership before
+    # starting dev MongoDB so it can initialize as the standard 999:999 user.
+    prepare_librechat_rail_paths
     docker compose -p "$COMPOSE_PROJECT_NAME" \
       -f "$ROOT_DIR/docker-compose.yml" \
       -f "$ROOT_DIR/docker-compose.local.override.yml" \
@@ -118,6 +121,13 @@ if [[ -z "$SKIP_FILES" ]]; then
   rsync_down "$REMOTE_REPO/uploads" "$LIBRECHAT_UPLOADS_DIR"
   UPL_COUNT="$(find "$LIBRECHAT_UPLOADS_DIR" -type f | wc -l)"
   log "Uploads synced: $UPL_COUNT files"
+
+  # Normalize ownership of synced files so dev containers can read them
+  # without requiring root-user workarounds. Images are shared; uploads are
+  # dev-rail-specific. Both must be readable by the API container user.
+  log "Normalizing ownership of synced file directories..."
+  chmod -R a+rX "$ROOT_DIR/images" 2>/dev/null || true
+  chmod -R a+rX "$LIBRECHAT_UPLOADS_DIR" 2>/dev/null || true
 fi
 
 # ---------- restart ----------
