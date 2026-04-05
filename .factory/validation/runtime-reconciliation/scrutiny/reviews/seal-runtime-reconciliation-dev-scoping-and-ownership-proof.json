@@ -1,0 +1,15 @@
+{
+  "featureId": "seal-runtime-reconciliation-dev-scoping-and-ownership-proof",
+  "milestone": "runtime-reconciliation",
+  "status": "pass",
+  "issues": [
+    {
+      "severity": "non_blocking",
+      "description": "Langfuse rail gating now skips a rail whenever that rail's ClickHouse container is not running, which can mask a genuinely degraded running rail where other services are up but ClickHouse has crashed.",
+      "evidence": "local-services/health-check.sh:201-207 gates the entire rail check on `docker ps` containing `${project}-langfuse-clickhouse-1`; if that container is down, the loop `continue`s and no per-service unhealthy report is emitted for that rail.",
+      "suggestedFix": "Gate on whether the rail has any running containers (or compose project running state), then run Langfuse service checks and report ClickHouse as unhealthy when it is missing/stopped."
+    }
+  ],
+  "sharedStateObservations": [],
+  "summary": "Pass. The fix resolves both prior blocking findings: stable no longer inherits the dev NODE_OPTIONS cap (docker-compose.local.override.yml + rail-env stable export) and stopped rails no longer false-fail Langfuse checks (`docker ps` gating). The ownership-normalization blocker is adequately closed by the now-effective restore path (post-restore normalization/fallback from 4fa0e8018) plus this feature's transcript/handoff evidence showing successful sync/export/apply and non-root dev Mongo usability (999:999 with successful data queries) after real refresh flows."
+}
