@@ -439,6 +439,9 @@ describe('transcriptionQueue runner drain semantics', () => {
     // Stop without drain — should return immediately even though the job is pending.
     await stopAudioTranscriptionRunner({ drain: false });
 
+    // The job was claimed, proving the runner started. Stop returned without draining.
+    expect(claimCount).toBeGreaterThanOrEqual(1);
+
     // Resolve the job to clean up.
     resolveJob({
       text: 'done',
@@ -448,5 +451,474 @@ describe('transcriptionQueue runner drain semantics', () => {
       converted: false,
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+});
+
+describe('transcriptionQueue — per-conversation settings reuse (VAL-FILES-004)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    File.findOneAndUpdate.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(null),
+    });
+    saveMessage.mockImplementation(async (_req, payload) => ({
+      ...payload,
+      createdAt: new Date().toISOString(),
+    }));
+    getMessages.mockResolvedValue([]);
+    getConvo.mockResolvedValue(null);
+    updateFile.mockResolvedValue({});
+    saveConvo.mockResolvedValue({
+      conversationId: 'conv-settings-1',
+      title: 'Transcript: settings-test',
+      files: ['file-settings'],
+    });
+  });
+
+  it('persists transcriptionModel, transcriptionPrompt, and speakerReferences on the conversation', async () => {
+    File.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        file_id: 'file-settings',
+        user: 'user-1',
+        filename: 'settings-test.mp3',
+        filepath: '/uploads/settings-test.mp3',
+        bytes: 512,
+        type: 'audio/mpeg',
+        source: 'local',
+        embedded: false,
+        metadata: {},
+      }),
+    });
+
+    const req = {
+      user: { id: 'user-1' },
+      body: {
+        file_id: 'file-settings',
+        endpoint: 'openAI',
+        model: 'gpt-4o-mini',
+        transcriptionModel: 'gpt-4o-transcribe-diarize',
+        prompt: 'Speaker names: Alice, Bob',
+        speakerReferences: [
+          { name: 'Alice', file_id: 'ref-alice', filename: 'alice.wav' },
+          { name: 'Bob', file_id: 'ref-bob', filename: 'bob.wav' },
+        ],
+      },
+    };
+
+    await createAudioTranscriptionRequest(req);
+
+    expect(saveConvo).toHaveBeenCalledWith(
+      req,
+      expect.objectContaining({
+        transcriptionModel: 'gpt-4o-transcribe-diarize',
+        transcriptionPrompt: 'Speaker names: Alice, Bob',
+        transcriptionSpeakerReferences: expect.arrayContaining([
+          expect.objectContaining({ name: 'Alice', file_id: 'ref-alice' }),
+          expect.objectContaining({ name: 'Bob', file_id: 'ref-bob' }),
+        ]),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it('also persists transcription settings on the file metadata for the background runner', async () => {
+    File.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        file_id: 'file-settings-2',
+        user: 'user-1',
+        filename: 'settings2.mp3',
+        filepath: '/uploads/settings2.mp3',
+        bytes: 256,
+        type: 'audio/mpeg',
+        source: 'local',
+        embedded: false,
+        metadata: {},
+      }),
+    });
+
+    const req = {
+      user: { id: 'user-1' },
+      body: {
+        file_id: 'file-settings-2',
+        endpoint: 'openAI',
+        model: 'gpt-4o',
+        transcriptionModel: 'gpt-4o-transcribe',
+        prompt: 'Technical terms: FFT, STFT',
+        speakerReferences: [],
+      },
+    };
+
+    await createAudioTranscriptionRequest(req);
+
+    expect(updateFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_id: 'file-settings-2',
+        metadata: expect.objectContaining({
+          transcription: expect.objectContaining({
+            transcriptionModel: 'gpt-4o-transcribe',
+            prompt: 'Technical terms: FFT, STFT',
+            speakerReferences: [],
+          }),
+        }),
+      }),
+    );
+  });
+});
+
+describe('transcriptionQueue — delete-during-processing resilience (VAL-FILES-009)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    getAppConfig.mockResolvedValue({
+      paths: { uploads: '/tmp' },
+      fileStrategy: 'local',
+    });
+  });
+
+  afterEach(async () => {
+    jest.useRealTimers();
+    await stopAudioTranscriptionRunner({ drain: false });
+  });
+
+  it('completes without crashing when the response message is deleted mid-transcription', async () => {
+    const mockFile = {
+      file_id: 'delete-test-1',
+      user: 'user-1',
+      filename: 'deleted.mp3',
+      filepath: '/uploads/deleted.mp3',
+      type: 'audio/mpeg',
+      source: 'local',
+      usage: 0,
+      metadata: {
+        transcription: {
+          conversationId: 'conv-deleted',
+          requestMessageId: 'req-deleted',
+          responseMessageId: 'resp-deleted',
+          language: null,
+        },
+      },
+    };
+
+    let claimCount = 0;
+    File.findOneAndUpdate.mockImplementation(() => ({
+      lean: jest.fn().mockImplementation(() => {
+        claimCount++;
+        return claimCount === 1 ? Promise.resolve(mockFile) : Promise.resolve(null);
+      }),
+    }));
+
+    const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+    const { Readable } = require('node:stream');
+    getStrategyFunctions.mockReturnValue({
+      getDownloadStream: jest.fn().mockResolvedValue(Readable.from(Buffer.from('audio-data'))),
+    });
+
+    const { transcribeMediaFile } = require('./transcribeMediaFile');
+    transcribeMediaFile.mockResolvedValue({
+      text: 'Transcribed text',
+      provider: 'openai',
+      model: 'whisper-1',
+      chunkCount: 1,
+      converted: false,
+    });
+
+    // Simulate message deletion: updateMessage throws because message no longer exists
+    const { updateMessage } = require('~/models');
+    updateMessage.mockRejectedValue(new Error('Message not found'));
+    updateFile.mockResolvedValue({});
+    getConvo.mockResolvedValue({ conversationId: 'conv-deleted' });
+    saveConvo.mockResolvedValue({});
+
+    // Start runner and let it process the job
+    startAudioTranscriptionRunner();
+    jest.advanceTimersByTime(0);
+    jest.useRealTimers();
+
+    // Wait enough for processing to complete
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await stopAudioTranscriptionRunner({ drain: true });
+
+    // The file metadata should still be updated to 'completed' despite message update failure
+    expect(updateFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_id: 'delete-test-1',
+        metadata: expect.objectContaining({
+          transcription: expect.objectContaining({
+            status: 'completed',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('subsequent transcription jobs process normally after a deleted-message job', async () => {
+    const deletedFile = {
+      file_id: 'deleted-mid-1',
+      user: 'user-1',
+      filename: 'first.mp3',
+      filepath: '/uploads/first.mp3',
+      type: 'audio/mpeg',
+      source: 'local',
+      usage: 0,
+      metadata: {
+        transcription: {
+          conversationId: 'conv-d1',
+          requestMessageId: 'req-d1',
+          responseMessageId: 'resp-d1',
+          language: null,
+        },
+      },
+    };
+
+    const normalFile = {
+      file_id: 'normal-after-1',
+      user: 'user-1',
+      filename: 'second.mp3',
+      filepath: '/uploads/second.mp3',
+      type: 'audio/mpeg',
+      source: 'local',
+      usage: 0,
+      metadata: {
+        transcription: {
+          conversationId: 'conv-n1',
+          requestMessageId: 'req-n1',
+          responseMessageId: 'resp-n1',
+          language: null,
+        },
+      },
+    };
+
+    let claimCount = 0;
+    File.findOneAndUpdate.mockImplementation(() => ({
+      lean: jest.fn().mockImplementation(() => {
+        claimCount++;
+        if (claimCount === 1) {
+          return Promise.resolve(deletedFile);
+        }
+        if (claimCount === 2) {
+          return Promise.resolve(normalFile);
+        }
+        return Promise.resolve(null);
+      }),
+    }));
+
+    const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+    const { Readable } = require('node:stream');
+    getStrategyFunctions.mockReturnValue({
+      getDownloadStream: jest.fn().mockResolvedValue(Readable.from(Buffer.from('audio-data'))),
+    });
+
+    const { transcribeMediaFile } = require('./transcribeMediaFile');
+    transcribeMediaFile.mockResolvedValue({
+      text: 'Transcribed text',
+      provider: 'openai',
+      model: 'whisper-1',
+      chunkCount: 1,
+      converted: false,
+    });
+
+    const { updateMessage } = require('~/models');
+    // First call rejects (deleted message), second call succeeds
+    updateMessage.mockRejectedValueOnce(new Error('Message not found')).mockResolvedValueOnce({});
+    updateFile.mockResolvedValue({});
+    getConvo.mockResolvedValue({ conversationId: 'conv-n1' });
+    saveConvo.mockResolvedValue({});
+
+    startAudioTranscriptionRunner();
+    jest.advanceTimersByTime(0);
+    jest.useRealTimers();
+
+    // Wait enough for both jobs to process
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await stopAudioTranscriptionRunner({ drain: true });
+
+    // Both files should have their metadata updated
+    const updateFileCalls = updateFile.mock.calls;
+    const fileIds = updateFileCalls
+      .filter((call) => call[0]?.metadata?.transcription?.status === 'completed')
+      .map((call) => call[0].file_id);
+
+    expect(fileIds).toContain('deleted-mid-1');
+    expect(fileIds).toContain('normal-after-1');
+  });
+});
+
+describe('transcriptionQueue — completion and failure message updates (VAL-FILES-005)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    getAppConfig.mockResolvedValue({
+      paths: { uploads: '/tmp' },
+      fileStrategy: 'local',
+    });
+  });
+
+  afterEach(async () => {
+    jest.useRealTimers();
+    await stopAudioTranscriptionRunner({ drain: false });
+  });
+
+  it('updates response message with completed text and metadata on success', async () => {
+    const mockFile = {
+      file_id: 'complete-test-1',
+      user: 'user-1',
+      filename: 'complete.mp3',
+      filepath: '/uploads/complete.mp3',
+      type: 'audio/mpeg',
+      source: 'local',
+      usage: 0,
+      metadata: {
+        transcription: {
+          conversationId: 'conv-complete',
+          requestMessageId: 'req-complete',
+          responseMessageId: 'resp-complete',
+          language: null,
+        },
+      },
+    };
+
+    let claimCount = 0;
+    File.findOneAndUpdate.mockImplementation(() => ({
+      lean: jest.fn().mockImplementation(() => {
+        claimCount++;
+        return claimCount === 1 ? Promise.resolve(mockFile) : Promise.resolve(null);
+      }),
+    }));
+
+    const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+    const { Readable } = require('node:stream');
+    getStrategyFunctions.mockReturnValue({
+      getDownloadStream: jest.fn().mockResolvedValue(Readable.from(Buffer.from('audio-data'))),
+    });
+
+    const { transcribeMediaFile } = require('./transcribeMediaFile');
+    transcribeMediaFile.mockResolvedValue({
+      text: 'Hello world from the transcription',
+      provider: 'openai',
+      model: 'whisper-1',
+      chunkCount: 1,
+      converted: false,
+    });
+
+    const { updateMessage } = require('~/models');
+    updateMessage.mockResolvedValue({});
+    updateFile.mockResolvedValue({});
+    getConvo.mockResolvedValue({ conversationId: 'conv-complete' });
+    saveConvo.mockResolvedValue({});
+
+    startAudioTranscriptionRunner();
+    jest.advanceTimersByTime(0);
+    jest.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await stopAudioTranscriptionRunner({ drain: true });
+
+    expect(updateMessage).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        messageId: 'resp-complete',
+        sender: 'Transcription',
+        text: expect.stringContaining('Hello world from the transcription'),
+        unfinished: false,
+        error: false,
+        metadata: expect.objectContaining({
+          transcriptionStatus: 'completed',
+          provider: 'openai',
+          model: 'whisper-1',
+        }),
+      }),
+      expect.any(Object),
+    );
+
+    // File metadata should also be completed
+    expect(updateFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_id: 'complete-test-1',
+        text: 'Hello world from the transcription',
+        metadata: expect.objectContaining({
+          transcription: expect.objectContaining({
+            status: 'completed',
+            provider: 'openai',
+            model: 'whisper-1',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('marks response message as failed with error text on transcription failure', async () => {
+    const mockFile = {
+      file_id: 'fail-test-1',
+      user: 'user-1',
+      filename: 'fail.mp3',
+      filepath: '/uploads/fail.mp3',
+      type: 'audio/mpeg',
+      source: 'local',
+      usage: 0,
+      metadata: {
+        transcription: {
+          conversationId: 'conv-fail',
+          requestMessageId: 'req-fail',
+          responseMessageId: 'resp-fail',
+          language: null,
+        },
+      },
+    };
+
+    let claimCount = 0;
+    File.findOneAndUpdate.mockImplementation(() => ({
+      lean: jest.fn().mockImplementation(() => {
+        claimCount++;
+        return claimCount === 1 ? Promise.resolve(mockFile) : Promise.resolve(null);
+      }),
+    }));
+
+    const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+    const { Readable } = require('node:stream');
+    getStrategyFunctions.mockReturnValue({
+      getDownloadStream: jest.fn().mockResolvedValue(Readable.from(Buffer.from('audio-data'))),
+    });
+
+    const { transcribeMediaFile } = require('./transcribeMediaFile');
+    transcribeMediaFile.mockRejectedValue(new Error('Audio codec not supported'));
+
+    const { updateMessage } = require('~/models');
+    updateMessage.mockResolvedValue({});
+    updateFile.mockResolvedValue({});
+    getConvo.mockResolvedValue({ conversationId: 'conv-fail' });
+    saveConvo.mockResolvedValue({});
+
+    startAudioTranscriptionRunner();
+    jest.advanceTimersByTime(0);
+    jest.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await stopAudioTranscriptionRunner({ drain: true });
+
+    expect(updateMessage).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        messageId: 'resp-fail',
+        sender: 'Transcription',
+        text: expect.stringContaining('Audio codec not supported'),
+        unfinished: false,
+        error: true,
+        metadata: expect.objectContaining({
+          transcriptionStatus: 'failed',
+          error: 'Audio codec not supported',
+        }),
+      }),
+      expect.any(Object),
+    );
+
+    // File metadata should also be marked as failed
+    expect(updateFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_id: 'fail-test-1',
+        metadata: expect.objectContaining({
+          transcription: expect.objectContaining({
+            status: 'failed',
+            error: 'Audio codec not supported',
+          }),
+        }),
+      }),
+    );
   });
 });

@@ -472,5 +472,127 @@ describe('processAgentFileUpload', () => {
         true,
       );
     });
+
+    test('stores Azure native file_search uploads locally with nativeTool metadata', async () => {
+      const { createFile } = require('~/models');
+      const uploadLocalFile = jest.fn().mockResolvedValue({
+        bytes: 30,
+        filename: 'azure-doc.pdf',
+        filepath: '/uploads/azure-doc.pdf',
+      });
+      getStrategyFunctions.mockReturnValue({ handleFileUpload: uploadLocalFile });
+
+      const req = makeReq({ mimetype: 'application/pdf' });
+      const metadata = {
+        file_id: 'file-uuid-123',
+        tool_resource: EToolResources.file_search,
+        native_tool: EToolResources.file_search,
+        message_file: true,
+        endpointType: EModelEndpoint.azureOpenAI,
+      };
+
+      await processAgentFileUpload({ req, res: mockRes, metadata });
+
+      expect(checkCapability).not.toHaveBeenCalledWith(
+        expect.anything(),
+        AgentCapabilities.file_search,
+      );
+      expect(createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'file-uuid-123',
+          context: 'message_attachment',
+          metadata: { nativeTool: EToolResources.file_search },
+        }),
+        true,
+      );
+    });
+
+    test('non-OpenAI/Azure endpoints do not produce nativeTool metadata even with native_tool hint', async () => {
+      const { createFile } = require('~/models');
+      const uploadLocalFile = jest.fn().mockResolvedValue({
+        bytes: 20,
+        filename: 'google-doc.txt',
+        filepath: '/uploads/google-doc.txt',
+        embedded: false,
+      });
+      jest.mock('./VectorDB/crud', () => ({
+        uploadVectors: jest.fn().mockResolvedValue({
+          embedded: true,
+          provider: 'google',
+          model: 'text-embedding-004',
+          filename: 'google-doc.txt',
+        }),
+      }));
+      getStrategyFunctions.mockReturnValue({ handleFileUpload: uploadLocalFile });
+
+      const req = makeReq({ mimetype: 'text/plain' });
+      req.body.model = 'gemini-2.0-flash';
+      const metadata = {
+        file_id: 'file-uuid-123',
+        agent_id: 'agent-abc',
+        tool_resource: EToolResources.file_search,
+        native_tool: EToolResources.file_search,
+        message_file: true,
+        endpointType: EModelEndpoint.google,
+      };
+
+      await processAgentFileUpload({ req, res: mockRes, metadata });
+
+      // Google should NOT get nativeTool because getNativeUploadTool only supports openAI/azure
+      const createFileCall = createFile.mock.calls[0][0];
+      expect(createFileCall.metadata?.nativeTool).toBeUndefined();
+    });
+  });
+
+  describe('file_search dual storage for RAG files (VAL-FILES-001)', () => {
+    test('uploads to both storage and vector DB, persisting ragProvider metadata', async () => {
+      const { createFile } = require('~/models');
+      const storageUpload = jest.fn().mockResolvedValue({
+        bytes: 100,
+        filename: 'knowledge.pdf',
+        filepath: '/uploads/knowledge.pdf',
+      });
+
+      jest.mock('./VectorDB/crud', () => ({
+        uploadVectors: jest.fn().mockResolvedValue({
+          embedded: true,
+          provider: 'google',
+          model: 'text-embedding-004',
+          filename: 'knowledge.pdf',
+        }),
+      }));
+
+      getStrategyFunctions.mockReturnValue({ handleFileUpload: storageUpload });
+
+      const req = makeReq({ mimetype: 'application/pdf' });
+      req.body.model = 'gemini-2.0-flash';
+      const metadata = {
+        file_id: 'file-uuid-123',
+        agent_id: 'agent-abc',
+        tool_resource: EToolResources.file_search,
+        message_file: false,
+      };
+
+      await processAgentFileUpload({ req, res: mockRes, metadata });
+
+      expect(storageUpload).toHaveBeenCalled();
+      const { uploadVectors } = require('./VectorDB/crud');
+      expect(uploadVectors).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'file-uuid-123',
+        }),
+      );
+      expect(createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'file-uuid-123',
+          embedded: true,
+          metadata: expect.objectContaining({
+            ragProvider: 'google',
+            ragModel: 'text-embedding-004',
+          }),
+        }),
+        true,
+      );
+    });
   });
 });
