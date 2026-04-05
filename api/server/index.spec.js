@@ -1,4 +1,5 @@
 const fs = require('fs');
+const http = require('http');
 const request = require('supertest');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
@@ -173,6 +174,65 @@ describe('Server Configuration', () => {
       // Restore original function
       mongoose.models.User.findOne = originalFindOne;
     }
+  });
+
+  describe('Realtime WebSocket Broker', () => {
+    /** Helper: send a raw HTTP upgrade request and collect the response */
+    function sendUpgrade(path) {
+      return new Promise((resolve, reject) => {
+        const addr = app.server.address();
+        const req = http.request({
+          hostname: addr.address === '::' || addr.address === '0.0.0.0' ? '127.0.0.1' : addr.address,
+          port: addr.port,
+          path,
+          headers: {
+            Connection: 'Upgrade',
+            Upgrade: 'websocket',
+            'Sec-WebSocket-Version': '13',
+            'Sec-WebSocket-Key': Buffer.from('test-ws-key-1234').toString('base64'),
+          },
+        });
+
+        req.on('response', (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body }));
+        });
+
+        req.on('upgrade', (_res, socket) => {
+          // If upgraded, close immediately — this shouldn't happen for unauthenticated requests
+          socket.destroy();
+          resolve({ statusCode: 101, upgraded: true });
+        });
+
+        req.on('error', (err) => {
+          // Connection reset / destroyed by server is expected for non-realtime paths
+          resolve({ statusCode: null, error: err.code || err.message });
+        });
+
+        req.end();
+      });
+    }
+
+    it('should have a WebSocket upgrade listener on the HTTP server', () => {
+      const httpServer = app.server;
+      expect(httpServer).toBeDefined();
+      const upgradeListeners = httpServer.listeners('upgrade');
+      expect(upgradeListeners.length).toBeGreaterThan(0);
+    });
+
+    it('should reject unauthenticated WebSocket upgrades to /api/realtime/ws with 401', async () => {
+      const result = await sendUpgrade('/api/realtime/ws');
+      expect(result.statusCode).toBe(401);
+    });
+
+    it('should destroy WebSocket upgrade attempts to non-realtime paths', async () => {
+      const result = await sendUpgrade('/api/some/other/path');
+      // The broker destroys the socket for non-realtime paths, which causes a connection reset
+      expect([null, 'ECONNRESET']).toContain(
+        result.error || (result.statusCode === null ? null : undefined),
+      );
+    });
   });
 });
 

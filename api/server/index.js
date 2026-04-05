@@ -30,6 +30,7 @@ const { checkMigrations } = require('./services/start/migration');
 const initializeMCPs = require('./services/initializeMCPs');
 const { startScheduledJobRunner } = require('./services/ScheduledJobs/runner');
 const { startAudioTranscriptionRunner } = require('./services/Files/Audio/transcriptionQueue');
+const { initializeRealtimeServer } = require('./services/Realtime/broker');
 const configureSocialLogins = require('./socialLogins');
 const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
@@ -209,6 +210,7 @@ const startServer = async () => {
     await checkMigrations();
     startScheduledJobRunner();
     startAudioTranscriptionRunner();
+    initializeRealtimeServer(app.server);
 
     // Configure stream services (auto-detects Redis from USE_REDIS env var)
     const streamServices = createStreamServices();
