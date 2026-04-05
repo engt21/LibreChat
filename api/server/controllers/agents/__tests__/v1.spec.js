@@ -1,11 +1,18 @@
-const { duplicateAgent } = require('../v1');
-const { getAgent, createAgent } = require('~/models/Agent');
-const { getActions } = require('~/models/Action');
-const { nanoid } = require('nanoid');
-
 jest.mock('~/models/Agent');
 jest.mock('~/models/Action');
 jest.mock('nanoid');
+jest.mock('~/server/services/ModelAccess', () => ({
+  validateModelAccess: jest.fn().mockResolvedValue({ isValid: true }),
+}));
+jest.mock('~/server/controllers/ModelController', () => ({
+  getModelsConfig: jest.fn().mockResolvedValue({ openai: ['gpt-4'] }),
+}));
+
+const { duplicateAgent } = require('../v1');
+const { getAgent, createAgent } = require('~/models/Agent');
+const { getActions } = require('~/models/Action');
+const { validateModelAccess } = require('~/server/services/ModelAccess');
+const { nanoid } = require('nanoid');
 
 describe('duplicateAgent', () => {
   let req, res;
@@ -182,6 +189,27 @@ describe('duplicateAgent', () => {
         },
       }),
     );
+  });
+
+  it('should reject duplication when the agent model is blocked for the user', async () => {
+    const mockAgent = {
+      id: 'agent_123',
+      name: 'Restricted Agent',
+      provider: 'openai',
+      model: 'gpt-5-turbo',
+    };
+
+    getAgent.mockResolvedValue(mockAgent);
+    validateModelAccess.mockResolvedValueOnce({
+      isValid: false,
+      text: 'Illegal model request',
+    });
+
+    await duplicateAgent(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Illegal model request' });
+    expect(createAgent).not.toHaveBeenCalled();
   });
 
   it('should handle errors gracefully', async () => {
