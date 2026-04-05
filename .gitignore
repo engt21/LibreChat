@@ -162,6 +162,9 @@ helm/**/.values.yaml
 /.codeium
 *.local.md
 
+# Dev validation bootstrap (local-only, never commit)
+.dev-validation-manifest.local.json
+*-validation-manifest.local.json
 
 # Removed Windows wrapper files per user request
 hive-mind-prompt-*.txt
