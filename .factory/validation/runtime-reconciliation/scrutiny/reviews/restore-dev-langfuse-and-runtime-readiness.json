@@ -1,0 +1,27 @@
+{
+  "featureId": "restore-dev-langfuse-and-runtime-readiness",
+  "milestone": "runtime-reconciliation",
+  "status": "fail",
+  "issues": [
+    {
+      "severity": "blocking",
+      "description": "The Langfuse NODE_OPTIONS change is not scoped to dev and alters stable-rail runtime behavior, violating the feature requirement to keep stable untouched.",
+      "evidence": "docker-compose.local.override.yml:233-234 sets `NODE_OPTIONS: \"${LIBRECHAT_LANGFUSE_NODE_OPTIONS:---max-old-space-size=512}\"` for `langfuse-web` globally. local-services/rail-env.sh defines `LIBRECHAT_LANGFUSE_NODE_OPTIONS` only in the `dev)` block (line 206) and not in `stable)` (lines 133-153), so stable inherits the new 512MB cap.",
+      "suggestedFix": "Scope the NODE_OPTIONS override to dev-only configuration (or explicitly set stable to its prior behavior) so stable rail behavior is unchanged by this feature."
+    },
+    {
+      "severity": "non_blocking",
+      "description": "The new Langfuse health check claims to run per 'running rail' but actually triggers on container existence, which can produce false failures when a rail is intentionally stopped.",
+      "evidence": "local-services/health-check.sh:194 labels the section 'Langfuse health per running rail', but lines 201-204 gate on `docker ps -a` existence of `${project}-langfuse-clickhouse-1` rather than whether the rail is currently running.",
+      "suggestedFix": "Gate the Langfuse rail check on running-state detection (for example, `docker ps` for that rail's containers) or skip rails whose stack is not currently up."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "Runtime workers repeatedly deviate from full-suite test execution for infrastructure-only changes under host-memory constraints; this expectation is not clearly aligned across shared guidance.",
+      "evidence": "Handoff `...restore-dev-langfuse-and-runtime-readiness__5105b189-...json` -> `handoff.skillFeedback.deviations` notes skipping `commands.test` due constrained host/runtime focus, and `suggestedChanges` asks the skill to explicitly acknowledge runtime-health verification as appropriate for runtime-only work."
+    }
+  ],
+  "summary": "Review failed due one blocking scoping regression: stable rail is implicitly changed by a global Langfuse NODE_OPTIONS default introduced for a dev-focused fix. A secondary non-blocking health-check gating issue may cause false negatives when only one rail is running."
+}

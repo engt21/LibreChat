@@ -1,0 +1,32 @@
+{
+  "featureId": "reconcile-root-runtime-config-and-install-patch-seams",
+  "milestone": "runtime-reconciliation",
+  "status": "fail",
+  "issues": [
+    {
+      "severity": "blocking",
+      "description": "Dev Mongo ownership normalization is incomplete in the refresh path, so sync can still require a root-only workaround and fail the intended non-root dev flow.",
+      "evidence": "In commit 6b2b6c036cb1d153ca47fc8e6c90417339ab535b, local-services/rail-env.sh lines 260-265 only normalize when top-level entries are root-owned and rely on a host chown that can fail with warning-only continuation; local-services/sync-from-stable.sh lines 85-94 run prepare_librechat_rail_paths before mongorestore, allowing restore to recreate mismatched ownership. Follow-up commit 4fa0e8018 explicitly fixes this by adding post-restore normalization and Docker-based chown fallback for ZFS/permission scenarios.",
+      "suggestedFix": "Normalize ownership after restore, detect any files not owned by the target UID (not only uid 0), and use a containerized chown fallback when host chown lacks permission."
+    },
+    {
+      "severity": "non_blocking",
+      "description": "Validation evidence in the handoff did not cover the full runtime refresh/export paths claimed by this feature.",
+      "evidence": "Feature verification steps include practical dev-bundle/export validation and runtime/root-config readiness checks, but the handoff states export-dev-bundle was only tested for expected refusal while dev was running and was not tested with dev stopped; no sync-from-stable execution evidence is included in the handoff command list.",
+      "suggestedFix": "When this feature is marked complete, attach evidence for a quiesced export/apply path and a real stable-to-dev sync run, or explicitly defer the claim to a follow-up feature."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "area": "guidance",
+      "observation": "The runtime worker guidance is too generic on ownership-sensitive Mongo restore validation; it should explicitly require post-restore ownership checks for dev Mongo when removing root-user workarounds.",
+      "evidence": "runtime-migration-worker SKILL.md step 6/7 describes targeted validation broadly, while this feature passed with pre-restore-only ownership prep and needed immediate follow-up fixes in 4fa0e8018."
+    },
+    {
+      "area": "library",
+      "observation": "Shared mission knowledge should distinguish 'guard behavior verified' from 'flow verified' for bundle/sync scripts to prevent completion claims without end-to-end runtime evidence.",
+      "evidence": "Handoff verified export-dev-bundle refusal guard but not successful quiesced export/import or sync path, despite the feature’s stated runtime validation objective."
+    }
+  ],
+  "summary": "Review failed: core runtime ownership handling in this feature was not robust enough to satisfy the non-root dev sync objective, and key runtime flow evidence was incomplete at handoff time."
+}

@@ -1,0 +1,65 @@
+{
+  "milestone": "runtime-reconciliation",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && npm run test:all",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npm run build",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npx eslint api/ client/src/ packages/api/src/ packages/client/src/ packages/data-provider/src/ packages/data-schemas/src/ config/ --no-cache",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 2,
+    "passed": 0,
+    "failed": 2,
+    "failedFeatures": [
+      "reconcile-root-runtime-config-and-install-patch-seams",
+      "restore-dev-langfuse-and-runtime-readiness"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "reconcile-root-runtime-config-and-install-patch-seams",
+      "severity": "blocking",
+      "description": "Dev Mongo ownership normalization is incomplete in the refresh path, so sync can still require a root-only workaround and fail the intended non-root dev flow."
+    },
+    {
+      "featureId": "restore-dev-langfuse-and-runtime-readiness",
+      "severity": "blocking",
+      "description": "The Langfuse NODE_OPTIONS change is not scoped to dev and alters stable-rail runtime behavior, violating the feature requirement to keep stable untouched."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": ".factory/skills/runtime-migration-worker/SKILL.md",
+      "suggestion": "Clarify runtime-only validation expectations under constrained hosts: when full test/build/lint is intentionally deferred to milestone scrutiny, require explicit rationale and a runtime-focused validation minimum set.",
+      "evidence": "restore-dev-langfuse-and-runtime-readiness review observed repeated skill deviation notes about skipping full-suite test execution for runtime-only changes under host memory constraints.",
+      "isSystemic": true
+    },
+    {
+      "target": ".factory/skills/runtime-migration-worker/SKILL.md",
+      "suggestion": "Add an explicit checkpoint for post-restore ownership verification (including non-root mismatches) when changing sync/restore flows to remove root-only workarounds.",
+      "evidence": "reconcile-root-runtime-config-and-install-patch-seams review found pre-restore-only ownership normalization was insufficient and required immediate follow-up hardening in commit 4fa0e8018.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Add a new library rule distinguishing guard behavior verification from end-to-end flow verification for bundle/sync scripts.",
+      "reason": "already-documented"
+    }
+  ],
+  "previousRound": null
+}
