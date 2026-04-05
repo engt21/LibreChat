@@ -1,7 +1,7 @@
 {
   "milestone": "backend-foundation",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "validatorsRun": {
     "test": {
       "passed": true,
@@ -20,57 +20,32 @@
     }
   },
   "reviewsSummary": {
-    "total": 3,
-    "passed": 1,
-    "failed": 2,
-    "failedFeatures": [
-      "merge-files-realtime-and-schedules-backend-foundation",
-      "merge-admin-and-model-backend-foundation"
-    ]
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "merge-files-realtime-and-schedules-backend-foundation",
-      "severity": "blocking",
-      "description": "Realtime WebSocket upgrade handling is not initialized in api/server/index.js even though wsPath '/api/realtime/ws' is exposed, so realtime route smoke can pass while realtime sessions fail. Wire initializeRealtimeServer(server) after app.listen and add startup coverage for ws handling."
-    },
-    {
-      "featureId": "merge-admin-and-model-backend-foundation",
-      "severity": "blocking",
-      "description": "deleteUserMcpServers ownership filtering in api/server/controllers/UserController.js treats any ACL entry as ownership and any other ACL principal as another owner, which breaks sole-owner semantics and can retain orphaned servers or delete wrongly. Restrict owner checks to USER principals with DELETE permission."
-    }
-  ],
+  "blockingIssues": [],
   "appliedUpdates": [
     {
       "target": "services.yaml",
-      "description": "Added commands.init for standardized mission bootstrap (`bash /pool/home/timeng/LibreChat-custom/.factory/init.sh`).",
-      "sourceFeature": "merge-files-realtime-and-schedules-backend-foundation"
-    },
-    {
-      "target": "services.yaml",
-      "description": "Added commands.test_packages_api_no_redis for host-constrained packages/api validation (`--testPathIgnorePatterns=\"cache_integration|stream_integration\"`).",
-      "sourceFeature": "merge-provider-and-mcp-backend-foundation"
+      "description": "Added `commands.dev_smoke_realtime_ws_upgrade` to probe `/api/realtime/ws` upgrade-path readiness with acceptable statuses (101/400/401/403/426) so realtime smoke covers broker initialization evidence beyond route auth gating.",
+      "sourceFeature": "initialize-realtime-websocket-broker-on-normal-startup"
     }
   ],
   "suggestedGuidanceUpdates": [
     {
-      "target": "AGENTS.md",
-      "suggestion": "Add a dev realtime readiness smoke that checks websocket broker availability (not just GET /api/realtime/models), because route-only checks can miss missing ws initialization.",
-      "evidence": "Review for merge-files-realtime-and-schedules-backend-foundation found /api/realtime/ws broker wiring missing while /api/realtime/models remained available.",
-      "isSystemic": true
-    },
-    {
       "target": ".factory/skills/backend-migration-worker/SKILL.md",
-      "suggestion": "Require explicit evidence of mandatory repo-doc reads before marking followedProcedure=true in handoff feedback, or clarify acceptable evidence sources.",
-      "evidence": "Both merge-files and merge-provider review reports observed transcript skeletons lacking README/CUSTOMIZATION doc reads despite followedProcedure=true.",
+      "suggestion": "Require explicit transcript evidence for the mandated repo-doc read order (README/AGENTS/CUSTOMIZATION docs) before workers mark `followedProcedure=true` in handoff feedback.",
+      "evidence": "Round-2 fix review for initialize-realtime-websocket-broker-on-normal-startup again found the transcript skeleton lacked the required README/CUSTOMIZATION reads while the worker reported procedural compliance.",
       "isSystemic": true
     }
   ],
   "rejectedObservations": [
     {
-      "observation": "backend-migration-worker doc-read evidence gap from merge-provider-and-mcp-backend-foundation",
-      "reason": "duplicate of the same skill-guidance gap already captured from merge-files-realtime-and-schedules-backend-foundation"
+      "observation": "Re-reporting the missing websocket-upgrade smoke coverage as a recommendation instead of a services update",
+      "reason": "resolved by applying a concrete `services.yaml` command in this scrutiny round"
     }
   ],
-  "previousRound": null
+  "previousRound": ".factory/validation/backend-foundation/scrutiny/synthesis.round1.json"
 }

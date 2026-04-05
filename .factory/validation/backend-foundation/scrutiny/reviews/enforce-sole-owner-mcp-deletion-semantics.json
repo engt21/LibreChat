@@ -1,0 +1,15 @@
+{
+  "featureId": "enforce-sole-owner-mcp-deletion-semantics",
+  "reviewedAt": "2026-04-05T10:02:35Z",
+  "commitId": "512c8e128518565e15365a7597e0b1b428a9a811",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix directly addresses the prior blocking finding: MCP ownership detection in deleteUserMcpServers now requires USER principals with DELETE permission for both owner identification and competing-owner checks, and focused tests pin these semantics across sole-owned, shared-owned, non-USER principal, and legacy-authored scenarios.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": ".factory/validation/backend-foundation/scrutiny/reviews/merge-admin-and-model-backend-foundation.json",
+  "summary": "Reviewed the prior failed review, fix handoff, transcript skeleton, backend-migration skill, and both commit diffs (616e623a1 and 512c8e128). The new query filters in UserController and added controller tests resolve the original sole-owner semantics bug without introducing new blocking issues."
+}

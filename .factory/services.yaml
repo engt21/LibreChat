@@ -19,6 +19,7 @@ commands:
   dev_smoke_admin_permissions: curl -i http://127.0.0.1:3081/api/admin/permissions
   dev_smoke_schedules: curl -i http://127.0.0.1:3081/api/schedules
   dev_smoke_realtime_models: curl -i http://127.0.0.1:3081/api/realtime/models
+  dev_smoke_realtime_ws_upgrade: 'status=$(curl -s -o /dev/null -w "%{http_code}" -H "Connection: Upgrade" -H "Upgrade: websocket" http://127.0.0.1:3081/api/realtime/ws) && case "$status" in 101|400|401|403|426) echo "Realtime ws readiness signal: $status" ;; *) echo "Unexpected realtime ws status: $status"; exit 1 ;; esac'
 
 services:
   stable:

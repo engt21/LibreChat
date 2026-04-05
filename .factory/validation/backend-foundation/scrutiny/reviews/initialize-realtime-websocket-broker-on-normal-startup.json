@@ -1,0 +1,26 @@
+{
+  "featureId": "initialize-realtime-websocket-broker-on-normal-startup",
+  "reviewedAt": "2026-04-05T10:03:11Z",
+  "commitId": "f200959f1952fd4c568135400c37c21f7a21671f",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Pass. The fix directly addresses the prior blocking gap: `api/server/index.js` now imports and calls `initializeRealtimeServer(app.server)` during normal startup (lines 33 and 213), and `api/server/index.spec.js` adds startup-focused coverage proving broker wiring and upgrade behavior (lines 179-231). Comparing against the original failed feature commit (`f76ead7b18c7e05c7ce2be4cbbf071d9c82ff67d`) confirms why this was needed: that commit exposed `/api/realtime` routes and started runners (`api/server/index.js` lines 167, 210-211 in that commit) while not initializing the broker, despite `broker.js` already defining `server.on('upgrade', ...)` and realtime model metadata advertising `wsPath: '/api/realtime/ws'`.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The backend worker skill requires reading repo guidance in order (`README.md`, `CLAUDE.md`/`AGENTS.md`, `CUSTOMIZATION_MASTER_DOC.md`, `CUSTOMIZATION_MASTER_GUIDE.md`), but this fix-session transcript skeleton does not show those reads.",
+      "evidence": "Skill requirement: `/pool/home/timeng/LibreChat-custom/.factory/skills/backend-migration-worker/SKILL.md:23`. Session `2083c00f-551e-4c98-86f9-1b1457fc835f` read paths include mission docs, mission AGENTS, services, and code files only (no README/CUSTOMIZATION docs)."
+    },
+    {
+      "area": "services",
+      "observation": "Shared service commands still include only HTTP route smoke for realtime (`dev_smoke_realtime_models`) and no dedicated websocket-upgrade readiness command, even though mission guidance now requires broker-initialization evidence beyond route-level checks.",
+      "evidence": "`/pool/home/timeng/LibreChat-custom/.factory/services.yaml:21` (`dev_smoke_realtime_models`). Mission guidance: `/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/AGENTS.md:53`."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/backend-foundation/scrutiny/reviews/merge-files-realtime-and-schedules-backend-foundation.json",
+  "summary": "Fix review passed. The original failure (route surface without websocket broker startup) is corrected by wiring broker initialization into normal server startup and adding targeted startup tests that exercise realtime WS upgrade handling."
+}

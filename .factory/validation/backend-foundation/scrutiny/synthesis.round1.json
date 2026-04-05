@@ -1,0 +1,76 @@
+{
+  "milestone": "backend-foundation",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && npm run test:all",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npm run build",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npx eslint api/ client/src/ packages/api/src/ packages/client/src/ packages/data-provider/src/ packages/data-schemas/src/ config/ --no-cache",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 1,
+    "failed": 2,
+    "failedFeatures": [
+      "merge-files-realtime-and-schedules-backend-foundation",
+      "merge-admin-and-model-backend-foundation"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "merge-files-realtime-and-schedules-backend-foundation",
+      "severity": "blocking",
+      "description": "Realtime WebSocket upgrade handling is not initialized in api/server/index.js even though wsPath '/api/realtime/ws' is exposed, so realtime route smoke can pass while realtime sessions fail. Wire initializeRealtimeServer(server) after app.listen and add startup coverage for ws handling."
+    },
+    {
+      "featureId": "merge-admin-and-model-backend-foundation",
+      "severity": "blocking",
+      "description": "deleteUserMcpServers ownership filtering in api/server/controllers/UserController.js treats any ACL entry as ownership and any other ACL principal as another owner, which breaks sole-owner semantics and can retain orphaned servers or delete wrongly. Restrict owner checks to USER principals with DELETE permission."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "services.yaml",
+      "description": "Added commands.init for standardized mission bootstrap (`bash /pool/home/timeng/LibreChat-custom/.factory/init.sh`).",
+      "sourceFeature": "merge-files-realtime-and-schedules-backend-foundation"
+    },
+    {
+      "target": "services.yaml",
+      "description": "Added commands.test_packages_api_no_redis for host-constrained packages/api validation (`--testPathIgnorePatterns=\"cache_integration|stream_integration\"`).",
+      "sourceFeature": "merge-provider-and-mcp-backend-foundation"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add a dev realtime readiness smoke that checks websocket broker availability (not just GET /api/realtime/models), because route-only checks can miss missing ws initialization.",
+      "evidence": "Review for merge-files-realtime-and-schedules-backend-foundation found /api/realtime/ws broker wiring missing while /api/realtime/models remained available.",
+      "isSystemic": true
+    },
+    {
+      "target": ".factory/skills/backend-migration-worker/SKILL.md",
+      "suggestion": "Require explicit evidence of mandatory repo-doc reads before marking followedProcedure=true in handoff feedback, or clarify acceptable evidence sources.",
+      "evidence": "Both merge-files and merge-provider review reports observed transcript skeletons lacking README/CUSTOMIZATION doc reads despite followedProcedure=true.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "backend-migration-worker doc-read evidence gap from merge-provider-and-mcp-backend-foundation",
+      "reason": "duplicate of the same skill-guidance gap already captured from merge-files-realtime-and-schedules-backend-foundation"
+    }
+  ],
+  "previousRound": null
+}
