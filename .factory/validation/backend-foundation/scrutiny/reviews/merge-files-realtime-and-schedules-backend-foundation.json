@@ -1,0 +1,38 @@
+{
+  "featureId": "merge-files-realtime-and-schedules-backend-foundation",
+  "reviewedAt": "2026-04-05T09:15:35Z",
+  "commitId": "f76ead7b18c7e05c7ce2be4cbbf071d9c82ff67d",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The commit correctly restores normal-server startup of the audio transcription runner and mounts HTTP realtime routes, but it does not wire the realtime WebSocket broker into server startup, so the advertised realtime ws path is non-functional.",
+    "issues": [
+      {
+        "file": "api/server/index.js",
+        "line": 193,
+        "severity": "blocking",
+        "description": "Realtime WebSocket upgrade handling is never initialized. `api/server/services/Realtime/broker.js` defines `initializeRealtimeServer(server)` (line 165), and `api/server/services/Realtime/modelService.js` advertises `wsPath: '/api/realtime/ws'` (line 389), but `api/server/index.js` only mounts `/api/realtime` HTTP routes (line 167) and starts scheduled/transcription runners (lines 210-211). Result: `/api/realtime/models` can succeed while `/api/realtime/ws` has no upgrade broker. Remediation: import `initializeRealtimeServer` from `~/server/services/Realtime/broker`, invoke it after `app.server = app.listen(...)` is established, and add/extend startup tests to assert ws upgrades are handled."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Mission smoke guidance validates only `/api/realtime/models` auth-gating, not the realtime WebSocket path, which can allow route-only regressions to pass while broker wiring is missing.",
+      "evidence": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/AGENTS.md:49-52 lists `curl ... /api/realtime/models` but no ws readiness/upgrade check."
+    },
+    {
+      "area": "skills",
+      "observation": "The backend-migration-worker procedure requires reading README/customization docs before coding, but this worker transcript does not show those reads even though `skillFeedback.followedProcedure` is true.",
+      "evidence": "Skill requirement: /pool/home/timeng/LibreChat-custom/.factory/skills/backend-migration-worker/SKILL.md:23. Transcript reads for session 4212d6ce-1b5a-4e1e-a21a-f26bb1b355f5 list mission/AGENTS/services/architecture/api files and `.factory/init.sh`, but no `README.md` / `CUSTOMIZATION_MASTER_DOC.md` reads (worker-transcripts.jsonl line 28 skeleton)."
+    },
+    {
+      "area": "services",
+      "observation": "Workers are using `.factory/init.sh` during backend runs, but there is no corresponding named command in `.factory/services.yaml`, so this repeated bootstrap step is not standardized in shared service commands.",
+      "evidence": "Transcript session 4212d6ce-1b5a-4e1e-a21a-f26bb1b355f5 executes `bash .factory/init.sh` (worker-transcripts.jsonl line 28 skeleton). `.factory/services.yaml` has no `init` command entry (see listed commands around lines 1-14)."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed due to a blocking backend wiring gap: realtime ws broker initialization is missing in server startup despite ws path exposure. Audio transcription runner startup and related backend file tracking were restored, but realtime session execution is incomplete until broker startup is wired."
+}

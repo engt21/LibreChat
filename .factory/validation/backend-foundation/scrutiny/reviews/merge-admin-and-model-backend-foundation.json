@@ -1,0 +1,22 @@
+{
+  "featureId": "merge-admin-and-model-backend-foundation",
+  "reviewedAt": "2026-04-05T09:13:30Z",
+  "commitId": "616e623a147b0e97e052a6001a34ca95787d9971",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature closes a real merge gap (missing MCP-server cleanup on user deletion), but the new ownership logic in deleteUserMcpServers is incorrect and can keep orphaned servers or delete servers for which the user is not an owner.",
+    "issues": [
+      {
+        "file": "api/server/controllers/UserController.js",
+        "line": 144,
+        "severity": "blocking",
+        "description": "Ownership detection for MCP server deletion is too broad: `ownerEntries` matches any ACL entry for the user and `otherOwners` counts any other ACL principal, regardless of permission level or principal type. This diverges from the intended 'sole owner' semantics and can (a) skip deletion when other users only have non-owner permissions, leaving orphaned servers, or (b) delete servers where the deleted user only had non-owner access. Remediation: constrain owner detection to USER principals with DELETE permission bits, and constrain 'other owners' to principals that also hold DELETE (same semantics as `getSoleOwnedResourceIds` in upstream data-schemas ACL methods)."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed handoff, transcript skeleton, skill, and commit diff. Found one blocking correctness issue in MCP server ownership filtering logic that must be fixed before this feature can be accepted."
+}

@@ -1,0 +1,26 @@
+{
+  "featureId": "merge-provider-and-mcp-backend-foundation",
+  "reviewedAt": "2026-04-05T09:14:16Z",
+  "commitId": "c5e3861248d841901d1e587906b45989c42614bd",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed commit c5e3861248d841901d1e587906b45989c42614bd and confirmed it adds focused provider/MCP regression coverage (new google auth suite, expanded Azure direct-endpoint tests) plus explicit type-warning/flake rationale notes. The added assertions are coherent with current helper behavior and I found no high-confidence blocking or non-blocking code defects in the feature diff.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The backend-migration-worker skill requires reading repo docs in a specific order (README/AGENTS/CUSTOMIZATION docs), but this worker transcript skeleton does not show those reads while still reporting followedProcedure=true.",
+      "evidence": ".factory/skills/backend-migration-worker/SKILL.md:23 requires reading README.md, CLAUDE/AGENTS.md, CUSTOMIZATION_MASTER_DOC.md, and CUSTOMIZATION_MASTER_GUIDE.md; transcript skeleton content check for session d6029f22-2b4c-4d57-9759-3fab6d2ff7e4 shows those paths missing while .factory/services.yaml and .factory/library/architecture.md are present."
+    },
+    {
+      "area": "services",
+      "observation": "Practical provider/MCP validation on this host needed a non-Redis packages/api test invocation, but services.yaml only defines the full packages/api command.",
+      "evidence": ".factory/services.yaml:8 defines only `test_packages_api: ... npm run test:packages:api`; handoff records successful usage of `--testPathIgnorePatterns=\"cache_integration|stream_integration\"` and recommends adding a manifest command for that path (handoff file lines 21, 218, 235)."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Feature review passed. The committed diff is test/documentation-only and provides strong focused provider/MCP backend regression coverage plus explicit rationale for preserved type-warning and OAuth flake monitoring, with no actionable code defects found in the feature changes."
+}

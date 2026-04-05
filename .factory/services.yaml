@@ -6,9 +6,11 @@ commands:
   test_api: cd /pool/home/timeng/LibreChat-custom && npm run test:api
   test_client: cd /pool/home/timeng/LibreChat-custom && npm run test:client
   test_packages_api: cd /pool/home/timeng/LibreChat-custom && npm run test:packages:api
+  test_packages_api_no_redis: 'cd /pool/home/timeng/LibreChat-custom && npm run test:packages:api -- --runInBand --testPathIgnorePatterns="cache_integration|stream_integration"'
   test_packages_data_provider: cd /pool/home/timeng/LibreChat-custom && npm run test:packages:data-provider
   test_packages_data_schemas: cd /pool/home/timeng/LibreChat-custom && npm run test:packages:data-schemas
   build_packages: cd /pool/home/timeng/LibreChat-custom && npm run build:packages
+  init: bash /pool/home/timeng/LibreChat-custom/.factory/init.sh
   ensure_runtime_files: /pool/home/timeng/LibreChat-custom/local-services/ensure-runtime-files.sh
   status_all: /pool/home/timeng/LibreChat-custom/local-services/status-all.sh all
   health_check: /pool/home/timeng/LibreChat-custom/local-services/health-check.sh
