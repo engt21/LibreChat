@@ -1,12 +1,16 @@
 const { logger } = require('@librechat/data-schemas');
 const { getAppConfig } = require('~/server/services/Config/app');
-const { getRealtimeModelsResponse } = require('~/server/services/Realtime/modelService');
+const {
+  getRealtimeModelsResponse,
+  filterRealtimeProvidersByPolicy,
+} = require('~/server/services/Realtime/modelService');
 const { saveRealtimeConversation } = require('~/server/services/Realtime/persistence');
 
 async function realtimeModelsController(req, res) {
   try {
     const appConfig = await getAppConfig({ role: req.user?.role });
     const response = await getRealtimeModelsResponse(req, appConfig);
+    response.providers = filterRealtimeProvidersByPolicy(response.providers, req.user);
     res.send(response);
   } catch (error) {
     logger.error('Error fetching realtime models:', error);

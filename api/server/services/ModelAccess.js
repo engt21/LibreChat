@@ -254,12 +254,14 @@ async function validateModelAccess({ req, res, endpoint, model, modelsConfig }) 
 }
 
 module.exports = {
+  ALL_MODELS,
   defaultModelPermissions,
   applyDefaultModelPermissions,
   getDefaultModelPermissionsForRole,
   normalizeModelPermissionRules,
   normalizeModelPermissions,
   hasModelRestrictions,
+  getAllowedModelsMap,
   filterModelsConfigForUser,
   filterModelSpecsConfig,
   isModelAllowedForConfig,

@@ -20,6 +20,11 @@ const {
 } = require('@librechat/api');
 const { getUserKeyValues } = require('~/models');
 const {
+  ALL_MODELS,
+  hasModelRestrictions,
+  getAllowedModelsMap,
+} = require('~/server/services/ModelAccess');
+const {
   DEFAULT_GEMINI_REALTIME_MODELS,
   DEFAULT_OPENAI_REALTIME_MODELS,
   DEFAULT_PROVIDER_AUDIO,
@@ -620,6 +625,75 @@ async function resolveXAISessionConfig({ req, appConfig, endpointName, model }) 
   };
 }
 
+/**
+ * Filter realtime provider descriptors against the user's model-access policy.
+ * Admins and unrestricted users see all providers/models unchanged.
+ * Restricted users see only the models allowed by their modelPermissions rules.
+ * Providers with no remaining models after filtering are dropped entirely.
+ */
+function filterRealtimeProvidersByPolicy(providers, user) {
+  if (!hasModelRestrictions(user)) {
+    return providers;
+  }
+
+  const allowedMap = getAllowedModelsMap(user);
+
+  return providers
+    .map((provider) => {
+      const allowed = allowedMap.get(provider.endpoint);
+
+      if (!allowed) {
+        return null;
+      }
+
+      if (allowed.has(ALL_MODELS)) {
+        return provider;
+      }
+
+      const filteredModels = provider.models.filter((model) => allowed.has(model));
+
+      if (filteredModels.length === 0) {
+        return null;
+      }
+
+      return {
+        ...provider,
+        models: filteredModels,
+        defaultModel: filteredModels[0],
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Validate that the requested endpoint/model combination is allowed for the user.
+ * Throws with a descriptive message if the user is restricted and the model is blocked.
+ */
+function validateRealtimeModelAccess({ user, endpoint, model }) {
+  if (!hasModelRestrictions(user)) {
+    return;
+  }
+
+  const allowedMap = getAllowedModelsMap(user);
+  const allowed = allowedMap.get(endpoint);
+
+  if (!allowed) {
+    throw new Error(
+      `Realtime provider "${endpoint}" is not available for your account. Contact an administrator.`,
+    );
+  }
+
+  if (allowed.has(ALL_MODELS)) {
+    return;
+  }
+
+  if (!allowed.has(model)) {
+    throw new Error(
+      `Realtime model "${model}" is not available for your account. Contact an administrator.`,
+    );
+  }
+}
+
 async function resolveRealtimeSessionConfig({ req, appConfig, endpoint, model }) {
   if (endpoint === EModelEndpoint.openAI) {
     return resolveOpenAISessionConfig({ req, model });
@@ -639,6 +713,8 @@ async function resolveRealtimeSessionConfig({ req, appConfig, endpoint, model })
 module.exports = {
   buildAzureRealtimeURL,
   buildOpenAIRealtimeURL,
+  filterRealtimeProvidersByPolicy,
   getRealtimeModelsResponse,
   resolveRealtimeSessionConfig,
+  validateRealtimeModelAccess,
 };

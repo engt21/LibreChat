@@ -3,7 +3,7 @@ const { EModelEndpoint } = require('librechat-data-provider');
 const { WebSocketServer, WebSocket } = require('ws');
 const { getAppConfig } = require('~/server/services/Config/app');
 const { authenticateRealtimeRequest } = require('./auth');
-const { resolveRealtimeSessionConfig } = require('./modelService');
+const { resolveRealtimeSessionConfig, validateRealtimeModelAccess } = require('./modelService');
 const GeminiRealtimeAdapter = require('./providers/GeminiRealtimeAdapter');
 const OpenAILikeRealtimeAdapter = require('./providers/OpenAILikeRealtimeAdapter');
 
@@ -93,6 +93,8 @@ async function handleConnection(socket, req, user) {
           if (!model && endpoint === EModelEndpoint.google) {
             throw new Error('Realtime session.start requires a model.');
           }
+
+          validateRealtimeModelAccess({ user, endpoint, model });
 
           const appConfig = await getAppConfig({ role: user.role });
           const providerConfig = await resolveRealtimeSessionConfig({
