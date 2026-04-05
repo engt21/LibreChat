@@ -11,7 +11,7 @@ GREEN='\033[0;32m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-KNOWN_PROJECTS="librechat-stable librechat-dev prometheus-dev grafana-loki-dev touchdown-r1 touchdown-backwards-r1"
+KNOWN_PROJECTS="librechat-stable librechat-dev prometheus-dev grafana-loki-dev touchdown-r1 touchdown-backwards-r1 touchdown-r2 touchdown-backwards-r2"
 FIX_MODE=false
 
 usage() {
