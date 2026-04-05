@@ -3,6 +3,11 @@ import {
   KnownEndpoints,
   ReasoningEffort,
   removeNullishValues,
+  supportsOpenAISamplingControls,
+  isXAIEndpointCandidate,
+  getOpenAIModelCapabilities as resolveOpenAIModelCapabilities,
+  resolveOpenAIResponsesApiEnabled,
+  getXAIModelCapabilities as resolveXAIModelCapabilities,
 } from 'librechat-data-provider';
 import type { BindToolsInput } from '@langchain/core/language_models/chat_models';
 import type { SettingDefinition } from 'librechat-data-provider';
@@ -93,6 +98,18 @@ function normalizeOllamaReasoningEffort(
   }
 
   return reasoning_effort;
+}
+
+function deleteReasoningProperty(
+  reasoning: OpenAI.Reasoning | Record<string, unknown> | undefined,
+  property: 'effort' | 'summary',
+): boolean {
+  if (reasoning == null || typeof reasoning !== 'object') {
+    return false;
+  }
+
+  delete reasoning[property];
+  return Object.keys(reasoning).length === 0;
 }
 
 /**
@@ -199,10 +216,28 @@ export function getOpenAILLMConfig({
   let hasModelKwargs = false;
   const isOllamaEndpoint =
     typeof endpoint === 'string' && endpoint.toLowerCase().startsWith(KnownEndpoints.ollama);
+  const isXAIEndpoint = isXAIEndpointCandidate({ endpoint, baseURL });
+  const openAIModelCapabilities =
+    !isOllamaEndpoint && !isXAIEndpoint
+      ? resolveOpenAIModelCapabilities(modelOptions.model as string | undefined)
+      : undefined;
+  const xaiModelCapabilities = isXAIEndpoint
+    ? resolveXAIModelCapabilities(modelOptions.model as string | undefined)
+    : undefined;
   const normalizedReasoningEffort = isOllamaEndpoint
     ? normalizeOllamaReasoningEffort(reasoning_effort)
     : reasoning_effort;
   const normalizedReasoningSummary = isOllamaEndpoint ? undefined : reasoning_summary;
+
+  if (
+    openAIModelCapabilities &&
+    resolveOpenAIResponsesApiEnabled(openAIModelCapabilities, {
+      useResponsesApi: llmConfig.useResponsesApi,
+      endpoint: useOpenRouter ? null : endpoint,
+    })
+  ) {
+    llmConfig.useResponsesApi = true;
+  }
 
   if (isOllamaEndpoint && topK != null) {
     modelKwargs.top_k = topK;
@@ -284,6 +319,45 @@ export function getOpenAILLMConfig({
     }
   }
 
+  if (dropParams?.includes('web_search')) {
+    enableWebSearch = false;
+  }
+
+  if (openAIModelCapabilities?.hasKnownCapabilities && !openAIModelCapabilities.supportsWebSearch) {
+    enableWebSearch = false;
+  }
+
+  if (isXAIEndpoint && xaiModelCapabilities && !xaiModelCapabilities.supportsWebSearch) {
+    enableWebSearch = false;
+  }
+
+  const requiresOpenAIResponsesApi =
+    openAIModelCapabilities?.hasKnownCapabilities === true &&
+    (openAIModelCapabilities.requiresResponsesApi ||
+      (openAIModelCapabilities.supportsReasoningSummary &&
+        normalizedReasoningSummary != null &&
+        normalizedReasoningSummary !== '') ||
+      (openAIModelCapabilities.supportsVerbosity && verbosity != null && verbosity !== ''));
+
+  if (requiresOpenAIResponsesApi) {
+    llmConfig.useResponsesApi = true;
+  }
+
+  const requiresXAIResponsesApi =
+    isXAIEndpoint === true &&
+    (llmConfig.useResponsesApi === true ||
+      xaiModelCapabilities?.isMultiAgent === true ||
+      enableWebSearch === true ||
+      hasReasoningParams({
+        reasoning_effort: normalizedReasoningEffort,
+        reasoning_summary: normalizedReasoningSummary,
+      }) ||
+      (verbosity != null && verbosity !== ''));
+
+  if (requiresXAIResponsesApi) {
+    llmConfig.useResponsesApi = true;
+  }
+
   if (useOpenRouter) {
     if (hasReasoningParams({ reasoning_effort: normalizedReasoningEffort })) {
       /**
@@ -353,11 +427,6 @@ export function getOpenAILLMConfig({
 
   const tools: BindToolsInput[] = [];
 
-  /** Check if web_search should be disabled via dropParams */
-  if (dropParams && dropParams.includes('web_search')) {
-    enableWebSearch = false;
-  }
-
   if (useOpenRouter && enableWebSearch) {
     /** OpenRouter expects web search as a plugins parameter */
     modelKwargs.plugins = [{ id: 'web' }];
@@ -368,13 +437,41 @@ export function getOpenAILLMConfig({
     tools.push({ type: 'web_search' });
   }
 
-  /**
-   * Note: OpenAI reasoning models (o1/o3/gpt-5) do not support temperature and other sampling parameters
-   * Exception: gpt-5-chat and versioned models like gpt-5.1 DO support these parameters
-   */
   if (
-    modelOptions.model &&
-    /\b(o[13]|gpt-5)(?!\.|-chat)(?:-|$)/.test(modelOptions.model as string)
+    openAIModelCapabilities?.hasKnownCapabilities &&
+    openAIModelCapabilities.isSearchPreviewModel
+  ) {
+    const searchExcludeParams = [
+      'frequencyPenalty',
+      'presencePenalty',
+      'reasoning',
+      'reasoning_effort',
+      'temperature',
+      'topP',
+      'stop',
+      'stopSequences',
+      'logitBias',
+      'seed',
+      'response_format',
+      'n',
+      'logprobs',
+      'user',
+    ];
+
+    const updatedDropParams = dropParams || [];
+    const combinedDropParams = [...new Set([...updatedDropParams, ...searchExcludeParams])];
+
+    combinedDropParams.forEach((param) => {
+      if (param in llmConfig) {
+        delete llmConfig[param as keyof t.OAIClientOptions];
+      }
+    });
+
+    delete llmConfig.useResponsesApi;
+  } else if (
+    openAIModelCapabilities?.hasKnownCapabilities &&
+    openAIModelCapabilities.isReasoningModel &&
+    !supportsOpenAISamplingControls(openAIModelCapabilities, normalizedReasoningEffort)
   ) {
     const reasoningExcludeParams = [
       'frequencyPenalty',
@@ -394,41 +491,93 @@ export function getOpenAILLMConfig({
         delete llmConfig[param as keyof t.OAIClientOptions];
       }
     });
-  } else if (modelOptions.model && /gpt-4o.*search/.test(modelOptions.model as string)) {
-    /**
-     * Note: OpenAI Web Search models do not support any known parameters besides `max_tokens`
-     */
-    const searchExcludeParams = [
-      'frequency_penalty',
-      'presence_penalty',
-      'reasoning',
-      'reasoning_effort',
-      'temperature',
-      'top_p',
-      'top_k',
-      'stop',
-      'logit_bias',
-      'seed',
-      'response_format',
-      'n',
-      'logprobs',
-      'user',
-    ];
-
-    const updatedDropParams = dropParams || [];
-    const combinedDropParams = [...new Set([...updatedDropParams, ...searchExcludeParams])];
-
-    combinedDropParams.forEach((param) => {
-      if (param in llmConfig) {
-        delete llmConfig[param as keyof t.OAIClientOptions];
-      }
-    });
   } else if (dropParams && Array.isArray(dropParams)) {
     dropParams.forEach((param) => {
       if (param in llmConfig) {
         delete llmConfig[param as keyof t.OAIClientOptions];
       }
     });
+  }
+
+  if (openAIModelCapabilities?.hasKnownCapabilities) {
+    const hasUnsupportedReasoningEffort =
+      normalizedReasoningEffort != null &&
+      normalizedReasoningEffort !== '' &&
+      !openAIModelCapabilities.reasoningEffortOptions.includes(
+        normalizedReasoningEffort as ReasoningEffort,
+      );
+
+    if (!openAIModelCapabilities.supportsReasoningEffort || hasUnsupportedReasoningEffort) {
+      delete llmConfig.reasoning_effort;
+      if (deleteReasoningProperty(llmConfig.reasoning, 'effort')) {
+        delete llmConfig.reasoning;
+      }
+      if (deleteReasoningProperty(modelKwargs.reasoning as Record<string, unknown>, 'effort')) {
+        delete modelKwargs.reasoning;
+      }
+    }
+
+    if (!openAIModelCapabilities.supportsReasoningSummary) {
+      if (deleteReasoningProperty(llmConfig.reasoning, 'summary')) {
+        delete llmConfig.reasoning;
+      }
+      if (deleteReasoningProperty(modelKwargs.reasoning as Record<string, unknown>, 'summary')) {
+        delete modelKwargs.reasoning;
+      }
+    }
+
+    if (!openAIModelCapabilities.supportsStop) {
+      delete llmConfig.stop;
+      delete llmConfig.stopSequences;
+    }
+
+    if (!openAIModelCapabilities.supportsVerbosity) {
+      delete modelKwargs.verbosity;
+    }
+  }
+
+  if (isXAIEndpoint && xaiModelCapabilities) {
+    if (!xaiModelCapabilities.supportsReasoning) {
+      delete llmConfig.reasoning_effort;
+      delete llmConfig.reasoning;
+      delete modelKwargs.reasoning;
+    } else if (!xaiModelCapabilities.supportsReasoningEffort) {
+      delete llmConfig.reasoning_effort;
+      if (llmConfig.reasoning && typeof llmConfig.reasoning === 'object') {
+        delete (llmConfig.reasoning as Record<string, unknown>).effort;
+        if (Object.keys(llmConfig.reasoning as Record<string, unknown>).length === 0) {
+          delete llmConfig.reasoning;
+        }
+      }
+      if (modelKwargs.reasoning && typeof modelKwargs.reasoning === 'object') {
+        delete (modelKwargs.reasoning as Record<string, unknown>).effort;
+        if (Object.keys(modelKwargs.reasoning as Record<string, unknown>).length === 0) {
+          delete modelKwargs.reasoning;
+        }
+      }
+    }
+
+    if (!xaiModelCapabilities.supportsStop) {
+      delete llmConfig.stop;
+      delete llmConfig.stopSequences;
+    }
+
+    if (llmConfig.useResponsesApi === true || xaiModelCapabilities.supportsReasoning) {
+      delete llmConfig.frequencyPenalty;
+      delete llmConfig.presencePenalty;
+    }
+
+    if (llmConfig.useResponsesApi === true && llmConfig.maxTokens != null) {
+      modelKwargs.max_output_tokens = llmConfig.maxTokens;
+      delete llmConfig.maxTokens;
+      hasModelKwargs = true;
+    }
+
+    if (!xaiModelCapabilities.supportsMaxOutputTokens) {
+      delete llmConfig.maxTokens;
+      delete modelKwargs.max_output_tokens;
+      delete modelKwargs.max_completion_tokens;
+    }
   }
 
   if (modelKwargs.verbosity && llmConfig.useResponsesApi === true) {
@@ -446,6 +595,10 @@ export function getOpenAILLMConfig({
     modelKwargs[paramName] = llmConfig.maxTokens;
     delete llmConfig.maxTokens;
     hasModelKwargs = true;
+  }
+
+  if (Object.keys(modelKwargs).length === 0) {
+    hasModelKwargs = false;
   }
 
   if (hasModelKwargs) {

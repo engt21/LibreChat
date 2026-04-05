@@ -326,8 +326,50 @@ describe('getOpenAILLMConfig', () => {
         },
       });
 
-      expect(result.llmConfig).toHaveProperty('reasoning_effort', ReasoningEffort.high);
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).toHaveProperty('reasoning', {
+        effort: ReasoningEffort.high,
+      });
       expect(result.llmConfig).not.toHaveProperty('temperature');
+    });
+
+    it('should drop sampling controls for versioned GPT-5 models when reasoning is enabled', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint: EModelEndpoint.openAI,
+        modelOptions: {
+          model: 'gpt-5.1',
+          reasoning_effort: ReasoningEffort.high,
+          temperature: 0.7,
+          top_p: 0.9,
+          frequency_penalty: 0.3,
+          presence_penalty: 0.2,
+        },
+      });
+
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).toHaveProperty('reasoning', {
+        effort: ReasoningEffort.high,
+      });
+      expect(result.llmConfig).not.toHaveProperty('temperature');
+      expect(result.llmConfig).not.toHaveProperty('topP');
+      expect(result.llmConfig).not.toHaveProperty('frequencyPenalty');
+      expect(result.llmConfig).not.toHaveProperty('presencePenalty');
+    });
+
+    it('should drop stop sequences for latest o-series models that do not support them', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint: EModelEndpoint.openAI,
+        modelOptions: {
+          model: 'o4-mini',
+          stop: ['END'],
+        },
+      });
+
+      expect(result.llmConfig).not.toHaveProperty('stop');
     });
   });
 
@@ -366,6 +408,19 @@ describe('getOpenAILLMConfig', () => {
   });
 
   describe('Web Search Functionality', () => {
+    it('should default built-in OpenAI endpoints to the Responses API for OpenAI models', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint: EModelEndpoint.openAI,
+        modelOptions: {
+          model: 'gpt-4.1',
+        },
+      });
+
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+    });
+
     it('should enable web search with Responses API', () => {
       const result = getOpenAILLMConfig({
         apiKey: 'test-api-key',
@@ -489,7 +544,10 @@ describe('getOpenAILLMConfig', () => {
         },
       });
 
-      expect(result.llmConfig).toHaveProperty('reasoning_effort', ReasoningEffort.high);
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).toHaveProperty('reasoning', {
+        effort: ReasoningEffort.high,
+      });
     });
 
     it('should use reasoning object for non-OpenAI endpoints', () => {
@@ -530,6 +588,23 @@ describe('getOpenAILLMConfig', () => {
       expect(result.llmConfig.reasoning).toEqual({
         effort: ReasoningEffort.medium,
         summary: ReasoningSummary.detailed,
+      });
+    });
+
+    it('should force the Responses API when OpenAI reasoning summaries are requested', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint: EModelEndpoint.openAI,
+        modelOptions: {
+          model: 'o1',
+          reasoning_summary: ReasoningSummary.concise,
+        },
+      });
+
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig.reasoning).toEqual({
+        summary: ReasoningSummary.concise,
       });
     });
 
@@ -759,7 +834,7 @@ describe('getOpenAILLMConfig', () => {
   });
 
   describe('Verbosity Handling', () => {
-    it('should add verbosity to modelKwargs', () => {
+    it('should ignore verbosity for models outside the GPT-5 family', () => {
       const result = getOpenAILLMConfig({
         apiKey: 'test-api-key',
         streaming: true,
@@ -769,24 +844,151 @@ describe('getOpenAILLMConfig', () => {
         },
       });
 
-      expect(result.llmConfig.modelKwargs).toHaveProperty('verbosity', Verbosity.high);
+      expect(result.llmConfig).not.toHaveProperty('modelKwargs');
     });
 
-    it('should convert verbosity to text object with Responses API', () => {
+    it('should force the Responses API for GPT-5 verbosity controls', () => {
       const result = getOpenAILLMConfig({
         apiKey: 'test-api-key',
         streaming: true,
         modelOptions: {
-          model: 'gpt-4',
+          model: 'gpt-5.1',
           verbosity: Verbosity.low,
-        },
-        addParams: {
-          useResponsesApi: true,
         },
       });
 
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
       expect(result.llmConfig.modelKwargs).toHaveProperty('text', { verbosity: Verbosity.low });
       expect(result.llmConfig.modelKwargs).not.toHaveProperty('verbosity');
+    });
+  });
+
+  describe('xAI Configuration', () => {
+    it('keeps plain xAI chats on chat completions unless Responses API features are required', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        baseURL: 'https://api.x.ai/v1',
+        endpoint: 'Grok',
+        streaming: true,
+        modelOptions: {
+          model: 'grok-4.20-beta-latest-non-reasoning',
+          max_tokens: 2048,
+        },
+      });
+
+      expect(result.llmConfig).not.toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).not.toHaveProperty('disableStreaming', true);
+      expect(result.llmConfig).toHaveProperty('maxTokens', 2048);
+    });
+
+    it('uses the xAI Responses API for native web search and disables streaming', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        baseURL: 'https://api.x.ai/v1',
+        endpoint: 'Grok',
+        streaming: true,
+        modelOptions: {
+          model: 'grok-4.20-beta-latest-non-reasoning',
+          web_search: true,
+        },
+      });
+
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).not.toHaveProperty('disableStreaming', true);
+      expect(result.tools).toEqual([{ type: 'web_search' }]);
+    });
+
+    it('skips native xAI web search for models without provider search support', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        baseURL: 'https://api.x.ai/v1',
+        endpoint: 'Grok',
+        streaming: true,
+        modelOptions: {
+          model: 'grok-code-fast-1',
+          web_search: true,
+        },
+      });
+
+      expect(result.llmConfig).not.toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).not.toHaveProperty('disableStreaming', true);
+      expect(result.tools).toEqual([]);
+    });
+
+    it('drops unsupported stop sequences and penalties for xAI reasoning models', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        baseURL: 'https://api.x.ai/v1',
+        endpoint: 'Grok',
+        streaming: true,
+        modelOptions: {
+          model: 'grok-4-0709',
+          stop: ['END'],
+          frequency_penalty: 0.3,
+          presence_penalty: 0.2,
+        },
+      });
+
+      expect(result.llmConfig).not.toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).not.toHaveProperty('stop');
+      expect(result.llmConfig).not.toHaveProperty('frequencyPenalty');
+      expect(result.llmConfig).not.toHaveProperty('presencePenalty');
+    });
+
+    it('removes unsupported xAI reasoning effort and multi-agent max token controls', () => {
+      const reasoningResult = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        baseURL: 'https://api.x.ai/v1',
+        endpoint: 'Grok',
+        streaming: true,
+        modelOptions: {
+          model: 'grok-4-0709',
+          reasoning_effort: ReasoningEffort.high,
+          reasoning_summary: ReasoningSummary.detailed,
+        },
+      });
+
+      expect(reasoningResult.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(reasoningResult.llmConfig).not.toHaveProperty('disableStreaming', true);
+      expect(reasoningResult.llmConfig.reasoning).toEqual({
+        summary: ReasoningSummary.detailed,
+      });
+
+      const multiAgentResult = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        baseURL: 'https://api.x.ai/v1',
+        endpoint: 'Grok',
+        streaming: true,
+        defaultParams: {
+          useResponsesApi: false,
+        },
+        modelOptions: {
+          model: 'grok-4.20-multi-agent-beta-0309',
+          max_tokens: 1024,
+        },
+      });
+
+      expect(multiAgentResult.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(multiAgentResult.llmConfig).not.toHaveProperty('disableStreaming', true);
+      expect(multiAgentResult.llmConfig).not.toHaveProperty('maxTokens');
+      expect(multiAgentResult.llmConfig).not.toHaveProperty('modelKwargs.max_output_tokens');
+    });
+
+    it('preserves xAI reasoning effort for Grok 3 Mini models', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        baseURL: 'https://api.x.ai/v1',
+        endpoint: 'Grok',
+        streaming: true,
+        modelOptions: {
+          model: 'grok-3-mini',
+          reasoning_effort: ReasoningEffort.high,
+        },
+      });
+
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).not.toHaveProperty('disableStreaming', true);
+      expect(result.llmConfig.reasoning).toEqual({ effort: ReasoningEffort.high });
     });
   });
 });
