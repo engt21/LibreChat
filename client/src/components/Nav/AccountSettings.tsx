@@ -5,7 +5,11 @@ import { FileText, LogOut, Shield } from 'lucide-react';
 import { SystemRoles } from 'librechat-data-provider';
 import { LinkIcon, GearIcon, DropdownMenuSeparator, Avatar } from '@librechat/client';
 import { MyFilesModal } from '~/components/Chat/Input/Files/MyFilesModal';
-import { useGetStartupConfig, useGetUserBalance } from '~/data-provider';
+import {
+  useAdminPermissionsQuery,
+  useGetStartupConfig,
+  useGetUserBalance,
+} from '~/data-provider';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { useLocalize } from '~/hooks';
 import Settings from './Settings';
@@ -21,8 +25,19 @@ function AccountSettings() {
   const [showSettings, setShowSettings] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
   const accountSettingsButtonRef = useRef<HTMLButtonElement>(null);
-  const canOpenAdminConsole =
+
+  // Gate admin console entry on resolved permissions, not just raw role data.
+  // This ensures users with stale or invalid adminRoleIds don't see the entry.
+  const isPotentialAdmin =
     user?.role === SystemRoles.ADMIN || (user?.adminRoleIds?.length ?? 0) > 0;
+  const adminPermissionsQuery = useAdminPermissionsQuery({
+    enabled: isPotentialAdmin,
+  });
+  const canOpenAdminConsole =
+    isPotentialAdmin &&
+    adminPermissionsQuery.isSuccess &&
+    (adminPermissionsQuery.data?.isSuperAdmin === true ||
+      (adminPermissionsQuery.data?.permissions?.length ?? 0) > 0);
 
   return (
     <Menu.MenuProvider>
