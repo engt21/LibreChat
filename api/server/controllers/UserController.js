@@ -1,5 +1,13 @@
 const { logger, webSearchKeys } = require('@librechat/data-schemas');
-const { Tools, CacheKeys, Constants, FileSources, ResourceType } = require('librechat-data-provider');
+const {
+  Tools,
+  CacheKeys,
+  Constants,
+  FileSources,
+  ResourceType,
+  PrincipalType,
+  PermissionBits,
+} = require('librechat-data-provider');
 const {
   MCPOAuthHandler,
   MCPTokenStorage,
@@ -134,23 +142,30 @@ const deleteUserMcpServers = async (userId) => {
     const mongoose = require('mongoose');
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
-    // Find all MCP server IDs where this user is an owner via ACL
+    // Find all MCP server IDs where this user is an owner via ACL.
+    // Only USER principals with DELETE permission count as owners.
     const ownerEntries = await AclEntry.find({
       principalId: userObjectId,
+      principalType: PrincipalType.USER,
       resourceType: ResourceType.MCPSERVER,
+      permBits: { $bitsAllSet: PermissionBits.DELETE },
     })
       .select('resourceId')
       .lean();
 
     const ownedResourceIds = ownerEntries.map((e) => e.resourceId);
 
-    // For each owned server, check if any other principal also has ACL access
+    // For each owned server, check if any other USER principal also has DELETE permission.
+    // Only other USER principals with DELETE count as competing owners;
+    // GROUP, ROLE, or PUBLIC entries do not prevent deletion.
     const soleOwnedIds = [];
     for (const resourceId of ownedResourceIds) {
       const otherOwners = await AclEntry.countDocuments({
         resourceType: ResourceType.MCPSERVER,
         resourceId,
+        principalType: PrincipalType.USER,
         principalId: { $ne: userObjectId },
+        permBits: { $bitsAllSet: PermissionBits.DELETE },
       });
       if (otherOwners === 0) {
         soleOwnedIds.push(resourceId);
@@ -165,11 +180,11 @@ const deleteUserMcpServers = async (userId) => {
     const migratedEntries =
       authoredServers.length > 0
         ? await AclEntry.find({
-          resourceType: ResourceType.MCPSERVER,
-          resourceId: { $in: authoredServers.map((s) => s._id) },
-        })
-          .select('resourceId')
-          .lean()
+            resourceType: ResourceType.MCPSERVER,
+            resourceId: { $in: authoredServers.map((s) => s._id) },
+          })
+            .select('resourceId')
+            .lean()
         : [];
     const migratedIds = new Set(migratedEntries.map((e) => e.resourceId.toString()));
     const legacyServers = authoredServers.filter((s) => !migratedIds.has(s._id.toString()));
@@ -185,8 +200,8 @@ const deleteUserMcpServers = async (userId) => {
     const aclOwnedServers =
       soleOwnedIds.length > 0
         ? await MCPServer.find({ _id: { $in: soleOwnedIds } })
-          .select('serverName')
-          .lean()
+            .select('serverName')
+            .lean()
         : [];
     const allServersToDelete = [...aclOwnedServers, ...legacyServers];
 
