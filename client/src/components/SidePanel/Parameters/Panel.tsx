@@ -2,17 +2,30 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import keyBy from 'lodash/keyBy';
 import { RotateCcw } from 'lucide-react';
 import {
+  EModelEndpoint,
   excludedKeys,
   paramSettings,
   getSettingsKeys,
+  getDefaultParamsEndpoint,
   getEndpointField,
   SettingDefinition,
   tConvoUpdateSchema,
+  normalizeGoogleModelName,
+  normalizeOpenAIModelName,
+  isXAIEndpointCandidate,
+  getOpenAIModelCapabilities as resolveOpenAIModelCapabilities,
+  getGoogleModelCapabilities as resolveGoogleModelCapabilities,
+  getOpenAISettingCapabilityState,
+  resolveOpenAIResponsesApiEnabled,
+  getGoogleSettingCapabilityState,
+  normalizeXAIModelName,
+  getXAIModelCapabilities as resolveXAIModelCapabilities,
+  getXAISettingCapabilityState,
 } from 'librechat-data-provider';
 import type { TPreset } from 'librechat-data-provider';
 import { SaveAsPresetDialog } from '~/components/Endpoints';
 import { useSetIndexOptions, useLocalize } from '~/hooks';
-import { useGetEndpointsQuery } from '~/data-provider';
+import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
 import { componentMapping } from './components';
 import { useChatContext } from '~/Providers';
 import { logger } from '~/utils';
@@ -26,6 +39,7 @@ export default function Parameters() {
   const [preset, setPreset] = useState<TPreset | null>(null);
 
   const { data: endpointsConfig = {} } = useGetEndpointsQuery();
+  const { data: startupConfig } = useGetStartupConfig();
   const provider = conversation?.endpoint ?? '';
   const model = conversation?.model ?? '';
 
@@ -37,6 +51,53 @@ export default function Parameters() {
     () => getEndpointField(endpointsConfig, conversation?.endpoint, 'type'),
     [conversation?.endpoint, endpointsConfig],
   );
+
+  const defaultParamsEndpoint = useMemo(
+    () => getDefaultParamsEndpoint(endpointsConfig, provider),
+    [endpointsConfig, provider],
+  );
+  const settingsEndpoint = defaultParamsEndpoint ?? endpointType ?? provider;
+
+  const xaiModelCapabilities = useMemo(() => {
+    if (!isXAIEndpointCandidate({ endpoint: provider, defaultParamsEndpoint })) {
+      return null;
+    }
+
+    const normalizedModel = normalizeXAIModelName(model);
+
+    return resolveXAIModelCapabilities(
+      normalizedModel,
+      startupConfig?.xaiModelCapabilities?.[provider]?.[normalizedModel] ?? null,
+    );
+  }, [defaultParamsEndpoint, model, provider, startupConfig?.xaiModelCapabilities]);
+
+  const googleModelCapabilities = useMemo(() => {
+    if (settingsEndpoint !== EModelEndpoint.google) {
+      return null;
+    }
+
+    const normalizedModel = normalizeGoogleModelName(model);
+
+    return resolveGoogleModelCapabilities(
+      normalizedModel,
+      startupConfig?.googleModelCapabilities?.[normalizedModel],
+    );
+  }, [model, settingsEndpoint, startupConfig?.googleModelCapabilities]);
+
+  const openAIModelCapabilities = useMemo(() => {
+    if (xaiModelCapabilities != null || settingsEndpoint === EModelEndpoint.google) {
+      return null;
+    }
+
+    return resolveOpenAIModelCapabilities(normalizeOpenAIModelName(model));
+  }, [model, settingsEndpoint, xaiModelCapabilities]);
+
+  const responsesApiEnabled = openAIModelCapabilities
+    ? resolveOpenAIResponsesApiEnabled(openAIModelCapabilities, {
+        useResponsesApi: conversation?.useResponsesApi,
+        endpoint: provider,
+      })
+    : false;
 
   const parameters = useMemo((): SettingDefinition[] => {
     const customParams = endpointsConfig[provider]?.customParams ?? {};
@@ -152,10 +213,65 @@ export default function Parameters() {
           if (!Component) {
             return null;
           }
-          const { key, default: defaultValue, ...rest } = setting;
+          const { key, default: settingDefaultValue, ...rest } = setting;
+          const defaultValue =
+            key === 'useResponsesApi' && openAIModelCapabilities
+              ? resolveOpenAIResponsesApiEnabled(openAIModelCapabilities, { endpoint: provider })
+              : settingDefaultValue;
+
+          if (
+            openAIModelCapabilities?.hasKnownCapabilities &&
+            key === 'reasoning_effort' &&
+            openAIModelCapabilities.reasoningEffortOptions.length > 0
+          ) {
+            rest.options = openAIModelCapabilities.reasoningEffortOptions;
+
+            if (rest.enumMappings) {
+              rest.enumMappings = openAIModelCapabilities.reasoningEffortOptions.reduce<
+                Record<string, string | number | boolean>
+              >((acc, option) => {
+                const mapping = rest.enumMappings?.[option];
+
+                if (mapping != null) {
+                  acc[option] = mapping;
+                }
+
+                return acc;
+              }, {});
+            }
+          }
 
           if (key === 'region' && bedrockRegions.length) {
             rest.options = bedrockRegions;
+          }
+
+          let capabilityState: { supported: boolean; reason?: string } = { supported: true };
+
+          if (xaiModelCapabilities) {
+            capabilityState = getXAISettingCapabilityState(key, xaiModelCapabilities);
+          } else if (googleModelCapabilities) {
+            capabilityState = getGoogleSettingCapabilityState(key, googleModelCapabilities);
+          } else if (openAIModelCapabilities) {
+            capabilityState = getOpenAISettingCapabilityState(key, openAIModelCapabilities, {
+              useResponsesApi: responsesApiEnabled,
+              endpoint: provider,
+              reasoningEffort: conversation?.reasoning_effort,
+            });
+          }
+
+          if (!capabilityState.supported) {
+            let baseDescription = '';
+
+            if (rest.description) {
+              baseDescription = rest.descriptionCode
+                ? (localize(rest.description as never) ?? rest.description)
+                : rest.description;
+            }
+
+            rest.description = [capabilityState.reason, baseDescription]
+              .filter(Boolean)
+              .join('\n\n');
+            rest.descriptionCode = false;
           }
 
           return (
@@ -164,6 +280,7 @@ export default function Parameters() {
               settingKey={key}
               defaultValue={defaultValue}
               {...rest}
+              readonly={!capabilityState.supported}
               setOption={setOption}
               conversation={conversation}
             />

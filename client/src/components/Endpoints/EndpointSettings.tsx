@@ -1,9 +1,15 @@
 import { useRecoilValue } from 'recoil';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
-import { getEndpointField, SettingsViews } from 'librechat-data-provider';
+import {
+  getDefaultParamsEndpoint,
+  getEndpointField,
+  isAssistantsEndpoint,
+  SettingsViews,
+} from 'librechat-data-provider';
 import type { TConversation } from 'librechat-data-provider';
 import type { TSettingsProps } from '~/common';
 import { useGetEndpointsQuery } from '~/data-provider';
+import TranscriptionSettings from './Settings/TranscriptionSettings';
 import { getSettings } from './Settings';
 import { cn } from '~/utils';
 import store from '~/store';
@@ -18,7 +24,11 @@ export default function Settings({
   const { data: endpointsConfig } = useGetEndpointsQuery();
   const currentSettingsView = useRecoilValue(store.currentSettingsView);
   const endpointType = getEndpointField(endpointsConfig, conversation?.endpoint ?? '', 'type');
-  const endpoint = endpointType ?? conversation?.endpoint ?? '';
+  const endpoint =
+    getDefaultParamsEndpoint(endpointsConfig, conversation?.endpoint ?? '') ??
+    endpointType ??
+    conversation?.endpoint ??
+    '';
   if (!endpoint || currentSettingsView !== SettingsViews.default) {
     return null;
   }
@@ -37,6 +47,9 @@ export default function Settings({
           models={models}
           isPreset={isPreset}
         />
+        {!isPreset && !isAssistantsEndpoint(conversation?.endpoint ?? '') && (
+          <TranscriptionSettings conversation={conversation} setOption={setOption} />
+        )}
       </div>
     );
   }
@@ -50,6 +63,9 @@ export default function Settings({
   return (
     <div className={cn('hide-scrollbar h-[500px] overflow-y-auto md:mb-2 md:h-[350px]', className)}>
       <MultiViewComponent conversation={conversation} models={models} isPreset={isPreset} />
+      {!isPreset && !isAssistantsEndpoint(conversation?.endpoint ?? '') && (
+        <TranscriptionSettings conversation={conversation} setOption={setOption} />
+      )}
     </div>
   );
 }

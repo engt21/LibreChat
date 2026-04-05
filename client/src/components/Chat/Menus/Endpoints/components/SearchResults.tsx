@@ -6,6 +6,7 @@ import type { TModelSpec } from 'librechat-data-provider';
 import type { Endpoint } from '~/common';
 import { useModelSelectorContext } from '../ModelSelectorContext';
 import { CustomMenuItem as MenuItem } from '../CustomMenu';
+import { EndpointSettingsButton, canShowEndpointSettingsButton } from './EndpointSettingsButton';
 import SpecIcon from './SpecIcon';
 import { cn } from '~/utils';
 
@@ -21,7 +22,9 @@ export function SearchResults({ results, localize, searchValue }: SearchResultsP
     handleSelectSpec,
     handleSelectModel,
     handleSelectEndpoint,
+    handleOpenKeyDialog,
     endpointsConfig,
+    isSuperAdmin,
   } = useModelSelectorContext();
 
   const {
@@ -102,6 +105,7 @@ export function SearchResults({ results, localize, searchValue }: SearchResultsP
         } else {
           // For an endpoint item
           const endpoint = item as Endpoint;
+          const showSettingsButton = isSuperAdmin && canShowEndpointSettingsButton(endpoint);
           if (endpoint.hasModels && endpoint.models && endpoint.models.length > 0) {
             const lowerQuery = searchValue.toLowerCase();
             const filteredModels = endpoint.label.toLowerCase().includes(lowerQuery)
@@ -130,13 +134,22 @@ export function SearchResults({ results, localize, searchValue }: SearchResultsP
 
             return (
               <Fragment key={`endpoint-${endpoint.value}-search-${i}`}>
-                <div className="flex items-center gap-2 px-3 py-1 text-sm font-medium">
-                  {endpoint.icon && (
-                    <div className="flex items-center justify-center overflow-hidden rounded-full p-1">
-                      {endpoint.icon}
-                    </div>
+                <div className="flex items-center justify-between gap-2 px-3 py-1 text-sm font-medium">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {endpoint.icon && (
+                      <div className="flex items-center justify-center overflow-hidden rounded-full p-1">
+                        {endpoint.icon}
+                      </div>
+                    )}
+                    <span className="truncate">{endpoint.label}</span>
+                  </div>
+                  {showSettingsButton && (
+                    <EndpointSettingsButton
+                      endpoint={endpoint}
+                      handleOpenKeyDialog={handleOpenKeyDialog}
+                      showTextOnHover={false}
+                    />
                   )}
-                  {endpoint.label}
                 </div>
                 {filteredModels.map((model) => {
                   const modelId = model.name;
@@ -168,9 +181,9 @@ export function SearchResults({ results, localize, searchValue }: SearchResultsP
                       key={`${endpoint.value}-${modelId}-search-${i}`}
                       onClick={() => handleSelectModel(endpoint, modelId)}
                       aria-selected={isModelSelected || undefined}
-                      className="flex w-full cursor-pointer items-center justify-start rounded-lg px-3 py-2 pl-6 text-sm"
+                      className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 pl-6 text-sm"
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
                         {endpoint.modelIcons?.[modelId] && (
                           <div className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full">
                             <img
@@ -180,20 +193,22 @@ export function SearchResults({ results, localize, searchValue }: SearchResultsP
                             />
                           </div>
                         )}
-                        <span>{modelName}</span>
+                        <span className="truncate">{modelName}</span>
                       </div>
-                      {isGlobal && (
-                        <EarthIcon className="ml-auto size-4 text-green-400" aria-hidden="true" />
-                      )}
-                      {isModelSelected && (
-                        <>
-                          <CheckCircle2
-                            className="size-4 shrink-0 text-text-primary"
-                            aria-hidden="true"
-                          />
-                          <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
-                        </>
-                      )}
+                      <div className="ml-2 flex shrink-0 items-center gap-2">
+                        {isGlobal && (
+                          <EarthIcon className="size-4 text-green-400" aria-hidden="true" />
+                        )}
+                        {isModelSelected && (
+                          <>
+                            <CheckCircle2
+                              className="size-4 shrink-0 text-text-primary"
+                              aria-hidden="true"
+                            />
+                            <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
+                          </>
+                        )}
+                      </div>
                     </MenuItem>
                   );
                 })}
@@ -220,15 +235,24 @@ export function SearchResults({ results, localize, searchValue }: SearchResultsP
                   )}
                   <span>{endpoint.label}</span>
                 </div>
-                {isEndpointSelected && (
-                  <>
-                    <CheckCircle2
-                      className="size-4 shrink-0 text-text-primary"
-                      aria-hidden="true"
+                <div className="ml-2 flex shrink-0 items-center gap-2">
+                  {showSettingsButton && (
+                    <EndpointSettingsButton
+                      endpoint={endpoint}
+                      handleOpenKeyDialog={handleOpenKeyDialog}
+                      showTextOnHover={false}
                     />
-                    <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
-                  </>
-                )}
+                  )}
+                  {isEndpointSelected && (
+                    <>
+                      <CheckCircle2
+                        className="size-4 shrink-0 text-text-primary"
+                        aria-hidden="true"
+                      />
+                      <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
+                    </>
+                  )}
+                </div>
               </MenuItem>
             );
           }

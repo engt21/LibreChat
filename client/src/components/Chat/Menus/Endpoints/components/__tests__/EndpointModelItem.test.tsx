@@ -82,4 +82,14 @@ describe('EndpointModelItem', () => {
     const menuItem = screen.getByRole('menuitem');
     expect(menuItem).not.toHaveAttribute('aria-selected');
   });
+
+  it('does not render the settings button on model rows', () => {
+    mockSelectedValues = { endpoint: 'anthropic', model: 'claude-opus-4-6', modelSpec: '' };
+
+    render(<EndpointModelItem modelId="claude-opus-4-6" endpoint={baseEndpoint} />);
+
+    expect(
+      screen.queryByRole('button', { name: 'com_endpoint_config_key Anthropic' }),
+    ).not.toBeInTheDocument();
+  });
 });

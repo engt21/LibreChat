@@ -9,13 +9,23 @@ interface InputWithLabelProps {
   value: string;
   label: string;
   subLabel?: string;
+  type?: string;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
   labelClassName?: string;
   inputClassName?: string;
 }
 
 const InputWithLabel = forwardRef<HTMLInputElement, InputWithLabelProps>((props, ref) => {
-  const { id, value, label, subLabel, onChange, labelClassName = '', inputClassName = '' } = props;
+  const {
+    id,
+    value,
+    label,
+    subLabel,
+    type = 'text',
+    onChange,
+    labelClassName = '',
+    inputClassName = '',
+  } = props;
   const localize = useLocalize();
   return (
     <>
@@ -29,6 +39,7 @@ const InputWithLabel = forwardRef<HTMLInputElement, InputWithLabelProps>((props,
       <div className="h-1" />
       <Input
         id={id}
+        type={type}
         data-testid={`input-${id}`}
         value={value ?? ''}
         onChange={onChange}

@@ -706,6 +706,19 @@ const DocumentType: z.ZodType<DocumentTypeValue> = z.lazy(() =>
   ]),
 );
 
+export const tTranscriptionSpeakerReferenceSchema = z.object({
+  id: z.string().optional(),
+  name: z.string(),
+  file_id: z.string(),
+  filename: z.string().optional(),
+  filepath: z.string().optional(),
+  type: z.string().optional(),
+  bytes: coerceNumber.optional(),
+  durationSeconds: coerceNumber.nullable().optional(),
+  embedded: z.boolean().optional(),
+  source: z.string().optional(),
+});
+
 export const tConversationSchema = z.object({
   conversationId: z.string().nullable(),
   endpoint: eModelEndpointSchema.nullable(),
@@ -786,6 +799,9 @@ export const tConversationSchema = z.object({
   expiredAt: z.string().nullable().optional(),
   /* file token limits */
   fileTokenLimit: coerceNumber.optional(),
+  transcriptionModel: z.string().nullable().optional(),
+  transcriptionPrompt: z.string().nullable().optional(),
+  transcriptionSpeakerReferences: z.array(tTranscriptionSpeakerReferenceSchema).optional(),
   /** @deprecated */
   resendImages: z.boolean().optional(),
   /** @deprecated Prefer `modelLabel` over `chatGptLabel` */
@@ -912,14 +928,14 @@ export const tQueryParamsSchema = tConversationSchema
 
 export type TPreset = z.infer<typeof tPresetSchema>;
 
-export type TSetOption = (
-  param: number | string,
-) => (newValue: number | string | boolean | string[] | Partial<TPreset>) => void;
-
 export type TConversation = z.infer<typeof tConversationSchema> & {
   presetOverride?: Partial<TPreset>;
   disableParams?: boolean;
 };
+
+export type TTranscriptionSpeakerReference = z.infer<typeof tTranscriptionSpeakerReferenceSchema>;
+
+export type TSetOption = (param: number | string) => (newValue: unknown) => void;
 
 export const tSharedLinkSchema = z.object({
   conversationId: z.string(),

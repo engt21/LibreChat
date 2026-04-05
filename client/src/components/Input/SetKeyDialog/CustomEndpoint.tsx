@@ -19,6 +19,7 @@ const CustomEndpoint = ({
           <InputWithLabel
             id="apiKey"
             {...field}
+            type="password"
             label={`${endpoint} API Key`}
             labelClassName="mb-1"
             inputClassName="mb-2"

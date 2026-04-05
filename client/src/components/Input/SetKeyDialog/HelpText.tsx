@@ -32,6 +32,9 @@ function HelpText({ endpoint }: { endpoint: string }) {
           {localize('com_endpoint_config_key_google_vertex_api_role')}
         </small>
         <small className="break-all text-text-secondary">
+          {localize('com_endpoint_config_key_google_adc')}
+        </small>
+        <small className="break-all text-text-secondary">
           {localize('com_endpoint_config_google_api_key')}
           {': '}
           {localize('com_endpoint_config_google_api_info')}{' '}

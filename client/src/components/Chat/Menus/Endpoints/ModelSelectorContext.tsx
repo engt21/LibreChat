@@ -1,17 +1,27 @@
 import debounce from 'lodash/debounce';
 import React, { createContext, useContext, useState, useMemo, useCallback } from 'react';
-import { EModelEndpoint, isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
+import {
+  EModelEndpoint,
+  SystemRoles,
+  isAgentsEndpoint,
+  isAssistantsEndpoint,
+} from 'librechat-data-provider';
 import type * as t from 'librechat-data-provider';
 import type { Endpoint, SelectedValues } from '~/common';
 import {
   useAgentDefaultPermissionLevel,
+  useAuthContext,
   useSelectorEffects,
   useKeyDialog,
   useEndpoints,
   useLocalize,
 } from '~/hooks';
 import { useAgentsMapContext, useAssistantsMapContext, useLiveAnnouncer } from '~/Providers';
-import { useGetEndpointsQuery, useListAgentsQuery } from '~/data-provider';
+import {
+  useAdminPermissionsQuery,
+  useGetEndpointsQuery,
+  useListAgentsQuery,
+} from '~/data-provider';
 import { useModelSelectorChatContext } from './ModelSelectorChatContext';
 import useSelectMention from '~/hooks/Input/useSelectMention';
 import { filterItems } from './utils';
@@ -28,6 +38,7 @@ type ModelSelectorContextType = {
   agentsMap: t.TAgentsMap | undefined;
   assistantsMap: t.TAssistantsMap | undefined;
   endpointsConfig: t.TEndpointsConfig;
+  isSuperAdmin: boolean;
 
   // Functions
   endpointRequiresUserKey: (endpoint: string) => boolean;
@@ -57,11 +68,19 @@ interface ModelSelectorProviderProps {
 export function ModelSelectorProvider({ children, startupConfig }: ModelSelectorProviderProps) {
   const agentsMap = useAgentsMapContext();
   const assistantsMap = useAssistantsMapContext();
+  const { user } = useAuthContext();
   const { data: endpointsConfig } = useGetEndpointsQuery();
   const { endpoint, model, spec, agent_id, assistant_id, getConversation, newConversation } =
     useModelSelectorChatContext();
   const localize = useLocalize();
   const { announcePolite } = useLiveAnnouncer();
+  const isPotentialAdmin =
+    user?.role === SystemRoles.ADMIN || (user?.adminRoleIds?.length ?? 0) > 0;
+  const adminPermissionsQuery = useAdminPermissionsQuery({
+    enabled: isPotentialAdmin,
+  });
+  const isSuperAdmin = adminPermissionsQuery.data?.isSuperAdmin === true;
+
   const modelSpecs = useMemo(() => {
     const specs = startupConfig?.modelSpecs?.list ?? [];
     if (!agentsMap) {
@@ -251,6 +270,7 @@ export function ModelSelectorProvider({ children, startupConfig }: ModelSelector
       assistantsMap,
       mappedEndpoints,
       endpointsConfig,
+      isSuperAdmin,
       handleSelectSpec,
       handleSelectModel,
       setSelectedValues,
@@ -270,6 +290,7 @@ export function ModelSelectorProvider({ children, startupConfig }: ModelSelector
       assistantsMap,
       mappedEndpoints,
       endpointsConfig,
+      isSuperAdmin,
       handleSelectSpec,
       handleSelectModel,
       setSelectedValues,

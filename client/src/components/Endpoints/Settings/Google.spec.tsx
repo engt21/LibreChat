@@ -36,6 +36,11 @@ jest.mock('librechat-data-provider', () => ({
 }));
 
 jest.mock('~/data-provider', () => ({
+  useGetEndpointsQuery: jest.fn(() => ({
+    data: {
+      google: {},
+    },
+  })),
   useGetStartupConfig: jest.fn(() => ({
     data: {
       googleModelCapabilities: {

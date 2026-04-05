@@ -125,27 +125,31 @@ export function EndpointModelItem({ modelId, endpoint }: EndpointModelItemProps)
         <span className="truncate">{modelName}</span>
         {isGlobal && <EarthIcon className="ml-1 size-4 text-surface-submit" />}
       </div>
-      <button
-        tabIndex={isActive ? 0 : -1}
-        onClick={handleFavoriteClick}
-        aria-label={isFavorite ? localize('com_ui_unpin') : localize('com_ui_pin')}
-        className={cn(
-          'rounded-md p-1 hover:bg-surface-hover',
-          isFavorite ? 'visible' : 'invisible group-hover:visible group-data-[active-item]:visible',
+      <div className="ml-2 flex shrink-0 items-center gap-1">
+        <button
+          tabIndex={isActive ? 0 : -1}
+          onClick={handleFavoriteClick}
+          aria-label={isFavorite ? localize('com_ui_unpin') : localize('com_ui_pin')}
+          className={cn(
+            'rounded-md p-1 hover:bg-surface-hover',
+            isFavorite
+              ? 'visible'
+              : 'invisible group-hover:visible group-data-[active-item]:visible',
+          )}
+        >
+          {isFavorite ? (
+            <PinOff className="h-4 w-4 text-text-secondary" />
+          ) : (
+            <Pin className="h-4 w-4 text-text-secondary" aria-hidden="true" />
+          )}
+        </button>
+        {isSelected && (
+          <>
+            <CheckCircle2 className="size-4 shrink-0 text-text-primary" aria-hidden="true" />
+            <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
+          </>
         )}
-      >
-        {isFavorite ? (
-          <PinOff className="h-4 w-4 text-text-secondary" />
-        ) : (
-          <Pin className="h-4 w-4 text-text-secondary" aria-hidden="true" />
-        )}
-      </button>
-      {isSelected && (
-        <>
-          <CheckCircle2 className="size-4 shrink-0 text-text-primary" aria-hidden="true" />
-          <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
-        </>
-      )}
+      </div>
     </MenuItem>
   );
 }

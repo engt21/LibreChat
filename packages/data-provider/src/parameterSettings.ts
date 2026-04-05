@@ -340,6 +340,42 @@ const openAIParams: Record<string, SettingDefinition> = {
   } as const,
 };
 
+const xAIParams: Record<string, SettingDefinition> = {
+  temperature: openAIParams.temperature,
+  top_p: openAIParams.top_p,
+  max_tokens: openAIParams.max_tokens,
+  useResponsesApi: createDefinition(openAIParams.useResponsesApi, {
+    default: true,
+  }),
+  web_search: openAIParams.web_search,
+  verbosity: openAIParams.verbosity,
+  disableStreaming: openAIParams.disableStreaming,
+  reasoning_effort: {
+    key: 'reasoning_effort',
+    label: 'com_endpoint_reasoning_effort',
+    labelCode: true,
+    description: 'com_endpoint_openai_reasoning_effort',
+    descriptionCode: true,
+    type: 'enum',
+    default: ReasoningEffort.unset,
+    component: 'slider',
+    options: [
+      ReasoningEffort.unset,
+      ReasoningEffort.low,
+      ReasoningEffort.medium,
+      ReasoningEffort.high,
+    ],
+    enumMappings: {
+      [ReasoningEffort.unset]: 'com_ui_auto',
+      [ReasoningEffort.low]: 'com_ui_low',
+      [ReasoningEffort.medium]: 'com_ui_medium',
+      [ReasoningEffort.high]: 'com_ui_high',
+    },
+    optionType: 'model',
+    columnSpan: 4,
+  },
+};
+
 const ollamaParams: Record<string, SettingDefinition> = {
   reasoning_effort: {
     key: 'reasoning_effort',
@@ -826,6 +862,46 @@ const openAICol2: SettingsConfiguration = [
   librechat.fileTokenLimit,
 ];
 
+const xAI: SettingsConfiguration = [
+  librechat.modelLabel,
+  librechat.promptPrefix,
+  librechat.maxContextTokens,
+  xAIParams.max_tokens,
+  xAIParams.temperature,
+  xAIParams.top_p,
+  baseDefinitions.stop,
+  librechat.resendFiles,
+  baseDefinitions.imageDetail,
+  xAIParams.reasoning_effort,
+  xAIParams.useResponsesApi,
+  xAIParams.web_search,
+  xAIParams.verbosity,
+  xAIParams.disableStreaming,
+  librechat.fileTokenLimit,
+];
+
+const xAICol1: SettingsConfiguration = [
+  baseDefinitions.model as SettingDefinition,
+  librechat.modelLabel,
+  librechat.promptPrefix,
+];
+
+const xAICol2: SettingsConfiguration = [
+  librechat.maxContextTokens,
+  xAIParams.max_tokens,
+  xAIParams.temperature,
+  xAIParams.top_p,
+  baseDefinitions.stop,
+  librechat.resendFiles,
+  baseDefinitions.imageDetail,
+  xAIParams.reasoning_effort,
+  xAIParams.useResponsesApi,
+  xAIParams.web_search,
+  xAIParams.verbosity,
+  xAIParams.disableStreaming,
+  librechat.fileTokenLimit,
+];
+
 const ollamaConfig: SettingsConfiguration = [
   librechat.modelLabel,
   librechat.promptPrefix,
@@ -1096,6 +1172,7 @@ export const paramSettings: Record<string, SettingsConfiguration | undefined> = 
   [EModelEndpoint.openAI]: openAI,
   [EModelEndpoint.azureOpenAI]: openAI,
   [EModelEndpoint.custom]: openAI,
+  [KnownEndpoints.xai]: xAI,
   [KnownEndpoints.ollama]: ollamaConfig,
   [EModelEndpoint.anthropic]: anthropicConfig,
   [`${EModelEndpoint.bedrock}-${BedrockProviders.Anthropic}`]: bedrockAnthropic,
@@ -1138,6 +1215,10 @@ export const presetSettings: Record<
   [EModelEndpoint.openAI]: openAIColumns,
   [EModelEndpoint.azureOpenAI]: openAIColumns,
   [EModelEndpoint.custom]: openAIColumns,
+  [KnownEndpoints.xai]: {
+    col1: xAICol1,
+    col2: xAICol2,
+  },
   [KnownEndpoints.ollama]: ollamaColumns,
   [EModelEndpoint.anthropic]: {
     col1: anthropicCol1,

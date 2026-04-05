@@ -14,12 +14,16 @@ export * from './parsers';
 export * from './generate';
 export * from './google';
 export * from './models';
+export * from './openai';
 export * from './schedules';
+export * from './schemas';
+export * from './xai';
 /* mcp */
 export * from './mcp';
 /* RBAC */
 export * from './permissions';
 export * from './roles';
+export * from './realtime';
 /* types (exports schemas from `./types` as they contain needed in other defs) */
 export * from './types';
 export * from './types/agents';

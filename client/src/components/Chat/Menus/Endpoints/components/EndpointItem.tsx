@@ -1,84 +1,22 @@
 import { useMemo } from 'react';
 import { VisuallyHidden } from '@ariakit/react';
 import { Spinner, TooltipAnchor } from '@librechat/client';
-import { CheckCircle2, MousePointerClick, SettingsIcon } from 'lucide-react';
-import { EModelEndpoint, isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
+import { CheckCircle2, MousePointerClick } from 'lucide-react';
+import { isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
 import type { TModelSpec } from 'librechat-data-provider';
 import type { Endpoint } from '~/common';
 import { CustomMenu as Menu, CustomMenuItem as MenuItem } from '../CustomMenu';
 import { useModelSelectorContext } from '../ModelSelectorContext';
 import { renderEndpointModels } from './EndpointModelItem';
+import { EndpointSettingsButton, canShowEndpointSettingsButton } from './EndpointSettingsButton';
 import { ModelSpecItem } from './ModelSpecItem';
 import { filterModels } from '../utils';
 import { useLocalize } from '~/hooks';
-import { cn } from '~/utils';
 
 interface EndpointItemProps {
   endpoint: Endpoint;
   endpointIndex: number;
 }
-
-const SettingsButton = ({
-  endpoint,
-  className,
-  handleOpenKeyDialog,
-}: {
-  endpoint: Endpoint;
-  className?: string;
-  handleOpenKeyDialog: (endpoint: EModelEndpoint, e: React.MouseEvent) => void;
-}) => {
-  const localize = useLocalize();
-  const text = localize('com_endpoint_config_key');
-
-  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (!endpoint.value) {
-      return;
-    }
-    e.stopPropagation();
-    handleOpenKeyDialog(endpoint.value as EModelEndpoint, e);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      e.stopPropagation();
-      if (endpoint.value) {
-        handleOpenKeyDialog(endpoint.value as EModelEndpoint, e as unknown as React.MouseEvent);
-      }
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      id={`endpoint-${endpoint.value}-settings`}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
-      className={cn(
-        'group/button flex items-center gap-1.5 rounded-md px-1.5',
-        'text-text-secondary transition-colors duration-150',
-        'hover:bg-surface-tertiary hover:text-text-primary',
-        'focus-visible:bg-surface-tertiary focus-visible:text-text-primary',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-        className,
-      )}
-      aria-label={`${text} ${endpoint.label}`}
-    >
-      <SettingsIcon className="size-4 shrink-0" aria-hidden="true" />
-      <span
-        aria-hidden="true"
-        className={cn(
-          'grid overflow-hidden transition-[grid-template-columns,opacity] duration-150 ease-out',
-          'grid-cols-[0fr] opacity-0',
-          'group-hover/button:grid-cols-[1fr] group-hover/button:opacity-100',
-          'group-focus-visible/button:grid-cols-[1fr] group-focus-visible/button:opacity-100',
-        )}
-      >
-        <span className="min-w-0 truncate pr-0.5">{text}</span>
-      </span>
-    </button>
-  );
-};
 
 /**
  * Lazily-rendered content for an endpoint submenu. By extracting this into a
@@ -149,15 +87,11 @@ export function EndpointItem({ endpoint, endpointIndex }: EndpointItemProps) {
     handleSelectEndpoint,
     endpointSearchValues,
     setEndpointSearchValue,
-    endpointRequiresUserKey,
+    isSuperAdmin,
   } = useModelSelectorContext();
   const { endpoint: selectedEndpoint, modelSpec: selectedSpec } = selectedValues;
 
   const searchValue = endpointSearchValues[endpoint.value] || '';
-  const isUserProvided = useMemo(
-    () => endpointRequiresUserKey(endpoint.value),
-    [endpointRequiresUserKey, endpoint.value],
-  );
 
   const isAssistantsNotLoaded =
     isAssistantsEndpoint(endpoint.value) && endpoint.models === undefined;
@@ -174,6 +108,7 @@ export function EndpointItem({ endpoint, endpointIndex }: EndpointItemProps) {
   );
 
   const isEndpointSelected = !selectedSpec && selectedEndpoint === endpoint.value;
+  const showSettingsButton = isSuperAdmin && canShowEndpointSettingsButton(endpoint);
 
   if (endpoint.hasModels) {
     const placeholder =
@@ -193,8 +128,11 @@ export function EndpointItem({ endpoint, endpointIndex }: EndpointItemProps) {
           <div className="group flex w-full min-w-0 items-center justify-between gap-1.5 py-1 text-sm">
             {renderIconLabel()}
             <div className="flex shrink-0 items-center gap-1">
-              {isUserProvided && (
-                <SettingsButton endpoint={endpoint} handleOpenKeyDialog={handleOpenKeyDialog} />
+              {showSettingsButton && (
+                <EndpointSettingsButton
+                  endpoint={endpoint}
+                  handleOpenKeyDialog={handleOpenKeyDialog}
+                />
               )}
               {isEndpointSelected && (
                 <>
@@ -220,8 +158,8 @@ export function EndpointItem({ endpoint, endpointIndex }: EndpointItemProps) {
       >
         {renderIconLabel()}
         <div className="flex shrink-0 items-center gap-2">
-          {endpointRequiresUserKey(endpoint.value) && (
-            <SettingsButton endpoint={endpoint} handleOpenKeyDialog={handleOpenKeyDialog} />
+          {showSettingsButton && (
+            <EndpointSettingsButton endpoint={endpoint} handleOpenKeyDialog={handleOpenKeyDialog} />
           )}
           {isAssistantsNotLoaded && (
             <TooltipAnchor

@@ -2,13 +2,14 @@ import { useMemo } from 'react';
 import {
   getSettingsKeys,
   presetSettings,
+  getDefaultParamsEndpoint,
   normalizeGoogleModelName,
   getGoogleModelCapabilities as resolveGoogleModelCapabilities,
   getGoogleSettingCapabilityState,
 } from 'librechat-data-provider';
 import type { SettingDefinition } from 'librechat-data-provider';
 import type { TModelSelectProps } from '~/common';
-import { useGetStartupConfig } from '~/data-provider';
+import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
 import { useLocalize } from '~/hooks';
 import type { TranslationKeys } from '~/hooks';
 import { componentMapping } from '~/components/SidePanel/Parameters/components';
@@ -21,6 +22,7 @@ export default function GoogleSettings({
 }: TModelSelectProps) {
   const localize = useLocalize();
   const { data: startupConfig } = useGetStartupConfig();
+  const { data: endpointsConfig } = useGetEndpointsQuery();
   const normalizedModel = normalizeGoogleModelName(conversation?.model ?? '');
 
   const modelCapabilities = useMemo(
@@ -33,10 +35,12 @@ export default function GoogleSettings({
   );
 
   const parameters = useMemo(() => {
-    const [combinedKey, endpointKey] = getSettingsKeys(
-      conversation?.endpointType ?? conversation?.endpoint ?? '',
-      conversation?.model ?? '',
-    );
+    const settingsEndpoint =
+      getDefaultParamsEndpoint(endpointsConfig, conversation?.endpoint ?? '') ??
+      conversation?.endpointType ??
+      conversation?.endpoint ??
+      '';
+    const [combinedKey, endpointKey] = getSettingsKeys(settingsEndpoint, conversation?.model ?? '');
 
     const baseParameters = presetSettings[combinedKey] ?? presetSettings[endpointKey];
 
@@ -99,7 +103,7 @@ export default function GoogleSettings({
       col1: baseParameters.col1.map(mapSetting),
       col2: baseParameters.col2.map(mapSetting),
     };
-  }, [conversation, localize, modelCapabilities]);
+  }, [conversation, endpointsConfig, localize, modelCapabilities]);
 
   if (!parameters) {
     return null;

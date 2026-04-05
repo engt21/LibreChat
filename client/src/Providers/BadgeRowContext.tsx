@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef } from 'react';
-import { useSetRecoilState } from 'recoil';
+import { useRecoilValue, useSetRecoilState } from 'recoil';
 import {
   Tools,
   Constants,
@@ -7,6 +7,10 @@ import {
   WebSearchModes,
   LocalStorageKeys,
   AgentCapabilities,
+  getDefaultParamsEndpoint,
+  isXAIEndpointCandidate,
+  normalizeXAIModelName,
+  getXAIModelCapabilities as resolveXAIModelCapabilities,
 } from 'librechat-data-provider';
 import type { TAgentsEndpoint } from 'librechat-data-provider';
 import {
@@ -18,8 +22,8 @@ import {
 } from '~/hooks';
 import { getNativeToolEndpointSupport } from '~/utils';
 import { getTimestampedValue } from '~/utils/timestamps';
-import { useGetStartupConfig } from '~/data-provider';
-import { ephemeralAgentByConvoId } from '~/store';
+import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
+import store, { ephemeralAgentByConvoId } from '~/store';
 
 interface BadgeRowContextType {
   conversationId?: string | null;
@@ -27,6 +31,7 @@ interface BadgeRowContextType {
   isOllamaEndpoint: boolean;
   usesNativeWebSearch: boolean;
   usesNativeCodeInterpreter: boolean;
+  supportsStructuredToolCalling: boolean;
   storageContextKey?: string;
   agentsConfig?: TAgentsEndpoint | null;
   webSearch: ReturnType<typeof useToolToggle>;
@@ -67,8 +72,10 @@ export default function BadgeRowProvider({
   const lastContextKeyRef = useRef<string>('');
   const hasInitializedRef = useRef(false);
   const { agentsConfig } = useGetAgentsConfig();
+  const { data: endpointsConfig = {} } = useGetEndpointsQuery();
   const { data: startupConfig } = useGetStartupConfig();
   const key = conversationId ?? Constants.NEW_CONVO;
+  const currentModel = useRecoilValue(store.conversationModelByIndex(key));
   const hasModelSpecs = (startupConfig?.modelSpecs?.list?.length ?? 0) > 0;
 
   /**
@@ -96,10 +103,40 @@ export default function BadgeRowProvider({
   const isOllamaEndpoint = useMemo(() => {
     return typeof endpoint === 'string' && endpoint.toLowerCase().startsWith(KnownEndpoints.ollama);
   }, [endpoint]);
-  const { supportsNativeWebSearch, supportsNativeCodeInterpreter } = useMemo(
-    () => getNativeToolEndpointSupport(endpoint),
-    [endpoint],
+  const nativeToolEndpoint = useMemo(
+    () => getDefaultParamsEndpoint(endpointsConfig, endpoint ?? '') ?? endpoint,
+    [endpointsConfig, endpoint],
   );
+  const xaiModelCapabilities = useMemo(() => {
+    if (!isXAIEndpointCandidate({ endpoint, defaultParamsEndpoint: nativeToolEndpoint })) {
+      return null;
+    }
+
+    const normalizedModel = normalizeXAIModelName(currentModel ?? '');
+
+    return resolveXAIModelCapabilities(
+      normalizedModel,
+      startupConfig?.xaiModelCapabilities?.[endpoint ?? '']?.[normalizedModel] ??
+        (nativeToolEndpoint != null
+          ? startupConfig?.xaiModelCapabilities?.[nativeToolEndpoint]?.[normalizedModel]
+          : null) ??
+        null,
+    );
+  }, [currentModel, endpoint, nativeToolEndpoint, startupConfig?.xaiModelCapabilities]);
+  const { supportsNativeWebSearch, supportsNativeCodeInterpreter } = useMemo(() => {
+    const nativeSupport = getNativeToolEndpointSupport(nativeToolEndpoint);
+
+    if (!xaiModelCapabilities) {
+      return nativeSupport;
+    }
+
+    return {
+      ...nativeSupport,
+      supportsNativeWebSearch:
+        nativeSupport.supportsNativeWebSearch && xaiModelCapabilities.supportsWebSearch,
+    };
+  }, [nativeToolEndpoint, xaiModelCapabilities]);
+  const supportsStructuredToolCalling = xaiModelCapabilities?.supportsFunctionCalling ?? true;
   const defaultWebSearchMode = isOllamaEndpoint
     ? WebSearchModes.ollama_native
     : WebSearchModes.librechat;
@@ -317,6 +354,7 @@ export default function BadgeRowProvider({
     isOllamaEndpoint,
     usesNativeWebSearch: supportsNativeWebSearch,
     usesNativeCodeInterpreter: supportsNativeCodeInterpreter,
+    supportsStructuredToolCalling,
     webSearch,
     webSearchMode,
     artifacts,

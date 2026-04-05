@@ -8,6 +8,7 @@ import { apiBaseUrl } from './api-endpoints';
 import { FileSources } from './types/files';
 import { MCPServersSchema } from './mcp';
 import type { TGoogleModelCapabilities } from './google';
+import type { TXAIModelCapabilities } from './xai';
 
 export const defaultSocialLogins = ['google', 'facebook', 'openid', 'github', 'discord', 'saml'];
 
@@ -55,6 +56,9 @@ export const excludedKeys = new Set([
   'files',
   'spec',
   'disableParams',
+  'transcriptionModel',
+  'transcriptionPrompt',
+  'transcriptionSpeakerReferences',
 ]);
 
 export enum SettingsViews {
@@ -781,6 +785,7 @@ export type TStartupConfig = {
   modelSpecs?: TSpecsConfig;
   modelDescriptions?: Record<string, Record<string, string>>;
   googleModelCapabilities?: Record<string, TGoogleModelCapabilities>;
+  xaiModelCapabilities?: Record<string, Record<string, TXAIModelCapabilities>>;
   sharedLinksEnabled: boolean;
   publicSharedLinksEnabled: boolean;
   analyticsGtmId?: string;
@@ -1105,6 +1110,8 @@ export const alternateName = {
 
 const sharedOpenAIModels = [
   'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.4-nano',
   // TODO: gpt-5.4-thinking may have separate reasoning token pricing — verify before release
   'gpt-5.4-thinking',
   'gpt-5.4-pro',
@@ -1290,6 +1297,10 @@ export const visionModels = [
   'grok-vision',
   'grok-2-vision',
   'grok-3',
+  'grok-4.20',
+  'grok-4-1-fast',
+  'grok-4-fast',
+  'grok-4',
   'gpt-4o-mini',
   'gpt-4o',
   'gpt-4-turbo',
@@ -1646,11 +1657,29 @@ export enum AuthKeys {
    */
   GOOGLE_API_KEY = 'GOOGLE_API_KEY',
   /**
+   * Authentication mode to use for Google integrations.
+   */
+  GOOGLE_AUTH_MODE = 'GOOGLE_AUTH_MODE',
+  /**
+   * Optional Google Cloud project override for Vertex AI.
+   */
+  GOOGLE_VERTEX_PROJECT = 'GOOGLE_VERTEX_PROJECT',
+  /**
+   * Optional Vertex AI location override.
+   */
+  GOOGLE_VERTEX_LOCATION = 'GOOGLE_VERTEX_LOCATION',
+  /**
    * API key to use Anthropic.
    *
    * Note: this is not for Environment Variables, but to access encrypted object values.
    */
   ANTHROPIC_API_KEY = 'ANTHROPIC_API_KEY',
+}
+
+export enum GoogleAuthMode {
+  API_KEY = 'api_key',
+  VERTEX_SERVICE_ACCOUNT = 'vertex_service_account',
+  VERTEX_APPLICATION_DEFAULT = 'vertex_application_default',
 }
 
 /**

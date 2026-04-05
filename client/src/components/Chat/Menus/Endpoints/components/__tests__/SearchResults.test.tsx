@@ -2,10 +2,12 @@ import { render, screen } from '@testing-library/react';
 import type { Endpoint, SelectedValues } from '~/common';
 import { SearchResults } from '../SearchResults';
 
+const mockHandleOpenKeyDialog = jest.fn();
 const mockHandleSelectSpec = jest.fn();
 const mockHandleSelectModel = jest.fn();
 const mockHandleSelectEndpoint = jest.fn();
 let mockSelectedValues: SelectedValues;
+let mockIsSuperAdmin = false;
 
 jest.mock('~/components/Chat/Menus/Endpoints/ModelSelectorContext', () => ({
   useModelSelectorContext: () => ({
@@ -13,7 +15,9 @@ jest.mock('~/components/Chat/Menus/Endpoints/ModelSelectorContext', () => ({
     handleSelectSpec: mockHandleSelectSpec,
     handleSelectModel: mockHandleSelectModel,
     handleSelectEndpoint: mockHandleSelectEndpoint,
+    handleOpenKeyDialog: mockHandleOpenKeyDialog,
     endpointsConfig: {},
+    isSuperAdmin: mockIsSuperAdmin,
   }),
 }));
 
@@ -37,6 +41,10 @@ jest.mock('../SpecIcon', () => {
   };
 });
 
+jest.mock('~/hooks', () => ({
+  useLocalize: () => (key: string) => key,
+}));
+
 const localize = (key: string) => key;
 
 const anthropicEndpoint: Endpoint = {
@@ -54,9 +62,19 @@ const noModelsEndpoint: Endpoint = {
   icon: null,
 };
 
+const agentsEndpoint: Endpoint = {
+  value: 'agents',
+  label: 'My Agents',
+  hasModels: true,
+  models: [{ name: 'agent-1' }],
+  agentNames: { 'agent-1': 'Agent One' },
+  icon: null,
+};
+
 describe('SearchResults', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIsSuperAdmin = false;
   });
 
   it('marks model as selected when endpoint and model match with no active spec', () => {
@@ -105,5 +123,43 @@ describe('SearchResults', () => {
 
     const item = screen.getByRole('menuitem');
     expect(item).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('renders settings buttons for model search results only for super admins', () => {
+    mockIsSuperAdmin = true;
+    mockSelectedValues = { endpoint: 'anthropic', model: '', modelSpec: '' };
+
+    const { rerender } = render(
+      <SearchResults results={[anthropicEndpoint]} localize={localize} searchValue="claude" />,
+    );
+
+    expect(screen.getAllByRole('button', { name: 'com_endpoint_config_key Anthropic' })).toHaveLength(1);
+
+    mockIsSuperAdmin = false;
+    rerender(
+      <SearchResults results={[anthropicEndpoint]} localize={localize} searchValue="claude" />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'com_endpoint_config_key Anthropic' })).not.toBeInTheDocument();
+  });
+
+  it('renders a settings button for endpoint search results with no models for super admins', () => {
+    mockIsSuperAdmin = true;
+    mockSelectedValues = { endpoint: 'custom', model: '', modelSpec: '' };
+
+    render(<SearchResults results={[noModelsEndpoint]} localize={localize} searchValue="custom" />);
+
+    expect(screen.getByRole('button', { name: 'com_endpoint_config_key Custom' })).toBeInTheDocument();
+  });
+
+  it('does not render settings buttons for My Agents search results even for super admins', () => {
+    mockIsSuperAdmin = true;
+    mockSelectedValues = { endpoint: 'agents', model: 'agent-1', modelSpec: '' };
+
+    render(<SearchResults results={[agentsEndpoint]} localize={localize} searchValue="agent" />);
+
+    expect(
+      screen.queryByRole('button', { name: 'com_endpoint_config_key My Agents' }),
+    ).not.toBeInTheDocument();
   });
 });

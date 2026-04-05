@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm, FormProvider } from 'react-hook-form';
-import { EModelEndpoint, alternateName, isAssistantsEndpoint } from 'librechat-data-provider';
+import { AuthKeys, EModelEndpoint, GoogleAuthMode, alternateName } from 'librechat-data-provider';
 import {
   useRevokeUserKeyMutation,
   useRevokeAllUserKeysMutation,
@@ -54,6 +54,110 @@ const EXPIRY = {
   ONE_WEEK: { label: 'in 7 days', value: 7 * 24 * 60 * 60 * 1000 },
   ONE_MONTH: { label: 'in 30 days', value: 30 * 24 * 60 * 60 * 1000 },
   NEVER: { label: 'never', value: 0 },
+};
+
+const defaultFormValues = {
+  apiKey: '',
+  baseURL: '',
+  models: '',
+};
+
+const parseSavedFormValues = (value: string) => {
+  if (!value) {
+    return defaultFormValues;
+  }
+
+  try {
+    const parsedValue = JSON.parse(value);
+
+    if (parsedValue == null || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+      return {
+        ...defaultFormValues,
+        apiKey: value,
+      };
+    }
+
+    let models = '';
+    if (typeof parsedValue.models === 'string') {
+      models = parsedValue.models;
+    } else if (Array.isArray(parsedValue.models)) {
+      models = parsedValue.models.join(',');
+    }
+
+    return {
+      apiKey: typeof parsedValue.apiKey === 'string' ? parsedValue.apiKey : '',
+      baseURL: typeof parsedValue.baseURL === 'string' ? parsedValue.baseURL : '',
+      models,
+    };
+  } catch {
+    return {
+      ...defaultFormValues,
+      apiKey: value,
+    };
+  }
+};
+
+const validGoogleAuthModes = new Set(Object.values(GoogleAuthMode));
+
+const getGoogleAuthMode = (value: unknown) => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    if (validGoogleAuthModes.has(value as GoogleAuthMode)) {
+      return value as GoogleAuthMode;
+    }
+
+    return undefined;
+  }
+
+  return undefined;
+};
+
+const getMissingGoogleFields = (userKey: string): string[] => {
+  if (!userKey) {
+    return ['Google configuration'];
+  }
+
+  try {
+    const parsedValue = JSON.parse(userKey);
+
+    if (parsedValue == null || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+      return userKey.trim() ? [] : ['Google API key'];
+    }
+
+    const apiKey =
+      typeof parsedValue[AuthKeys.GOOGLE_API_KEY] === 'string'
+        ? parsedValue[AuthKeys.GOOGLE_API_KEY].trim()
+        : '';
+    const serviceKey =
+      typeof parsedValue[AuthKeys.GOOGLE_SERVICE_KEY] === 'string'
+        ? parsedValue[AuthKeys.GOOGLE_SERVICE_KEY].trim()
+        : parsedValue[AuthKeys.GOOGLE_SERVICE_KEY] != null &&
+            typeof parsedValue[AuthKeys.GOOGLE_SERVICE_KEY] === 'object'
+          ? JSON.stringify(parsedValue[AuthKeys.GOOGLE_SERVICE_KEY])
+          : '';
+    const authMode =
+      getGoogleAuthMode(parsedValue[AuthKeys.GOOGLE_AUTH_MODE]) ??
+      (apiKey
+        ? GoogleAuthMode.API_KEY
+        : serviceKey
+          ? GoogleAuthMode.VERTEX_SERVICE_ACCOUNT
+          : GoogleAuthMode.API_KEY);
+
+    if (authMode === GoogleAuthMode.API_KEY) {
+      return apiKey ? [] : ['Google API key'];
+    }
+
+    if (authMode === GoogleAuthMode.VERTEX_SERVICE_ACCOUNT) {
+      return serviceKey ? [] : ['Google service account JSON'];
+    }
+
+    return [];
+  } catch {
+    return userKey.trim() ? [] : ['Google API key'];
+  }
 };
 
 const RevokeKeysButton = ({
@@ -156,27 +260,35 @@ const SetKeyDialog = ({
   userProvideURL?: boolean | null;
 }) => {
   const methods = useForm({
-    defaultValues: {
-      apiKey: '',
-      baseURL: '',
-      azureOpenAIApiKey: '',
-      azureOpenAIApiInstanceName: '',
-      azureOpenAIApiDeploymentName: '',
-      azureOpenAIApiVersion: '',
-      // TODO: allow endpoint definitions from user
-      // name: '',
-      // TODO: add custom endpoint models defined by user
-      // models: '',
-    },
+    defaultValues: defaultFormValues,
   });
 
   const [userKey, setUserKey] = useState('');
   const [expiresAtLabel, setExpiresAtLabel] = useState(EXPIRY.TWELVE_HOURS.label);
-  const { getExpiry, saveUserKey } = useUserKey(endpoint);
+  const { getExpiry, getValue, saveUserKey, isLoading } = useUserKey(endpoint, {
+    includeValue: open,
+  });
   const { showToast } = useToastContext();
   const localize = useLocalize();
+  const expiryTime = getExpiry();
+  const savedKeyValue = getValue();
+  const formEndpoint = endpointType ?? endpoint;
+  const isFormEndpoint = formSet.has(endpoint) || formSet.has(formEndpoint);
 
   const expirationOptions = Object.values(EXPIRY);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    if (isFormEndpoint) {
+      methods.reset(parseSavedFormValues(savedKeyValue));
+      return;
+    }
+
+    setUserKey(savedKeyValue);
+  }, [open, endpoint, formEndpoint, isFormEndpoint, methods, savedKeyValue]);
 
   const handleExpirationChange = (label: string) => {
     setExpiresAtLabel(label);
@@ -192,9 +304,9 @@ const SetKeyDialog = ({
       expiresAt = Date.now() + (selectedOption ? selectedOption.value : 0);
     }
 
-    const saveKey = (key: string) => {
+    const saveKey = (key: string, merge = false) => {
       try {
-        saveUserKey(key, expiresAt);
+        saveUserKey(key, expiresAt, merge);
         showToast({
           message: localize('com_ui_save_key_success'),
           status: NotificationSeverity.SUCCESS,
@@ -213,17 +325,13 @@ const SetKeyDialog = ({
       // TODO: handle other user provided options besides baseURL and apiKey
       methods.handleSubmit((data) => {
         const isAzure = endpoint === EModelEndpoint.azureOpenAI;
-        const isOpenAIBase =
-          isAzure || endpoint === EModelEndpoint.openAI || isAssistantsEndpoint(endpoint);
-        if (isAzure) {
-          data.apiKey = 'n/a';
-        }
+        const shouldMergeExistingValues = Boolean(expiryTime);
 
         const emptyValues = Object.keys(data).filter((key) => {
-          if (!isAzure && key.startsWith('azure')) {
+          if (key === 'models') {
             return false;
           }
-          if (isOpenAIBase && key === 'baseURL') {
+          if (shouldMergeExistingValues && (key === 'apiKey' || key === 'baseURL')) {
             return false;
           }
           if (key === 'baseURL' && !(userProvideURL ?? false)) {
@@ -241,21 +349,41 @@ const SetKeyDialog = ({
           return;
         }
 
-        const { apiKey, baseURL, ...azureOptions } = data;
-        const userProvidedData = { apiKey, baseURL };
-        if (isAzure) {
-          userProvidedData.apiKey = JSON.stringify({
-            azureOpenAIApiKey: azureOptions.azureOpenAIApiKey,
-            azureOpenAIApiInstanceName: azureOptions.azureOpenAIApiInstanceName,
-            azureOpenAIApiDeploymentName: azureOptions.azureOpenAIApiDeploymentName,
-            azureOpenAIApiVersion: azureOptions.azureOpenAIApiVersion,
+        const { apiKey, baseURL, models } = data;
+        const userProvidedData = Object.fromEntries(
+          Object.entries({
+            apiKey,
+            baseURL,
+            ...(isAzure ? { models } : {}),
+          }).filter(([, value]) => value !== ''),
+        );
+
+        if (shouldMergeExistingValues && Object.keys(userProvidedData).length === 0) {
+          showToast({
+            message: localize('com_ui_key_required'),
+            status: NotificationSeverity.ERROR,
           });
+          onOpenChange(true);
+          return;
         }
 
-        saveKey(JSON.stringify(userProvidedData));
-        methods.reset();
+        saveKey(JSON.stringify(userProvidedData), shouldMergeExistingValues);
+        methods.reset(defaultFormValues);
       })();
       return;
+    }
+
+    if (endpoint === EModelEndpoint.google) {
+      const missingGoogleFields = getMissingGoogleFields(userKey);
+
+      if (missingGoogleFields.length > 0) {
+        showToast({
+          message: 'The following fields are required: ' + missingGoogleFields.join(', '),
+          status: NotificationSeverity.ERROR,
+        });
+        onOpenChange(true);
+        return;
+      }
     }
 
     if (!userKey.trim()) {
@@ -272,7 +400,6 @@ const SetKeyDialog = ({
 
   const EndpointComponent =
     endpointComponents[endpointType ?? endpoint] ?? endpointComponents['default'];
-  const expiryTime = getExpiry();
 
   return (
     <OGDialog open={open} onOpenChange={onOpenChange}>
@@ -290,6 +417,12 @@ const SetKeyDialog = ({
                   expiryTime ?? 0,
                 ).toLocaleString()}`}
           </small>
+          {isLoading && (
+            <div className="flex items-center gap-2 text-sm text-text-secondary">
+              <Spinner />
+              <span>{localize('com_ui_loading')}</span>
+            </div>
+          )}
           <Dropdown
             label="Expires "
             value={expiresAtLabel}
@@ -312,10 +445,10 @@ const SetKeyDialog = ({
         <OGDialogFooter>
           <RevokeKeysButton
             endpoint={endpoint}
-            disabled={!(expiryTime ?? '')}
+            disabled={isLoading || !(expiryTime ?? '')}
             setDialogOpen={onOpenChange}
           />
-          <Button variant="submit" onClick={submit}>
+          <Button variant="submit" onClick={submit} disabled={isLoading}>
             {localize('com_ui_submit')}
           </Button>
         </OGDialogFooter>

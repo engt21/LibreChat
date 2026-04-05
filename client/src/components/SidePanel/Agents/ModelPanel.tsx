@@ -6,15 +6,28 @@ import { useFormContext, useWatch, Controller } from 'react-hook-form';
 import { componentMapping } from '~/components/SidePanel/Parameters/components';
 import {
   alternateName,
+  EModelEndpoint,
   getSettingsKeys,
+  getDefaultParamsEndpoint,
   getEndpointField,
   LocalStorageKeys,
   SettingDefinition,
   agentParamSettings,
+  normalizeGoogleModelName,
+  normalizeOpenAIModelName,
+  isXAIEndpointCandidate,
+  getOpenAIModelCapabilities as resolveOpenAIModelCapabilities,
+  resolveOpenAIResponsesApiEnabled,
+  getGoogleModelCapabilities as resolveGoogleModelCapabilities,
+  getOpenAISettingCapabilityState,
+  getGoogleSettingCapabilityState,
+  normalizeXAIModelName,
+  getXAIModelCapabilities as resolveXAIModelCapabilities,
+  getXAISettingCapabilityState,
 } from 'librechat-data-provider';
 import type * as t from 'librechat-data-provider';
 import type { AgentForm, AgentModelPanelProps, StringOption } from '~/common';
-import { useGetEndpointsQuery } from '~/data-provider';
+import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
 import { useLiveAnnouncer } from '~/Providers';
 import { useLocalize } from '~/hooks';
 import { Panel } from '~/common';
@@ -64,6 +77,7 @@ export default function ModelPanel({
   }, [provider, models, modelsData, setValue, model]);
 
   const { data: endpointsConfig = {} } = useGetEndpointsQuery();
+  const { data: startupConfig } = useGetStartupConfig();
 
   const bedrockRegions = useMemo(() => {
     return endpointsConfig?.[provider]?.availableRegions ?? [];
@@ -73,6 +87,53 @@ export default function ModelPanel({
     () => getEndpointField(endpointsConfig, provider, 'type'),
     [provider, endpointsConfig],
   );
+
+  const defaultParamsEndpoint = useMemo(
+    () => getDefaultParamsEndpoint(endpointsConfig, provider),
+    [endpointsConfig, provider],
+  );
+  const settingsEndpoint = defaultParamsEndpoint ?? endpointType ?? provider;
+
+  const xaiModelCapabilities = useMemo(() => {
+    if (!isXAIEndpointCandidate({ endpoint: provider, defaultParamsEndpoint })) {
+      return null;
+    }
+
+    const normalizedModel = normalizeXAIModelName(model ?? '');
+
+    return resolveXAIModelCapabilities(
+      normalizedModel,
+      startupConfig?.xaiModelCapabilities?.[provider]?.[normalizedModel] ?? null,
+    );
+  }, [defaultParamsEndpoint, model, provider, startupConfig?.xaiModelCapabilities]);
+
+  const googleModelCapabilities = useMemo(() => {
+    if (settingsEndpoint !== EModelEndpoint.google) {
+      return null;
+    }
+
+    const normalizedModel = normalizeGoogleModelName(model ?? '');
+
+    return resolveGoogleModelCapabilities(
+      normalizedModel,
+      startupConfig?.googleModelCapabilities?.[normalizedModel],
+    );
+  }, [model, settingsEndpoint, startupConfig?.googleModelCapabilities]);
+
+  const openAIModelCapabilities = useMemo(() => {
+    if (xaiModelCapabilities != null || settingsEndpoint === EModelEndpoint.google) {
+      return null;
+    }
+
+    return resolveOpenAIModelCapabilities(normalizeOpenAIModelName(model ?? ''));
+  }, [model, settingsEndpoint, xaiModelCapabilities]);
+
+  const responsesApiEnabled = openAIModelCapabilities
+    ? resolveOpenAIResponsesApiEnabled(openAIModelCapabilities, {
+        useResponsesApi: modelParameters?.useResponsesApi,
+        endpoint: provider,
+      })
+    : false;
 
   const parameters = useMemo((): SettingDefinition[] => {
     const customParams = endpointsConfig[provider]?.customParams ?? {};
@@ -227,10 +288,69 @@ export default function ModelPanel({
               if (!Component) {
                 return null;
               }
-              const { key, default: defaultValue, ...rest } = setting;
+              const { key, default: settingDefaultValue, ...rest } = setting;
+              const defaultValue =
+                key === 'useResponsesApi' && openAIModelCapabilities
+                  ? resolveOpenAIResponsesApiEnabled(openAIModelCapabilities, {
+                      endpoint: provider,
+                    })
+                  : settingDefaultValue;
+
+              if (
+                openAIModelCapabilities?.hasKnownCapabilities &&
+                key === 'reasoning_effort' &&
+                openAIModelCapabilities.reasoningEffortOptions.length > 0
+              ) {
+                rest.options = openAIModelCapabilities.reasoningEffortOptions;
+
+                if (rest.enumMappings) {
+                  rest.enumMappings = openAIModelCapabilities.reasoningEffortOptions.reduce<
+                    Record<string, string | number | boolean>
+                  >((acc, option) => {
+                    const mapping = rest.enumMappings?.[option];
+
+                    if (mapping != null) {
+                      acc[option] = mapping;
+                    }
+
+                    return acc;
+                  }, {});
+                }
+              }
 
               if (key === 'region' && bedrockRegions.length) {
                 rest.options = bedrockRegions;
+              }
+
+              let capabilityState: { supported: boolean; reason?: string } = {
+                supported: true,
+              };
+
+              if (xaiModelCapabilities) {
+                capabilityState = getXAISettingCapabilityState(key, xaiModelCapabilities);
+              } else if (googleModelCapabilities) {
+                capabilityState = getGoogleSettingCapabilityState(key, googleModelCapabilities);
+              } else if (openAIModelCapabilities) {
+                capabilityState = getOpenAISettingCapabilityState(key, openAIModelCapabilities, {
+                  useResponsesApi: responsesApiEnabled,
+                  endpoint: provider,
+                  reasoningEffort: (modelParameters as Partial<t.TConversation>)?.reasoning_effort,
+                });
+              }
+
+              if (!capabilityState.supported) {
+                let baseDescription = '';
+
+                if (rest.description) {
+                  baseDescription = rest.descriptionCode
+                    ? (localize(rest.description as never) ?? rest.description)
+                    : rest.description;
+                }
+
+                rest.description = [capabilityState.reason, baseDescription]
+                  .filter(Boolean)
+                  .join('\n\n');
+                rest.descriptionCode = false;
               }
 
               return (
@@ -239,6 +359,7 @@ export default function ModelPanel({
                   settingKey={key}
                   defaultValue={defaultValue}
                   {...rest}
+                  readonly={!capabilityState.supported}
                   setOption={setOption as t.TSetOption}
                   conversation={modelParameters as Partial<t.TConversation>}
                 />

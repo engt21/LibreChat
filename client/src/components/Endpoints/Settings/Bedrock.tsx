@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { getSettingsKeys } from 'librechat-data-provider';
+import { getSettingsKeys, getDefaultParamsEndpoint } from 'librechat-data-provider';
 import type { SettingDefinition } from 'librechat-data-provider';
 import type { TModelSelectProps } from '~/common';
+import { useGetEndpointsQuery } from '~/data-provider';
 import { componentMapping } from '~/components/SidePanel/Parameters/components';
 import { presetSettings } from 'librechat-data-provider';
 
@@ -11,13 +12,17 @@ export default function BedrockSettings({
   models,
   readonly,
 }: TModelSelectProps) {
+  const { data: endpointsConfig } = useGetEndpointsQuery();
+
   const parameters = useMemo(() => {
-    const [combinedKey, endpointKey] = getSettingsKeys(
-      conversation?.endpointType ?? conversation?.endpoint ?? '',
-      conversation?.model ?? '',
-    );
+    const settingsEndpoint =
+      getDefaultParamsEndpoint(endpointsConfig, conversation?.endpoint ?? '') ??
+      conversation?.endpointType ??
+      conversation?.endpoint ??
+      '';
+    const [combinedKey, endpointKey] = getSettingsKeys(settingsEndpoint, conversation?.model ?? '');
     return presetSettings[combinedKey] ?? presetSettings[endpointKey];
-  }, [conversation]);
+  }, [conversation, endpointsConfig]);
 
   if (!parameters) {
     return null;

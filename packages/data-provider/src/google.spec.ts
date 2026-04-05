@@ -76,14 +76,24 @@ describe('google model helpers', () => {
     expect(capabilities.supportsThinking).toBe(true);
     expect(capabilities.supportsThinkingBudget).toBe(true);
     expect(capabilities.supportsThinkingLevel).toBe(false);
+    expect(capabilities.supportsWebSearch).toBe(true);
   });
 
-  it('disables unsupported Google Search grounding controls for Gemma models', () => {
+  it('disables unsupported Google Search grounding controls for older Gemini and Gemma models', () => {
+    const legacyGeminiCapabilities = getGoogleModelCapabilities('gemini-1.5-flash', {
+      name: 'gemini-1.5-flash',
+      supportedGenerationMethods: ['generateContent'],
+      thinking: true,
+    });
     const capabilities = getGoogleModelCapabilities('gemma-3-27b-it', {
       name: 'gemma-3-27b-it',
       supportedGenerationMethods: ['generateContent'],
     });
 
+    expect(getGoogleSettingCapabilityState('web_search', legacyGeminiCapabilities)).toEqual({
+      supported: false,
+      reason: 'This model does not support Google Search grounding in LibreChat.',
+    });
     expect(getGoogleSettingCapabilityState('web_search', capabilities)).toEqual({
       supported: false,
       reason: 'This model does not support Google Search grounding in LibreChat.',

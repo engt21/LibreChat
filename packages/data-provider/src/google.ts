@@ -21,6 +21,15 @@ const googleThinkingLevelAliases = new Set([
   'gemini-flash-lite-latest',
 ]);
 
+const googleWebSearchSupportedPatterns = [
+  /^gemini-3\.1-pro-preview(?:$|[-.])/i,
+  /^gemini-3-flash-preview(?:$|[-.])/i,
+  /^gemini-2\.5-pro(?:$|[-.])/i,
+  /^gemini-2\.5-flash(?:$|[-.])/i,
+  /^gemini-2\.5-flash-lite(?:$|[-.])/i,
+  /^gemini-2\.0-flash(?:$|[-.])/i,
+];
+
 export type TGoogleModelCapabilities = {
   name: string;
   displayName?: string;
@@ -90,6 +99,12 @@ export function isGoogleThinkingLevelModel(model?: string | null): boolean {
     /^gemini-(?:3(?:\.|$|-)|[4-9](?:\.|$|-)|\d{2,}(?:\.|$|-))/.test(normalizedModel) ||
     googleThinkingLevelAliases.has(normalizedModel)
   );
+}
+
+function supportsGoogleSearchGrounding(model?: string | null): boolean {
+  const normalizedModel = normalizeGoogleModelName(model).toLowerCase();
+
+  return googleWebSearchSupportedPatterns.some((pattern) => pattern.test(normalizedModel));
 }
 
 export function isGoogleTextCompatibleModel(
@@ -178,7 +193,7 @@ export function getGoogleModelCapabilities(
   const supportsTopK = isTextCompatible && (metadata == null || metadata.topK !== undefined);
   const supportsMaxOutputTokens =
     isTextCompatible && (metadata?.outputTokenLimit == null || metadata.outputTokenLimit > 1);
-  const supportsWebSearch = isTextCompatible && isGoogleGeminiModel(normalizedModel);
+  const supportsWebSearch = isTextCompatible && supportsGoogleSearchGrounding(normalizedModel);
   const maxOutputTokensMax = metadata?.outputTokenLimit ?? googleSettings.maxOutputTokens.max;
   const maxOutputTokensDefault = Math.min(
     googleSettings.maxOutputTokens.default,
