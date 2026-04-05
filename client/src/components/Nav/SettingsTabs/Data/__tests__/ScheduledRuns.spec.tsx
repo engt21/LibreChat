@@ -557,6 +557,203 @@ describe('ScheduledRuns – Settings → Data component', () => {
       const notifSaveBtn = saveButtons[0];
       expect(notifSaveBtn).toBeDisabled();
     });
+
+    /* ── Interaction: toggle, save, assert payload & persisted state ── */
+
+    it('toggles email off and saves with correct payload', async () => {
+      mockUpdateNotifMutateAsync.mockResolvedValue(
+        makeNotifications({ email: { enabled: false, address: 'test@example.com' } }),
+      );
+      mockSchedulesData = [];
+      mockNotificationsData = makeNotifications({
+        email: { enabled: true, address: 'test@example.com' },
+      });
+      renderComponent();
+
+      const emailSwitch = screen.getByTestId('switch-com_ui_schedule_channel_email');
+      expect(emailSwitch).toHaveAttribute('aria-checked', 'true');
+
+      await act(async () => {
+        fireEvent.click(emailSwitch);
+      });
+      expect(emailSwitch).toHaveAttribute('aria-checked', 'false');
+
+      // saveButtons[0] = dialog save, saveButtons[1] = notification save
+      const saveButtons = screen.getAllByText('com_ui_save');
+      const notifSaveBtn = saveButtons[1];
+      expect(notifSaveBtn).not.toBeDisabled();
+
+      await act(async () => {
+        fireEvent.click(notifSaveBtn);
+      });
+
+      expect(mockUpdateNotifMutateAsync).toHaveBeenCalledWith({
+        email: { enabled: false, address: 'test@example.com' },
+        sms: { enabled: false, provider: 'twilio', phoneNumber: '', gatewayAddress: '' },
+        push: { enabled: false },
+      });
+    });
+
+    it('saves updated email address in payload', async () => {
+      mockUpdateNotifMutateAsync.mockResolvedValue(
+        makeNotifications({ email: { enabled: true, address: 'new@example.com' } }),
+      );
+      mockSchedulesData = [];
+      mockNotificationsData = makeNotifications({
+        email: { enabled: true, address: 'old@example.com' },
+      });
+      renderComponent();
+
+      const emailInput = screen.getByDisplayValue('old@example.com');
+      await act(async () => {
+        fireEvent.change(emailInput, { target: { value: 'new@example.com' } });
+      });
+
+      const saveButtons = screen.getAllByText('com_ui_save');
+      await act(async () => {
+        fireEvent.click(saveButtons[1]);
+      });
+
+      expect(mockUpdateNotifMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: { enabled: true, address: 'new@example.com' },
+        }),
+      );
+    });
+
+    it('toggles SMS on and saves with correct payload including provider and phone', async () => {
+      mockUpdateNotifMutateAsync.mockResolvedValue(makeNotifications());
+      mockSchedulesData = [];
+      mockNotificationsData = makeNotifications({
+        sms: { enabled: false, provider: 'twilio', phoneNumber: '', gatewayAddress: '' },
+      });
+      renderComponent();
+
+      // Toggle SMS on
+      const smsSwitch = screen.getByTestId('switch-com_ui_schedule_channel_sms');
+      await act(async () => {
+        fireEvent.click(smsSwitch);
+      });
+
+      // Type phone number
+      const phoneInput = screen.getByPlaceholderText(
+        'com_ui_schedule_sms_phone_number_placeholder',
+      );
+      await act(async () => {
+        fireEvent.change(phoneInput, { target: { value: '+15551234567' } });
+      });
+
+      const saveButtons = screen.getAllByText('com_ui_save');
+      await act(async () => {
+        fireEvent.click(saveButtons[1]);
+      });
+
+      expect(mockUpdateNotifMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sms: {
+            enabled: true,
+            provider: 'twilio',
+            phoneNumber: '+15551234567',
+            gatewayAddress: '',
+          },
+        }),
+      );
+    });
+
+    it('clears dirty state and shows success toast after successful save', async () => {
+      mockUpdateNotifMutateAsync.mockResolvedValue(makeNotifications());
+      mockSchedulesData = [];
+      mockNotificationsData = makeNotifications();
+      renderComponent();
+
+      // Make dirty by toggling email
+      const emailSwitch = screen.getByTestId('switch-com_ui_schedule_channel_email');
+      await act(async () => {
+        fireEvent.click(emailSwitch);
+      });
+
+      const saveButtons = screen.getAllByText('com_ui_save');
+      const notifSaveBtn = saveButtons[1];
+      expect(notifSaveBtn).not.toBeDisabled();
+
+      await act(async () => {
+        fireEvent.click(notifSaveBtn);
+      });
+
+      await waitFor(() => {
+        expect(mockShowToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: 'success',
+            message: 'com_ui_schedule_notifications_saved',
+          }),
+        );
+      });
+
+      // Save button should be disabled again (dirty cleared)
+      expect(notifSaveBtn).toBeDisabled();
+    });
+
+    it('shows error toast when notification save fails', async () => {
+      mockUpdateNotifMutateAsync.mockRejectedValue(new Error('Invalid email format'));
+      mockSchedulesData = [];
+      mockNotificationsData = makeNotifications();
+      renderComponent();
+
+      const emailSwitch = screen.getByTestId('switch-com_ui_schedule_channel_email');
+      await act(async () => {
+        fireEvent.click(emailSwitch);
+      });
+
+      const saveButtons = screen.getAllByText('com_ui_save');
+      await act(async () => {
+        fireEvent.click(saveButtons[1]);
+      });
+
+      await waitFor(() => {
+        expect(mockShowToast).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'error', message: 'Invalid email format' }),
+        );
+      });
+    });
+
+    it('persisted state from server is reflected in UI on fresh render', () => {
+      // Simulate what happens after a save + refetch: server returns updated data
+      mockSchedulesData = [];
+      mockNotificationsData = makeNotifications({
+        email: { enabled: false, address: 'saved@example.com' },
+        sms: {
+          enabled: true,
+          provider: 'twilio',
+          phoneNumber: '+15559876543',
+          gatewayAddress: '',
+        },
+        push: { enabled: true, subscriptionCount: 2 },
+      });
+      renderComponent();
+
+      // Email toggle reflects saved disabled state
+      const emailSwitch = screen.getByTestId('switch-com_ui_schedule_channel_email');
+      expect(emailSwitch).toHaveAttribute('aria-checked', 'false');
+
+      // Email address shows saved value
+      expect(screen.getByDisplayValue('saved@example.com')).toBeInTheDocument();
+
+      // SMS toggle reflects saved enabled state
+      const smsSwitch = screen.getByTestId('switch-com_ui_schedule_channel_sms');
+      expect(smsSwitch).toHaveAttribute('aria-checked', 'true');
+
+      // Phone number shows saved value
+      expect(screen.getByDisplayValue('+15559876543')).toBeInTheDocument();
+
+      // Push toggle reflects saved enabled state
+      const pushSwitch = screen.getByTestId('switch-com_ui_schedule_channel_push');
+      expect(pushSwitch).toHaveAttribute('aria-checked', 'true');
+
+      // Subscription count displayed
+      expect(
+        screen.getByText(/com_ui_schedule_push_subscription_count/),
+      ).toBeInTheDocument();
+    });
   });
 
   /* ── VAL-SCHED-009: browser push subscription lifecycle ──────── */
@@ -670,6 +867,301 @@ describe('ScheduledRuns – Settings → Data component', () => {
 
       const unsubBtn = screen.getByText('com_ui_schedule_push_disable_browser');
       expect(unsubBtn).not.toBeDisabled();
+    });
+
+    /* ── Interaction: subscribe/unsubscribe flows ── */
+
+    describe('push subscribe/unsubscribe interactions', () => {
+      const mockPushSubscription = {
+        endpoint: 'https://push.example.com/sub/abc123',
+        toJSON: jest.fn(() => ({
+          endpoint: 'https://push.example.com/sub/abc123',
+          keys: { p256dh: 'test-p256dh', auth: 'test-auth' },
+        })),
+        unsubscribe: jest.fn().mockResolvedValue(true),
+      };
+
+      const mockRegistration = {
+        pushManager: {
+          getSubscription: jest.fn(),
+          subscribe: jest.fn().mockResolvedValue(mockPushSubscription),
+        },
+      };
+
+      const origDescriptors: Record<string, PropertyDescriptor | undefined> = {};
+
+      beforeEach(() => {
+        origDescriptors.serviceWorker = Object.getOwnPropertyDescriptor(
+          navigator,
+          'serviceWorker',
+        );
+
+        Object.defineProperty(navigator, 'serviceWorker', {
+          value: { ready: Promise.resolve(mockRegistration) },
+          configurable: true,
+        });
+        (window as any).PushManager = jest.fn();
+        (window as any).Notification = {
+          requestPermission: jest
+            .fn()
+            .mockResolvedValue('granted' as NotificationPermission),
+        };
+
+        mockRegistration.pushManager.getSubscription.mockReset();
+        mockRegistration.pushManager.subscribe
+          .mockReset()
+          .mockResolvedValue(mockPushSubscription);
+        mockPushSubscription.toJSON.mockClear();
+        mockPushSubscription.unsubscribe.mockReset().mockResolvedValue(true);
+      });
+
+      afterEach(() => {
+        if (origDescriptors.serviceWorker) {
+          Object.defineProperty(
+            navigator,
+            'serviceWorker',
+            origDescriptors.serviceWorker,
+          );
+        } else {
+          delete (navigator as any).serviceWorker;
+        }
+        delete (window as any).PushManager;
+        delete (window as any).Notification;
+      });
+
+      it('subscribes to push and calls mutation with subscription JSON', async () => {
+        mockRegistration.pushManager.getSubscription.mockResolvedValue(null);
+        mockSubscribePushMutateAsync.mockResolvedValue({ subscriptionCount: 1 });
+        mockSchedulesData = [];
+        mockNotificationsData = makeNotifications({
+          push: { enabled: true, subscriptionCount: 0 },
+          capabilities: makeTestCapabilities({ [VAPID_FIELD]: 'dGVzdA' }),
+        });
+        renderComponent();
+
+        const subscribeBtn = screen.getByText('com_ui_schedule_push_enable_browser');
+        await waitFor(() => {
+          expect(subscribeBtn).not.toBeDisabled();
+        });
+
+        await act(async () => {
+          fireEvent.click(subscribeBtn);
+        });
+
+        await waitFor(() => {
+          expect(
+            (window as any).Notification.requestPermission,
+          ).toHaveBeenCalled();
+          expect(mockRegistration.pushManager.subscribe).toHaveBeenCalledWith({
+            userVisibleOnly: true,
+            applicationServerKey: expect.any(Uint8Array),
+          });
+          expect(mockSubscribePushMutateAsync).toHaveBeenCalledWith(
+            mockPushSubscription.toJSON(),
+          );
+        });
+
+        expect(mockShowToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: 'success',
+            message: 'com_ui_schedule_push_enabled',
+          }),
+        );
+      });
+
+      it('shows error toast when push permission is denied', async () => {
+        (window as any).Notification.requestPermission = jest
+          .fn()
+          .mockResolvedValue('denied' as NotificationPermission);
+        mockSchedulesData = [];
+        mockNotificationsData = makeNotifications({
+          push: { enabled: true, subscriptionCount: 0 },
+          capabilities: makeTestCapabilities({ [VAPID_FIELD]: 'dGVzdA' }),
+        });
+        renderComponent();
+
+        const subscribeBtn = screen.getByText('com_ui_schedule_push_enable_browser');
+        await waitFor(() => {
+          expect(subscribeBtn).not.toBeDisabled();
+        });
+
+        await act(async () => {
+          fireEvent.click(subscribeBtn);
+        });
+
+        await waitFor(() => {
+          expect(mockShowToast).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 'error' }),
+          );
+        });
+
+        expect(mockSubscribePushMutateAsync).not.toHaveBeenCalled();
+      });
+
+      it('unsubscribes from push and calls mutation with endpoint', async () => {
+        mockRegistration.pushManager.getSubscription.mockResolvedValue(
+          mockPushSubscription,
+        );
+        mockUnsubscribePushMutateAsync.mockResolvedValue({
+          subscriptionCount: 0,
+        });
+        mockSchedulesData = [];
+        mockNotificationsData = makeNotifications({
+          push: { enabled: true, subscriptionCount: 1 },
+          capabilities: makeTestCapabilities({ [VAPID_FIELD]: 'dGVzdA' }),
+        });
+        renderComponent();
+
+        const unsubBtn = screen.getByText('com_ui_schedule_push_disable_browser');
+        expect(unsubBtn).not.toBeDisabled();
+
+        await act(async () => {
+          fireEvent.click(unsubBtn);
+        });
+
+        await waitFor(() => {
+          expect(mockPushSubscription.unsubscribe).toHaveBeenCalled();
+          expect(mockUnsubscribePushMutateAsync).toHaveBeenCalledWith(
+            'https://push.example.com/sub/abc123',
+          );
+        });
+
+        expect(mockShowToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: 'success',
+            message: 'com_ui_schedule_push_disabled',
+          }),
+        );
+      });
+
+      it('handles subscribe mutation error gracefully', async () => {
+        mockRegistration.pushManager.getSubscription.mockResolvedValue(null);
+        mockSubscribePushMutateAsync.mockRejectedValue(
+          new Error('Server error'),
+        );
+        mockSchedulesData = [];
+        mockNotificationsData = makeNotifications({
+          push: { enabled: true, subscriptionCount: 0 },
+          capabilities: makeTestCapabilities({ [VAPID_FIELD]: 'dGVzdA' }),
+        });
+        renderComponent();
+
+        const subscribeBtn = screen.getByText('com_ui_schedule_push_enable_browser');
+        await waitFor(() => {
+          expect(subscribeBtn).not.toBeDisabled();
+        });
+
+        await act(async () => {
+          fireEvent.click(subscribeBtn);
+        });
+
+        await waitFor(() => {
+          expect(mockShowToast).toHaveBeenCalledWith(
+            expect.objectContaining({
+              status: 'error',
+              message: 'Server error',
+            }),
+          );
+        });
+      });
+
+      it('handles unsubscribe mutation error gracefully', async () => {
+        mockRegistration.pushManager.getSubscription.mockResolvedValue(
+          mockPushSubscription,
+        );
+        mockUnsubscribePushMutateAsync.mockRejectedValue(
+          new Error('Network failure'),
+        );
+        mockSchedulesData = [];
+        mockNotificationsData = makeNotifications({
+          push: { enabled: true, subscriptionCount: 1 },
+          capabilities: makeTestCapabilities({ [VAPID_FIELD]: 'dGVzdA' }),
+        });
+        renderComponent();
+
+        const unsubBtn = screen.getByText('com_ui_schedule_push_disable_browser');
+        await act(async () => {
+          fireEvent.click(unsubBtn);
+        });
+
+        await waitFor(() => {
+          expect(mockShowToast).toHaveBeenCalledWith(
+            expect.objectContaining({
+              status: 'error',
+              message: 'Network failure',
+            }),
+          );
+        });
+      });
+
+      it('subscription count updates in UI when server data changes', () => {
+        // Render with initial count = 0
+        mockSchedulesData = [];
+        mockNotificationsData = makeNotifications({
+          push: { enabled: true, subscriptionCount: 0 },
+        });
+        const { unmount } = renderComponent();
+
+        // Unsubscribe button disabled when count is 0
+        const unsubBtn = screen.getByText('com_ui_schedule_push_disable_browser');
+        expect(unsubBtn).toBeDisabled();
+
+        unmount();
+
+        // Re-render with updated count = 2 (simulating refetch after subscribe)
+        mockNotificationsData = makeNotifications({
+          push: { enabled: true, subscriptionCount: 2 },
+        });
+        renderComponent();
+
+        // Unsubscribe button should now be enabled (count > 0)
+        const unsubBtnAfter = screen.getByText(
+          'com_ui_schedule_push_disable_browser',
+        );
+        expect(unsubBtnAfter).not.toBeDisabled();
+
+        // Subscription count text displayed
+        expect(
+          screen.getByText(/com_ui_schedule_push_subscription_count/),
+        ).toBeInTheDocument();
+      });
+
+      it('uses existing subscription for re-subscribe instead of creating new', async () => {
+        // When getSubscription returns an existing subscription, skip subscribe()
+        mockRegistration.pushManager.getSubscription.mockResolvedValue(
+          mockPushSubscription,
+        );
+        mockSubscribePushMutateAsync.mockResolvedValue({
+          subscriptionCount: 1,
+        });
+        mockSchedulesData = [];
+        mockNotificationsData = makeNotifications({
+          push: { enabled: true, subscriptionCount: 1 },
+          capabilities: makeTestCapabilities({ [VAPID_FIELD]: 'dGVzdA' }),
+        });
+        renderComponent();
+
+        // Button shows "refresh" label when subscriptions already exist
+        const refreshBtn = screen.getByText('com_ui_schedule_push_refresh');
+        await waitFor(() => {
+          expect(refreshBtn).not.toBeDisabled();
+        });
+
+        await act(async () => {
+          fireEvent.click(refreshBtn);
+        });
+
+        await waitFor(() => {
+          // Should NOT create a new subscription
+          expect(
+            mockRegistration.pushManager.subscribe,
+          ).not.toHaveBeenCalled();
+          // Should still call mutation with existing subscription
+          expect(mockSubscribePushMutateAsync).toHaveBeenCalledWith(
+            mockPushSubscription.toJSON(),
+          );
+        });
+      });
     });
   });
 
