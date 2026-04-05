@@ -1,0 +1,31 @@
+{
+  "milestone": "runtime-reconciliation",
+  "round": 2,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
+    "blocked": 0
+  },
+  "passedAssertions": [],
+  "failedAssertions": [
+    {
+      "id": "VAL-CROSS-006",
+      "reason": "Critical route/auth checks and orphan/shared-mount checks passed, and Langfuse was reachable/stable in the sample; however, scheduled-run runner had a startup signal while audio-transcription runner had no startup/runner signal in sampled dev logs, so strict worker-readiness evidence was incomplete."
+    }
+  ],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Recorded round-2 runtime finding: /api/realtime/models now auth-gated (401) and orphan/shared-mount checks clean, with remaining VAL-CROSS-006 gap on missing audio-transcription runner startup signal evidence.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": ".factory/validation/runtime-reconciliation/user-testing/synthesis.round1.json",
+  "updatedAt": "2026-04-05T01:08:25-04:00",
+  "sourceFlowReports": [
+    ".factory/validation/runtime-reconciliation/user-testing/flows/runtime-cli-round2.json"
+  ]
+}

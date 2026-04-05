@@ -1,0 +1,28 @@
+{
+  "milestone": "runtime-reconciliation",
+  "round": 3,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-CROSS-006"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Updated runtime-reconciliation guidance to record round-3 VAL-CROSS-006 pass evidence, including auth-gated /api/realtime/models and observable audio-transcription runner startup signal.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": ".factory/validation/runtime-reconciliation/user-testing/synthesis.round2.json",
+  "updatedAt": "2026-04-05T01:54:21-04:00",
+  "sourceFlowReports": [
+    ".factory/validation/runtime-reconciliation/user-testing/flows/runtime-cli-round3.json"
+  ]
+}

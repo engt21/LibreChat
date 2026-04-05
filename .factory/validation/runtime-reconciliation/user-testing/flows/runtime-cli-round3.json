@@ -1,0 +1,116 @@
+{
+  "groupId": "runtime-cli-round3",
+  "milestone": "runtime-reconciliation",
+  "testedAt": "2026-04-05T01:54:21-04:00",
+  "isolation": {
+    "surface": "runtime-cli",
+    "railTarget": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableGuardrail": "No stop/rebuild operations executed against stable rail",
+    "maxConcurrency": 1
+  },
+  "toolsUsed": [
+    "local-services/status-all.sh",
+    "local-services/health-check.sh",
+    "curl",
+    "docker compose",
+    "docker inspect"
+  ],
+  "commandsRun": [
+    "mkdir -p /home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/runtime-reconciliation/runtime-cli-round3",
+    "/pool/home/timeng/LibreChat-custom/local-services/status-all.sh dev > /home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/runtime-reconciliation/runtime-cli-round3/status-all-dev.txt 2>&1",
+    "/pool/home/timeng/LibreChat-custom/local-services/health-check.sh > /home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/runtime-reconciliation/runtime-cli-round3/health-check.txt 2>&1",
+    "curl -sS -D <headers> -o <body> -w %{http_code} http://127.0.0.1:3081/api/admin/permissions",
+    "curl -sS -D <headers> -o <body> -w %{http_code} http://127.0.0.1:3081/api/schedules",
+    "curl -sS -D <headers> -o <body> -w %{http_code} http://127.0.0.1:3081/api/realtime/models",
+    "docker compose -p librechat-dev -f /pool/home/timeng/LibreChat-custom/docker-compose.yml -f /pool/home/timeng/LibreChat-custom/docker-compose.local.override.yml logs api --since 30m > /home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/runtime-reconciliation/runtime-cli-round3/dev-api-logs-since-30m.txt 2>&1",
+    "docker compose -p librechat-dev -f /pool/home/timeng/LibreChat-custom/docker-compose.yml -f /pool/home/timeng/LibreChat-custom/docker-compose.local.override.yml logs --since 30m > /home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/runtime-reconciliation/runtime-cli-round3/dev-all-logs-since-30m.txt 2>&1",
+    "sample http://127.0.0.1:3002 three times over ~30s and inspect librechat-dev-langfuse-* container status/health/restarts before and after"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-CROSS-006",
+      "title": "Dev readiness requires route, worker, and observability health, not just a listening port",
+      "status": "pass",
+      "reason": "All requested readiness checks passed on dev: orphan/shared-mount classification stayed clean, /api/realtime/models remained auth-gated (401, not 404), both scheduled and audio-transcription runner startup signals were present in normal startup logs, and Langfuse sampling showed healthy/stable behavior without restart churn.",
+      "steps": [
+        {
+          "action": "Check dev rail runtime status",
+          "expected": "Dev rail services are up via local-services script",
+          "observed": "status-all.sh dev shows librechat-dev-api up on 3081 and dev Langfuse stack up"
+        },
+        {
+          "action": "Run health-check orphan/shared-mount classification",
+          "expected": "No orphan containers and no shared-mount conflicts",
+          "observed": "No orphaned containers found; no conflicting bind-mount overlaps detected"
+        },
+        {
+          "action": "Auth-gated route smokes on dev rail",
+          "expected": "/api/admin/permissions => 401/403, /api/schedules => 401, /api/realtime/models => 401/403 (not 404)",
+          "observed": "admin=401, schedules=401, realtime/models=401"
+        },
+        {
+          "action": "Verify scheduled-run and audio-transcription runner readiness signals",
+          "expected": "Both runner signals present",
+          "observed": "dev-api logs include [ScheduledJobs] Starting scheduler runner ... and [AudioTranscription] Starting runner ... at 2026-04-05 05:51:38"
+        },
+        {
+          "action": "Sample Langfuse dev health for churn + reachability",
+          "expected": "No restart churn across sample window and web reachable",
+          "observed": "HTTP 200 on 3/3 samples over ~30s; all librechat-dev-langfuse-* containers remained running with restarts=0 before and after"
+        }
+      ],
+      "evidence": {
+        "artifacts": [
+          "runtime-reconciliation/runtime-cli-round3/status-all-dev.txt",
+          "runtime-reconciliation/runtime-cli-round3/health-check.txt",
+          "runtime-reconciliation/runtime-cli-round3/curl-api_admin_permissions.headers",
+          "runtime-reconciliation/runtime-cli-round3/curl-api_admin_permissions.body",
+          "runtime-reconciliation/runtime-cli-round3/curl-api_schedules.headers",
+          "runtime-reconciliation/runtime-cli-round3/curl-api_schedules.body",
+          "runtime-reconciliation/runtime-cli-round3/curl-api_realtime_models.headers",
+          "runtime-reconciliation/runtime-cli-round3/curl-api_realtime_models.body",
+          "runtime-reconciliation/runtime-cli-round3/route-status-codes.txt",
+          "runtime-reconciliation/runtime-cli-round3/dev-api-logs-since-30m.txt",
+          "runtime-reconciliation/runtime-cli-round3/dev-all-logs-since-30m.txt",
+          "runtime-reconciliation/runtime-cli-round3/runner-signals-summary.txt",
+          "runtime-reconciliation/runtime-cli-round3/langfuse-dev-sample.txt"
+        ],
+        "keyOutputs": {
+          "healthCheckExit": 1,
+          "orphanClassification": "absent",
+          "sharedMountClassification": "absent",
+          "routeStatusCodes": {
+            "/api/admin/permissions": 401,
+            "/api/schedules": 401,
+            "/api/realtime/models": 401
+          },
+          "realtimeModelsAuthGateNote": "/api/realtime/models is auth-gated (401 Unauthorized), not missing (404)",
+          "runnerSignals": {
+            "scheduledRunner": "present: 2026-04-05 05:51:38 [ScheduledJobs] Starting scheduler runner scheduled-runner:25:4e2952b8 (poll=15000ms, lease=300000ms, maxConcurrent=2)",
+            "audioTranscriptionRunner": "present: 2026-04-05 05:51:38 [AudioTranscription] Starting runner audio-transcription-runner:25:2d6b6d17 (poll=5000ms, lease=7200000ms, maxConcurrent=1)"
+          },
+          "langfuseSample": {
+            "webReachability": "200, 200, 200",
+            "restartCountStart": 0,
+            "restartCountEnd": 0,
+            "churnDetected": false
+          }
+        }
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "health-check.sh returned non-zero due swap at 100% even though orphan/shared-mount, route checks, runner signals, and Langfuse checks were clean",
+      "resolved": false,
+      "resolution": "Captured as environment pressure signal; no disruptive remediation performed per assignment scope",
+      "affectedAssertions": [
+        "VAL-CROSS-006"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "VAL-CROSS-006 passed in this rerun: orphan/shared-mount checks remained clean, /api/realtime/models stayed auth-gated (401), both scheduled and audio-transcription runners showed startup readiness lines on normal dev startup, and Langfuse dev stayed reachable/stable with no restart churn during sampling."
+}
