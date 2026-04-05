@@ -198,11 +198,17 @@ langfuse_checked=false
 for project in librechat-stable librechat-dev; do
   rail="${project#librechat-}"
 
-  # Only check Langfuse if this rail's ClickHouse container is actually running.
-  # Using 'docker ps' (not 'docker ps -a') avoids false failures when a rail
-  # is intentionally stopped — stopped containers still appear in 'docker ps -a'.
-  ch_container="${project}-langfuse-clickhouse-1"
-  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${ch_container}$"; then
+  # Determine whether this rail is running by checking if ANY container belongs
+  # to its compose project.  Using 'docker ps' (not 'docker ps -a') so that
+  # intentionally stopped rails are skipped — stopped containers still appear
+  # in 'docker ps -a'.  When the rail IS running, every Langfuse component is
+  # checked; a missing or stopped component on a running rail is reported as
+  # unhealthy instead of being silently skipped.
+  rail_running=false
+  if docker ps --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | grep -q "^${project}$"; then
+    rail_running=true
+  fi
+  if ! $rail_running; then
     continue
   fi
   langfuse_checked=true
