@@ -1,5 +1,11 @@
-const { isUserProvided, fetchModels, filterOpenAITextCompatibleModels } = require('@librechat/api');
 const {
+  isUserProvided,
+  fetchModels,
+  standardCache,
+  filterOpenAITextCompatibleModels,
+} = require('@librechat/api');
+const {
+  CacheKeys,
   EModelEndpoint,
   KnownEndpoints,
   extractEnvVariable,
@@ -7,6 +13,43 @@ const {
 } = require('librechat-data-provider');
 const { getUserKeyValues } = require('~/models');
 const { getAppConfig } = require('./app');
+
+const OLLAMA_CLOUD_TAG = ' ☁';
+const OLLAMA_SOURCES_CACHE_PREFIX = `${KnownEndpoints.ollama}:sources:`;
+
+function isOllamaCloudSource(sourceURL) {
+  try {
+    return new URL(sourceURL).hostname === 'ollama.com';
+  } catch {
+    return false;
+  }
+}
+
+function stripOllamaCloudTag(model) {
+  return typeof model === 'string' && model.endsWith(OLLAMA_CLOUD_TAG)
+    ? model.slice(0, -OLLAMA_CLOUD_TAG.length)
+    : model;
+}
+
+async function tagOllamaCloudModels(models, tokenKey) {
+  if (!Array.isArray(models) || models.length === 0) {
+    return models;
+  }
+
+  const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);
+  const sourceMap = await modelsCache.get(`${OLLAMA_SOURCES_CACHE_PREFIX}${tokenKey}`);
+  if (!sourceMap || typeof sourceMap !== 'object') {
+    return models;
+  }
+
+  return models.map((model) => {
+    const source = sourceMap[model];
+    if (source && isOllamaCloudSource(source)) {
+      return `${model}${OLLAMA_CLOUD_TAG}`;
+    }
+    return model;
+  });
+}
 
 const isStrictOllamaEndpoint = (name, endpoint) =>
   name === KnownEndpoints.ollama && endpoint?.models?.fetch === true;
@@ -203,7 +246,7 @@ async function loadConfigModels(req, options = {}) {
         : discoveredModels;
 
       if (isStrictOllamaEndpoint(name, endpoint)) {
-        modelsConfig[name] = discoveredModels;
+        modelsConfig[name] = await tagOllamaCloudModels(discoveredModels, name);
         continue;
       }
 
@@ -217,3 +260,5 @@ async function loadConfigModels(req, options = {}) {
 }
 
 module.exports = loadConfigModels;
+module.exports.stripOllamaCloudTag = stripOllamaCloudTag;
+module.exports.OLLAMA_CLOUD_TAG = OLLAMA_CLOUD_TAG;

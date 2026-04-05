@@ -10,12 +10,31 @@ const ALL_MODELS = '*';
 const DEFAULT_NON_ADMIN_MODEL_PERMISSIONS = Object.freeze({
   enabled: true,
   rules: [
-    { endpoint: EModelEndpoint.openAI, models: ['gpt-5.1'] },
-    {
-      endpoint: EModelEndpoint.google,
-      models: ['gemini-3-flash-preview', 'gemini-2.5-flash-lite'],
-    },
+    { endpoint: EModelEndpoint.azureOpenAI, models: [ALL_MODELS] },
     { endpoint: KnownEndpoints.ollama, models: [ALL_MODELS] },
+    {
+      endpoint: EModelEndpoint.openAI,
+      models: ['gpt-5.3-chat-latest', 'gpt-5.4-mini', 'gpt-5.4-nano'],
+    },
+    {
+      endpoint: EModelEndpoint.anthropic,
+      models: [
+        'claude-sonnet-4-5',
+        'claude-sonnet-4-5-20250929',
+        'claude-sonnet-4-6',
+        'claude-haiku-4-5',
+        'claude-haiku-4-5-20251001',
+        'claude-haiku-4',
+        'claude-3-5-haiku-20241022',
+        'claude-3-7-sonnet-latest',
+        'claude-3-7-sonnet-20250219',
+        'claude-3-5-sonnet-20241022',
+        'claude-3-5-sonnet-20240620',
+        'claude-3-5-sonnet-latest',
+        'claude-3',
+      ],
+    },
+    { endpoint: KnownEndpoints.xai, models: ['grok-4-1-fast'] },
   ],
 });
 

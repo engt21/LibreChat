@@ -62,17 +62,31 @@ describe('ModelAccess', () => {
 
   describe('default model permissions', () => {
     it('applies restricted defaults to new non-admin users', () => {
-      expect(applyDefaultModelPermissions({ email: 'user@example.com' })).toEqual({
-        email: 'user@example.com',
-        modelPermissions: {
-          enabled: true,
-          rules: [
-            { endpoint: 'google', models: ['gemini-2.5-flash-lite', 'gemini-3-flash-preview'] },
-            { endpoint: 'ollama', models: ['*'] },
-            { endpoint: 'openAI', models: ['gpt-5.1'] },
-          ],
-        },
-      });
+      const result = applyDefaultModelPermissions({ email: 'user@example.com' });
+      expect(result.modelPermissions.enabled).toBe(true);
+      const endpoints = result.modelPermissions.rules.map((r) => r.endpoint).sort();
+      expect(endpoints).toEqual([
+        'anthropic',
+        'azureOpenAI',
+        'ollama',
+        'openAI',
+        'xai',
+      ]);
+      expect(
+        result.modelPermissions.rules.find((r) => r.endpoint === 'ollama').models,
+      ).toEqual(['*']);
+      expect(
+        result.modelPermissions.rules.find((r) => r.endpoint === 'azureOpenAI').models,
+      ).toEqual(['*']);
+      expect(
+        result.modelPermissions.rules.find((r) => r.endpoint === 'xai').models,
+      ).toEqual(['grok-4-1-fast']);
+      expect(
+        result.modelPermissions.rules.find((r) => r.endpoint === 'openAI').models,
+      ).toEqual(expect.arrayContaining(['gpt-5.4-mini', 'gpt-5.4-nano']));
+      expect(
+        result.modelPermissions.rules.find((r) => r.endpoint === 'anthropic').models,
+      ).toEqual(expect.arrayContaining(['claude-sonnet-4-5', 'claude-sonnet-4-6']));
     });
 
     it('keeps admins unrestricted by default', () => {

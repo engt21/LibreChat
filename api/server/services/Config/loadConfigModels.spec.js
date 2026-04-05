@@ -1,3 +1,4 @@
+const mockCacheGet = jest.fn().mockResolvedValue(null);
 jest.mock('@librechat/api', () => ({
   fetchModels: jest.fn(),
   filterOpenAITextCompatibleModels: jest.fn((models = []) =>
@@ -8,6 +9,7 @@ jest.mock('@librechat/api', () => ({
     ),
   ),
   isUserProvided: jest.fn((value) => value === 'user_provided'),
+  standardCache: jest.fn(() => ({ get: mockCacheGet, set: jest.fn() })),
 }));
 jest.mock('./app', () => ({
   getAppConfig: jest.fn(),
@@ -672,5 +674,41 @@ describe('loadConfigModels', () => {
         name: 'OLLaMA',
       }),
     );
+  });
+
+  it('tags Ollama cloud models with cloud indicator when source map is available', async () => {
+    getAppConfig.mockResolvedValue({
+      endpoints: {
+        custom: [
+          {
+            name: 'Ollama',
+            apiKey: 'ollama-key',
+            baseURL: 'http://192.168.50.201:11434/v1/',
+            baseURLs: ['https://ollama.com/v1/'],
+            models: { fetch: true },
+          },
+        ],
+      },
+    });
+
+    fetchModels.mockResolvedValue([
+      'gptossbigctx:latest',
+      'qwen3.5:397b',
+      'gpt-oss:120b',
+    ]);
+
+    mockCacheGet.mockResolvedValue({
+      'gptossbigctx:latest': 'http://192.168.50.201:11434/v1/',
+      'qwen3.5:397b': 'https://ollama.com/v1/',
+      'gpt-oss:120b': 'https://ollama.com/v1/',
+    });
+
+    const result = await loadConfigModels(mockRequest, { endpointNames: ['ollama'] });
+
+    expect(result.ollama).toEqual([
+      'gptossbigctx:latest',
+      'qwen3.5:397b \u2601',
+      'gpt-oss:120b \u2601',
+    ]);
   });
 });

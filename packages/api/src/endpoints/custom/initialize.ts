@@ -179,7 +179,19 @@ export async function initializeCustom({
     requestedModel = req.body.model;
   }
 
-  const resolvedBaseURL = endpoint.toLowerCase().startsWith(KnownEndpoints.ollama)
+  const isOllama = endpoint.toLowerCase().startsWith(KnownEndpoints.ollama);
+  const OLLAMA_CLOUD_TAG = ' \u2601';
+  if (isOllama && requestedModel?.endsWith(OLLAMA_CLOUD_TAG)) {
+    requestedModel = requestedModel.slice(0, -OLLAMA_CLOUD_TAG.length);
+    if (model_parameters?.model) {
+      model_parameters.model = requestedModel;
+    }
+    if (req.body?.model) {
+      req.body.model = requestedModel;
+    }
+  }
+
+  const resolvedBaseURL = isOllama
     ? await resolveOllamaBaseURL({
         baseURL,
         baseURLs: CUSTOM_BASE_URLS,
