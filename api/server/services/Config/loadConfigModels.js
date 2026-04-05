@@ -1,11 +1,10 @@
+const { logger } = require('@librechat/data-schemas');
 const {
   isUserProvided,
   fetchModels,
-  standardCache,
   filterOpenAITextCompatibleModels,
 } = require('@librechat/api');
 const {
-  CacheKeys,
   EModelEndpoint,
   KnownEndpoints,
   extractEnvVariable,
@@ -13,13 +12,13 @@ const {
 } = require('librechat-data-provider');
 const { getUserKeyValues } = require('~/models');
 const { getAppConfig } = require('./app');
+const axios = require('axios');
 
 const OLLAMA_CLOUD_TAG = ' ☁';
-const OLLAMA_SOURCES_CACHE_PREFIX = `${KnownEndpoints.ollama}:sources:`;
 
-function isOllamaCloudSource(sourceURL) {
+function isOllamaCloudURL(url) {
   try {
-    return new URL(sourceURL).hostname === 'ollama.com';
+    return new URL(url).hostname === 'ollama.com';
   } catch {
     return false;
   }
@@ -31,20 +30,60 @@ function stripOllamaCloudTag(model) {
     : model;
 }
 
-async function tagOllamaCloudModels(models, tokenKey) {
+function deriveOllamaBaseURL(url) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return url;
+  }
+}
+
+async function fetchLocalOllamaModels(baseURL) {
+  const ollamaBase = deriveOllamaBaseURL(baseURL);
+  try {
+    const res = await axios.get(`${ollamaBase}/api/tags`, { timeout: 5000 });
+    return new Set((res.data.models || []).map((m) => m.name));
+  } catch {
+    try {
+      const res = await axios.get(`${ollamaBase}/models`, { timeout: 5000 });
+      return new Set((res.data.data || []).map((m) => m.id));
+    } catch {
+      return new Set();
+    }
+  }
+}
+
+async function tagOllamaCloudModels(models, endpointConfig) {
   if (!Array.isArray(models) || models.length === 0) {
     return models;
   }
 
-  const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);
-  const sourceMap = await modelsCache.get(`${OLLAMA_SOURCES_CACHE_PREFIX}${tokenKey}`);
-  if (!sourceMap || typeof sourceMap !== 'object') {
+  const allURLs = [
+    endpointConfig.baseURL,
+    ...(Array.isArray(endpointConfig.baseURLs) ? endpointConfig.baseURLs : []),
+  ]
+    .filter(Boolean)
+    .map((u) => extractEnvVariable(u));
+
+  const hasCloudURL = allURLs.some(isOllamaCloudURL);
+  if (!hasCloudURL) {
     return models;
   }
 
+  const localURLs = allURLs.filter((u) => !isOllamaCloudURL(u));
+  const localModelSets = await Promise.all(localURLs.map(fetchLocalOllamaModels));
+  const localModels = new Set();
+  for (const s of localModelSets) {
+    for (const m of s) {
+      localModels.add(m);
+    }
+  }
+
+  logger.debug(`[Ollama] Local models: ${localModels.size}, total: ${models.length}`);
+
   return models.map((model) => {
-    const source = sourceMap[model];
-    if (source && isOllamaCloudSource(source)) {
+    if (!localModels.has(model)) {
       return `${model}${OLLAMA_CLOUD_TAG}`;
     }
     return model;
@@ -246,7 +285,7 @@ async function loadConfigModels(req, options = {}) {
         : discoveredModels;
 
       if (isStrictOllamaEndpoint(name, endpoint)) {
-        modelsConfig[name] = await tagOllamaCloudModels(discoveredModels, name);
+        modelsConfig[name] = await tagOllamaCloudModels(discoveredModels, endpoint);
         continue;
       }
 

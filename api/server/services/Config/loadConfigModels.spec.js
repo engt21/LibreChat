@@ -1,4 +1,3 @@
-const mockCacheGet = jest.fn().mockResolvedValue(null);
 jest.mock('@librechat/api', () => ({
   fetchModels: jest.fn(),
   filterOpenAITextCompatibleModels: jest.fn((models = []) =>
@@ -9,8 +8,10 @@ jest.mock('@librechat/api', () => ({
     ),
   ),
   isUserProvided: jest.fn((value) => value === 'user_provided'),
-  standardCache: jest.fn(() => ({ get: mockCacheGet, set: jest.fn() })),
 }));
+
+const mockAxiosGet = jest.fn().mockRejectedValue(new Error('mock'));
+jest.mock('axios', () => ({ get: (...args) => mockAxiosGet(...args) }));
 jest.mock('./app', () => ({
   getAppConfig: jest.fn(),
 }));
@@ -697,10 +698,14 @@ describe('loadConfigModels', () => {
       'gpt-oss:120b',
     ]);
 
-    mockCacheGet.mockResolvedValue({
-      'gptossbigctx:latest': 'http://192.168.50.201:11434/v1/',
-      'qwen3.5:397b': 'https://ollama.com/v1/',
-      'gpt-oss:120b': 'https://ollama.com/v1/',
+    // Mock axios to return local models from the local URL only
+    mockAxiosGet.mockImplementation((url) => {
+      if (url.includes('192.168.50.201')) {
+        return Promise.resolve({
+          data: { models: [{ name: 'gptossbigctx:latest' }] },
+        });
+      }
+      return Promise.reject(new Error('not local'));
     });
 
     const result = await loadConfigModels(mockRequest, { endpointNames: ['ollama'] });
