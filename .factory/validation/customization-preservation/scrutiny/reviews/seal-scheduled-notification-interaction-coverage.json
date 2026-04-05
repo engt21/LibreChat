@@ -1,0 +1,28 @@
+{
+  "featureId": "seal-scheduled-notification-interaction-coverage",
+  "reviewedAt": "2026-04-05T15:53:53Z",
+  "commitId": "0e6415615cb0448e4a712cda38f8bc4396e2eff9",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the rerun against the prior failed scrutiny finding using both original/fix transcript skeletons, handoffs, and commit diffs. The fix adds interaction-based assertions that now exercise VAL-SCHED-002 save payload/persistence coverage and VAL-SCHED-009 subscribe/unsubscribe lifecycle behavior (including success/error paths and subscription-count state changes), resolving the prior blocking gaps.",
+    "issues": [
+      {
+        "file": "client/src/components/Nav/SettingsTabs/Data/__tests__/ScheduledRuns.spec.tsx",
+        "line": 520,
+        "severity": "non_blocking",
+        "description": "Two legacy test cases remain semantically stale (titles imply interaction verification but only assert initial disabled/uncalled state at lines 520 and 535). The new interaction tests cover the required contract behavior, so this is not blocking, but the stale tests can mislead future maintainers."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "Mission shared-state notes for schedules are now outdated: they still say dedicated scheduled-run/notification spec files were not found, but this area now has dedicated specs and interaction coverage.",
+      "evidence": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/contract-work/area-schedules.md lines 68 and 81 vs client/src/components/Nav/SettingsTabs/Data/__tests__/ScheduledRuns.spec.tsx (interaction tests at lines 563, 597, 719, 932, 1001, 1097) and client/src/components/Nav/SettingsTabs/Data/__tests__/push-sw.spec.ts"
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/customization-preservation/scrutiny/reviews/preserve-scheduled-run-settings-and-browser-notifications.json",
+  "summary": "Pass. This rerun closes the original blocking scrutiny findings: interaction tests now assert notification save payload/persistence semantics (VAL-SCHED-002) and browser push subscribe/unsubscribe lifecycle behavior (VAL-SCHED-009) with mutation payload and error-path coverage."
+}

@@ -1,0 +1,34 @@
+{
+  "featureId": "preserve-scheduled-run-settings-and-browser-notifications",
+  "reviewedAt": "2026-04-05T14:03:03.831Z",
+  "commitId": "5a5d4404f2c4405ab02da6e4220ce80b0e773612",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The commit adds substantial frontend preservation tests, but two core contract behaviors are not actually exercised by assertions, so regression protection is incomplete.",
+    "issues": [
+      {
+        "file": "client/src/components/Nav/SettingsTabs/Data/__tests__/ScheduledRuns.spec.tsx",
+        "line": 535,
+        "severity": "blocking",
+        "description": "VAL-SCHED-002 persistence/round-trip is not truly tested: the test titled 'calls update notifications mutation with correct payload structure' never triggers a save and only asserts mutateAsync was NOT called; the preceding 'becomes enabled when settings change' test also never changes any field. This leaves notification-save payload and persistence behavior unpinned."
+      },
+      {
+        "file": "client/src/components/Nav/SettingsTabs/Data/__tests__/ScheduledRuns.spec.tsx",
+        "line": 564,
+        "severity": "blocking",
+        "description": "VAL-SCHED-009 push subscription lifecycle is only covered by static button state checks. The suite never clicks the enable/disable browser push buttons or asserts subscribe/unsubscribe mutation calls (the only fireEvent.click uses are Run now at lines 373 and 392), so subscribe/unsubscribe behavior can regress undetected."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "Mission shared-state notes for schedules are stale after this feature: they still claim no dedicated scheduled-run tests exist.",
+      "evidence": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/contract-work/area-schedules.md:81 states no dedicated scheduled-run/notification spec files were found, but this feature added client/src/components/Nav/SettingsTabs/Data/__tests__/ScheduledRuns.spec.tsx and client/src/components/Nav/SettingsTabs/Data/__tests__/push-sw.spec.ts."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed: despite broad new test additions, key expected behaviors for notification settings persistence and browser push subscribe/unsubscribe interactions are not actually asserted, leaving contract-critical regressions unguarded."
+}

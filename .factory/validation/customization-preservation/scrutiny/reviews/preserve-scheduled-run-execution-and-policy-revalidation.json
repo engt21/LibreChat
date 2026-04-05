@@ -1,0 +1,21 @@
+{
+  "featureId": "preserve-scheduled-run-execution-and-policy-revalidation",
+  "reviewedAt": "2026-04-05T14:10:55Z",
+  "commitId": "523d7b33dfba973de588c40dd8cdfe493555d84c",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed features.json expectations, worker handoff, transcript skeleton, and commit 523d7b33dfba973de588c40dd8cdfe493555d84c. The effective implementation adds execution-time model policy revalidation in scheduled-run internal execution and pairs it with targeted ScheduledJobs test coverage for CRUD semantics, nested ephemeralAgent merge behavior, manual/background execution paths, concurrency locking, durable failure metadata, notification result durability, and MCP auth-map propagation. No high-confidence actionable code defects were identified in the reviewed diff.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The backend skill's documented read-order procedure was not fully followed in the transcript, but handoff.skillFeedback still reports followedProcedure=true.",
+      "evidence": ".factory/skills/backend-migration-worker/SKILL.md:23 requires reading README.md, CUSTOMIZATION_MASTER_DOC.md, and CUSTOMIZATION_MASTER_GUIDE.md in order; the worker transcript entry for session 4a2c33a8-b40c-4186-9b28-d52d607b76d4 (worker-transcripts.jsonl line 45) shows reads for mission.md, validation-contract.md, AGENTS.md, and SCHEDULED_RUNS.md, with no transcript matches for README.md/CUSTOMIZATION_MASTER_DOC.md/CUSTOMIZATION_MASTER_GUIDE.md."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The feature diff is coherent with the scheduled-run backend preservation contract and introduces no high-confidence actionable implementation defects; one process-level skill-adherence observation was recorded for shared-state triage."
+}

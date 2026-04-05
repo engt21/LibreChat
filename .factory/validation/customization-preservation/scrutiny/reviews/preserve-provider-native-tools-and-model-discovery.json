@@ -1,0 +1,28 @@
+{
+  "featureId": "preserve-provider-native-tools-and-model-discovery",
+  "reviewedAt": "2026-04-05T14:07:15.794144+00:00",
+  "commitId": "84d19e952c5ea6573af5222b3c5d47b4d13f2f91",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Reviewed feature metadata, handoff, transcript skeleton, and commit 84d19e952c5ea6573af5222b3c5d47b4d13f2f91. Most provider-preservation behavior is implemented and well-tested, but xAI per-user model discovery has a cache-keying defect that can leak/cross-contaminate model catalogs between users.",
+    "issues": [
+      {
+        "file": "packages/api/src/endpoints/models.ts",
+        "line": 281,
+        "severity": "blocking",
+        "description": "xAI model-capability caching is keyed only by endpoint token (`getXAIModelCapabilitiesCacheKey(tokenKey)` at lines 281-304/336), and `fetchModels` defaults that token to endpoint name (`tokenKey ?? name`, lines 532-537). In the per-user discovery path, `loadConfigModels` calls `fetchModels(...)` without a user-scoped `tokenKey` (api/server/services/Config/loadConfigModels.js:170-181), and this path is explicitly used with `includeUserProvidedFetch: true` in model listing (api/server/controllers/ModelController.js:342-347). Result: one user's xAI discovery can be served from another user's cached capabilities when they share the same endpoint name, violating expected per-user model state behavior."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The backend-migration-worker skill omits guidance for handling features that begin with pre-existing uncommitted working-tree changes needing staging/validation/commit rather than fresh code authoring.",
+      "evidence": "Handoff `2026-04-05T11-30-06-769Z__preserve-provider-native-tools-and-model-discovery__4251d363-aff4-4777-8748-b460dbe10f94.json` includes `skillFeedback.suggestedChanges` requesting this addition, while `.factory/skills/backend-migration-worker/SKILL.md` work procedure (lines 31-39) does not mention this scenario."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail. A blocking cache-keying bug in xAI model discovery can mix per-user model catalogs, so the feature does not fully satisfy the per-user discovery/state preservation requirement."
+}

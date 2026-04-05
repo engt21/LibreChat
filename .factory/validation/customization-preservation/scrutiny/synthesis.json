@@ -1,7 +1,7 @@
 {
   "milestone": "customization-preservation",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "validatorsRun": {
     "test": {
       "passed": true,
@@ -20,79 +20,26 @@
     }
   },
   "reviewsSummary": {
-    "total": 9,
-    "passed": 5,
-    "failed": 4,
-    "failedFeatures": [
-      "preserve-code-interpreter-and-realtime-workflows",
-      "preserve-provider-native-tools-and-model-discovery",
-      "preserve-provider-settings-and-custom-endpoint-ui",
-      "preserve-scheduled-run-settings-and-browser-notifications"
-    ]
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "preserve-provider-native-tools-and-model-discovery",
-      "severity": "blocking",
-      "description": "xAI model-capability cache keys are not user-scoped in the per-user discovery path, so one user's discovered model catalog can be served to another user when endpoint names match."
-    },
-    {
-      "featureId": "preserve-provider-settings-and-custom-endpoint-ui",
-      "severity": "blocking",
-      "description": "SetKeyDialog legacy Azure saved payloads are not decoded by parseSavedFormValues, causing existing users to see raw JSON in the API key field instead of editable persisted values on reopen."
-    },
-    {
-      "featureId": "preserve-code-interpreter-and-realtime-workflows",
-      "severity": "blocking",
-      "description": "Realtime model-access validation rejects restricted xAI/custom session starts when model is omitted, even though broker/provider resolution still supports omitted-model fallback for those providers."
-    },
-    {
-      "featureId": "preserve-scheduled-run-settings-and-browser-notifications",
-      "severity": "blocking",
-      "description": "ScheduledRuns UI test coverage does not assert notification-settings save payload/persistence behavior despite claiming VAL-SCHED-002 protection."
-    },
-    {
-      "featureId": "preserve-scheduled-run-settings-and-browser-notifications",
-      "severity": "blocking",
-      "description": "ScheduledRuns UI tests do not exercise browser push subscribe/unsubscribe click flows or mutation calls, leaving VAL-SCHED-009 lifecycle behavior unpinned."
-    }
-  ],
+  "blockingIssues": [],
   "appliedUpdates": [],
   "suggestedGuidanceUpdates": [
     {
-      "target": ".factory/skills/backend-migration-worker/SKILL.md",
-      "suggestion": "Require transcript-evidence verification for the mandatory repo-doc read order before workers can mark `skillFeedback.followedProcedure=true`.",
-      "evidence": "Two reviews (preserve-auth-and-model-policy-flows, preserve-scheduled-run-execution-and-policy-revalidation) observed `followedProcedure=true` while transcript skeleton evidence lacked the required README/CUSTOMIZATION doc reads.",
-      "isSystemic": true
-    },
-    {
-      "target": ".factory/skills/backend-migration-worker/SKILL.md",
-      "suggestion": "Add explicit handling guidance for features that start from pre-existing uncommitted working-tree changes (how to scope staging/validation/commit safely).",
-      "evidence": "Review for preserve-provider-native-tools-and-model-discovery flagged this recurring workflow gap in backend-worker execution.",
-      "isSystemic": false
-    },
-    {
-      "target": ".factory/skills/backend-migration-worker/SKILL.md",
-      "suggestion": "Document host-aware fallback guidance when full `npm run test:api` is unstable/slow, including acceptable targeted test-pattern strategy and evidence expectations.",
-      "evidence": "Review for preserve-code-interpreter-and-realtime-workflows flagged repeated reliance on targeted suites due host timeout pressure without explicit skill guidance.",
-      "isSystemic": false
-    },
-    {
       "target": ".factory/skills/frontend-migration-worker/SKILL.md",
-      "suggestion": "Add a note that some client Jest suites must run from the `client/` workspace context when module resolution/mocks depend on workspace-relative aliases.",
-      "evidence": "Review for preserve-provider-settings-and-custom-endpoint-ui flagged this as a practical test-execution gotcha in frontend worker runs.",
+      "suggestion": "Add explicit guidance that some client Jest suites should be executed from the `client/` workspace context when alias resolution/mocks rely on workspace-local setup.",
+      "evidence": "Rerun review for parse-legacy-azure-saved-provider-values again surfaced this execution-context gotcha and confirmed it is still undocumented in the frontend worker skill.",
       "isSystemic": false
     }
   ],
   "rejectedObservations": [
     {
-      "observation": "The backend skill read-order adherence mismatch reported in preserve-scheduled-run-execution-and-policy-revalidation as a distinct recommendation.",
-      "reason": "duplicate of the same read-order evidence pattern already captured from preserve-auth-and-model-policy-flows."
-    },
-    {
-      "observation": "Mission contract-work schedules notes are stale because dedicated scheduled-run tests now exist.",
-      "reason": "mission-local working notes are superseded by current feature reviews and are better handled by orchestrator-level mission artifact refresh, not direct scrutiny shared-state mutation."
+      "observation": "Mission-local schedules notes in contract-work/area-schedules.md are outdated relative to current dedicated ScheduledRuns interaction coverage.",
+      "reason": "mission-local working notes are not shared worker state (services/library/agents/skills) and should be handled by orchestrator-level mission artifact upkeep."
     }
   ],
-  "previousRound": null
+  "previousRound": ".factory/validation/customization-preservation/scrutiny/synthesis.round1.json"
 }

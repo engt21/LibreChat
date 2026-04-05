@@ -1,0 +1,15 @@
+{
+  "featureId": "scope-xai-discovery-cache-to-user-context",
+  "reviewedAt": "2026-04-05T15:53:20.870283+00:00",
+  "commitId": "5082923e704bc03585d5c96d4f3b19be8c8bed98",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the original failing implementation (commit 84d19e952c5ea6573af5222b3c5d47b4d13f2f91), the prior scrutiny failure report, and the fix commit (5082923e704bc03585d5c96d4f3b19be8c8bed98). The fix correctly scopes xAI capability cache entries by user context for user-provided discovery and preserves shared cache behavior for server-level credentials. Added tests cover cross-user isolation, server-level cache reuse, and prevention of user/server cache contamination.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": ".factory/validation/customization-preservation/scrutiny/reviews/preserve-provider-native-tools-and-model-discovery.json",
+  "summary": "Pass. The prior blocking issue is adequately resolved: xAI model-capability caching is now user-scoped for per-user discovery paths, eliminating cross-user model-catalog leakage when endpoint names collide, with focused regression coverage in both packages/api and api config-loading layers."
+}

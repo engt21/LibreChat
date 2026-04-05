@@ -1,0 +1,21 @@
+{
+  "featureId": "parse-legacy-azure-saved-provider-values",
+  "reviewedAt": "2026-04-05T15:53:04Z",
+  "commitId": "21cbc3e01e443b005bfa155053aff97fff7a5ee0",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the rerun fix against the prior failure and inspected both original/fix artifacts (handoffs, transcript skeletons, and relevant diffs). The SetKeyDialog parser now handles both legacy Azure shapes (top-level legacy object and nested JSON-in-apiKey), converting them into editable apiKey/baseURL/models values so reopening does not surface raw JSON in the API key input. Regression coverage was expanded in SetKeyDialog.spec.tsx to pin legacy and current saved-value reopen behavior.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The frontend-migration-worker skill still does not explicitly note that some client Jest invocations should be run from the `client/` workspace for reliable module resolution in tests using `~/data-provider`-style mocks.",
+      "evidence": "Prior failed-feature handoff (`.../handoffs/2026-04-05T11-40-48-016Z__preserve-provider-settings-and-custom-endpoint-ui__80f90932-8c9c-493e-84d4-a6fd0553acac.json`) includes this as `skillFeedback.suggestedChanges`; current skill file (`.factory/skills/frontend-migration-worker/SKILL.md`) does not mention it."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/customization-preservation/scrutiny/reviews/preserve-provider-settings-and-custom-endpoint-ui.json",
+  "summary": "Pass. The fix resolves the original blocking regression: legacy Azure saved payloads now hydrate editable fields on reopen (without raw JSON leakage), while existing saved-value parsing behavior remains covered by tests."
+}

@@ -1,0 +1,15 @@
+{
+  "featureId": "preserve-files-and-transcription-workflows",
+  "reviewedAt": "2026-04-05T14:04:35.671903+00:00",
+  "commitId": "55277eecc6281df908094f3adb2343e2dd4cb554",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the feature definition, worker handoff, transcript skeleton record, and commit 55277eecc6281df908094f3adb2343e2dd4cb554. The effective diff is tightly scoped to file/transcription preservation tests and provides concrete coverage for provider-aware RAG routing, native file-search bookkeeping, transcription settings persistence, delete-during-processing resilience, and completion/failure status updates without introducing production-code regressions.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass. This feature's commit is test-focused, aligns with the file/transcription preservation contract for this slice, and no high-confidence actionable defects were identified in the reviewed diff."
+}

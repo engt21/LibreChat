@@ -1,0 +1,21 @@
+{
+  "featureId": "preserve-auth-and-model-policy-flows",
+  "reviewedAt": "2026-04-05T14:05:28.954072+00:00",
+  "commitId": "1f10b8a07943cd6d48a85cd06379fc934cc2af65",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed commit 1f10b8a07943cd6d48a85cd06379fc934cc2af65 and found the added backend regression suites align with the feature goals: registration gating/invite bypass coverage, superadmin model-override validation paths, blocked-model duplicate-agent rejection, and default model restriction/admin bypass behavior in ModelAccess cross-flow checks. I found no high-confidence correctness defects in the implementation changes in this feature commit.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The backend-migration-worker skill requires reading repo docs in order (README -> CLAUDE/AGENTS -> CUSTOMIZATION docs), but this worker transcript skeleton does not show README.md or customization-doc reads even though handoff.skillFeedback marks followedProcedure=true.",
+      "evidence": "Skill requirement: /pool/home/timeng/LibreChat-custom/.factory/skills/backend-migration-worker/SKILL.md:23. Transcript read-path extraction for session 0031861d-1499-49bc-a01a-34317c24970d includes mission docs, AGENTS.md, and code files, but no README.md, CUSTOMIZATION_MASTER_DOC.md, or CUSTOMIZATION_MASTER_GUIDE.md entries."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Feature review passed: the committed test additions provide coherent preservation coverage for the auth/model-policy slice, with no actionable code defects identified in the diff; noted one process-level skill/procedure tracking gap in shared-state observations."
+}

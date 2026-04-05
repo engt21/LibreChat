@@ -1,0 +1,28 @@
+{
+  "featureId": "preserve-provider-settings-and-custom-endpoint-ui",
+  "reviewedAt": "2026-04-05T14:06:00.669552+00:00",
+  "commitId": "357b3f611eb79139d725548cfc6c672027835e08",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Reviewed feature definition, handoff, transcript skeleton, and commit 357b3f611eb79139d725548cfc6c672027835e08. Capability-aware Google/OpenAI/xAI settings and superadmin-scoped endpoint settings UX are broadly implemented, but saved-value reload behavior regresses for existing legacy Azure key payloads.",
+    "issues": [
+      {
+        "file": "client/src/components/Input/SetKeyDialog/SetKeyDialog.tsx",
+        "line": 65,
+        "severity": "blocking",
+        "description": "`parseSavedFormValues` only reads top-level `apiKey`/`baseURL`/`models` and does not decode legacy Azure credential payloads where `apiKey` itself is a JSON string containing `azureOpenAIApiKey`/`azureOpenAIApiInstanceName`/`azureOpenAIApiDeploymentName`/`azureOpenAIApiVersion` (lines 65-90). The backend still supports that legacy shape (`packages/api/src/utils/azure.ts:153-173`) and compatibility tests still cover it (`packages/api/src/endpoints/openai/config.backward-compat.spec.ts:114-117`). Result: existing Azure users reopening settings see a raw JSON blob in the API key field instead of editable values, breaking the expected saved-value incremental edit workflow for migrated accounts."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The frontend-migration-worker skill does not mention that some client Jest runs need to be executed from `client/` (not repo root) when module-resolution/mocking depends on that workspace context.",
+      "evidence": "Feature handoff skillFeedback.suggestedChanges explicitly requests adding this guidance: tests using `~/data-provider` mocks must be run from `client/` for reliable resolution."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail. The feature largely preserves provider settings behavior, but it regresses saved-value reload/edit UX for pre-existing legacy Azure user-key payloads, which is a blocking miss against the expected incremental-reload behavior."
+}

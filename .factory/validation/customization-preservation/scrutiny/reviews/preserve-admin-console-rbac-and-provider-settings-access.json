@@ -1,0 +1,15 @@
+{
+  "featureId": "preserve-admin-console-rbac-and-provider-settings-access",
+  "reviewedAt": "2026-04-05T14:03:06Z",
+  "commitId": "aaa95093b657ac387c24ae715f100583e44d0ad5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit correctly gates Account Settings admin-console visibility on resolved /api/admin/permissions data and adds focused regression tests for AccountSettings and AdminConsole RBAC behavior. I found no high-confidence correctness regressions in the implementation or test expectations for this feature slice.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed transcript skeleton and commit aaa95093b657ac387c24ae715f100583e44d0ad5 for the assigned feature; implementation and evidence are consistent with the expected admin-permission gating behavior, with no actionable blocking or non-blocking defects identified."
+}

@@ -1,0 +1,28 @@
+{
+  "featureId": "preserve-code-interpreter-and-realtime-workflows",
+  "reviewedAt": "2026-04-05T14:02:52.142919+00:00",
+  "commitId": "524226412",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Realtime policy filtering and session-start enforcement are implemented with good test coverage, but the new validator introduces a policy regression for xAI/custom realtime starts when model is omitted.",
+    "issues": [
+      {
+        "file": "api/server/services/Realtime/modelService.js",
+        "line": 690,
+        "severity": "blocking",
+        "description": "validateRealtimeModelAccess rejects restricted users when session.start omits model because it checks allowed.has(model) with model undefined, but the realtime flow still supports omitted models for xAI/custom providers (broker does not require model for non-OpenAI/Azure/Google and resolveXAISessionConfig falls back to DEFAULT_XAI_REALTIME_MODELS[0]). This blocks valid restricted-user xAI sessions unless clients always send an explicit model. Evidence: broker.js:97 calls validation before provider resolution; modelService.js:599 applies xAI default model fallback; modelService.js:690 throws on missing match."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The backend-migration-worker skill does not explicitly warn that full api suite runs can timeout on this host, even though workers repeatedly rely on targeted patterns to complete backend validation reliably.",
+      "evidence": "Handoff skillFeedback.suggestedChanges in 2026-04-05T12-47-39-541Z__preserve-code-interpreter-and-realtime-workflows__4be56d70-d828-4fc4-b24d-52291fc3f8d4.json requests adding this guidance."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Feature preserves most realtime/code-interpreter behavior and adds server-side realtime policy filtering/enforcement, but it regresses restricted-user xAI/custom session-starts when model is omitted; review marked fail pending that fix."
+}

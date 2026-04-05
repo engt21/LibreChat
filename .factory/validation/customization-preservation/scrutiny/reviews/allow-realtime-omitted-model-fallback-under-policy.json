@@ -1,0 +1,15 @@
+{
+  "featureId": "allow-realtime-omitted-model-fallback-under-policy",
+  "reviewedAt": "2026-04-05T15:53:04Z",
+  "commitId": "1b9b83521af82956ffa2d14243680058252f1350",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix resolves the prior regression: session.start now resolves provider configuration first and applies model-access policy to the resolved model (`providerConfig.model`), so omitted-model xAI/custom starts are no longer rejected prematurely while blocked resolved defaults are still denied.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": ".factory/validation/customization-preservation/scrutiny/reviews/preserve-code-interpreter-and-realtime-workflows.json",
+  "summary": "Fix review passed on rerun. I inspected both original and fix transcript skeletons and compared commit 524226412 against 1b9b83521; broker validation ordering now matches expected omitted-model fallback behavior and added tests cover allowed and rejected policy outcomes for resolved defaults."
+}
