@@ -1,10 +1,17 @@
 const crypto = require('node:crypto');
 const EventEmitter = require('node:events');
 const { logger } = require('@librechat/data-schemas');
-const { Constants, EndpointURLs, parseTextParts } = require('librechat-data-provider');
+const {
+  Constants,
+  EndpointURLs,
+  parseTextParts,
+  isAgentsEndpoint,
+} = require('librechat-data-provider');
 const buildEndpointOption = require('~/server/middleware/buildEndpointOption');
 const { initializeClient } = require('~/server/services/Endpoints/agents');
 const addTitle = require('~/server/services/Endpoints/agents/title');
+const { getModelsConfig } = require('~/server/controllers/ModelController');
+const { validateModelAccess } = require('~/server/services/ModelAccess');
 const { getAppConfig } = require('~/server/services/Config');
 const { disposeClient } = require('~/server/cleanup');
 
@@ -111,6 +118,21 @@ async function prepareExecutionContext(schedule, user) {
     const message =
       res.body?.text || res.body?.message || `Unable to build scheduled run for ${schedule.name}`;
     throw new Error(message);
+  }
+
+  // Revalidate model access at execution time so scheduled runs fail explicitly
+  // when admin policy changes have removed the user's access to the target model
+  const endpoint = schedule.target?.endpoint;
+  const model = req.body.endpointOption?.modelOptions?.model || schedule.target?.model;
+  if (model && !isAgentsEndpoint(endpoint)) {
+    const modelsConfig = await getModelsConfig(req);
+    const validation = await validateModelAccess({ req, res, endpoint, model, modelsConfig });
+    if (!validation.isValid) {
+      throw new Error(
+        validation.text ||
+          `Model "${model}" is no longer available for scheduled run "${schedule.name}"`,
+      );
+    }
   }
 
   return { req, res, conversationId };
