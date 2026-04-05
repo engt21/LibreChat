@@ -257,11 +257,25 @@ normalize_dev_mongo_ownership() {
     return 0
   fi
 
-  # Only fix ownership if there are root-owned files in the Mongo data dir.
-  if [[ -d "$LIBRECHAT_MONGO_DATA_DIR" ]] && \
-     find "$LIBRECHAT_MONGO_DATA_DIR" -maxdepth 1 -user 0 -print -quit 2>/dev/null | grep -q .; then
-    echo "[rail-env] Normalizing dev MongoDB data ownership to ${mongo_uid}:${mongo_gid}..." >&2
-    chown -R "${mongo_uid}:${mongo_gid}" "$LIBRECHAT_MONGO_DATA_DIR" 2>/dev/null || \
+  [[ -d "$LIBRECHAT_MONGO_DATA_DIR" ]] || return 0
+
+  # Check if any files are not owned by the target UID.  On ZFS, WiredTiger
+  # requires file ownership to match the process UID for flock() even when
+  # standard UNIX permissions would otherwise allow access.  A simple chmod
+  # is insufficient; the files must be chowned.
+  if find "$LIBRECHAT_MONGO_DATA_DIR" -maxdepth 1 ! -user "$mongo_uid" -type f -print -quit 2>/dev/null | grep -q .; then
+    # First try host-level chown (works when running as root or matching owner).
+    if chown -R "${mongo_uid}:${mongo_gid}" "$LIBRECHAT_MONGO_DATA_DIR" 2>/dev/null; then
+      echo "[rail-env] Normalized dev MongoDB data ownership to ${mongo_uid}:${mongo_gid}" >&2
+      return 0
+    fi
+    # Fallback: use a Docker container to chown.  Docker's container root has
+    # the privileges to change ownership on the bind-mounted volume even when
+    # the host user cannot.  This avoids needing host-level root for dev data.
+    echo "[rail-env] Normalizing dev MongoDB data ownership via container (ZFS workaround)..." >&2
+    docker run --rm \
+      -v "$LIBRECHAT_MONGO_DATA_DIR:/data/db" \
+      alpine chown -R "${mongo_uid}:${mongo_gid}" /data/db 2>/dev/null || \
       echo "[rail-env][warn] Could not normalize MongoDB data ownership; dev Mongo may fail to start" >&2
   fi
 }

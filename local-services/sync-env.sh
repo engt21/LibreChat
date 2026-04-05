@@ -294,7 +294,10 @@ restore_volume_archive() {
 }
 
 dev_services_running() {
-  docker compose -f "$ROOT_DIR/docker-compose.yml" -f "$ROOT_DIR/docker-compose.local.override.yml" ps --status running --services | grep -q .
+  docker compose -p "$COMPOSE_PROJECT_NAME" \
+    -f "$ROOT_DIR/docker-compose.yml" \
+    -f "$ROOT_DIR/docker-compose.local.override.yml" \
+    ps --status running --services 2>/dev/null | grep -q .
 }
 
 assert_dev_stopped() {
@@ -381,13 +384,14 @@ refresh_authoritative_bundle() {
     return 2
   fi
 
+  sync_log "refresh_authoritative_bundle: capturing current dev state..." >&2
   local temp_dir
   temp_dir="$LIBRECHAT_SYNC_BUNDLES_DIR/authoritative-refresh.$$"
   rm -rf "$temp_dir"
 
   LIBRECHAT_SYNC_BASE_TOKEN="$current_token" \
   LIBRECHAT_SYNC_ROLE="source-authoritative" \
-    "$ROOT_DIR/local-services/export-dev-bundle.sh" "$temp_dir" >/dev/null
+    "$ROOT_DIR/local-services/export-dev-bundle.sh" "$temp_dir" >&2
 
   load_bundle_metadata "$temp_dir"
   local refreshed_hash="$LIBRECHAT_SYNC_HASH"
@@ -402,6 +406,9 @@ refresh_authoritative_bundle() {
   # accepted-apply path in remote-apply-dev-bundle.sh instead.
   if [[ -z "$token_to_use" ]]; then
     token_to_use="$(generate_sync_token source)"
+    sync_log "refresh_authoritative_bundle: bootstrapped new token=$token_to_use" >&2
+  else
+    sync_log "refresh_authoritative_bundle: preserving existing token=$token_to_use" >&2
   fi
 
   write_bundle_metadata "$temp_dir" "$token_to_use" "$token_to_use" "$refreshed_hash" "$created_at" "source-authoritative"
