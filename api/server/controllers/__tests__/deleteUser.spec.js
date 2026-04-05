@@ -17,6 +17,7 @@ const mockProcessDeleteRequest = jest.fn();
 const mockDeleteToolCalls = jest.fn();
 const mockDeleteUserAgents = jest.fn();
 const mockDeleteUserPrompts = jest.fn();
+const mockDeleteUserScheduledJobs = jest.fn();
 
 jest.mock('@librechat/data-schemas', () => ({
   logger: { error: jest.fn(), info: jest.fn() },
@@ -28,6 +29,7 @@ jest.mock('librechat-data-provider', () => ({
   CacheKeys: {},
   Constants: { mcp_delimiter: '::', mcp_prefix: 'mcp_' },
   FileSources: {},
+  ResourceType: { MCPSERVER: 'mcpServer' },
 }));
 
 jest.mock('@librechat/api', () => ({
@@ -44,6 +46,7 @@ jest.mock('~/models', () => ({
   deleteUserById: (...args) => mockDeleteUserById(...args),
   deleteMessages: (...args) => mockDeleteMessages(...args),
   deletePresets: (...args) => mockDeletePresets(...args),
+  deleteUserScheduledJobs: (...args) => mockDeleteUserScheduledJobs(...args),
   deleteUserKey: (...args) => mockDeleteUserKey(...args),
   getUserById: (...args) => mockGetUserById(...args),
   deleteConvos: (...args) => mockDeleteConvos(...args),
@@ -58,8 +61,9 @@ jest.mock('~/db/models', () => ({
   AgentApiKey: { deleteMany: jest.fn() },
   Transaction: { deleteMany: jest.fn() },
   MemoryEntry: { deleteMany: jest.fn() },
+  MCPServer: null,
   Assistant: { deleteMany: jest.fn() },
-  AclEntry: { deleteMany: jest.fn() },
+  AclEntry: { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }), deleteMany: jest.fn(), countDocuments: jest.fn().mockResolvedValue(0) },
   Balance: { deleteMany: jest.fn() },
   Action: { deleteMany: jest.fn() },
   Group: { updateMany: jest.fn() },

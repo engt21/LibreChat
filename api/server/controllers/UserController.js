@@ -1,5 +1,5 @@
 const { logger, webSearchKeys } = require('@librechat/data-schemas');
-const { Tools, CacheKeys, Constants, FileSources } = require('librechat-data-provider');
+const { Tools, CacheKeys, Constants, FileSources, ResourceType } = require('librechat-data-provider');
 const {
   MCPOAuthHandler,
   MCPTokenStorage,
@@ -27,6 +27,7 @@ const {
   AgentApiKey,
   Transaction,
   MemoryEntry,
+  MCPServer,
   Assistant,
   AclEntry,
   Balance,
@@ -102,15 +103,113 @@ const acceptTermsController = async (req, res) => {
   }
 };
 
-const deleteUserFiles = async (req) => {
+const deleteUserFiles = async (req, userId) => {
   try {
-    const userFiles = await getFiles({ user: req.user.id });
+    const userFiles = await getFiles({ user: userId });
     await processDeleteRequest({
       req,
       files: userFiles,
     });
   } catch (error) {
     logger.error('[deleteUserFiles]', error);
+  }
+};
+
+/**
+ * Deletes MCP servers solely owned by the user and cleans up their ACLs.
+ * Disconnects live sessions for deleted servers before removing DB records.
+ * Servers with other owners are left intact; the caller is responsible for
+ * removing the user's own ACL principal entries separately.
+ *
+ * Also handles legacy (pre-ACL) MCP servers that only have the author field set,
+ * ensuring they are not orphaned if no permission migration has been run.
+ * @param {string} userId - The ID of the user.
+ */
+const deleteUserMcpServers = async (userId) => {
+  try {
+    if (!MCPServer) {
+      return;
+    }
+
+    const mongoose = require('mongoose');
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+
+    // Find all MCP server IDs where this user is an owner via ACL
+    const ownerEntries = await AclEntry.find({
+      principalId: userObjectId,
+      resourceType: ResourceType.MCPSERVER,
+    })
+      .select('resourceId')
+      .lean();
+
+    const ownedResourceIds = ownerEntries.map((e) => e.resourceId);
+
+    // For each owned server, check if any other principal also has ACL access
+    const soleOwnedIds = [];
+    for (const resourceId of ownedResourceIds) {
+      const otherOwners = await AclEntry.countDocuments({
+        resourceType: ResourceType.MCPSERVER,
+        resourceId,
+        principalId: { $ne: userObjectId },
+      });
+      if (otherOwners === 0) {
+        soleOwnedIds.push(resourceId);
+      }
+    }
+
+    // Find legacy (pre-ACL) authored servers that have no ACL entries at all
+    const authoredServers = await MCPServer.find({ author: userObjectId })
+      .select('_id serverName')
+      .lean();
+
+    const migratedEntries =
+      authoredServers.length > 0
+        ? await AclEntry.find({
+          resourceType: ResourceType.MCPSERVER,
+          resourceId: { $in: authoredServers.map((s) => s._id) },
+        })
+          .select('resourceId')
+          .lean()
+        : [];
+    const migratedIds = new Set(migratedEntries.map((e) => e.resourceId.toString()));
+    const legacyServers = authoredServers.filter((s) => !migratedIds.has(s._id.toString()));
+    const legacyServerIds = legacyServers.map((s) => s._id);
+
+    const allServerIdsToDelete = [...soleOwnedIds, ...legacyServerIds];
+
+    if (allServerIdsToDelete.length === 0) {
+      return;
+    }
+
+    // Load server names for session disconnect
+    const aclOwnedServers =
+      soleOwnedIds.length > 0
+        ? await MCPServer.find({ _id: { $in: soleOwnedIds } })
+          .select('serverName')
+          .lean()
+        : [];
+    const allServersToDelete = [...aclOwnedServers, ...legacyServers];
+
+    // Disconnect live MCP sessions for servers being deleted
+    const mcpManager = getMCPManager();
+    if (mcpManager) {
+      await Promise.all(
+        allServersToDelete.map(async (s) => {
+          await mcpManager.disconnectUserConnection(userId, s.serverName);
+          await invalidateCachedTools({ userId, serverName: s.serverName });
+        }),
+      );
+    }
+
+    // Clean up ACL entries and delete the servers
+    await AclEntry.deleteMany({
+      resourceType: ResourceType.MCPSERVER,
+      resourceId: { $in: allServerIdsToDelete },
+    });
+
+    await MCPServer.deleteMany({ _id: { $in: allServerIdsToDelete } });
+  } catch (error) {
+    logger.error('[deleteUserMcpServers] General error:', error);
   }
 };
 
@@ -240,6 +339,51 @@ const updateUserPluginsController = async (req, res) => {
   }
 };
 
+function resolveUserIdentifiers(user) {
+  const userId = user.id ?? user._id?.toString();
+  const userDbId = user._id ?? user.id;
+
+  if (!userId || !userDbId) {
+    throw new Error('User identifiers are required for deletion');
+  }
+
+  return { userId, userDbId };
+}
+
+const deleteUserAccount = async ({ req, user }) => {
+  const { userId, userDbId } = resolveUserIdentifiers(user);
+
+  await deleteMessages({ user: userId });
+  await deleteAllUserSessions({ userId });
+  await Transaction.deleteMany({ user: userId });
+  await deleteUserKey({ userId, all: true });
+  await Balance.deleteMany({ user: userDbId });
+  await deletePresets(userId);
+  try {
+    await deleteConvos(userId);
+  } catch (error) {
+    logger.error('[deleteUserAccount] Error deleting user convos, likely no convos', error);
+  }
+  await deleteUserPluginAuth(userId, null, true);
+  await deleteUserById(userId);
+  await deleteAllSharedLinks(userId);
+  await deleteUserFiles(req, userId);
+  await deleteFiles(null, userId);
+  await deleteToolCalls(userId);
+  await deleteUserAgents(userId);
+  await deleteUserScheduledJobs(userId);
+  await AgentApiKey.deleteMany({ user: userDbId });
+  await Assistant.deleteMany({ user: userId });
+  await ConversationTag.deleteMany({ user: userId });
+  await MemoryEntry.deleteMany({ userId });
+  await deleteUserPrompts(req, userId);
+  await Action.deleteMany({ user: userId });
+  await Token.deleteMany({ userId });
+  await Group.updateMany({ memberIds: userId }, { $pull: { memberIds: userId } });
+  await deleteUserMcpServers(userId);
+  await AclEntry.deleteMany({ principalId: userDbId });
+};
+
 const deleteUserController = async (req, res) => {
   const { user } = req;
 
@@ -260,39 +404,13 @@ const deleteUserController = async (req, res) => {
       }
     }
 
-    await deleteMessages({ user: user.id }); // delete user messages
-    await deleteAllUserSessions({ userId: user.id }); // delete user sessions
-    await Transaction.deleteMany({ user: user.id }); // delete user transactions
-    await deleteUserKey({ userId: user.id, all: true }); // delete user keys
-    await Balance.deleteMany({ user: user._id }); // delete user balances
-    await deletePresets(user.id); // delete user presets
+    await deleteUserAccount({ req, user });
+
     try {
-      await deleteConvos(user.id); // delete user convos
-    } catch (error) {
-      logger.error('[deleteUserController] Error deleting user convos, likely no convos', error);
+      logger.info(`User deleted account. Email: ${user.email} ID: ${user.id}`);
+    } catch (logError) {
+      logger.error('[deleteUserController] Failed to log user deletion', logError);
     }
-    await deleteUserPluginAuth(user.id, null, true); // delete user plugin auth
-    await deleteUserById(user.id); // delete user
-    await deleteAllSharedLinks(user.id); // delete user shared links
-    await deleteUserFiles(req); // delete user files
-    await deleteFiles(null, user.id); // delete database files in case of orphaned files from previous steps
-    await deleteToolCalls(user.id); // delete user tool calls
-    await deleteUserAgents(user.id); // delete user agents
-    await deleteUserScheduledJobs(user.id); // delete user scheduled runs
-    await AgentApiKey.deleteMany({ user: user._id }); // delete user agent API keys
-    await Assistant.deleteMany({ user: user.id }); // delete user assistants
-    await ConversationTag.deleteMany({ user: user.id }); // delete user conversation tags
-    await MemoryEntry.deleteMany({ userId: user.id }); // delete user memory entries
-    await deleteUserPrompts(req, user.id); // delete user prompts
-    await Action.deleteMany({ user: user.id }); // delete user actions
-    await Token.deleteMany({ userId: user.id }); // delete user OAuth tokens
-    await Group.updateMany(
-      // remove user from all groups
-      { memberIds: user.id },
-      { $pull: { memberIds: user.id } },
-    );
-    await AclEntry.deleteMany({ principalId: user._id }); // delete user ACL entries
-    logger.info(`User deleted account. Email: ${user.email} ID: ${user.id}`);
     res.status(200).send({ message: 'User deleted' });
   } catch (err) {
     logger.error('[deleteUserController]', err);
@@ -434,6 +552,8 @@ module.exports = {
   getUserController,
   getTermsStatusController,
   acceptTermsController,
+  deleteUserAccount,
+  deleteUserMcpServers,
   deleteUserController,
   verifyEmailController,
   updateUserPluginsController,
