@@ -13,6 +13,7 @@ import {
   checkUserKeyExpiry,
   supportsAzureOpenAIModelListing,
 } from '~/utils';
+import { validateEndpointURL } from '~/auth';
 import { getOpenAIConfig } from './config';
 
 /**
@@ -61,6 +62,10 @@ export async function initializeOpenAI({
   const baseURL = userProvidesURL
     ? userValues?.baseURL
     : baseURLOptions[endpoint as keyof typeof baseURLOptions];
+
+  if (userProvidesURL && baseURL) {
+    await validateEndpointURL(baseURL, endpoint);
+  }
 
   const clientOptions: OpenAIConfigOptions = {
     proxy: PROXY ?? undefined,

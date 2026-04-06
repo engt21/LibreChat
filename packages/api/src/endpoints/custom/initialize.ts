@@ -12,6 +12,7 @@ import type { BaseInitializeParams, InitializeResultBase, EndpointTokenConfig } 
 import { getOpenAIConfig } from '~/endpoints/openai/config';
 import { getCustomEndpointConfig } from '~/app/config';
 import { fetchModels, resolveOllamaBaseURL } from '~/endpoints/models';
+import { validateEndpointURL } from '~/auth';
 import { isUserProvided, checkUserKeyExpiry } from '~/utils';
 import { standardCache } from '~/cache';
 
@@ -125,6 +126,10 @@ export async function initializeCustom({
         type: ErrorTypes.NO_BASE_URL,
       }),
     );
+  }
+
+  if (userProvidesURL && baseURL) {
+    await validateEndpointURL(baseURL, endpoint);
   }
 
   if (!apiKey) {

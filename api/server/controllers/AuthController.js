@@ -119,14 +119,18 @@ const refreshController = async (req, res) => {
 
       const token = setOpenIDAuthTokens(tokenset, req, res, user._id.toString(), refreshToken);
 
-      user.federatedTokens = {
+      // Strip sensitive fields before sending user to client
+      const { password: _pw, __v: _v, totpSecret: _ts, backupCodes: _bc, ...safeUser } = user;
+
+      // Attach federated tokens to the safe user object (not persisted to DB)
+      safeUser.federatedTokens = {
         access_token: tokenset.access_token,
         id_token: tokenset.id_token,
         refresh_token: refreshToken,
         expires_at: claims.exp,
       };
 
-      return res.status(200).send({ token, user });
+      return res.status(200).send({ token, user: safeUser });
     } catch (error) {
       logger.error('[refreshController] OpenID token refresh error', error);
       return res.status(403).send('Invalid OpenID refresh token');

@@ -9,9 +9,11 @@ import {
   isActionDomainAllowed,
   isEmailDomainAllowed,
   isMCPDomainAllowed,
+  isOAuthUrlAllowed,
   isPrivateIP,
   isSSRFTarget,
   resolveHostnameSSRF,
+  validateEndpointURL,
 } from './domain';
 
 const mockedLookup = lookup as jest.MockedFunction<typeof lookup>;
@@ -1023,9 +1025,20 @@ describe('isMCPDomainAllowed', () => {
   });
 
   describe('invalid URL handling', () => {
-    it('should allow config with invalid URL (treated as stdio)', async () => {
+    it('should reject config with invalid URL when allowlist is active (fail-closed)', async () => {
       const config = { url: 'not-a-valid-url' };
-      expect(await isMCPDomainAllowed(config, ['example.com'])).toBe(true);
+      expect(await isMCPDomainAllowed(config, ['example.com'])).toBe(false);
+    });
+
+    it('should allow config with invalid URL when no allowlist (fall through to SSRF)', async () => {
+      const config = { url: 'not-a-valid-url' };
+      // Without allowlist, unparseable URLs fall through to connection-level SSRF protection
+      expect(await isMCPDomainAllowed(config, null)).toBe(true);
+    });
+
+    it('should allow config with invalid URL when allowlist is empty', async () => {
+      const config = { url: 'not-a-valid-url' };
+      expect(await isMCPDomainAllowed(config, [])).toBe(true);
     });
   });
 
@@ -1155,5 +1168,124 @@ describe('isMCPDomainAllowed', () => {
         false,
       );
     });
+  });
+});
+
+describe('isPrivateIP — IPv6 link-local fe80::/10 range', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should block fe80::1 (standard link-local)', () => {
+    expect(isPrivateIP('fe80::1')).toBe(true);
+  });
+
+  it('should block fe80::1%eth0 variants after normalization', () => {
+    // fe80 addresses in full form
+    expect(isPrivateIP('fe80:0000:0000:0000:0000:0000:0000:0001')).toBe(true);
+  });
+
+  it('should block febf:: (upper end of fe80::/10 range)', () => {
+    expect(isPrivateIP('febf::1')).toBe(true);
+  });
+
+  it('should block fea0::1 (within fe80::/10)', () => {
+    expect(isPrivateIP('fea0::1')).toBe(true);
+  });
+
+  it('should NOT block fec0:: (outside fe80::/10, in deprecated site-local)', () => {
+    // fec0::/10 is deprecated site-local, NOT in fe80::/10
+    expect(isPrivateIP('fec0::1')).toBe(false);
+  });
+
+  it('should NOT block fe00:: (outside fe80::/10)', () => {
+    expect(isPrivateIP('fe00::1')).toBe(false);
+  });
+});
+
+describe('isOAuthUrlAllowed', () => {
+  it('should return false when no allowedDomains', () => {
+    expect(isOAuthUrlAllowed('https://example.com', null)).toBe(false);
+    expect(isOAuthUrlAllowed('https://example.com', [])).toBe(false);
+  });
+
+  it('should match hostname against allowedDomains', () => {
+    expect(isOAuthUrlAllowed('https://example.com/callback', ['example.com'])).toBe(true);
+  });
+
+  it('should match wildcard domains', () => {
+    expect(isOAuthUrlAllowed('https://auth.example.com/callback', ['*.example.com'])).toBe(true);
+  });
+
+  it('should reject non-matching domains', () => {
+    expect(isOAuthUrlAllowed('https://evil.com/callback', ['example.com'])).toBe(false);
+  });
+
+  it('should enforce protocol restrictions', () => {
+    expect(isOAuthUrlAllowed('http://example.com/callback', ['https://example.com'])).toBe(false);
+    expect(isOAuthUrlAllowed('https://example.com/callback', ['https://example.com'])).toBe(true);
+  });
+
+  it('should enforce port restrictions', () => {
+    expect(
+      isOAuthUrlAllowed('https://example.com:8443/callback', ['https://example.com:8443']),
+    ).toBe(true);
+    expect(
+      isOAuthUrlAllowed('https://example.com:9000/callback', ['https://example.com:8443']),
+    ).toBe(false);
+  });
+
+  it('should return false for unparseable URL', () => {
+    expect(isOAuthUrlAllowed('not-a-url', ['example.com'])).toBe(false);
+  });
+});
+
+describe('validateEndpointURL', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (lookup as jest.Mock).mockResolvedValue([{ address: '203.0.113.1', family: 4 }]);
+  });
+
+  it('should accept a valid public HTTPS URL', async () => {
+    await expect(validateEndpointURL('https://api.openai.com/v1', 'openAI')).resolves.toBeUndefined();
+  });
+
+  it('should accept a valid public HTTP URL', async () => {
+    await expect(validateEndpointURL('http://api.example.com/v1', 'custom')).resolves.toBeUndefined();
+  });
+
+  it('should reject an unparseable URL', async () => {
+    await expect(validateEndpointURL('not-a-url', 'custom')).rejects.toThrow('unable to parse URL');
+  });
+
+  it('should reject non-HTTP(S) schemes', async () => {
+    await expect(validateEndpointURL('ftp://files.example.com', 'custom')).rejects.toThrow(
+      'only HTTP and HTTPS are permitted',
+    );
+  });
+
+  it('should reject localhost', async () => {
+    await expect(validateEndpointURL('http://localhost:8080/v1', 'custom')).rejects.toThrow(
+      'restricted address',
+    );
+  });
+
+  it('should reject internal hostnames', async () => {
+    await expect(validateEndpointURL('http://redis:6379', 'custom')).rejects.toThrow(
+      'restricted address',
+    );
+  });
+
+  it('should reject private IPs', async () => {
+    await expect(validateEndpointURL('http://192.168.1.1/v1', 'custom')).rejects.toThrow(
+      'restricted address',
+    );
+  });
+
+  it('should reject URLs that resolve to private IPs', async () => {
+    (lookup as jest.Mock).mockResolvedValue([{ address: '10.0.0.1', family: 4 }]);
+    await expect(validateEndpointURL('https://internal.example.com/v1', 'custom')).rejects.toThrow(
+      'restricted address',
+    );
   });
 });

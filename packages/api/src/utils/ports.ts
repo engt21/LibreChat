@@ -1,18 +1,16 @@
+import type { Request } from 'express';
+
 /**
  * Strips port suffix from req.ip for use as a rate-limiter key (IPv4 and IPv6-safe).
  * Bracket notation for the ip property avoids express-rate-limit v8's toString()
  * heuristic that scans for the literal substring "req.ip" (ERR_ERL_KEY_GEN_IPV6).
- *
- * @param {Object} req - Express request object
- * @returns {string|undefined} The IP address without port suffix
  */
-function removePorts(req) {
+export function removePorts(req: Request): string | undefined {
   const ip = req?.['ip'];
   if (!ip) {
     return ip;
   }
 
-  // Bracketed IPv6 (e.g. [::1]:3000) — return contents between brackets
   if (ip.charCodeAt(0) === 91) {
     const close = ip.indexOf(']');
     return close > 0 ? ip.slice(1, close) : ip;
@@ -23,16 +21,14 @@ function removePorts(req) {
     return ip;
   }
 
-  // IPv4 with port (contains '.', suffix is all digits) — strip the port
   if (ip.indexOf('.') !== -1 && hasOnlyDigitsAfter(ip, lastColon + 1)) {
     return ip.slice(0, lastColon);
   }
 
-  // Bare IPv6 (no brackets) — return as-is since colons are part of the address
   return ip;
 }
 
-function hasOnlyDigitsAfter(str, start) {
+function hasOnlyDigitsAfter(str: string, start: number): boolean {
   if (start >= str.length) {
     return false;
   }
@@ -44,5 +40,3 @@ function hasOnlyDigitsAfter(str, start) {
   }
   return true;
 }
-
-module.exports = removePorts;
