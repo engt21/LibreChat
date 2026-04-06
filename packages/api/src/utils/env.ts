@@ -32,6 +32,17 @@ type AllowedUserField = (typeof ALLOWED_USER_FIELDS)[number];
 type SafeUser = Pick<IUser, AllowedUserField>;
 
 /**
+ * Runtime-only shape attached to IUser by OpenID/JWT strategies for token propagation.
+ * Not persisted to the database — carried transiently on the request user object.
+ */
+interface FederatedTokens {
+  access_token?: string;
+  id_token?: string;
+  refresh_token?: string;
+  expires_at?: number;
+}
+
+/**
  * Encodes a string value to be safe for HTTP headers.
  * HTTP headers are restricted to ASCII characters (0-255) per the Fetch API standard.
  * Non-ASCII characters with Unicode values > 255 are Base64 encoded with 'b64:' prefix.
@@ -84,12 +95,12 @@ export function encodeHeaderValue(value: string): string {
  */
 export function createSafeUser(
   user: IUser | null | undefined,
-): Partial<SafeUser> & { federatedTokens?: IUser['federatedTokens'] } {
+): Partial<SafeUser> & { federatedTokens?: FederatedTokens } {
   if (!user) {
     return {};
   }
 
-  const safeUser: Partial<SafeUser> & { federatedTokens?: IUser['federatedTokens'] } = {};
+  const safeUser: Partial<SafeUser> & { federatedTokens?: FederatedTokens } = {};
   for (const field of ALLOWED_USER_FIELDS) {
     if (field in user) {
       safeUser[field] = user[field];
@@ -97,7 +108,8 @@ export function createSafeUser(
   }
 
   if ('federatedTokens' in user) {
-    safeUser.federatedTokens = user.federatedTokens;
+    safeUser.federatedTokens = (user as Record<string, unknown>)
+      .federatedTokens as FederatedTokens;
   }
 
   return safeUser;

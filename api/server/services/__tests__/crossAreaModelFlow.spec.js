@@ -17,14 +17,19 @@ const {
 } = require('~/server/services/ModelAccess');
 
 describe('cross-area: registration + superadmin sync + default model restrictions (VAL-CROSS-001)', () => {
+  // fullModelsConfig represents the complete catalog served to admins.
+  // Non-admin users receive only the subset matching DEFAULT_NON_ADMIN_MODEL_PERMISSIONS.
   const fullModelsConfig = {
-    [EModelEndpoint.openAI]: ['gpt-4o', 'gpt-5', 'gpt-5.1'],
-    [EModelEndpoint.google]: [
-      'gemini-2.5-pro',
-      'gemini-3-flash-preview',
-      'gemini-2.5-flash-lite',
+    [EModelEndpoint.openAI]: ['gpt-4o', 'gpt-5.3-chat-latest', 'gpt-5.4-mini', 'gpt-5.4-nano'],
+    [EModelEndpoint.anthropic]: [
+      'claude-sonnet-4-5',
+      'claude-opus-4',
+      'claude-haiku-4-5',
+      'claude-3',
     ],
+    [EModelEndpoint.google]: ['gemini-2.5-pro', 'gemini-3-flash-preview'],
     [KnownEndpoints.ollama]: ['qwen2.5:latest', 'gptossbigctx:latest'],
+    [KnownEndpoints.xai]: ['grok-4-1-fast', 'grok-3'],
     LiteLLM: ['gemini-2.5-pro', 'gpt-4o'],
     initial: [],
   };
@@ -57,15 +62,25 @@ describe('cross-area: registration + superadmin sync + default model restriction
         modelPermissions: userData.modelPermissions,
       });
 
-      // Should have only gpt-5.1 from OpenAI
-      expect(filteredConfig[EModelEndpoint.openAI]).toEqual(['gpt-5.1']);
-      // Should have only the default Google models
-      expect(filteredConfig[EModelEndpoint.google]).toEqual(
-        expect.arrayContaining(['gemini-3-flash-preview', 'gemini-2.5-flash-lite']),
+      // Should have only the allowlisted OpenAI models (gpt-4o is not in the default allowlist)
+      expect(filteredConfig[EModelEndpoint.openAI]).toEqual([
+        'gpt-5.3-chat-latest',
+        'gpt-5.4-mini',
+        'gpt-5.4-nano',
+      ]);
+      // Should have only the allowlisted Anthropic models (claude-opus-4 is not in default allowlist)
+      expect(filteredConfig[EModelEndpoint.anthropic]).toEqual(
+        expect.arrayContaining(['claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-3']),
       );
-      expect(filteredConfig[EModelEndpoint.google]).not.toContain('gemini-2.5-pro');
+      expect(filteredConfig[EModelEndpoint.anthropic]).not.toContain('claude-opus-4');
+      // Google has no default rule — all models should be filtered out
+      expect(filteredConfig[EModelEndpoint.google]).toEqual([]);
       // Should have all Ollama models (wildcard)
-      expect(filteredConfig[KnownEndpoints.ollama]).toEqual(fullModelsConfig[KnownEndpoints.ollama]);
+      expect(filteredConfig[KnownEndpoints.ollama]).toEqual(
+        fullModelsConfig[KnownEndpoints.ollama],
+      );
+      // xAI should only include the allowlisted model
+      expect(filteredConfig[KnownEndpoints.xai]).toEqual(['grok-4-1-fast']);
       // Should have no LiteLLM models (not in default rules)
       expect(filteredConfig.LiteLLM).toEqual([]);
     });
