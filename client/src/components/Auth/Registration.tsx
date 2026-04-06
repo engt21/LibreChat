@@ -80,6 +80,15 @@ const Registration: React.FC = () => {
     return null;
   }
 
+  // Don't render the form while startup config is still loading or not yet populated.
+  // StartupLayout sets startupConfig via useEffect after the query resolves, so there is
+  // a brief render cycle where isFetching is false but startupConfig is still null.
+  // Without this guard the full registration form would flash before the disabled-
+  // registration redirect fires.
+  if (isFetching || startupConfig == null) {
+    return null;
+  }
+
   const renderInput = (id: string, label: TranslationKeys, type: string, validation: object) => (
     <div className="mb-4">
       <div className="relative">

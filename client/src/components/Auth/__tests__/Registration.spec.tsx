@@ -258,6 +258,25 @@ test('redirects to login when registration is disabled and no invite token', () 
   expect(screen.queryByRole('form', { name: /Registration form/i })).not.toBeInTheDocument();
 });
 
+test('does not render form when startup config is not yet populated (loading gap)', () => {
+  // Simulates the timing gap in StartupLayout: the query has resolved (isFetching=false)
+  // but the startupConfig state has not yet been populated via useEffect, so it is null.
+  // The Registration component must not flash the full form during this gap.
+  window.history.pushState({}, '', '/register');
+  setup({
+    useGetStartupConfigReturnValue: {
+      ...mockStartupConfig,
+      isFetching: false,
+      data: null as unknown as typeof mockStartupConfig.data,
+    },
+  });
+
+  // No redirect fires because the disabled-registration guard requires startupConfig != null
+  expect(mockNavigate).not.toHaveBeenCalled();
+  // The registration form must not render during the config-loading gap
+  expect(screen.queryByRole('form', { name: /Registration form/i })).not.toBeInTheDocument();
+});
+
 test('renders registration form when registration is disabled but invite token is present', () => {
   window.history.pushState({}, '', '/register?token=valid-invite-token');
   const { getByRole } = setup({
