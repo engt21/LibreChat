@@ -661,6 +661,14 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
       );
     }
 
+    // Images in context mode should always preserve the image attachment for
+    // vision-capable models even when OCR is not configured.  Without this
+    // guard the image falls through to the text/parseText path which reads
+    // the raw binary producing an unintelligible dump (VAL-FILES-002).
+    if (file.mimetype.startsWith('image/')) {
+      return await createImageContextFile({ text: '' });
+    }
+
     const shouldUseSTT = fileConfig.checkType(
       file.mimetype,
       fileConfig.stt?.supportedMimeTypes || [],
@@ -710,6 +718,7 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
       file,
       file_id,
       entity_id,
+      endpointType: metadata.endpointType || metadata.endpoint,
     });
 
     fileInfoMetadata = removeNullishValues({

@@ -62,6 +62,7 @@ const deleteVectors = async (req, file) => {
  *                                     have a `path` property that points to the location of the uploaded file.
  * @param {string} params.file_id - The file ID.
  * @param {string} [params.entity_id] - The entity ID for shared resources.
+ * @param {string} [params.endpointType] - The endpoint type hint for RAG provider resolution.
  * @param {Object} [params.storageMetadata] - Storage metadata for dual storage pattern.
  *
  * @returns {Promise<{ filepath: string, bytes: number }>}
@@ -69,8 +70,11 @@ const deleteVectors = async (req, file) => {
  *            - filepath: The path where the file is saved.
  *            - bytes: The size of the file in bytes.
  */
-async function uploadVectors({ req, file, file_id, entity_id, storageMetadata }) {
-  const { provider, model, ragApiUrl, headers: ragHeaders } = await getRagRequestConfig({ req });
+async function uploadVectors({ req, file, file_id, entity_id, endpointType, storageMetadata }) {
+  const { provider, model, ragApiUrl, headers: ragHeaders } = await getRagRequestConfig({
+    req,
+    provider: endpointType,
+  });
 
   if (!ragApiUrl) {
     throw new Error('RAG API URL not defined');
