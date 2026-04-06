@@ -30,6 +30,7 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
+const { getDefaultModelPermissionsForRole } = require('../api/server/services/ModelAccess');
 
 // ---------------------------------------------------------------------------
 // Config
@@ -92,18 +93,12 @@ function hashPassword(plain) {
 }
 
 /**
- * Default model permissions for non-admin validation personas.
- * Mirrors DEFAULT_NON_ADMIN_MODEL_PERMISSIONS in ModelAccess.js.
+ * Returns the canonical default model permissions for non-admin users.
+ * Imported from ModelAccess.js to stay in sync with the application code
+ * rather than maintaining a separate hardcoded copy.
  */
 function defaultNonAdminModelPermissions() {
-  return {
-    enabled: true,
-    rules: [
-      { endpoint: 'openAI', models: ['gpt-5.1'] },
-      { endpoint: 'google', models: ['gemini-3-flash-preview', 'gemini-2.5-flash-lite'] },
-      { endpoint: 'ollama', models: ['*'] },
-    ],
-  };
+  return getDefaultModelPermissionsForRole('USER');
 }
 
 // ---------------------------------------------------------------------------

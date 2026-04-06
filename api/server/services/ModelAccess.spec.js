@@ -65,28 +65,22 @@ describe('ModelAccess', () => {
       const result = applyDefaultModelPermissions({ email: 'user@example.com' });
       expect(result.modelPermissions.enabled).toBe(true);
       const endpoints = result.modelPermissions.rules.map((r) => r.endpoint).sort();
-      expect(endpoints).toEqual([
-        'anthropic',
-        'azureOpenAI',
-        'ollama',
-        'openAI',
-        'xai',
+      expect(endpoints).toEqual(['anthropic', 'azureOpenAI', 'ollama', 'openAI', 'xai']);
+      expect(result.modelPermissions.rules.find((r) => r.endpoint === 'ollama').models).toEqual([
+        '*',
       ]);
-      expect(
-        result.modelPermissions.rules.find((r) => r.endpoint === 'ollama').models,
-      ).toEqual(['*']);
       expect(
         result.modelPermissions.rules.find((r) => r.endpoint === 'azureOpenAI').models,
       ).toEqual(['*']);
-      expect(
-        result.modelPermissions.rules.find((r) => r.endpoint === 'xai').models,
-      ).toEqual(['grok-4-1-fast']);
-      expect(
-        result.modelPermissions.rules.find((r) => r.endpoint === 'openAI').models,
-      ).toEqual(expect.arrayContaining(['gpt-5.4-mini', 'gpt-5.4-nano']));
-      expect(
-        result.modelPermissions.rules.find((r) => r.endpoint === 'anthropic').models,
-      ).toEqual(expect.arrayContaining(['claude-sonnet-4-5', 'claude-sonnet-4-6']));
+      expect(result.modelPermissions.rules.find((r) => r.endpoint === 'xai').models).toEqual([
+        'grok-4-1-fast',
+      ]);
+      expect(result.modelPermissions.rules.find((r) => r.endpoint === 'openAI').models).toEqual(
+        expect.arrayContaining(['gpt-5.4-mini', 'gpt-5.4-nano']),
+      );
+      expect(result.modelPermissions.rules.find((r) => r.endpoint === 'anthropic').models).toEqual(
+        expect.arrayContaining(['claude-sonnet-4-5', 'claude-sonnet-4-6']),
+      );
     });
 
     it('keeps admins unrestricted by default', () => {
@@ -250,6 +244,82 @@ describe('ModelAccess', () => {
         text: 'Illegal model request',
       });
       expect(logViolation).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('first-session default-model alignment (VAL-MODEL-001, VAL-CROSS-001)', () => {
+    it('all auth paths apply the same default allowlist for new non-admin users', () => {
+      // Simulates the user data shapes from different auth strategies
+      // before they call applyDefaultModelPermissions:
+      const localRegistration = { email: 'local@example.com', role: SystemRoles.USER };
+      const openidNewUser = { email: 'openid@example.com', provider: 'openid' };
+      const ldapNewUser = { email: 'ldap@example.com', provider: 'ldap', role: SystemRoles.USER };
+      const samlNewUser = { email: 'saml@example.com', provider: 'saml' };
+      const socialNewUser = { email: 'social@example.com', provider: 'google' };
+      const invitedUser = { email: 'invited@example.com', role: SystemRoles.USER };
+
+      const results = [
+        applyDefaultModelPermissions(localRegistration),
+        applyDefaultModelPermissions(openidNewUser),
+        applyDefaultModelPermissions(ldapNewUser),
+        applyDefaultModelPermissions(samlNewUser),
+        applyDefaultModelPermissions(socialNewUser),
+        applyDefaultModelPermissions(invitedUser),
+      ];
+
+      // All should receive the same normalized default allowlist
+      const expectedPerms = getDefaultModelPermissionsForRole(SystemRoles.USER);
+      for (const result of results) {
+        expect(result.modelPermissions).toEqual(expectedPerms);
+      }
+    });
+
+    it('getDefaultModelPermissionsForRole(USER) includes the documented endpoints', () => {
+      const perms = getDefaultModelPermissionsForRole(SystemRoles.USER);
+      expect(perms.enabled).toBe(true);
+
+      const endpointMap = new Map(perms.rules.map((r) => [r.endpoint, r.models]));
+
+      // Documented in CUSTOMIZATION_MASTER_DOC.md and README.md
+      expect(endpointMap.has('azureOpenAI')).toBe(true);
+      expect(endpointMap.get('azureOpenAI')).toEqual(['*']);
+
+      expect(endpointMap.has('ollama')).toBe(true);
+      expect(endpointMap.get('ollama')).toEqual(['*']);
+
+      expect(endpointMap.has('openAI')).toBe(true);
+      expect(endpointMap.get('openAI')).toEqual(
+        expect.arrayContaining(['gpt-5.3-chat-latest', 'gpt-5.4-mini', 'gpt-5.4-nano']),
+      );
+
+      expect(endpointMap.has('anthropic')).toBe(true);
+      expect(endpointMap.get('anthropic')).toEqual(
+        expect.arrayContaining(['claude-sonnet-4-5', 'claude-sonnet-4-6', 'claude-haiku-4-5']),
+      );
+      // No opus
+      expect(endpointMap.get('anthropic')).not.toEqual(expect.arrayContaining(['claude-opus-4']));
+
+      expect(endpointMap.has('xai')).toBe(true);
+      expect(endpointMap.get('xai')).toEqual(['grok-4-1-fast']);
+    });
+
+    it('superadmin sync after creation does not leave stale model restrictions in behavior', () => {
+      // When a superadmin is created through OpenID/LDAP without a role field,
+      // applyDefaultModelPermissions sets restricted defaults. After syncUserSuperAdminStatus
+      // promotes the role to ADMIN, hasModelRestrictions must still return false.
+      const newUser = applyDefaultModelPermissions({ email: 'admin@example.com' });
+      expect(newUser.modelPermissions.enabled).toBe(true);
+
+      // Simulate promotion
+      newUser.role = SystemRoles.ADMIN;
+
+      // Behavior gate: admin role bypasses restriction checks
+      expect(
+        filterModelsConfigForUser(modelsConfig, {
+          role: newUser.role,
+          modelPermissions: newUser.modelPermissions,
+        }),
+      ).toEqual(modelsConfig);
     });
   });
 });

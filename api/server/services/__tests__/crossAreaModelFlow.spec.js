@@ -122,6 +122,44 @@ describe('cross-area: registration + superadmin sync + default model restriction
     });
   });
 
+  describe('invited user provisioning (VAL-CROSS-001)', () => {
+    it('invited non-admin user gets the same default restrictions as registration', () => {
+      const registeredUser = applyDefaultModelPermissions({
+        email: 'registered@example.com',
+        role: SystemRoles.USER,
+      });
+      const invitedUser = applyDefaultModelPermissions({
+        email: 'invited@example.com',
+        role: SystemRoles.USER,
+      });
+
+      expect(invitedUser.modelPermissions).toEqual(registeredUser.modelPermissions);
+    });
+
+    it('invited user filtering matches registered user filtering', () => {
+      const invitedData = applyDefaultModelPermissions({
+        email: 'invited@example.com',
+        role: SystemRoles.USER,
+      });
+      const filteredConfig = filterModelsConfigForUser(fullModelsConfig, {
+        role: SystemRoles.USER,
+        modelPermissions: invitedData.modelPermissions,
+      });
+
+      // Should match the same restrictions as a normally registered user
+      expect(filteredConfig[EModelEndpoint.openAI]).toEqual([
+        'gpt-5.3-chat-latest',
+        'gpt-5.4-mini',
+        'gpt-5.4-nano',
+      ]);
+      expect(filteredConfig[EModelEndpoint.google]).toEqual([]);
+      expect(filteredConfig[KnownEndpoints.ollama]).toEqual(
+        fullModelsConfig[KnownEndpoints.ollama],
+      );
+      expect(filteredConfig[KnownEndpoints.xai]).toEqual(['grok-4-1-fast']);
+    });
+  });
+
   describe('hasModelRestrictions aligns with role', () => {
     it('restricted user has model restrictions', () => {
       const userData = applyDefaultModelPermissions({ email: 'user@example.com' });

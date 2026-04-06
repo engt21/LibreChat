@@ -53,6 +53,7 @@
 - 🤖 **AI Model Selection**:
   - Anthropic (Claude), AWS Bedrock, OpenAI, Azure OpenAI, Google, Vertex AI, OpenAI Responses API (incl. Azure)
   - [Custom Endpoints](https://www.librechat.ai/docs/quick_start/custom_endpoints): Use any OpenAI-compatible API with LibreChat, no proxy required
+  - This branch adds xAI/Grok custom-endpoint live discovery and capability-aware settings: [./XAI_CUSTOM_ENDPOINTS.md](./XAI_CUSTOM_ENDPOINTS.md)
   - Compatible with [Local & Remote AI Providers](https://www.librechat.ai/docs/configuration/librechat_yaml/ai_endpoints):
     - Ollama, groq, Cohere, Mistral AI, Apple MLX, koboldcpp, together.ai,
     - OpenRouter, Helicone, Perplexity, ShuttleAI, Deepseek, Qwen, and more
@@ -82,6 +83,7 @@
   - Search the internet and retrieve relevant information to enhance your AI context
   - Includes native provider web search for supported model-chat flows such as OpenAI/Azure Responses API `web_search` and Google Gemini `googleSearch`
   - Includes native provider web search for supported models such as Google Gemini with Grounding with Google Search
+  - Includes xAI-native `web_search` for detected xAI custom endpoints using the Responses-style parameter surface
   - Includes Ollama-hosted `web_search` / `web_fetch` modes for the dedicated `Ollama` custom endpoint
   - Grounded Gemini replies can reuse LibreChat's inline citation markers and `Sources` UI when grounding metadata is returned by the provider
   - Combines search providers, content scrapers, and result rerankers for optimal results
@@ -160,6 +162,9 @@ Documentation:
   - Chat hands-free with Speech-to-Text and Text-to-Speech
   - Automatically send and play Audio
   - Supports OpenAI, Azure OpenAI, and Elevenlabs
+  - This branch also adds provider-brokered realtime voice sessions for OpenAI, Azure OpenAI, Gemini Live, and xAI-compatible endpoints
+  - Background audio/video file transcription with OpenAI models (whisper-1, gpt-4o-transcribe, gpt-4o-mini-transcribe, gpt-4o-transcribe-diarize): upload any audio or video file and a persistent conversation is created with the transcript; supports model/prompt selection, file chunking for large files, and speaker diarization
+  - **Realtime guide:** [./REALTIME_VOICE.md](./REALTIME_VOICE.md)
 
 - 📥 **Import & Export Conversations**:
   - Import Conversations from LibreChat, ChatGPT, Chatbot UI
@@ -244,16 +249,35 @@ If either path is accidentally created as a directory, `litellm` will fail to st
 
 ### Start the full local stack
 
-Default local image from current repo source:
+Recommended dual-rail startup from current repo source:
 
 ```bash
-cd /pool/home/timeng/LibreChat
-docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build
+cd /pool/home/timeng/LibreChat-custom
+./local-services/start-all.sh stable
+./local-services/start-all.sh dev
+```
+
+Use `stable` as the primary rail (`r1`, `:3080`) and `dev` as the validation / warm rollover rail (`r2`, `:3081`).
+Validate on `dev` first, keep `stable` serving traffic, and only rebuild `stable` after the `dev` rail passes.
+
+Manual compose equivalent for a single rail:
+
+```bash
+cd /pool/home/timeng/LibreChat-custom
+docker compose -f docker-compose.yml -f docker-compose.local.override.yml up -d --build --force-recreate
 docker compose -f "/pool/home/timeng/librechat_exporter/prometheus-dev/docker-compose.yml" up -d
-docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
+LIBRECHAT_LOG_DIR=/pool/home/timeng/LibreChat-custom/logs docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
 ```
 
 This is the default path agents should use. It builds `librechat-local:latest` from `Dockerfile`, so the running container includes the latest local backend, frontend, and shared-package changes from this checkout.
+
+`docker-compose.local.override.yml` is intentionally checked into this worktree so restart/rebuild flows do not depend on the upstream-sync worktree's `docker-compose.override.yml` symlink.
+
+The local override also starts `langfuse-model-pricing-sync`, which continuously seeds missing Langfuse model pricing from this branch's configured provider model lists, custom endpoint defaults, generalized xAI/Grok family patterns, and free local Ollama models. The same service also loads `./langfuse/.env` so it can backfill historical Langfuse generations in ClickHouse when pricing or token counts were missing at ingest time. LibreChat and Touchdown Azure traces now use `azure-openai/<deployment>` Langfuse model aliases, and the shared pricing config for those aliases belongs in `./langfuse/.env` via `AZURE_OPENAI_MODELS` plus optional `LANGFUSE_MODEL_ALIAS_MAP` entries.
+
+The Grafana/Loki sidecar should always follow `/pool/home/timeng/LibreChat-custom/logs` for this worktree so Grafana shows the current customization-stack logs. The same Promtail stack also mounts `/pool/home/timeng/touchdown/logs` and `/pool/home/timeng/touchdown/logs_backward` by default so the shared Grafana/Loki environment covers Touchdown and Backwards Touchdown too.
+
+The Langfuse stack on port `3000` is also the shared tracing backend for Touchdown host runtimes. Reuse the same `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` values from `./langfuse/.env` when wiring Touchdown services, and use a `LANGFUSE_BASE_URL` that is reachable from both host processes and optional containers.
 
 The linked dashboards then resolve on the same host as LibreChat:
 
@@ -265,65 +289,108 @@ The linked dashboards then resolve on the same host as LibreChat:
 Stock upstream app image, only when explicitly requested:
 
 ```bash
-cd /pool/home/timeng/LibreChat
+cd /pool/home/timeng/LibreChat-custom
 docker compose -f docker-compose.yml up -d
 docker compose -f "/pool/home/timeng/librechat_exporter/prometheus-dev/docker-compose.yml" up -d
-docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
+LIBRECHAT_LOG_DIR=/pool/home/timeng/LibreChat-custom/logs TOUCHDOWN_LOG_DIR=/pool/home/timeng/touchdown/logs TOUCHDOWN_BACKWARDS_LOG_DIR=/pool/home/timeng/touchdown/logs_backward docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
 ```
 
 Optional admin-only patched-remote fast path:
 
 ```bash
-cd /pool/home/timeng/LibreChat
-docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.remote-patched.override.yml up -d --build
+cd /pool/home/timeng/LibreChat-custom
+docker compose -f docker-compose.yml -f docker-compose.local.override.yml -f docker-compose.remote-patched.override.yml up -d --build --force-recreate
 docker compose -f "/pool/home/timeng/librechat_exporter/prometheus-dev/docker-compose.yml" up -d
-docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
+LIBRECHAT_LOG_DIR=/pool/home/timeng/LibreChat-custom/logs TOUCHDOWN_LOG_DIR=/pool/home/timeng/touchdown/logs TOUCHDOWN_BACKWARDS_LOG_DIR=/pool/home/timeng/touchdown/logs_backward docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
 ```
 
 ### Restart the full local stack
 
+Preferred warm-rollover workflow:
+
 ```bash
-cd /pool/home/timeng/LibreChat
-docker compose -f docker-compose.yml -f docker-compose.override.yml down
-docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build
+cd /pool/home/timeng/LibreChat-custom
+./local-services/start-all.sh dev
+./local-services/status-all.sh all
+# validate dev on :3081 while stable stays live on :3080
+./local-services/start-all.sh stable
+./local-services/status-all.sh all
+```
+
+That keeps `dev` (`r2`) warm while `stable` (`r1`) is rebuilt.
+
+Manual full restart:
+
+```bash
+cd /pool/home/timeng/LibreChat-custom
+docker compose -f docker-compose.yml -f docker-compose.local.override.yml down
+docker compose -f docker-compose.yml -f docker-compose.local.override.yml up -d --build --force-recreate
 docker compose -f "/pool/home/timeng/librechat_exporter/prometheus-dev/docker-compose.yml" down
 docker compose -f "/pool/home/timeng/librechat_exporter/prometheus-dev/docker-compose.yml" up -d
 docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" down
-docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
+LIBRECHAT_LOG_DIR=/pool/home/timeng/LibreChat-custom/logs TOUCHDOWN_LOG_DIR=/pool/home/timeng/touchdown/logs TOUCHDOWN_BACKWARDS_LOG_DIR=/pool/home/timeng/touchdown/logs_backward docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
 ```
 
 ### Quick verification
 
 ```bash
+cd /pool/home/timeng/LibreChat-custom
+./local-services/status-all.sh all
 curl -fsS http://127.0.0.1:3080 >/dev/null && echo "LibreChat OK"
+curl -fsS http://127.0.0.1:3081 >/dev/null && echo "LibreChat dev OK"
 curl -fsS http://192.168.50.201:11434/api/tags >/dev/null && echo "Remote Ollama OK"
 systemctl --user is-active librechat-ollama-keepwarm.timer >/dev/null && echo "Ollama keep-warm timer OK"
 status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3080/api/admin/permissions)
 if [ "$status" = "401" ] || [ "$status" = "403" ]; then echo "Admin route exists"; fi
 schedule_status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3080/api/schedules)
 if [ "$schedule_status" = "401" ]; then echo "Scheduled runs route exists"; fi
+realtime_status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3080/api/realtime/models)
+if [ "$realtime_status" = "401" ]; then echo "Realtime route exists"; fi
+realtime_status_dev=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3081/api/realtime/models)
+if [ "$realtime_status_dev" = "401" ]; then echo "Realtime dev route exists"; fi
 curl -fsS http://127.0.0.1:3000 >/dev/null && echo "Langfuse OK"
 curl -fsS http://127.0.0.1:9090/-/ready >/dev/null && echo "Prometheus OK"
 curl -fsS http://127.0.0.1:3100/ready >/dev/null && echo "Loki OK"
 curl -fsS http://127.0.0.1:3001 >/dev/null && echo "Grafana OK"
 ```
 
-- The default local app image definition lives in `Dockerfile` and is wired into `docker-compose.override.yml`.
+### Realtime voice notes
+
+- Realtime voice lives behind the chat-input **Realtime Voice** dialog.
+- The microphone remains disabled until a realtime session is connected.
+- If the dialog shows a provider as unavailable, save the required provider key first, then reopen the dialog.
+- Full setup and troubleshooting: [./REALTIME_VOICE.md](./REALTIME_VOICE.md)
+
+- The default local app image definition lives in `Dockerfile` and is wired into `docker-compose.local.override.yml`.
 - If you ask an agent to start or restart LibreChat locally, it should use the default local-build path above instead of the published upstream image.
 - MongoDB data persists across rebuilds through `./data-node:/data/db` from `docker-compose.yml`.
 
 For the admin-only patched-remote reference, see `PATCHED_REMOTE_IMAGE_REFERENCE.md`. For the current default local workflow, see `LOCAL_SERVICE_RUNBOOK.local.md`.
+
+### MCP interoperability notes for this branch
+
+This branch includes additional MCP compatibility work beyond upstream LibreChat.
+
+- Bare no-input MCP tool schemas are normalized to include `properties: {}` before OpenAI-compatible tool calling so GPT-5 style function validation accepts them.
+- Arcade-style OAuth refresh now uses protected-resource `authorization_servers` metadata to discover the token endpoint instead of guessing from the MCP server path.
+- MCP OAuth callbacks now resolve from `DOMAIN_SERVER` first, then forwarded/request host data. The local Docker override sets `DOMAIN_SERVER=http://localhost:${PORT:-3080}` so local Arcade Microsoft OAuth can use the loopback redirect exception.
+- Live local validation connected to Arcade `microsoft-tools`, listed 24 tools, and advanced `MicrosoftOnedrive_WhoAmI` plus `MicrosoftOnedrive_GetMyDrive` to provider authorization prompts instead of LibreChat MCP initialization errors.
+
+For the detailed local-runtime version of these notes, see `README.local.md` and `CUSTOMIZATION_MASTER_DOC.md`.
 
 ### Default model access for new non-admin users
 
 This local setup now assigns default per-user model restrictions to newly created non-admin accounts instead of globally shrinking the configured provider model lists.
 
 - Default new non-admin access:
-  - `openAI`: `gpt-5.1`
-  - `google`: `gemini-3-flash-preview`, `gemini-2.5-flash-lite`
+  - `azureOpenAI`: all models
   - `ollama`: all discovered Ollama models
+  - `openAI`: `gpt-5.3-chat-latest`, `gpt-5.4-mini`, `gpt-5.4-nano`
+  - `anthropic`: Claude Sonnet 4.5/4.6, all Haiku, all Claude 3.x (no Opus)
+  - `xai`: `grok-4-1-fast`
 - Admins keep the full configured model catalog.
 - Existing users are not changed automatically.
+- The canonical default allowlist is defined in `api/server/services/ModelAccess.js` (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`).
 
 Use the admin console `Users -> Model access` controls if you want to override a specific user's defaults after account creation.
 
@@ -347,6 +414,75 @@ The Google endpoint now supports API-driven Gemini model discovery and capabilit
 If you still want a fixed Google model list, keep using `GOOGLE_MODELS`; the manual env var continues to override live discovery.
 
 If grounding is enabled but a reply still looks stale, verify that the selected Gemini model supports Google Search grounding, then retry with a fresh prompt that clearly needs current web information. Gemini may decide not to search on every prompt even when the toggle is enabled.
+
+### Google authentication modes
+
+This branch supports three Google/Vertex AI authentication modes for chat, realtime voice, and image generation:
+
+- **API key**: set `GOOGLE_KEY` or save a user key in LibreChat settings (default behavior)
+- **Vertex AI service account**: set `GOOGLE_AUTH_MODE=vertex_service_account` and provide a service account JSON via `GOOGLE_SERVICE_KEY_FILE` or by uploading it in the Google endpoint settings UI
+- **Vertex AI application default credentials (ADC)**: set `GOOGLE_AUTH_MODE=vertex_application_default` and ensure `GOOGLE_APPLICATION_CREDENTIALS` is set or `gcloud auth application-default login` has been run on the host
+
+If `GOOGLE_AUTH_MODE` is omitted, LibreChat auto-detects from `GOOGLE_KEY` → `GOOGLE_SERVICE_KEY_FILE` → `GOOGLE_APPLICATION_CREDENTIALS`. Vertex modes also require a Google Cloud project ID (auto-detected from service account JSON, or set via `GOOGLE_VERTEX_PROJECT` / `GOOGLE_CLOUD_PROJECT`). Region defaults to `us-central1` unless overridden by `GOOGLE_VERTEX_LOCATION`.
+
+The Google endpoint settings dialog includes an auth mode dropdown with conditional field rendering based on the selected mode.
+
+### xAI custom endpoint discovery and settings notes
+
+LibreChat now gives detected xAI custom endpoints their own live model discovery and capability-aware settings flow instead of treating them as a generic OpenAI-compatible endpoint.
+
+- xAI endpoints are auto-detected from an `xai` endpoint name, an `*.x.ai` base URL, or an explicit `customParams.defaultParamsEndpoint: 'xai'` override.
+- Detected xAI endpoints with `models.fetch: true` query `${baseURL}/language-models` and build the picker from text-compatible models only.
+- xAI aliases are preserved in the local capability map, so canonical IDs and current alias names both resolve correctly in the picker/settings flow.
+- Startup config now includes `xaiModelCapabilities` per custom endpoint, and cached startup/model config refreshes xAI capabilities and model lists on later requests.
+- The xAI settings surface exposes `temperature`, `top_p`, `max_tokens`, `stop`, `imageDetail`, `reasoning_effort`, `useResponsesApi`, `web_search`, `verbosity`, and `disableStreaming`.
+- Unsupported controls stay visible but become read-only with an inline reason in the endpoint settings modal, the normal parameter side panel, and the agent model panel.
+- `reasoning_effort` is only enabled for `grok-3-mini*` models.
+- reasoning-capable xAI models disable `stop`, and multi-agent Grok 4.20 models disable `max_tokens`.
+- xAI requests default to Responses API semantics and strip unsupported fields such as penalties on Responses-style requests, unsupported reasoning effort, and multi-agent output-token limits.
+
+Recommended custom-endpoint pattern:
+
+```yaml
+endpoints:
+  custom:
+    - name: 'xai'
+      apiKey: '${XAI_API_KEY}'
+      baseURL: 'https://api.x.ai/v1'
+      customParams:
+        defaultParamsEndpoint: 'xai'
+      models:
+        fetch: true
+```
+
+The local customization runtime now also includes a dedicated `xai` custom endpoint in `librechat.yaml` with a user-provided key flow, bootstrap default models, and `fetch: true`. That keeps xAI visible before a key is entered, then automatically refreshes the selector from `/language-models` after the user saves their xAI key.
+
+If you proxy xAI through a non-`x.ai` hostname, force the xAI settings profile explicitly:
+
+```yaml
+endpoints:
+  custom:
+    - name: 'My Grok Proxy'
+      apiKey: '${XAI_API_KEY}'
+      baseURL: 'https://my-proxy.example.com/v1'
+      customParams:
+        defaultParamsEndpoint: 'xai'
+      models:
+        fetch: true
+```
+
+Guide: [./XAI_CUSTOM_ENDPOINTS.md](./XAI_CUSTOM_ENDPOINTS.md)
+
+### Azure direct endpoint notes
+
+LibreChat now supports the built-in `azureOpenAI` endpoint with per-user direct Azure OpenAI or Azure AI Foundry credentials.
+
+- To expose the endpoint for user-managed credentials, set `AZURE_API_KEY=user_provided` and `AZURE_OPENAI_BASEURL=user_provided`.
+- Users can then save an Azure API key plus either an Azure OpenAI base URL such as `https://<resource>.openai.azure.com/openai/v1` or an Azure AI Foundry project URL such as `https://<resource>.services.ai.azure.com/api/projects/<project>/openai/v1`.
+- Model discovery now uses Azure's OpenAI-compatible `GET /models` flow when the configured endpoint supports it.
+- When live discovery is unavailable, the Azure key dialog accepts comma-separated deployment names as a manual fallback.
+- Reopening the Azure settings cog now reloads the saved endpoint, key, and optional deployment list so users can update only the field they need.
+- Saved user-provided Azure configs are loaded into the model picker per user, without overwriting the shared cached model list for other users.
 
 ### Local Ollama model discovery notes
 
@@ -427,6 +563,7 @@ Expected merged `Ollama` picker entries for the current local setup:
 - **Website:** [librechat.ai](https://librechat.ai)
 - **Documentation:** [librechat.ai/docs](https://librechat.ai/docs)
 - **Scheduled Runs Guide:** [./SCHEDULED_RUNS.md](./SCHEDULED_RUNS.md)
+- **xAI Custom Endpoint Guide:** [./XAI_CUSTOM_ENDPOINTS.md](./XAI_CUSTOM_ENDPOINTS.md)
 - **Ollama Web Search Guide:** [./OLLAMA_WEB_SEARCH.md](./OLLAMA_WEB_SEARCH.md)
 - **Ollama Reasoning Guide:** [./OLLAMA_REASONING.md](./OLLAMA_REASONING.md)
 - **Blog:** [librechat.ai/blog](https://librechat.ai/blog)
