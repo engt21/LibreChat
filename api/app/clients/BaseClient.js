@@ -13,6 +13,7 @@ const {
 const {
   Constants,
   ErrorTypes,
+  EToolResources,
   FileSources,
   ContentTypes,
   excludedKeys,
@@ -686,7 +687,12 @@ class BaseClient {
         }
         delete userMessage.image_urls;
       }
-      userMessagePromise = this.saveMessageToDatabase(userMessage, saveOptions, user);
+      userMessagePromise = this.saveMessageToDatabase(userMessage, saveOptions, user).catch(
+        (err) => {
+          logger.error('[BaseClient] Failed to save user message:', err);
+          return {};
+        },
+      );
       this.savedMessageIds.add(userMessage.messageId);
       if (typeof opts?.getReqData === 'function') {
         opts.getReqData({
@@ -960,16 +966,25 @@ class BaseClient {
    * @param {string | null} user
    */
   async saveMessageToDatabase(message, endpointOptions, user = null) {
+    // Snapshot options before any await; disposeClient may set client.options = null
+    // while this method is suspended at an I/O boundary, but the local reference
+    // remains valid (disposeClient nulls the property, not the object itself).
+    const options = this.options;
+    if (!options) {
+      logger.error('[BaseClient] saveMessageToDatabase: client disposed before save, skipping');
+      return {};
+    }
+
     if (this.user && user !== this.user) {
       throw new Error('User mismatch.');
     }
 
-    const hasAddedConvo = this.options?.req?.body?.addedConvo != null;
+    const hasAddedConvo = options?.req?.body?.addedConvo != null;
     const savedMessage = await saveMessage(
-      this.options?.req,
+      options?.req,
       {
         ...message,
-        endpoint: this.options.endpoint,
+        endpoint: options.endpoint,
         unfinished: false,
         user,
         ...(hasAddedConvo && { addedConvo: true }),
@@ -983,20 +998,20 @@ class BaseClient {
 
     const fieldsToKeep = {
       conversationId: message.conversationId,
-      endpoint: this.options.endpoint,
-      endpointType: this.options.endpointType,
+      endpoint: options.endpoint,
+      endpointType: options.endpointType,
       ...endpointOptions,
     };
 
     const existingConvo =
       this.fetchedConvo === true
         ? null
-        : await getConvo(this.options?.req?.user?.id, message.conversationId);
+        : await getConvo(options?.req?.user?.id, message.conversationId);
 
     const unsetFields = {};
     const exceptions = new Set(['spec', 'iconURL']);
     const hasNonEphemeralAgent =
-      isAgentsEndpoint(this.options.endpoint) &&
+      isAgentsEndpoint(options.endpoint) &&
       endpointOptions?.agent_id &&
       !isEphemeralAgentId(endpointOptions.agent_id);
     if (hasNonEphemeralAgent) {
@@ -1018,7 +1033,7 @@ class BaseClient {
       }
     }
 
-    const conversation = await saveConvo(this.options?.req, fieldsToKeep, {
+    const conversation = await saveConvo(options?.req, fieldsToKeep, {
       context: 'api/app/clients/BaseClient.js - saveMessageToDatabase #saveConvo',
       unsetFields,
     });
@@ -1322,6 +1337,18 @@ class BaseClient {
   }
 
   isNativeToolFile(file, resourceType) {
+    const nativeTool = file?.metadata?.nativeTool;
+    if (resourceType) {
+      if (nativeTool === resourceType) {
+        return true;
+      }
+    } else if (
+      nativeTool === EToolResources.execute_code ||
+      nativeTool === EToolResources.file_search
+    ) {
+      return true;
+    }
+
     const nativeTools = this.options.agent?.nativeTools;
     if (!nativeTools || !file?.file_id) {
       return false;

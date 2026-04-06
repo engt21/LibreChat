@@ -1,5 +1,7 @@
 const {
   Constants,
+  isActionTool,
+  actionDelimiter,
   AgentCapabilities,
   defaultAgentCapabilities,
 } = require('librechat-data-provider');
@@ -197,6 +199,30 @@ describe('ToolService - Capability Checking', () => {
       );
 
       expect(enabledCapabilities.has(AgentCapabilities.deferred_tools)).toBe(true);
+    });
+  });
+
+  describe('MCP/action tool classification', () => {
+    it('should classify standard action tools correctly', () => {
+      expect(isActionTool(`getWeather${actionDelimiter}weather_com`)).toBe(true);
+    });
+
+    it('should not classify MCP tools containing _action_ as action tools', () => {
+      // MCP tool whose toolName happens to contain _action_
+      expect(isActionTool('get_action_mcp_srv')).toBe(false);
+    });
+
+    it('should not classify regular MCP tools as action tools', () => {
+      expect(isActionTool('list_items_mcp_server_one')).toBe(false);
+    });
+
+    it('should not classify built-in tools as action tools', () => {
+      expect(isActionTool('web_search')).toBe(false);
+      expect(isActionTool('calculator')).toBe(false);
+    });
+
+    it('should accept action tool with _mcp_ in operationId before _action_', () => {
+      expect(isActionTool('sync_mcp_state_action_api---example---com')).toBe(true);
     });
   });
 });

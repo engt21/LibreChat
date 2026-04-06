@@ -30,6 +30,7 @@ const {
   imageGenTools,
   EModelEndpoint,
   EToolResources,
+  isActionTool,
   actionDelimiter,
   ImageVisionTool,
   openapiToFunction,
@@ -488,7 +489,7 @@ async function loadToolDefinitionsWrapper({ req, res, agent, streamId = null, to
     if (tool === Tools.web_search) {
       return checkCapability(AgentCapabilities.web_search);
     }
-    if (tool.includes(actionDelimiter)) {
+    if (isActionTool(tool)) {
       return actionsEnabled;
     }
     if (!areToolsEnabled) {
@@ -860,7 +861,7 @@ async function loadAgentTools({
     } else if (tool === Tools.web_search) {
       includesWebSearch = checkCapability(AgentCapabilities.web_search);
       return includesWebSearch;
-    } else if (tool.includes(actionDelimiter)) {
+    } else if (isActionTool(tool)) {
       return actionsEnabled;
     } else if (!areToolsEnabled) {
       return false;
@@ -967,7 +968,7 @@ async function loadAgentTools({
 
   agentTools.push(...additionalTools);
 
-  const hasActionTools = _agentTools.some((t) => t.includes(actionDelimiter));
+  const hasActionTools = _agentTools.some((t) => isActionTool(t));
   if (!hasActionTools) {
     return {
       toolRegistry,
@@ -1221,8 +1222,8 @@ async function loadToolsForExecution({
     ? [...new Set([...requestedNonSpecialToolNames, ...ptcOrchestratedToolNames])]
     : requestedNonSpecialToolNames;
 
-  const actionToolNames = allToolNamesToLoad.filter((name) => name.includes(actionDelimiter));
-  const regularToolNames = allToolNamesToLoad.filter((name) => !name.includes(actionDelimiter));
+  const actionToolNames = allToolNamesToLoad.filter((name) => isActionTool(name));
+  const regularToolNames = allToolNamesToLoad.filter((name) => !isActionTool(name));
 
   /** @type {Record<string, unknown>} */
   if (regularToolNames.length > 0) {
