@@ -92,8 +92,9 @@ export const createMemoryTool = ({
   const remainingTokens = tokenLimit ? tokenLimit - totalTokens : Infinity;
   const isOverflowing = tokenLimit ? remainingTokens <= 0 : false;
 
+  // @ts-expect-error – @langchain/core tool() triggers TS2589 (excessively deep type instantiation); safe at runtime
   return tool(
-    async ({ key, value }) => {
+    async ({ key, value }: { key: string; value: string }) => {
       try {
         if (validKeys && validKeys.length > 0 && !validKeys.includes(key)) {
           logger.warn(
@@ -200,8 +201,9 @@ const createDeleteMemoryTool = ({
   deleteMemory: MemoryMethods['deleteMemory'];
   validKeys?: string[];
 }) => {
+  // @ts-expect-error – @langchain/core tool() triggers TS2589 (excessively deep type instantiation); safe at runtime
   return tool(
-    async ({ key }) => {
+    async ({ key }: { key: string }) => {
       try {
         if (validKeys && validKeys.length > 0 && !validKeys.includes(key)) {
           logger.warn(

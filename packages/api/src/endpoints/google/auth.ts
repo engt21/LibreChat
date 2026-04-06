@@ -185,7 +185,7 @@ export async function prepareGoogleCredentials({
 
   const apiKey =
     readString(parsedCredentials[AuthKeys.GOOGLE_API_KEY]) ??
-    (!isUserProvided(rawApiKey) ? readString(rawApiKey) : undefined);
+    (!isUserProvided(rawApiKey ?? undefined) ? readString(rawApiKey) : undefined);
 
   let serviceKey = await parseGoogleServiceKey(parsedCredentials[AuthKeys.GOOGLE_SERVICE_KEY]);
 

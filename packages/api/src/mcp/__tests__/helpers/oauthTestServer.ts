@@ -305,7 +305,8 @@ export async function createOAuthMCPServer(
         sessionIdGenerator: () => randomUUID(),
       });
       const mcp = new McpServer({ name: 'oauth-test-server', version: '0.0.1' });
-      mcp.tool('echo', { message: z.string() }, async (args) => ({
+      // @ts-expect-error – McpServer.tool() triggers TS2589 (excessively deep type instantiation) with current @modelcontextprotocol/sdk types; safe at runtime
+      mcp.tool('echo', { message: z.string() }, async (args: { message: string }) => ({
         content: [{ type: 'text' as const, text: `echo: ${args.message}` }],
       }));
       await mcp.connect(transport);

@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import type { SignOptions } from 'jsonwebtoken';
 
 /**
  * Generate a short-lived JWT token
@@ -7,8 +8,9 @@ import jwt from 'jsonwebtoken';
  * @returns {String} - The generated JWT token
  */
 export const generateShortLivedToken = (userId: string, expireIn: string = '5m'): string => {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET!, {
-    expiresIn: expireIn,
+  const options: SignOptions = {
+    expiresIn: expireIn as SignOptions['expiresIn'],
     algorithm: 'HS256',
-  });
+  };
+  return jwt.sign({ id: userId }, process.env.JWT_SECRET!, options);
 };

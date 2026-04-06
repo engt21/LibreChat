@@ -123,10 +123,11 @@ export function backfillRemoteAgentPermissions(
 
   const { AclEntry, AccessRole, logger } = deps;
 
-  const resourceObjectId =
+  const resourceObjectId = (
     typeof resourceId === 'string' && /^[a-f\d]{24}$/i.test(resourceId)
       ? AclEntry.base.Types.ObjectId.createFromHexString(resourceId)
-      : resourceId;
+      : resourceId
+  ) as Types.ObjectId;
 
   AccessRole.findOne({ accessRoleId: AccessRoleIds.REMOTE_AGENT_OWNER })
     .lean()
