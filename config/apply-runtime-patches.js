@@ -7,6 +7,7 @@ const rootDir = path.resolve(__dirname, '..');
 const agentsDir = path.join(rootDir, 'node_modules', '@librechat', 'agents');
 const langchainOpenAIDir = path.join(rootDir, 'node_modules', '@langchain', 'openai');
 const langfuseLangchainDir = path.join(rootDir, 'node_modules', '@langfuse', 'langchain');
+const librechatApiDir = path.join(rootDir, 'packages', 'api');
 const guardedStreamTargets = new Set([
   'src/stream.ts',
   'dist/esm/stream.mjs',
@@ -801,54 +802,9 @@ var events = require('./utils/events.cjs');`,
       },
     ],
   },
-  // ── Web search action dispatch from output_item.done (Graph.mjs) ──
-  {
-    relativePath: 'dist/esm/graphs/Graph.mjs',
-    replacements: [
-      {
-        from: `            for await (const chunk of stream) {
-                await streamHandler.handle(GraphEvents.CHAT_MODEL_STREAM, { chunk }, metadata, this);
-                finalChunk = finalChunk ? concat(finalChunk, chunk) : chunk;
-            }`,
-        to: `            for await (const chunk of stream) {
-                const toolOutputs = chunk.additional_kwargs?.tool_outputs;
-                if (Array.isArray(toolOutputs)) {
-                    for (const item of toolOutputs) {
-                        if (item.type === 'web_search_call' && item.action) {
-                            await safeDispatchCustomEvent('web_search_action', item.action, config);
-                        }
-                    }
-                }
-                await streamHandler.handle(GraphEvents.CHAT_MODEL_STREAM, { chunk }, metadata, this);
-                finalChunk = finalChunk ? concat(finalChunk, chunk) : chunk;
-            }`,
-      },
-    ],
-  },
-  // ── Web search action dispatch from output_item.done (Graph.cjs) ──
-  {
-    relativePath: 'dist/cjs/graphs/Graph.cjs',
-    replacements: [
-      {
-        from: `            for await (const chunk of stream$2) {
-                await streamHandler.handle(_enum.GraphEvents.CHAT_MODEL_STREAM, { chunk }, metadata, this);
-                finalChunk = finalChunk ? stream$1.concat(finalChunk, chunk) : chunk;
-            }`,
-        to: `            for await (const chunk of stream$2) {
-                const toolOutputs = chunk.additional_kwargs?.tool_outputs;
-                if (Array.isArray(toolOutputs)) {
-                    for (const item of toolOutputs) {
-                        if (item.type === 'web_search_call' && item.action) {
-                            await events.safeDispatchCustomEvent('web_search_action', item.action, config);
-                        }
-                    }
-                }
-                await streamHandler.handle(_enum.GraphEvents.CHAT_MODEL_STREAM, { chunk }, metadata, this);
-                finalChunk = finalChunk ? stream$1.concat(finalChunk, chunk) : chunk;
-            }`,
-      },
-    ],
-  },
+  // ── Graph.mjs/Graph.cjs web_search_action patches removed ──
+  // @librechat/agents ≥3.1.63 includes native web_search_action dispatch in llm/invoke.mjs/cjs,
+  // so the previous Graph.mjs/Graph.cjs patches are no longer needed.
   // ── Fix reasoning item reconstruction to strip id (avoids "required following item" API error) (esm) ──
   {
     relativePath: 'dist/esm/llm/openai/utils/index.mjs',
@@ -1117,7 +1073,36 @@ function applyRuntimePatches(targets = patchTargets) {
       patchFile(target.relativePath, target.replacements, langfuseLangchainDir);
     }
   }
+
+  if (fs.existsSync(librechatApiDir)) {
+    const librechatApiDistDir = path.join(librechatApiDir, 'dist');
+    if (fs.existsSync(librechatApiDistDir)) {
+      for (const target of librechatApiPatchTargets) {
+        patchFile(target.relativePath, target.replacements, librechatApiDir);
+      }
+    } else {
+      console.log('[apply-runtime-patches] Skipping packages/api patches (dist not yet built)');
+    }
+  }
 }
+
+const librechatApiPatchTargets = [
+  {
+    relativePath: 'dist/index.js',
+    replacements: [
+      {
+        description: 'Increase default agent context window fallback from 18000 to 128000 for Ollama/custom endpoints',
+        from: `options.endpointTokenConfig), 18000);`,
+        to: `options.endpointTokenConfig), 128000);`,
+      },
+      {
+        description: 'Increase agent context num fallback from 18000 to 128000',
+        from: `const agentMaxContextNum = Number(agentMaxContextTokens) || 18000;`,
+        to: `const agentMaxContextNum = Number(agentMaxContextTokens) || 128000;`,
+      },
+    ],
+  },
+];
 
 if (require.main === module) {
   applyRuntimePatches();
@@ -1127,11 +1112,13 @@ module.exports = {
   agentsDir,
   langchainOpenAIDir,
   langfuseLangchainDir,
+  librechatApiDir,
   applyReplacement,
   applyRuntimePatches,
   patchFile,
   patchTargets,
   langchainPatchTargets,
   langfusePatchTargets,
+  librechatApiPatchTargets,
   validatePatchedFile,
 };
