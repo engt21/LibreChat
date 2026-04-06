@@ -1082,4 +1082,200 @@ describe('useStepHandler', () => {
       expect(mockSetMessages).not.toHaveBeenCalled();
     });
   });
+
+  describe('on_web_search_status event', () => {
+    it('should add WEB_SEARCH_STATUS content part to the last response message', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const runStep = createRunStep();
+      const submission = createSubmission();
+
+      // First create the response via on_run_step
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: runStep }, submission);
+      });
+
+      mockSetMessages.mockClear();
+
+      // Then dispatch on_web_search_status
+      act(() => {
+        result.current.stepHandler(
+          {
+            event: 'on_web_search_status',
+            data: { id: 'step-1', status: { item_id: 'ws-1', status: 'in_progress' } },
+          },
+          submission,
+        );
+      });
+
+      expect(mockSetMessages).toHaveBeenCalled();
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+      expect(responseMsg.content).toContainEqual(
+        expect.objectContaining({
+          type: ContentTypes.WEB_SEARCH_STATUS,
+          web_search_status: 'in_progress',
+        }),
+      );
+    });
+
+    it('should update existing WEB_SEARCH_STATUS part from in_progress to completed', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const runStep = createRunStep();
+      const submission = createSubmission();
+
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: runStep }, submission);
+      });
+
+      // First in_progress
+      act(() => {
+        result.current.stepHandler(
+          {
+            event: 'on_web_search_status',
+            data: { id: 'step-1', status: { item_id: 'ws-1', status: 'in_progress' } },
+          },
+          submission,
+        );
+      });
+
+      // Then completed
+      act(() => {
+        result.current.stepHandler(
+          {
+            event: 'on_web_search_status',
+            data: { id: 'step-1', status: { item_id: 'ws-1', status: 'completed' } },
+          },
+          submission,
+        );
+      });
+
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+      const statusParts = responseMsg.content.filter(
+        (c: TMessageContentParts) => c?.type === ContentTypes.WEB_SEARCH_STATUS,
+      );
+      expect(statusParts).toHaveLength(1);
+      expect(statusParts[0]).toMatchObject({
+        type: ContentTypes.WEB_SEARCH_STATUS,
+        web_search_status: 'completed',
+      });
+    });
+
+    it('should not block subsequent text deltas at the same index', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const runStep = createRunStep({ index: 0 });
+      const submission = createSubmission();
+
+      // 1) Create the response
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: runStep }, submission);
+      });
+
+      // 2) Web search status arrives first (goes to content array)
+      act(() => {
+        result.current.stepHandler(
+          {
+            event: 'on_web_search_status',
+            data: { id: 'step-1', status: { item_id: 'ws-1', status: 'searching' } },
+          },
+          submission,
+        );
+      });
+
+      // 3) Text delta arrives at runStep.index = 0
+      act(() => {
+        result.current.stepHandler(
+          { event: 'on_message_delta', data: createMessageDelta('step-1', 'Hello world') },
+          submission,
+        );
+      });
+
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+
+      // Both web search status AND text content must be present
+      expect(responseMsg.content).toContainEqual(
+        expect.objectContaining({
+          type: ContentTypes.WEB_SEARCH_STATUS,
+          web_search_status: 'searching',
+        }),
+      );
+      expect(responseMsg.content).toContainEqual(
+        expect.objectContaining({
+          type: ContentTypes.TEXT,
+          text: 'Hello world',
+        }),
+      );
+    });
+
+    it('should default to searching when status is missing', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const runStep = createRunStep();
+      const submission = createSubmission();
+
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: runStep }, submission);
+      });
+
+      mockSetMessages.mockClear();
+
+      act(() => {
+        result.current.stepHandler(
+          {
+            event: 'on_web_search_status',
+            data: { id: 'step-1' },
+          },
+          submission,
+        );
+      });
+
+      expect(mockSetMessages).toHaveBeenCalled();
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+      expect(responseMsg.content).toContainEqual(
+        expect.objectContaining({
+          type: ContentTypes.WEB_SEARCH_STATUS,
+          web_search_status: 'searching',
+        }),
+      );
+    });
+
+    it('should not update when lastMessage is a user message', () => {
+      const userMsg = createUserMessage();
+      mockGetMessages.mockReturnValue([userMsg]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const submission = createSubmission();
+
+      act(() => {
+        result.current.stepHandler(
+          {
+            event: 'on_web_search_status',
+            data: { id: 'step-1', status: { item_id: 'ws-1', status: 'in_progress' } },
+          },
+          submission,
+        );
+      });
+
+      // Should not call setMessages since lastMessage is a user message
+      expect(mockSetMessages).not.toHaveBeenCalled();
+    });
+  });
 });

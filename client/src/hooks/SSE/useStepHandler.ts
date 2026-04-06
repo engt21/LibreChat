@@ -52,6 +52,7 @@ type AllContentTypes =
   | ContentTypes.TOOL_CALL
   | ContentTypes.IMAGE_FILE
   | ContentTypes.IMAGE_URL
+  | ContentTypes.WEB_SEARCH_STATUS
   | ContentTypes.ERROR;
 
 export default function useStepHandler({
@@ -123,8 +124,16 @@ export default function useStepHandler({
       !contentType.startsWith(existingType) &&
       !existingType.startsWith(contentType)
     ) {
-      console.warn('Content type mismatch', { existingType, contentType, index });
-      return message;
+      // When a WEB_SEARCH_STATUS placeholder occupies a slot needed by real content,
+      // relocate the placeholder to the end so it doesn't block text/reasoning/tool deltas.
+      if (existingType === ContentTypes.WEB_SEARCH_STATUS) {
+        const displaced = updatedContent[index];
+        updatedContent[index] = { type: contentPart.type as AllContentTypes };
+        updatedContent.push(displaced as TMessageContentParts);
+      } else {
+        console.warn('Content type mismatch', { existingType, contentType, index });
+        return message;
+      }
     }
 
     if (
@@ -478,6 +487,35 @@ export default function useStepHandler({
           messageMap.current.set(responseMessageId, updatedResponse);
           const currentMessages = getMessages() || [];
           setMessages([...currentMessages.slice(0, -1), updatedResponse]);
+        }
+      } else if (event === 'on_web_search_status') {
+        const statusEvent = data as { id?: string; status?: { item_id?: string; status?: string } };
+        const searchStatus = statusEvent?.status?.status ?? 'searching';
+
+        // Find or create the response message to update
+        const messages = getMessages() || [];
+        const lastMessage = messages[messages.length - 1] as TMessage | undefined;
+        if (lastMessage && !lastMessage.isCreatedByUser) {
+          const content = [...(lastMessage.content || [])] as Array<
+            Partial<TMessageContentParts> | undefined
+          >;
+
+          // Find existing web_search_status part or create one
+          let statusIdx = content.findIndex((c) => c?.type === ContentTypes.WEB_SEARCH_STATUS);
+          if (statusIdx < 0) {
+            statusIdx = content.length;
+          }
+          content[statusIdx] = {
+            type: ContentTypes.WEB_SEARCH_STATUS,
+            web_search_status: searchStatus,
+          } as TMessageContentParts;
+
+          const updatedMessage = {
+            ...lastMessage,
+            content: content as TMessageContentParts[],
+          };
+          messageMap.current.set(lastMessage.messageId, updatedMessage);
+          setMessages([...messages.slice(0, -1), updatedMessage]);
         }
       } else if (event === 'on_run_step_delta') {
         const runStepDelta = data as Agents.RunStepDeltaEvent;
