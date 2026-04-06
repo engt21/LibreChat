@@ -1,0 +1,60 @@
+{
+  "milestone": "misc-pre-cutover",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && npm run test:all",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npm run build",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npx eslint api/ client/src/ packages/api/src/ packages/client/src/ packages/data-provider/src/ packages/data-schemas/src/ config/ --no-cache",
+      "exitCode": 0,
+      "note": "Initial lint run failed with 19 prettier errors; ran `cd /pool/home/timeng/LibreChat-custom && npm run lint:fix` once, then re-ran lint successfully."
+    }
+  },
+  "reviewsSummary": {
+    "total": 6,
+    "passed": 5,
+    "failed": 1,
+    "failedFeatures": [
+      "fix-preexisting-packages-api-test-expectations"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "fix-preexisting-packages-api-test-expectations",
+      "severity": "blocking",
+      "description": "Review found that packages/api/src/web/web.spec.ts was updated to expect SYSTEM_DEFINED for scrapersAuthType in a scenario where non-URL user-provided keys should report USER_PROVIDED, masking a behavior regression in that feature commit snapshot instead of fixing implementation."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skills",
+      "suggestion": "Tighten procedure-compliance evidence: only allow `skillFeedback.followedProcedure=true` when transcript evidence includes required repo-doc reads (README/AGENTS/CUSTOMIZATION docs), or explicitly document a narrow exception policy.",
+      "evidence": "Review reports for stabilize-preexisting-api-fixture-and-env-typing, clean-preexisting-packages-api-type-warnings, restore-web-search-auth-source-reporting, and fix-preexisting-mcp-domain-allowlist-spec each observed missing required repo-doc reads despite followedProcedure=true.",
+      "isSystemic": true
+    },
+    {
+      "target": "skills",
+      "suggestion": "Add an explicit exception path for non-functional test-title/wording cleanup and expectation-alignment work where a strict tests-first step is not meaningful; require reproduce + scope checks instead.",
+      "evidence": "Review reports for rename-stale-scheduledruns-test-titles and fix-preexisting-packages-api-test-expectations flagged procedure mismatch with current 'write/update tests first' wording.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Add a new library note documenting the intermediate SSRF-related auth-source regression history in web auth resolution.",
+      "reason": "Rejected as non-essential now: the behavior was corrected in restore-web-search-auth-source-reporting with direct regression tests, so additional historical library notes are optional rather than required for safe execution."
+    }
+  ],
+  "previousRound": null
+}
