@@ -543,7 +543,8 @@ const patchTargets = [
       },
     };
   } else if (chunk.type === 'response.refusal.done') {`,
-        to: `  } else if (
+        legacy: [
+          `  } else if (
     chunk.type === 'response.web_search_call.in_progress' ||
     chunk.type === 'response.web_search_call.searching'
   ) {
@@ -568,6 +569,36 @@ const patchTargets = [
         : {}),
     };
   } else if (chunk.type === 'response.refusal.done') {`,
+        ],
+        to: `  } else if (
+    chunk.type === 'response.web_search_call.in_progress' ||
+    chunk.type === 'response.web_search_call.searching'
+  ) {
+    generationInfo = {
+      web_search_status: {
+        item_id: chunk.item_id,
+        status: chunk.type.replace('response.web_search_call.', ''),
+      },
+    };
+    response_metadata.web_search_status = generationInfo.web_search_status;
+  } else if (
+    chunk.type === 'response.web_search_call.completed' ||
+    chunk.type === 'response.file_search_call.completed'
+  ) {
+    generationInfo = {
+      tool_outputs: {
+        id: chunk.item_id,
+        type: chunk.type.replace('response.', '').replace('.completed', ''),
+        status: 'completed',
+      },
+      ...(chunk.type === 'response.web_search_call.completed'
+        ? { web_search_status: { item_id: chunk.item_id, status: 'completed' } }
+        : {}),
+    };
+    if (chunk.type === 'response.web_search_call.completed') {
+      response_metadata.web_search_status = { item_id: chunk.item_id, status: 'completed' };
+    }
+  } else if (chunk.type === 'response.refusal.done') {`,
       },
     ],
   },
@@ -587,7 +618,8 @@ const patchTargets = [
         };
     }
     else if (chunk.type === 'response.refusal.done') {`,
-        to: `    else if (chunk.type === 'response.web_search_call.in_progress' ||
+        legacy: [
+          `    else if (chunk.type === 'response.web_search_call.in_progress' ||
         chunk.type === 'response.web_search_call.searching') {
         generationInfo = {
             web_search_status: {
@@ -608,6 +640,34 @@ const patchTargets = [
                 ? { web_search_status: { item_id: chunk.item_id, status: 'completed' } }
                 : {}),
         };
+    }
+    else if (chunk.type === 'response.refusal.done') {`,
+        ],
+        to: `    else if (chunk.type === 'response.web_search_call.in_progress' ||
+        chunk.type === 'response.web_search_call.searching') {
+        generationInfo = {
+            web_search_status: {
+                item_id: chunk.item_id,
+                status: chunk.type.replace('response.web_search_call.', ''),
+            },
+        };
+        response_metadata.web_search_status = generationInfo.web_search_status;
+    }
+    else if (chunk.type === 'response.web_search_call.completed' ||
+        chunk.type === 'response.file_search_call.completed') {
+        generationInfo = {
+            tool_outputs: {
+                id: chunk.item_id,
+                type: chunk.type.replace('response.', '').replace('.completed', ''),
+                status: 'completed',
+            },
+            ...(chunk.type === 'response.web_search_call.completed'
+                ? { web_search_status: { item_id: chunk.item_id, status: 'completed' } }
+                : {}),
+        };
+        if (chunk.type === 'response.web_search_call.completed') {
+            response_metadata.web_search_status = { item_id: chunk.item_id, status: 'completed' };
+        }
     }
     else if (chunk.type === 'response.refusal.done') {`,
       },
@@ -629,7 +689,8 @@ const patchTargets = [
         };
     }
     else if (chunk.type === 'response.refusal.done') {`,
-        to: `    else if (chunk.type === 'response.web_search_call.in_progress' ||
+        legacy: [
+          `    else if (chunk.type === 'response.web_search_call.in_progress' ||
         chunk.type === 'response.web_search_call.searching') {
         generationInfo = {
             web_search_status: {
@@ -650,6 +711,34 @@ const patchTargets = [
                 ? { web_search_status: { item_id: chunk.item_id, status: 'completed' } }
                 : {}),
         };
+    }
+    else if (chunk.type === 'response.refusal.done') {`,
+        ],
+        to: `    else if (chunk.type === 'response.web_search_call.in_progress' ||
+        chunk.type === 'response.web_search_call.searching') {
+        generationInfo = {
+            web_search_status: {
+                item_id: chunk.item_id,
+                status: chunk.type.replace('response.web_search_call.', ''),
+            },
+        };
+        response_metadata.web_search_status = generationInfo.web_search_status;
+    }
+    else if (chunk.type === 'response.web_search_call.completed' ||
+        chunk.type === 'response.file_search_call.completed') {
+        generationInfo = {
+            tool_outputs: {
+                id: chunk.item_id,
+                type: chunk.type.replace('response.', '').replace('.completed', ''),
+                status: 'completed',
+            },
+            ...(chunk.type === 'response.web_search_call.completed'
+                ? { web_search_status: { item_id: chunk.item_id, status: 'completed' } }
+                : {}),
+        };
+        if (chunk.type === 'response.web_search_call.completed') {
+            response_metadata.web_search_status = { item_id: chunk.item_id, status: 'completed' };
+        }
     }
     else if (chunk.type === 'response.refusal.done') {`,
       },
@@ -1091,7 +1180,8 @@ const librechatApiPatchTargets = [
     relativePath: 'dist/index.js',
     replacements: [
       {
-        description: 'Increase default agent context window fallback from 18000 to 128000 for Ollama/custom endpoints',
+        description:
+          'Increase default agent context window fallback from 18000 to 128000 for Ollama/custom endpoints',
         from: `options.endpointTokenConfig), 18000);`,
         to: `options.endpointTokenConfig), 128000);`,
       },

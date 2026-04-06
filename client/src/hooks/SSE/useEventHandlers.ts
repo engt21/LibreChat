@@ -12,6 +12,7 @@ import {
   tMessageSchema,
   tConvoUpdateSchema,
   isAssistantsEndpoint,
+  getOpenAIModelCapabilities,
 } from 'librechat-data-provider';
 import type {
   TMessage,
@@ -352,6 +353,20 @@ export default function useEventHandlers({
         parentMessageId: userMessage.messageId,
         messageId: userMessage.messageId + '_',
       };
+
+      // Proactively insert "Searching the web…" status for search-preview models
+      // (e.g. gpt-4o-search-preview) that always perform web search via the Chat
+      // Completions API and never emit explicit on_web_search_status events.
+      const model = submission?.endpointOption?.model ?? '';
+      if (getOpenAIModelCapabilities(model).isSearchPreviewModel) {
+        initialResponse.content = [
+          {
+            type: ContentTypes.WEB_SEARCH_STATUS,
+            web_search_status: 'searching',
+          } as (typeof initialResponse.content)[0],
+        ];
+      }
+
       if (isRegenerate) {
         setMessages([...messages, initialResponse]);
       } else {

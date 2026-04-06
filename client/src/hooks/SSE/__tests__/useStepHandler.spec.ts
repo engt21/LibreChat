@@ -1205,11 +1205,12 @@ describe('useStepHandler', () => {
       const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
       const responseMsg = lastCall[lastCall.length - 1];
 
-      // Both web search status AND text content must be present
+      // When text displaces the search status, the status is marked as completed
+      // (text arriving means the search phase is done)
       expect(responseMsg.content).toContainEqual(
         expect.objectContaining({
           type: ContentTypes.WEB_SEARCH_STATUS,
-          web_search_status: 'searching',
+          web_search_status: 'completed',
         }),
       );
       expect(responseMsg.content).toContainEqual(
@@ -1276,6 +1277,152 @@ describe('useStepHandler', () => {
 
       // Should not call setMessages since lastMessage is a user message
       expect(mockSetMessages).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('search-preview model proactive status', () => {
+    it('should proactively insert WEB_SEARCH_STATUS for gpt-4o-search-preview on_run_step', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const runStep = createRunStep();
+      const submission = createSubmission({
+        endpointOption: { model: 'gpt-4o-search-preview' } as TEndpointOption,
+      });
+
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: runStep }, submission);
+      });
+
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+      expect(responseMsg.content).toContainEqual(
+        expect.objectContaining({
+          type: ContentTypes.WEB_SEARCH_STATUS,
+          web_search_status: 'searching',
+        }),
+      );
+    });
+
+    it('should proactively insert WEB_SEARCH_STATUS for gpt-4o-mini-search-preview', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const runStep = createRunStep();
+      const submission = createSubmission({
+        endpointOption: { model: 'gpt-4o-mini-search-preview' } as TEndpointOption,
+      });
+
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: runStep }, submission);
+      });
+
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+      expect(responseMsg.content).toContainEqual(
+        expect.objectContaining({
+          type: ContentTypes.WEB_SEARCH_STATUS,
+          web_search_status: 'searching',
+        }),
+      );
+    });
+
+    it('should NOT insert WEB_SEARCH_STATUS for non-search models', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const runStep = createRunStep();
+      const submission = createSubmission({
+        endpointOption: { model: 'gpt-4o' } as TEndpointOption,
+      });
+
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: runStep }, submission);
+      });
+
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+      const searchParts = (responseMsg.content || []).filter(
+        (c: TMessageContentParts) => c?.type === ContentTypes.WEB_SEARCH_STATUS,
+      );
+      expect(searchParts).toHaveLength(0);
+    });
+
+    it('should mark proactive WEB_SEARCH_STATUS as completed when displaced by text delta', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const runStep = createRunStep();
+      const submission = createSubmission({
+        endpointOption: { model: 'gpt-4o-search-preview' } as TEndpointOption,
+      });
+
+      // First, on_run_step creates response with proactive search status
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: runStep }, submission);
+      });
+
+      // Update mockGetMessages to return the current state
+      const afterStep = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      mockGetMessages.mockReturnValue(afterStep);
+
+      // Now text delta arrives and displaces the WEB_SEARCH_STATUS
+      act(() => {
+        result.current.stepHandler(
+          { event: 'on_message_delta', data: createMessageDelta('step-1', 'Hello') },
+          submission,
+        );
+      });
+
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+
+      // Text should be at index 0 (displaced the search status)
+      expect(responseMsg.content[0]).toMatchObject({
+        type: ContentTypes.TEXT,
+        text: 'Hello',
+      });
+
+      // WEB_SEARCH_STATUS should be at the end, marked completed
+      const searchParts = responseMsg.content.filter(
+        (c: TMessageContentParts) => c?.type === ContentTypes.WEB_SEARCH_STATUS,
+      );
+      expect(searchParts).toHaveLength(1);
+      expect(searchParts[0]).toMatchObject({
+        type: ContentTypes.WEB_SEARCH_STATUS,
+        web_search_status: 'completed',
+      });
+    });
+
+    it('should NOT insert WEB_SEARCH_STATUS for tool_calls step type on search models', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const toolCallStep = createToolCallRunStep();
+      const submission = createSubmission({
+        endpointOption: { model: 'gpt-4o-search-preview' } as TEndpointOption,
+      });
+
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: toolCallStep }, submission);
+      });
+
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+      const searchParts = (responseMsg.content || []).filter(
+        (c: TMessageContentParts) => c?.type === ContentTypes.WEB_SEARCH_STATUS,
+      );
+      expect(searchParts).toHaveLength(0);
     });
   });
 });

@@ -5,6 +5,7 @@ import {
   ContentTypes,
   ToolCallTypes,
   getNonEmptyValue,
+  getOpenAIModelCapabilities,
 } from 'librechat-data-provider';
 import type {
   Agents,
@@ -125,9 +126,10 @@ export default function useStepHandler({
       !existingType.startsWith(contentType)
     ) {
       // When a WEB_SEARCH_STATUS placeholder occupies a slot needed by real content,
-      // relocate the placeholder to the end so it doesn't block text/reasoning/tool deltas.
+      // relocate the placeholder to the end and mark it completed so the indicator
+      // fades out once text starts streaming.
       if (existingType === ContentTypes.WEB_SEARCH_STATUS) {
-        const displaced = updatedContent[index];
+        const displaced = { ...updatedContent[index], web_search_status: 'completed' };
         updatedContent[index] = { type: contentPart.type as AllContentTypes };
         updatedContent.push(displaced as TMessageContentParts);
       } else {
@@ -310,6 +312,22 @@ export default function useStepHandler({
             content: mergedContent,
           };
 
+          // Proactively insert web search status for search-preview models
+          // (e.g. gpt-4o-search-preview) that perform search via Chat Completions
+          // and don't emit explicit on_web_search_status events.
+          const model = submission?.endpointOption?.model ?? '';
+          if (
+            runStep.stepDetails.type === StepTypes.MESSAGE_CREATION &&
+            getOpenAIModelCapabilities(model).isSearchPreviewModel
+          ) {
+            const content = [...(response.content || [])] as TMessageContentParts[];
+            content[contentIndex] = {
+              type: ContentTypes.WEB_SEARCH_STATUS,
+              web_search_status: 'searching',
+            } as TMessageContentParts;
+            response = { ...response, content };
+          }
+
           messageMap.current.set(responseMessageId, response);
 
           // Get fresh messages to handle multi-tab scenarios where messages may have loaded
@@ -317,8 +335,12 @@ export default function useStepHandler({
           const freshMessages = getMessages() || [];
           const currentMessages = freshMessages.length > messages.length ? freshMessages : messages;
 
-          // Remove any existing response placeholder
-          let updatedMessages = currentMessages.filter((m) => m.messageId !== responseMessageId);
+          // Remove any existing response placeholder and the initial placeholder response
+          // (the initial placeholder has messageId === userMessage.messageId + '_')
+          const placeholderId = userMessage.messageId + '_';
+          let updatedMessages = currentMessages.filter(
+            (m) => m.messageId !== responseMessageId && m.messageId !== placeholderId,
+          );
 
           // Ensure userMessage is present (multi-tab: Tab 2 may not have it yet)
           if (!updatedMessages.some((m) => m.messageId === userMessage.messageId)) {
