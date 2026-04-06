@@ -11,26 +11,21 @@ import {
   apiBaseUrl,
   createPayload,
   ViolationTypes,
-  LocalStorageKeys,
   removeNullishValues,
 } from 'librechat-data-provider';
 import type { TMessage, TPayload, TSubmission, EventSubmission } from 'librechat-data-provider';
 import type { EventHandlerParams } from './useEventHandlers';
-import { useGetStartupConfig, useGetUserBalance, queueTitleGeneration } from '~/data-provider';
+import {
+  useGetUserBalance,
+  useGetStartupConfig,
+  queueTitleGeneration,
+  streamStatusQueryKey,
+} from '~/data-provider';
 import type { ActiveJobsResponse } from '~/data-provider';
 import { useAuthContext } from '~/hooks/AuthContext';
+import { clearAllDrafts } from '~/utils';
 import useEventHandlers from './useEventHandlers';
 import store from '~/store';
-
-const clearDraft = (conversationId?: string | null) => {
-  if (conversationId) {
-    localStorage.removeItem(`${LocalStorageKeys.TEXT_DRAFT}${conversationId}`);
-    localStorage.removeItem(`${LocalStorageKeys.FILES_DRAFT}${conversationId}`);
-  } else {
-    localStorage.removeItem(`${LocalStorageKeys.TEXT_DRAFT}${Constants.NEW_CONVO}`);
-    localStorage.removeItem(`${LocalStorageKeys.FILES_DRAFT}${Constants.NEW_CONVO}`);
-  }
-};
 
 type ChatHelpers = Pick<
   EventHandlerParams,
@@ -94,6 +89,7 @@ export default function useResumableSSE(
   const [streamId, setStreamId] = useState<string | null>(null);
   const setAbortScroll = useSetRecoilState(store.abortScrollFamily(runIndex));
   const setShowStopButton = useSetRecoilState(store.showStopButtonByIndex(runIndex));
+  const setLatestWebSearchAction = useSetRecoilState(store.latestWebSearchAction);
 
   const sseRef = useRef<SSE | null>(null);
   const reconnectAttemptRef = useRef(0);
@@ -188,6 +184,7 @@ export default function useResumableSSE(
             clearStepMaps();
             // Optimistically remove from active jobs
             removeActiveJob(currentStreamId);
+            setLatestWebSearchAction(null);
             (startupConfig?.balance?.enabled ?? false) && balanceQuery.refetch();
             sse.close();
             setStreamId(null);
@@ -215,6 +212,11 @@ export default function useResumableSSE(
               data: data.data,
               submission: currentSubmission as EventSubmission,
             });
+            return;
+          }
+
+          if (data.event === 'web_search_action') {
+            setLatestWebSearchAction(data.data ?? null);
             return;
           }
 
@@ -348,11 +350,19 @@ export default function useResumableSSE(
         /* @ts-ignore - sse.js types don't expose responseCode */
         const responseCode = e.responseCode;
 
-        // 404 means job doesn't exist (completed/deleted) - don't retry
+        // 404 → job completed & was cleaned up; messages are persisted in DB.
+        // Invalidate cache once so react-query refetches instead of showing an error.
         if (responseCode === 404) {
-          console.log('[ResumableSSE] Stream not found (404) - job completed or expired');
+          const convoId = currentSubmission.conversation?.conversationId;
+          console.log('[ResumableSSE] Stream 404, invalidating messages for:', convoId);
           sse.close();
           removeActiveJob(currentStreamId);
+          clearAllDrafts(convoId);
+          clearStepMaps();
+          if (convoId) {
+            queryClient.invalidateQueries({ queryKey: [QueryKeys.messages, convoId] });
+            queryClient.removeQueries({ queryKey: streamStatusQueryKey(convoId) });
+          }
           setIsSubmitting(false);
           setShowStopButton(false);
           setStreamId(null);
@@ -543,6 +553,7 @@ export default function useResumableSSE(
       startupConfig?.balance?.enabled,
       balanceQuery,
       removeActiveJob,
+      queryClient,
     ],
   );
 

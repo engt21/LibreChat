@@ -2,7 +2,7 @@ import React from 'react';
 import { UIResourceRenderer } from '@mcp-ui/client';
 import { handleUIAction } from '~/utils';
 import { useConversationUIResources } from '~/hooks/Messages/useConversationUIResources';
-import { useMessagesConversation, useMessagesOperations } from '~/Providers';
+import { useOptionalMessagesConversation, useOptionalMessagesOperations } from '~/Providers';
 import { useLocalize } from '~/hooks';
 
 interface MCPUIResourceProps {
@@ -20,12 +20,10 @@ interface MCPUIResourceProps {
 export function MCPUIResource(props: MCPUIResourceProps) {
   const { resourceId } = props.node.properties;
   const localize = useLocalize();
-  const { ask } = useMessagesOperations();
-  const { conversation } = useMessagesConversation();
+  const { ask } = useOptionalMessagesOperations();
+  const { conversationId } = useOptionalMessagesConversation();
 
-  const conversationResourceMap = useConversationUIResources(
-    conversation?.conversationId ?? undefined,
-  );
+  const conversationResourceMap = useConversationUIResources(conversationId ?? undefined);
 
   const uiResource = conversationResourceMap.get(resourceId ?? '');
 

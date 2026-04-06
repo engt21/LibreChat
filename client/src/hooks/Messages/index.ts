@@ -1,3 +1,5 @@
+export { EXPAND_TRANSITION } from './useExpandCollapse';
+export { default as useExpandCollapse } from './useExpandCollapse';
 export { default as useProgress } from './useProgress';
 export { default as useAttachments } from './useAttachments';
 export { default as useSubmitMessage } from './useSubmitMessage';
