@@ -620,3 +620,26 @@ The 20 major architecture changes (Category 3) require the full upstream merge s
 
 ### DEPENDENCY — Package bumps
 Bump `@librechat/agents`, `axios`, `fast-xml-parser`, and resolve lockfile as part of merge.
+
+---
+
+## Post-Audit Update (2026-04-06)
+
+**Decisions documented in:** `.factory/library/upstream-architecture-decisions.md`
+
+Since this audit was written, four focused backport batches have landed:
+
+| Commit | Scope | Items absorbed |
+|---|---|---|
+| `9cfdf2ba0` | SSRF, auth, rate-limiter hardening | 12 security fixes from Category 1 |
+| `bee9b3368` | Agent ACL, file safety, stream integrity | 13 security fixes from Category 1 |
+| `bfe6435e8` | Stability and UX bug fixes | 5 bug fixes from Category 2 |
+| `e0c75c342` | Dependency alignment | agents, axios, fast-xml-parser from Category 4 |
+
+**Remaining work is tracked as:**
+- 8 security items → 5 absorb-now (in pending features), 3 future follow-up
+- 13 bug fix items → 10 absorb-now (in pending features), 2 intentional divergence, 1 future follow-up
+- 20 architecture items → 7 intentional divergence, 7 future follow-up, 2 not applicable, 4 already absorbed
+- 4 dependency items → absorbed; 4 additional infra items → absorb-now in pending features
+
+See `upstream-architecture-decisions.md` for the full classification with rationale.
