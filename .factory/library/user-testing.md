@@ -18,6 +18,13 @@ Use this file for worker-facing validation guidance: which surfaces to test, whi
 - Keep `stable` / `r1` / `:3080` available and untouched during migration validation.
 - Do not let browser automation, Playwright, or ad hoc curls default back to `3080`.
 
+## Cutover-phase validation
+
+- Only the explicit prod-cutover feature may validate beyond the normal dev-only boundary.
+- Approved cutover choreography is: validate `dev` first, shift active traffic to validated `dev`, refresh `stable` while `dev` serves traffic, verify refreshed `stable`, then return active traffic to `stable`.
+- Keep `dev` reachable as the rollback rail during the cutover window, but do not leave `dev` as the steady-state primary rail after cutover because it has lower memory headroom and is mainly reserved for development/validation.
+- Cutover evidence must distinguish temporary failover service on `dev` from the final restored steady-state on `stable`.
+
 ## Dry-run status and blocker
 
 - Dry run was a **partial pass**: the dev app on `3081` was reachable and returned expected responses.
@@ -102,6 +109,8 @@ curl -s -H "Authorization: Bearer $token" http://127.0.0.1:3081/api/admin/permis
 - Bans and violations are stored in the `logs` MongoDB collection (via keyvMongo with `BANS:` and `ban:` key prefixes). The seed script clears these but the in-memory banCache in the running API container must also be flushed by restart.
 - LOGIN_MAX=7 attempts per 5-minute window; REGISTER_MAX=5 per 60-minute window. Keep validation login attempts within these limits between API restarts.
 - Lower-tier admins have `role: USER` with `adminRoleIds` granting scoped permissions via the AdminRole system. Only `role: ADMIN` users are treated as superadmins.
+- High-volume blocked-model probes can trigger temporary-ban responses on validation users; when this occurs, rerun `dev-seed-validation-personas.js` and restart `librechat-dev-api` before the next assertion batch.
+- Several provider/MCP assertions require external runtime prerequisites that may not exist on local dev by default (for example Google credentials, xAI user keys, or an OAuth-enabled MCP server allowlisted by domain policy); capture these as blocked with concrete evidence when unavailable.
 
 ## Flow Validator Guidance: runtime-cli
 
@@ -129,3 +138,23 @@ curl -s -H "Authorization: Bearer $token" http://127.0.0.1:3081/api/admin/permis
   - include concrete request/response status codes and key payload snippets for API checks;
   - include UI observations tied to specific contract IDs;
   - mark assertions blocked (not passed) when required external credentials/services are unavailable.
+
+## Blocked Prerequisite Clusters (as of round 2)
+
+The full prerequisite inventory is at `.factory/validation/customization-preservation/blocked-prerequisite-inventory.md`. Key operational points for the next validation run:
+
+### Pre-run preparation (locally resolvable, no secrets needed)
+
+1. **Clear temp bans before every assertion group**: Run `node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25` before each assertion batch. The seeded personas accumulate bans during blocked-model probes, non-browser UA requests, and rapid login attempts.
+2. **VAPID push keys**: Run `./local-services/generate-vapid-keys.sh` to generate and append VAPID keys to `.env`, then restart the dev API. This unblocks VAL-SCHED-009.
+3. **SUPERADMIN_EMAILS env check**: The app loads this via `dotenv` from `/app/.env`, NOT from `printenv`. Use `docker exec librechat-dev-api node -e "require('dotenv').config({path:'/app/.env'}); console.log(process.env.SUPERADMIN_EMAILS ? 'SET' : 'UNSET')"` to verify. This unblocks VAL-CROSS-001.
+4. **Ollama**: Use `qwen2.5:latest` or `gemma3:latest` for basic tests (faster inference), `deepseek-r1:14b` for reasoning mode tests. Set explicit timeouts.
+5. **Anti-abuse mitigation**: Limit blocked-model probes to 2-3 per session, always use browser-like User-Agent headers, and check for ban state before starting file/transcription assertions.
+
+### Requires user-provided secrets or external setup
+
+6. **Google credentials** (VAL-PROVIDER-003/004/005, VAL-MODEL-001): Need valid Gemini API key + Google OAuth client for social login.
+7. **xAI API key** (VAL-PROVIDER-007/008/008A): User must save via UI provider settings.
+8. **Azure credentials** (VAL-PROVIDER-001/001A, VAL-REALTIME-002): User must save Azure key + base URL via UI.
+9. **MCP OAuth/Arcade** (VAL-MCP-002/003/004, VAL-CROSS-005A): Need Arcade domain in `librechat.yaml` allowlist + Arcade API key + completed OAuth consent.
+10. **Federated auth** (VAL-MODEL-001): Need at least one social login provider configured.
