@@ -1,0 +1,21 @@
+{
+  "featureId": "fix-preexisting-mcp-domain-allowlist-spec",
+  "reviewedAt": "2026-04-06T09:43:23Z",
+  "commitId": "7d4210593c603cb4845cf0eedeacb7f342dd42f9",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit is tightly scoped to api/server/services/MCP.spec.js and correctly aligns the stale assertion with the current isMCPDomainAllowed(config, domains, filterMode) contract by asserting the third 'denylist' argument; it also adds the missing Admin/appSettings mock required by the current getMergedMCPDomainConfig path. Runtime MCP behavior is unchanged.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The backend-migration-worker procedure mandates reading README/AGENTS/customization docs before edits, but this narrow test-only worker run skipped those repo-doc reads; either the procedure is too rigid for small expectation-alignment fixes or adherence checks need to be stricter.",
+      "evidence": "Procedure requirement: /pool/home/timeng/LibreChat-custom/.factory/skills/backend-migration-worker/SKILL.md lines 22-23. Transcript skeleton for workerSessionId 2dfa08de-c23f-496c-a5dc-08a4e875b60b shows mission/docs + source/test reads, and does not include README.md, AGENTS.md, CUSTOMIZATION_MASTER_DOC.md, or CUSTOMIZATION_MASTER_GUIDE.md."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass: this feature resolves the pre-existing MCP.spec domain-allowlist test/signature mismatch with a test-only update and no unintended MCP runtime behavior changes."
+}

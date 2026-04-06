@@ -1,0 +1,33 @@
+{
+  "featureId": "fix-preexisting-packages-api-test-expectations",
+  "reviewedAt": "2026-04-06T09:44:15Z",
+  "commitId": "07c452782596171f6a2aab28d6a362ec6f0bed7c",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The MCP initializer expectation updates are correct, but the web.spec expectation change hard-codes a demonstrably incorrect auth-source outcome instead of fixing the underlying regression noted by the worker.",
+    "issues": [
+      {
+        "file": "packages/api/src/web/web.spec.ts",
+        "line": 217,
+        "severity": "blocking",
+        "description": "The test was changed to expect `scrapersAuthType` as `SYSTEM_DEFINED`, which codifies the broken behavior in `web.ts` where `isUserProvided` only flips when `contributed` is true (`web.ts` lines 191-203 in this commit snapshot), and `contributed` is only set in the SSRF-block path. This makes USER_PROVIDED unreachable for non-URL user-provided keys like `FIRECRAWL_API_KEY`. The feature scope explicitly allowed implementation correction when demonstrably wrong, so this should have been fixed in implementation rather than updating the expectation."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The backend-migration-worker procedure is too rigid for expectation-drift-only tasks: its \"write or update tests first\" step doesn't map cleanly when existing tests are the artifact being reconciled.",
+      "evidence": "Handoff `skillFeedback.suggestedChanges` explicitly calls out this mismatch; transcript skeleton shows a reproduce/analyze/edit flow rather than a meaningful tests-first split."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The SSRF hardening side-effect on web auth-source reporting was not captured in shared library notes, forcing commit-history archaeology to determine whether the test or implementation was stale.",
+      "evidence": "Transcript skeleton includes `git diff 1312cd757..9cfdf2ba0 -- packages/api/src/web/web.ts` to infer the regression path; `.factory/library` contains SSRF hardening notes but no specific `loadWebSearchAuth` auth-source semantics note."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Failing review due to one blocking issue: the web auth-type expectation update masks a demonstrably incorrect implementation behavior instead of correcting it. MCP inspect-signature expectation updates are otherwise correct."
+}

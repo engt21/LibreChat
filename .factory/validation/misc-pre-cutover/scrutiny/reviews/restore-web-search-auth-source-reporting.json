@@ -1,0 +1,21 @@
+{
+  "featureId": "restore-web-search-auth-source-reporting",
+  "reviewedAt": "2026-04-06T09:43:26.633379+00:00",
+  "commitId": "dd55f42cc17f419008624e289e31d1a1cbfb85d9",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit cleanly restores USER_PROVIDED vs SYSTEM_DEFINED auth-source reporting for non-URL user-provided web-search keys while preserving SSRF blocking behavior for URL fields. The logic change in packages/api/src/web/web.ts is narrowly scoped and consistent with the feature intent, and the spec updates add focused coverage for differing non-URL keys, all-env-match cases, and SSRF-blocked optional URLs.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The backend-migration-worker skill requires reading repo docs (README.md, CLAUDE/AGENTS, CUSTOMIZATION docs) before coding, but the reviewed transcript skeleton does not show those repo-doc reads while still marking skillFeedback.followedProcedure=true.",
+      "evidence": "worker-transcripts.jsonl entry for session 0f9b95b7-1fc4-4235-a333-92ec46bf275a shows reads for mission.md, validation-contract.md, features.json, mission AGENTS.md, services.yaml, and source files, but no README.md / CLAUDE.md / CUSTOMIZATION_MASTER_DOC.md reads before edits."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed handoff, transcript skeleton, and commit dd55f42cc17f419008624e289e31d1a1cbfb85d9 for restore-web-search-auth-source-reporting. Implementation matches the feature requirements and keeps SSRF protections intact; no code-level blocking or non-blocking defects were identified."
+}

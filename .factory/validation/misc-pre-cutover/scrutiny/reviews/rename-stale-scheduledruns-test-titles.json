@@ -1,0 +1,21 @@
+{
+  "featureId": "rename-stale-scheduledruns-test-titles",
+  "reviewedAt": "2026-04-06T09:42:33Z",
+  "commitId": "5a61713c945dffe12b4dbe20b6f6ba2bf8dc2176",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit is a focused non-functional cleanup that renames two stale ScheduledRuns test titles so they match existing assertions. Diff scope is limited to title/comment text in ScheduledRuns.spec.tsx; test logic and production code are unchanged, matching the feature requirements.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The frontend-migration-worker procedure currently mandates \"write or update tests first\" for any code change, but this title-only cleanup feature had no behavior change and no meaningful test-first work to perform; the skill should explicitly allow a documentation/title-only exception.",
+      "evidence": "Handoff skillFeedback.suggestedChanges explicitly flags this mismatch; .factory/skills/frontend-migration-worker/SKILL.md Work Procedure step 3 currently says to write/update tests first wherever code changes occur."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review passed. Feature requirements were met: both stale ScheduledRuns test names were corrected to reflect actual assertions, with no behavioral changes introduced."
+}
