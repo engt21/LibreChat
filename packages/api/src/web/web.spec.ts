@@ -203,18 +203,15 @@ describe('web.ts', () => {
       });
 
       expect(result.authenticated).toBe(true);
-      // Check for providers (system-defined) and scrapers (system-defined)
-      // Note: after the SSRF URL-validation refactor, isUserProvided only tracks
-      // user-provided URL keys that contribute to SSRF evaluation. Non-URL API keys
-      // like FIRECRAWL_API_KEY do not flip the flag, so both categories resolve to
-      // SYSTEM_DEFINED when only API-key fields differ from the env values.
+      // Providers: SERPER_API_KEY matches env → SYSTEM_DEFINED
+      // Scrapers: FIRECRAWL_API_KEY differs from env → USER_PROVIDED
       const providersAuthType = result.authTypes.find(
         ([category]) => category === 'providers',
       )?.[1];
       const scrapersAuthType = result.authTypes.find(([category]) => category === 'scrapers')?.[1];
 
       expect(providersAuthType).toBe(AuthType.SYSTEM_DEFINED);
-      expect(scrapersAuthType).toBe(AuthType.SYSTEM_DEFINED);
+      expect(scrapersAuthType).toBe(AuthType.USER_PROVIDED);
 
       // Restore original env
       process.env = originalEnv;
@@ -632,6 +629,169 @@ describe('web.ts', () => {
       });
 
       // Restore original env
+      process.env = originalEnv;
+    });
+
+    it('should report USER_PROVIDED when a non-URL API key differs from env value', async () => {
+      const originalEnv = process.env;
+      process.env = {
+        ...originalEnv,
+        SERPER_API_KEY: 'env-serper-key',
+        FIRECRAWL_API_KEY: 'env-firecrawl-key',
+        FIRECRAWL_API_URL: 'https://api.firecrawl.dev',
+        JINA_API_KEY: 'env-jina-key',
+      };
+
+      const testConfig: TCustomConfig['webSearch'] = {
+        serperApiKey: '${SERPER_API_KEY}',
+        firecrawlApiKey: '${FIRECRAWL_API_KEY}',
+        firecrawlApiUrl: '${FIRECRAWL_API_URL}',
+        jinaApiKey: '${JINA_API_KEY}',
+        safeSearch: SafeSearchTypes.MODERATE,
+        searchProvider: 'serper' as SearchProviders,
+        scraperProvider: 'firecrawl' as ScraperProviders,
+        rerankerType: 'jina' as RerankerTypes,
+      };
+
+      mockLoadAuthValues.mockImplementation(({ authFields }) => {
+        const result: Record<string, string> = {};
+        for (const field of authFields) {
+          if (field === 'SERPER_API_KEY') {
+            result[field] = 'user-custom-serper-key'; // differs from env
+          } else if (field === 'FIRECRAWL_API_KEY') {
+            result[field] = 'env-firecrawl-key'; // matches env
+          } else if (field === 'FIRECRAWL_API_URL') {
+            result[field] = 'https://api.firecrawl.dev'; // matches env
+          } else if (field === 'JINA_API_KEY') {
+            result[field] = 'user-custom-jina-key'; // differs from env
+          }
+        }
+        return Promise.resolve(result);
+      });
+
+      const result = await loadWebSearchAuth({
+        userId,
+        webSearchConfig: testConfig,
+        loadAuthValues: mockLoadAuthValues,
+      });
+
+      expect(result.authenticated).toBe(true);
+
+      const providers = result.authTypes.find(([c]) => c === 'providers')?.[1];
+      const scrapers = result.authTypes.find(([c]) => c === 'scrapers')?.[1];
+      const rerankers = result.authTypes.find(([c]) => c === 'rerankers')?.[1];
+
+      // Serper key differs from env → USER_PROVIDED
+      expect(providers).toBe(AuthType.USER_PROVIDED);
+      // Firecrawl key and URL both match env → SYSTEM_DEFINED
+      expect(scrapers).toBe(AuthType.SYSTEM_DEFINED);
+      // Jina key differs from env → USER_PROVIDED
+      expect(rerankers).toBe(AuthType.USER_PROVIDED);
+
+      process.env = originalEnv;
+    });
+
+    it('should report SYSTEM_DEFINED when all values match env', async () => {
+      const originalEnv = process.env;
+      process.env = {
+        ...originalEnv,
+        SERPER_API_KEY: 'system-key',
+        FIRECRAWL_API_KEY: 'system-key',
+        FIRECRAWL_API_URL: 'https://api.firecrawl.dev',
+        JINA_API_KEY: 'system-key',
+      };
+
+      const testConfig: TCustomConfig['webSearch'] = {
+        serperApiKey: '${SERPER_API_KEY}',
+        firecrawlApiKey: '${FIRECRAWL_API_KEY}',
+        firecrawlApiUrl: '${FIRECRAWL_API_URL}',
+        jinaApiKey: '${JINA_API_KEY}',
+        safeSearch: SafeSearchTypes.MODERATE,
+        searchProvider: 'serper' as SearchProviders,
+        scraperProvider: 'firecrawl' as ScraperProviders,
+        rerankerType: 'jina' as RerankerTypes,
+      };
+
+      mockLoadAuthValues.mockImplementation(({ authFields }) => {
+        const result: Record<string, string> = {};
+        for (const field of authFields) {
+          if (field === 'SERPER_API_KEY') result[field] = 'system-key';
+          else if (field === 'FIRECRAWL_API_KEY') result[field] = 'system-key';
+          else if (field === 'FIRECRAWL_API_URL') result[field] = 'https://api.firecrawl.dev';
+          else if (field === 'JINA_API_KEY') result[field] = 'system-key';
+        }
+        return Promise.resolve(result);
+      });
+
+      const result = await loadWebSearchAuth({
+        userId,
+        webSearchConfig: testConfig,
+        loadAuthValues: mockLoadAuthValues,
+      });
+
+      expect(result.authenticated).toBe(true);
+
+      const providers = result.authTypes.find(([c]) => c === 'providers')?.[1];
+      const scrapers = result.authTypes.find(([c]) => c === 'scrapers')?.[1];
+      const rerankers = result.authTypes.find(([c]) => c === 'rerankers')?.[1];
+
+      expect(providers).toBe(AuthType.SYSTEM_DEFINED);
+      expect(scrapers).toBe(AuthType.SYSTEM_DEFINED);
+      expect(rerankers).toBe(AuthType.SYSTEM_DEFINED);
+
+      process.env = originalEnv;
+    });
+
+    it('should not mark SSRF-blocked optional URL as USER_PROVIDED', async () => {
+      const originalEnv = process.env;
+      process.env = {
+        ...originalEnv,
+        FIRECRAWL_API_KEY: 'system-key',
+        FIRECRAWL_API_URL: 'https://api.firecrawl.dev',
+        SERPER_API_KEY: 'system-key',
+        JINA_API_KEY: 'system-key',
+      };
+
+      const testConfig: TCustomConfig['webSearch'] = {
+        serperApiKey: '${SERPER_API_KEY}',
+        firecrawlApiKey: '${FIRECRAWL_API_KEY}',
+        firecrawlApiUrl: '${FIRECRAWL_API_URL}',
+        jinaApiKey: '${JINA_API_KEY}',
+        safeSearch: SafeSearchTypes.MODERATE,
+        searchProvider: 'serper' as SearchProviders,
+        scraperProvider: 'firecrawl' as ScraperProviders,
+        rerankerType: 'jina' as RerankerTypes,
+      };
+
+      // User provides a private-network URL for firecrawlApiUrl (SSRF target)
+      // but the API key matches env. The SSRF URL should be stripped without
+      // polluting auth-source reporting.
+      mockLoadAuthValues.mockImplementation(({ authFields }) => {
+        const result: Record<string, string> = {};
+        for (const field of authFields) {
+          if (field === 'FIRECRAWL_API_KEY') result[field] = 'system-key';
+          else if (field === 'FIRECRAWL_API_URL') result[field] = 'http://192.168.1.1/api';
+          else if (field === 'SERPER_API_KEY') result[field] = 'system-key';
+          else if (field === 'JINA_API_KEY') result[field] = 'system-key';
+        }
+        return Promise.resolve(result);
+      });
+
+      const result = await loadWebSearchAuth({
+        userId,
+        webSearchConfig: testConfig,
+        loadAuthValues: mockLoadAuthValues,
+      });
+
+      expect(result.authenticated).toBe(true);
+
+      // The SSRF-blocked URL was user-provided but stripped; remaining fields
+      // all match env, so scrapers should report SYSTEM_DEFINED.
+      const scrapers = result.authTypes.find(([c]) => c === 'scrapers')?.[1];
+      expect(scrapers).toBe(AuthType.SYSTEM_DEFINED);
+      // Stripped URL should be cleared
+      expect(result.authResult.firecrawlApiUrl).toBeUndefined();
+
       process.env = originalEnv;
     });
   });

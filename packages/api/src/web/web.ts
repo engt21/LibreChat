@@ -188,18 +188,19 @@ export async function loadWebSearchAuth({
 
           const isFieldUserProvided = value != null && process.env[field] !== value;
           const isUrlKey = originalKey != null && WEB_SEARCH_URL_KEYS.has(originalKey);
-          let contributed = false;
 
           if (isUrlKey && isFieldUserProvided && (await isSSRFUrl(value))) {
             if (!optionalSet.has(field)) {
               allFieldsAuthenticated = false;
               break;
             }
+            // Strip the SSRF-blocked URL from authResult; do NOT credit as
+            // user-provided because the value is not used at runtime.
             authResult[originalKey] = undefined;
-            contributed = true;
-          }
-
-          if (!isUserProvided && isFieldUserProvided && contributed) {
+          } else if (!isUserProvided && isFieldUserProvided) {
+            // Any surviving user-provided value (API key or safe URL) that
+            // differs from the env-provided value marks this category's auth
+            // source as USER_PROVIDED for UX/debug surfaces.
             isUserProvided = true;
           }
         }
