@@ -211,6 +211,26 @@ describe('buildDefaultConvo - defaultParamsEndpoint', () => {
 
       expect(result.reasoning_effort).toBe('low');
     });
+
+    it('should preserve reasoning_effort: none as the Ollama off switch', () => {
+      const preset: TConversation = {
+        ...baseConversation,
+        endpoint: 'Ollama' as EModelEndpoint,
+        endpointType: EModelEndpoint.custom,
+        model: 'deepseek-r1:14b',
+        reasoning_effort: 'none',
+      };
+
+      const result = buildDefaultConvo({
+        models,
+        conversation: baseConversation,
+        endpoint: 'Ollama' as EModelEndpoint,
+        lastConversationSetup: preset,
+        defaultParamsEndpoint: 'ollama',
+      });
+
+      expect(result.reasoning_effort).toBe('none');
+    });
   });
 
   describe('cross-endpoint field isolation', () => {

@@ -432,4 +432,122 @@ describe('getDefaultHandlers', () => {
     expect(aggregateContent).not.toHaveBeenCalled();
     expect(sendEvent).not.toHaveBeenCalled();
   });
+
+  it('suppresses think content in ON_RUN_STEP_DELTA when suppressReasoning is true', async () => {
+    const aggregateContent = jest.fn();
+    const res = {};
+    const handlers = getDefaultHandlers({
+      res,
+      aggregateContent,
+      collectedUsage: [],
+      collectedMetadata: {},
+      suppressReasoning: true,
+    });
+
+    await handlers[GraphEvents.ON_RUN_STEP_DELTA].handle(
+      GraphEvents.ON_RUN_STEP_DELTA,
+      {
+        id: 'step-delta-1',
+        delta: {
+          type: 'think',
+          content: [{ type: 'think', think: 'internal reasoning from deepseek-r1' }],
+        },
+      },
+      {
+        last_agent_id: 'agent-1',
+        langgraph_node: 'agent-1',
+      },
+    );
+
+    expect(aggregateContent).not.toHaveBeenCalled();
+    expect(sendEvent).not.toHaveBeenCalled();
+  });
+
+  it('suppresses think content in ON_MESSAGE_DELTA when suppressReasoning is true', async () => {
+    const aggregateContent = jest.fn();
+    const res = {};
+    const handlers = getDefaultHandlers({
+      res,
+      aggregateContent,
+      collectedUsage: [],
+      collectedMetadata: {},
+      suppressReasoning: true,
+    });
+
+    await handlers[GraphEvents.ON_MESSAGE_DELTA].handle(
+      GraphEvents.ON_MESSAGE_DELTA,
+      {
+        id: 'msg-delta-1',
+        delta: {
+          content: [{ type: 'think', think: 'reasoning text' }],
+        },
+      },
+      {
+        last_agent_id: 'agent-1',
+        langgraph_node: 'agent-1',
+      },
+    );
+
+    expect(aggregateContent).not.toHaveBeenCalled();
+    expect(sendEvent).not.toHaveBeenCalled();
+  });
+
+  it('allows non-think content in ON_RUN_STEP_DELTA when suppressReasoning is true', async () => {
+    const aggregateContent = jest.fn();
+    const res = {};
+    const handlers = getDefaultHandlers({
+      res,
+      aggregateContent,
+      collectedUsage: [],
+      collectedMetadata: {},
+      suppressReasoning: true,
+    });
+
+    await handlers[GraphEvents.ON_RUN_STEP_DELTA].handle(
+      GraphEvents.ON_RUN_STEP_DELTA,
+      {
+        id: 'step-delta-2',
+        delta: {
+          type: 'text',
+          content: [{ type: 'text', text: 'regular response' }],
+        },
+      },
+      {
+        last_agent_id: 'agent-1',
+        langgraph_node: 'agent-1',
+      },
+    );
+
+    expect(aggregateContent).toHaveBeenCalled();
+    expect(sendEvent).toHaveBeenCalled();
+  });
+
+  it('allows non-think content in ON_MESSAGE_DELTA when suppressReasoning is true', async () => {
+    const aggregateContent = jest.fn();
+    const res = {};
+    const handlers = getDefaultHandlers({
+      res,
+      aggregateContent,
+      collectedUsage: [],
+      collectedMetadata: {},
+      suppressReasoning: true,
+    });
+
+    await handlers[GraphEvents.ON_MESSAGE_DELTA].handle(
+      GraphEvents.ON_MESSAGE_DELTA,
+      {
+        id: 'msg-delta-2',
+        delta: {
+          content: [{ type: 'text', text: 'regular text' }],
+        },
+      },
+      {
+        last_agent_id: 'agent-1',
+        langgraph_node: 'agent-1',
+      },
+    );
+
+    expect(aggregateContent).toHaveBeenCalled();
+    expect(sendEvent).toHaveBeenCalled();
+  });
 });

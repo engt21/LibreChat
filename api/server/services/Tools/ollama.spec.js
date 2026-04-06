@@ -161,4 +161,76 @@ describe('server/services/Tools/ollama', () => {
       url: 'https://example.com/1',
     });
   });
+
+  test('createOllamaWebSearchTool invokes onSearchResults callback with attachment data', async () => {
+    fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        results: [
+          { title: 'Result A', url: 'https://example.com/a', content: 'Content A' },
+          { title: 'Result B', url: 'https://example.com/b', content: 'Content B' },
+        ],
+      }),
+    });
+
+    const onSearchResults = jest.fn();
+    const tool = createOllamaWebSearchTool({ onSearchResults });
+    const runnableConfig = {
+      toolCall: { id: 'tc-1', name: 'web_search', turn: 0 },
+      metadata: { user_id: 'u1', thread_id: 't1', run_id: 'r1' },
+    };
+
+    await tool.invoke({ query: 'test query', max_results: 2 }, runnableConfig);
+
+    expect(onSearchResults).toHaveBeenCalledTimes(1);
+    const [callbackArg] = onSearchResults.mock.calls[0];
+    expect(callbackArg.success).toBe(true);
+    expect(callbackArg.data).toBeDefined();
+    expect(callbackArg.data.organic).toHaveLength(2);
+    expect(callbackArg.data.organic[0]).toMatchObject({
+      title: 'Result A',
+      link: 'https://example.com/a',
+      processed: true,
+    });
+    expect(callbackArg.data.references).toHaveLength(2);
+    expect(callbackArg.data.references[0]).toMatchObject({
+      link: 'https://example.com/a',
+      type: 'link',
+    });
+  });
+
+  test('applyOllamaWebSearchMode adds librechat web_search for non-Ollama when enabled', () => {
+    const tools = [];
+    const mcpServers = new Set();
+
+    applyOllamaWebSearchMode({
+      endpoint: 'openAI',
+      ephemeralAgent: { web_search: true },
+      modelSpec: null,
+      tools,
+      mcpServers,
+    });
+
+    // Non-Ollama endpoint: falls back to librechat mode which adds web_search
+    expect(tools).toEqual([Tools.web_search]);
+    expect(mcpServers.size).toBe(0);
+    // Importantly: does NOT add web_fetch (Ollama-only tool)
+    expect(tools).not.toContain(OLLAMA_WEB_FETCH_TOOL);
+  });
+
+  test('applyOllamaWebSearchMode is a no-op when web search is disabled', () => {
+    const tools = [];
+    const mcpServers = new Set();
+
+    applyOllamaWebSearchMode({
+      endpoint: 'ollama',
+      ephemeralAgent: { web_search: false },
+      modelSpec: null,
+      tools,
+      mcpServers,
+    });
+
+    expect(tools).toEqual([]);
+    expect(mcpServers.size).toBe(0);
+  });
 });

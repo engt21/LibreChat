@@ -1,7 +1,7 @@
 const { nanoid } = require('nanoid');
 const { logger } = require('@librechat/data-schemas');
 const { Constants, EnvVar, GraphEvents, ToolEndHandler } = require('@librechat/agents');
-const { Tools, StepTypes, FileContext, ErrorTypes } = require('librechat-data-provider');
+const { Tools, StepTypes, ContentTypes, FileContext, ErrorTypes } = require('librechat-data-provider');
 const {
   sendEvent,
   GenerationJobManager,
@@ -12,6 +12,39 @@ const { processFileCitations } = require('~/server/services/Files/Citations');
 const { processCodeOutput } = require('~/server/services/Files/Code/process');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { saveBase64Image } = require('~/server/services/Files/process');
+
+/**
+ * Detect whether a delta payload carries reasoning (`think`) content that should
+ * be suppressed for Ollama models when `reasoning_effort` is `none`.
+ *
+ * Ollama reasoning models (e.g. deepseek-r1) may emit reasoning through
+ * ON_RUN_STEP_DELTA or ON_MESSAGE_DELTA events as `think` content parts rather
+ * than through the dedicated ON_REASONING_DELTA event.  This helper allows the
+ * broader delta handlers to drop those parts so the user sees a clean non-reasoning
+ * chat experience.
+ *
+ * @param {object} [delta] - The `delta` payload from a stream event.
+ * @returns {boolean} `true` when the delta exclusively carries `think` content.
+ */
+function isThinkContent(delta) {
+  if (!delta) {
+    return false;
+  }
+
+  // Single-part delta with an explicit type field
+  if (delta.type === ContentTypes.THINK) {
+    return true;
+  }
+
+  // Delta with a `content` array – suppress when every element is `think`
+  if (Array.isArray(delta.content) && delta.content.length > 0) {
+    return delta.content.every(
+      (part) => part && (part.type === ContentTypes.THINK || part.type === 'thinking'),
+    );
+  }
+
+  return false;
+}
 
 const RELEVANT_LLM_METADATA_KEYS = new Set([
   'groundingMetadata',
@@ -260,6 +293,9 @@ function getDefaultHandlers({
        * @param {GraphRunnableConfig['configurable']} [metadata] The runnable metadata.
        */
       handle: async (event, data, metadata) => {
+        if (suppressReasoning && isThinkContent(data?.delta)) {
+          return;
+        }
         aggregateContent({ event, data });
         if (data?.delta.type === StepTypes.TOOL_CALLS) {
           await emitEvent(res, streamId, { event, data });
@@ -296,6 +332,9 @@ function getDefaultHandlers({
        * @param {GraphRunnableConfig['configurable']} [metadata] The runnable metadata.
        */
       handle: async (event, data, metadata) => {
+        if (suppressReasoning && isThinkContent(data?.delta)) {
+          return;
+        }
         aggregateContent({ event, data });
         if (checkIfLastAgent(metadata?.last_agent_id, metadata?.langgraph_node)) {
           await emitEvent(res, streamId, { event, data });
@@ -338,6 +377,22 @@ function getDefaultHandlers({
   if (toolExecuteOptions) {
     handlers[GraphEvents.ON_TOOL_EXECUTE] = createToolExecuteHandler(toolExecuteOptions);
   }
+
+  handlers['web_search_action'] = {
+    handle: async (_event, data) => {
+      if (res.headersSent && !res.writableEnded) {
+        await emitEvent(res, streamId, {
+          event: 'web_search_action',
+          data: {
+            type: data?.type,
+            queries: data?.queries,
+            query: data?.query,
+            sources: data?.sources,
+          },
+        });
+      }
+    },
+  };
 
   return handlers;
 }
