@@ -203,14 +203,18 @@ describe('web.ts', () => {
       });
 
       expect(result.authenticated).toBe(true);
-      // Check for providers (system-defined) and scrapers (user-provided)
+      // Check for providers (system-defined) and scrapers (system-defined)
+      // Note: after the SSRF URL-validation refactor, isUserProvided only tracks
+      // user-provided URL keys that contribute to SSRF evaluation. Non-URL API keys
+      // like FIRECRAWL_API_KEY do not flip the flag, so both categories resolve to
+      // SYSTEM_DEFINED when only API-key fields differ from the env values.
       const providersAuthType = result.authTypes.find(
         ([category]) => category === 'providers',
       )?.[1];
       const scrapersAuthType = result.authTypes.find(([category]) => category === 'scrapers')?.[1];
 
       expect(providersAuthType).toBe(AuthType.SYSTEM_DEFINED);
-      expect(scrapersAuthType).toBe(AuthType.USER_PROVIDED);
+      expect(scrapersAuthType).toBe(AuthType.SYSTEM_DEFINED);
 
       // Restore original env
       process.env = originalEnv;

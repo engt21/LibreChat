@@ -225,37 +225,44 @@ describe('MCPServersInitializer', () => {
       await MCPServersInitializer.initialize(testConfigs);
 
       // Verify all configs were processed by inspector
-      // Signature: inspect(serverName, rawConfig, connection?, allowedDomains?)
+      // Signature: inspect(serverName, rawConfig, connection?, allowedDomains?, filterMode?)
+      // The registry passes its own allowedDomains (undefined by default) and
+      // domainFilterMode ('allowlist' by default) to each inspect call.
       expect(mockInspect).toHaveBeenCalledTimes(5);
       expect(mockInspect).toHaveBeenCalledWith(
         'disabled_server',
         testConfigs.disabled_server,
         undefined,
         undefined,
+        'allowlist',
       );
       expect(mockInspect).toHaveBeenCalledWith(
         'oauth_server',
         testConfigs.oauth_server,
         undefined,
         undefined,
+        'allowlist',
       );
       expect(mockInspect).toHaveBeenCalledWith(
         'file_tools_server',
         testConfigs.file_tools_server,
         undefined,
         undefined,
+        'allowlist',
       );
       expect(mockInspect).toHaveBeenCalledWith(
         'search_tools_server',
         testConfigs.search_tools_server,
         undefined,
         undefined,
+        'allowlist',
       );
       expect(mockInspect).toHaveBeenCalledWith(
         'remote_no_oauth_server',
         testConfigs.remote_no_oauth_server,
         undefined,
         undefined,
+        'allowlist',
       );
     });
 
