@@ -532,9 +532,7 @@ describe('ScheduledRuns – Settings → Data component', () => {
       // This is verified by the save button's disabled condition: `!notificationDirty || isNotificationsSaving`
     });
 
-    it('calls update notifications mutation with correct payload structure', async () => {
-      // Rather than fighting with state propagation, verify the mutation gets called correctly
-      // by testing the saveNotifications function behavior through the payload structure
+    it('does not call update notifications mutation on initial render without user interaction', async () => {
       mockUpdateNotifMutateAsync.mockResolvedValue(makeNotifications());
       mockSchedulesData = [];
       mockNotificationsData = makeNotifications({
@@ -544,11 +542,11 @@ describe('ScheduledRuns – Settings → Data component', () => {
       });
       renderComponent();
 
-      // Verify the mutation function itself is the correct mock
+      // Verify the mutation is not called just by rendering with pre-populated notification data
       expect(mockUpdateNotifMutateAsync).not.toHaveBeenCalled();
     });
 
-    it('keeps save button disabled until notification form is dirty', () => {
+    it('notification save button is disabled when form is clean', () => {
       mockSchedulesData = [];
       mockNotificationsData = makeNotifications();
       renderComponent();
