@@ -5,6 +5,8 @@ const path = require('node:path');
 
 const rootDir = path.resolve(__dirname, '..');
 const agentsDir = path.join(rootDir, 'node_modules', '@librechat', 'agents');
+const langchainOpenAIDir = path.join(rootDir, 'node_modules', '@langchain', 'openai');
+const langfuseLangchainDir = path.join(rootDir, 'node_modules', '@langfuse', 'langchain');
 const guardedStreamTargets = new Set([
   'src/stream.ts',
   'dist/esm/stream.mjs',
@@ -249,6 +251,15 @@ const patchTargets = [
     };
   }
 
+  override invocationParams(options?: this['ParsedCallOptions'], extra?: Record<string, unknown>) {
+    const params = super.invocationParams(options, extra);
+    const azureModelName = this.getLangfuseAzureModelName();
+    if (azureModelName != null && params && typeof params === 'object' && 'model' in params) {
+      params.model = azureModelName;
+    }
+    return params;
+  }
+
   protected _getClientOptions(
     options?: OpenAICoreRequestOptions
   ): OpenAICoreRequestOptions {`,
@@ -285,6 +296,14 @@ const patchTargets = [
       ls_max_tokens: params.max_tokens ?? undefined,
       ls_stop: options?.stop,
     };
+  }
+
+  override invocationParams(options?: this['ParsedCallOptions'], extra?: Record<string, unknown>) {
+    const params = super.invocationParams(options, extra);
+    if (params && typeof params === 'object' && 'model' in params) {
+      params.model = this.getLangfuseModelName();
+    }
+    return params;
   }
   /**
    * Returns backwards compatible reasoning parameters from constructor params and call options`,
@@ -347,6 +366,14 @@ const patchTargets = [
             ls_stop: options?.stop,
         };
     }
+    invocationParams(options, extra) {
+        const params = super.invocationParams(options, extra);
+        const azureModelName = this.getLangfuseAzureModelName();
+        if (azureModelName != null && params && typeof params === 'object' && 'model' in params) {
+            params.model = azureModelName;
+        }
+        return params;
+    }
     _getClientOptions(options) {`,
       },
       {
@@ -377,6 +404,13 @@ const patchTargets = [
             ls_max_tokens: params.max_tokens ?? undefined,
             ls_stop: options?.stop,
         };
+    }
+    invocationParams(options, extra) {
+        const params = super.invocationParams(options, extra);
+        if (params && typeof params === 'object' && 'model' in params) {
+            params.model = this.getLangfuseModelName();
+        }
+        return params;
     }
     /**
      * Returns backwards compatible reasoning parameters from constructor params and call options`,
@@ -439,6 +473,14 @@ const patchTargets = [
             ls_stop: options?.stop,
         };
     }
+    invocationParams(options, extra) {
+        const params = super.invocationParams(options, extra);
+        const azureModelName = this.getLangfuseAzureModelName();
+        if (azureModelName != null && params && typeof params === 'object' && 'model' in params) {
+            params.model = azureModelName;
+        }
+        return params;
+    }
     _getClientOptions(options) {`,
       },
       {
@@ -469,6 +511,13 @@ const patchTargets = [
             ls_max_tokens: params.max_tokens ?? undefined,
             ls_stop: options?.stop,
         };
+    }
+    invocationParams(options, extra) {
+        const params = super.invocationParams(options, extra);
+        if (params && typeof params === 'object' && 'model' in params) {
+            params.model = this.getLangfuseModelName();
+        }
+        return params;
     }
     /**
      * Returns backwards compatible reasoning parameters from constructor params and call options`,
@@ -752,6 +801,216 @@ var events = require('./utils/events.cjs');`,
       },
     ],
   },
+  // ── Web search action dispatch from output_item.done (Graph.mjs) ──
+  {
+    relativePath: 'dist/esm/graphs/Graph.mjs',
+    replacements: [
+      {
+        from: `            for await (const chunk of stream) {
+                await streamHandler.handle(GraphEvents.CHAT_MODEL_STREAM, { chunk }, metadata, this);
+                finalChunk = finalChunk ? concat(finalChunk, chunk) : chunk;
+            }`,
+        to: `            for await (const chunk of stream) {
+                const toolOutputs = chunk.additional_kwargs?.tool_outputs;
+                if (Array.isArray(toolOutputs)) {
+                    for (const item of toolOutputs) {
+                        if (item.type === 'web_search_call' && item.action) {
+                            await safeDispatchCustomEvent('web_search_action', item.action, config);
+                        }
+                    }
+                }
+                await streamHandler.handle(GraphEvents.CHAT_MODEL_STREAM, { chunk }, metadata, this);
+                finalChunk = finalChunk ? concat(finalChunk, chunk) : chunk;
+            }`,
+      },
+    ],
+  },
+  // ── Web search action dispatch from output_item.done (Graph.cjs) ──
+  {
+    relativePath: 'dist/cjs/graphs/Graph.cjs',
+    replacements: [
+      {
+        from: `            for await (const chunk of stream$2) {
+                await streamHandler.handle(_enum.GraphEvents.CHAT_MODEL_STREAM, { chunk }, metadata, this);
+                finalChunk = finalChunk ? stream$1.concat(finalChunk, chunk) : chunk;
+            }`,
+        to: `            for await (const chunk of stream$2) {
+                const toolOutputs = chunk.additional_kwargs?.tool_outputs;
+                if (Array.isArray(toolOutputs)) {
+                    for (const item of toolOutputs) {
+                        if (item.type === 'web_search_call' && item.action) {
+                            await events.safeDispatchCustomEvent('web_search_action', item.action, config);
+                        }
+                    }
+                }
+                await streamHandler.handle(_enum.GraphEvents.CHAT_MODEL_STREAM, { chunk }, metadata, this);
+                finalChunk = finalChunk ? stream$1.concat(finalChunk, chunk) : chunk;
+            }`,
+      },
+    ],
+  },
+  // ── Fix reasoning item reconstruction to strip id (avoids "required following item" API error) (esm) ──
+  {
+    relativePath: 'dist/esm/llm/openai/utils/index.mjs',
+    replacements: [
+      {
+        from: `            // reasoning items
+            if (additional_kwargs.reasoning && !zdrEnabled) {
+                const reasoningItem = _convertReasoningSummaryToOpenAIResponsesParams(additional_kwargs.reasoning);
+                input.push(reasoningItem);
+            }`,
+        to: `            // reasoning items - strip id to avoid "required following item" API errors during reconstruction
+            if (additional_kwargs.reasoning && !zdrEnabled) {
+                const { id: _rid, ...reasoningWithoutId } = additional_kwargs.reasoning;
+                if (reasoningWithoutId.summary) {
+                    const reasoningItem = _convertReasoningSummaryToOpenAIResponsesParams(reasoningWithoutId);
+                    input.push(reasoningItem);
+                }
+            }`,
+      },
+    ],
+  },
+  // ── Fix reasoning item reconstruction to strip id (cjs) ──
+  {
+    relativePath: 'dist/cjs/llm/openai/utils/index.cjs',
+    replacements: [
+      {
+        from: `            // reasoning items
+            if (additional_kwargs.reasoning && !zdrEnabled) {
+                const reasoningItem = _convertReasoningSummaryToOpenAIResponsesParams(additional_kwargs.reasoning);
+                input.push(reasoningItem);
+            }`,
+        to: `            // reasoning items - strip id to avoid "required following item" API errors during reconstruction
+            if (additional_kwargs.reasoning && !zdrEnabled) {
+                const { id: _rid, ...reasoningWithoutId } = additional_kwargs.reasoning;
+                if (reasoningWithoutId.summary) {
+                    const reasoningItem = _convertReasoningSummaryToOpenAIResponsesParams(reasoningWithoutId);
+                    input.push(reasoningItem);
+                }
+            }`,
+      },
+    ],
+  },
+  // ── Fix reasoning item reconstruction to strip id (src TypeScript) ──
+  {
+    relativePath: 'src/llm/openai/utils/index.ts',
+    replacements: [
+      {
+        from: `        // reasoning items
+        if (additional_kwargs.reasoning && !zdrEnabled) {
+          const reasoningItem = _convertReasoningSummaryToOpenAIResponsesParams(
+            additional_kwargs.reasoning
+          );
+          input.push(reasoningItem);
+        }`,
+        to: `        // reasoning items - strip id to avoid "required following item" API errors during reconstruction
+        if (additional_kwargs.reasoning && !zdrEnabled) {
+          const { id: _rid, ...reasoningWithoutId } = additional_kwargs.reasoning;
+          if (reasoningWithoutId.summary) {
+            const reasoningItem = _convertReasoningSummaryToOpenAIResponsesParams(reasoningWithoutId);
+            input.push(reasoningItem);
+          }
+        }`,
+      },
+    ],
+  },
+];
+
+const langchainPatchTargets = [
+  // ── Auto-include web_search_call.results for Responses API (esm) ──
+  {
+    relativePath: 'dist/chat_models.js',
+    replacements: [
+      {
+        from: `    async *_streamResponseChunks(messages, options, runManager) {
+        if (this._useResponseApi(options)) {
+            const streamIterable = await this.responseApiWithRetry({
+                ...this.invocationParams(options, { streaming: true }),
+                input: _convertMessagesToOpenAIResponsesParams(messages, this.model, this.zdrEnabled),
+                stream: true,
+            }, options);`,
+        to: `    async *_streamResponseChunks(messages, options, runManager) {
+        if (this._useResponseApi(options)) {
+            const invParams = this.invocationParams(options, { streaming: true });
+            const hasWebSearch = Array.isArray(invParams.tools) && invParams.tools.some(t => t.type === 'web_search' || t.type === 'web_search_preview');
+            if (hasWebSearch && !invParams.include) {
+                invParams.include = ['web_search_call.results'];
+            }
+            const streamIterable = await this.responseApiWithRetry({
+                ...invParams,
+                input: _convertMessagesToOpenAIResponsesParams(messages, this.model, this.zdrEnabled),
+                stream: true,
+            }, options);`,
+      },
+    ],
+  },
+  // ── Auto-include web_search_call.results for Responses API (cjs) ──
+  {
+    relativePath: 'dist/chat_models.cjs',
+    replacements: [
+      {
+        from: `    async *_streamResponseChunks(messages, options, runManager) {
+        if (this._useResponseApi(options)) {
+            const streamIterable = await this.responseApiWithRetry({
+                ...this.invocationParams(options, { streaming: true }),
+                input: _convertMessagesToOpenAIResponsesParams(messages, this.model, this.zdrEnabled),
+                stream: true,
+            }, options);`,
+        to: `    async *_streamResponseChunks(messages, options, runManager) {
+        if (this._useResponseApi(options)) {
+            const invParams = this.invocationParams(options, { streaming: true });
+            const hasWebSearch = Array.isArray(invParams.tools) && invParams.tools.some(t => t.type === 'web_search' || t.type === 'web_search_preview');
+            if (hasWebSearch && !invParams.include) {
+                invParams.include = ['web_search_call.results'];
+            }
+            const streamIterable = await this.responseApiWithRetry({
+                ...invParams,
+                input: _convertMessagesToOpenAIResponsesParams(messages, this.model, this.zdrEnabled),
+                stream: true,
+            }, options);`,
+      },
+    ],
+  },
+];
+
+const langfusePatchTargets = [
+  // ── Prevent Langfuse from overwriting model name with raw API response model_name ──
+  // Azure API responses return bare model names (e.g. "gpt-5.4-mini") without the
+  // "azure-openai/" prefix we set in invocationParams. The extractModelNameFromMetadata
+  // method runs at generation END and overwrites the correct START model name.
+  // Fix: return undefined so the invocationParams model name is preserved.
+  {
+    relativePath: 'dist/index.mjs',
+    replacements: [
+      {
+        from: `  extractModelNameFromMetadata(generation) {
+    try {
+      return "message" in generation && (generation["message"] instanceof AIMessage || generation["message"] instanceof AIMessageChunk) ? generation["message"].response_metadata.model_name : void 0;
+    } catch {
+    }
+  }`,
+        to: `  extractModelNameFromMetadata(generation) {
+    return void 0;
+  }`,
+      },
+    ],
+  },
+  {
+    relativePath: 'dist/index.cjs',
+    replacements: [
+      {
+        from: `  extractModelNameFromMetadata(generation) {
+    try {
+      return "message" in generation && (generation["message"] instanceof import_messages.AIMessage || generation["message"] instanceof import_messages.AIMessageChunk) ? generation["message"].response_metadata.model_name : void 0;
+    } catch {
+    }
+  }`,
+        to: `  extractModelNameFromMetadata(generation) {
+    return void 0;
+  }`,
+      },
+    ],
+  },
 ];
 
 function applyReplacement(contents, replacement, filePath) {
@@ -814,8 +1073,8 @@ function validatePatchedFile(relativePath, contents) {
   }
 }
 
-function patchFile(relativePath, replacements) {
-  const filePath = path.join(agentsDir, relativePath);
+function patchFile(relativePath, replacements, baseDir = agentsDir) {
+  const filePath = path.join(baseDir, relativePath);
 
   if (!fs.existsSync(filePath)) {
     throw new Error(`Missing patch target: ${filePath}`);
@@ -846,6 +1105,18 @@ function applyRuntimePatches(targets = patchTargets) {
   for (const target of targets) {
     patchFile(target.relativePath, target.replacements);
   }
+
+  if (fs.existsSync(langchainOpenAIDir)) {
+    for (const target of langchainPatchTargets) {
+      patchFile(target.relativePath, target.replacements, langchainOpenAIDir);
+    }
+  }
+
+  if (fs.existsSync(langfuseLangchainDir)) {
+    for (const target of langfusePatchTargets) {
+      patchFile(target.relativePath, target.replacements, langfuseLangchainDir);
+    }
+  }
 }
 
 if (require.main === module) {
@@ -854,9 +1125,13 @@ if (require.main === module) {
 
 module.exports = {
   agentsDir,
+  langchainOpenAIDir,
+  langfuseLangchainDir,
   applyReplacement,
   applyRuntimePatches,
   patchFile,
   patchTargets,
+  langchainPatchTargets,
+  langfusePatchTargets,
   validatePatchedFile,
 };
