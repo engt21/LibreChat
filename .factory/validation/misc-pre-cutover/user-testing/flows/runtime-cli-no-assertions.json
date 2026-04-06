@@ -1,0 +1,56 @@
+{
+  "milestone": "misc-pre-cutover",
+  "surface": "runtime-cli",
+  "testedAt": "2026-04-06T11:03:28Z",
+  "assignedAssertions": [],
+  "testedAssertions": [],
+  "status": "pass",
+  "evidence": [
+    {
+      "command": "Assignment context review",
+      "outputSnippet": "Assigned assertions: []",
+      "observation": "Confirmed this flow has no mapped assertion IDs to execute."
+    },
+    {
+      "command": "/pool/home/timeng/LibreChat-custom/local-services/status-all.sh dev",
+      "outputSnippet": "librechat-dev-api Up (0.0.0.0:3081->3080), librechat-dev-langfuse-clickhouse-1 Up (healthy), librechat-dev-langfuse-web-1 Up (0.0.0.0:3002->3000).",
+      "observation": "Dev rail status command succeeded and showed expected dev services and ports."
+    },
+    {
+      "command": "curl -i --max-time 15 http://127.0.0.1:3081/api/admin/permissions",
+      "outputSnippet": "HTTP/1.1 401 Unauthorized",
+      "observation": "Dev auth-gated admin permissions route returned expected unauthenticated status."
+    },
+    {
+      "command": "curl -i --max-time 15 http://127.0.0.1:3081/api/schedules",
+      "outputSnippet": "HTTP/1.1 401 Unauthorized",
+      "observation": "Dev schedules route returned expected unauthenticated status."
+    },
+    {
+      "command": "curl -i --max-time 15 http://127.0.0.1:3081/api/realtime/models",
+      "outputSnippet": "HTTP/1.1 401 Unauthorized",
+      "observation": "Dev realtime models route returned expected unauthenticated status."
+    },
+    {
+      "command": "/pool/home/timeng/LibreChat-custom/local-services/health-check.sh || true",
+      "outputSnippet": "Orphan container detected (interesting_mcclintock); RAM 79% used; Swap 100% used; dev Langfuse restart counts high ([dev] clickhouse=122, web=75) and reported NOT healthy.",
+      "observation": "Non-disruptive health context captured; command output indicates readiness risk signals despite route smokes succeeding."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Health-check exits non-zero under existing runtime warnings, so it was executed with `|| true` to capture diagnostics without disrupting this no-assertion flow.",
+      "resolved": true,
+      "resolution": "Recorded full warning context in evidence while keeping checks non-disruptive."
+    }
+  ],
+  "blockers": [],
+  "toolsUsed": [
+    "Execute",
+    "Read",
+    "curl",
+    "local-services/status-all.sh",
+    "local-services/health-check.sh"
+  ],
+  "notes": "No assertions were mapped from fulfills for this milestone."
+}

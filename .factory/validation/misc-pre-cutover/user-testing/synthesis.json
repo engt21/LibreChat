@@ -1,0 +1,21 @@
+{
+  "milestone": "misc-pre-cutover",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null,
+  "updatedAt": "2026-04-06T11:04:38Z",
+  "sourceFlowReports": [
+    ".factory/validation/misc-pre-cutover/user-testing/flows/runtime-cli-no-assertions.json"
+  ],
+  "notes": "No testable assertions were mapped from completed misc-pre-cutover implementation features (fulfills arrays were empty)."
+}
