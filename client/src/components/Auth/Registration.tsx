@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import React, { useContext, useState } from 'react';
 import { Turnstile } from '@marsidev/react-turnstile';
@@ -37,6 +38,16 @@ const Registration: React.FC = () => {
   // only require captcha if we have a siteKey
   const requireCaptcha = Boolean(startupConfig?.turnstile?.siteKey);
 
+  // Registration guard: redirect to login when registration is disabled and no invite token
+  const registrationDisabledWithoutInvite =
+    !isFetching && startupConfig != null && !startupConfig.registrationEnabled && !token;
+
+  useEffect(() => {
+    if (registrationDisabledWithoutInvite) {
+      navigate('/login', { replace: true });
+    }
+  }, [registrationDisabledWithoutInvite, navigate]);
+
   const registerUser = useRegisterUserMutation({
     onMutate: () => {
       setIsSubmitting(true);
@@ -63,6 +74,11 @@ const Registration: React.FC = () => {
       }
     },
   });
+
+  // Don't render the form if registration is disabled without an invite token
+  if (registrationDisabledWithoutInvite) {
+    return null;
+  }
 
   const renderInput = (id: string, label: TranslationKeys, type: string, validation: object) => (
     <div className="mb-4">

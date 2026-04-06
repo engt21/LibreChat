@@ -110,12 +110,24 @@ const setup = ({
   };
 };
 
+const mockNavigate = jest.fn();
+
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   useOutletContext: () => ({
     startupConfig: mockStartupConfig,
   }),
+  useNavigate: () => mockNavigate,
 }));
+
+beforeEach(() => {
+  mockNavigate.mockClear();
+  window.history.pushState({}, '', '/register');
+});
+
+afterEach(() => {
+  window.history.pushState({}, '', '/');
+});
 
 test('renders registration form', () => {
   const { getByText, getByTestId, getByRole } = setup();
@@ -228,4 +240,36 @@ test('shows error message when registration fails', async () => {
       /There was an error attempting to register your account. Please try again. Registration failed/i,
     );
   });
+});
+
+test('redirects to login when registration is disabled and no invite token', () => {
+  window.history.pushState({}, '', '/register');
+  setup({
+    useGetStartupConfigReturnValue: {
+      ...mockStartupConfig,
+      data: {
+        ...mockStartupConfig.data,
+        registrationEnabled: false,
+      },
+    },
+  });
+
+  expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true });
+  expect(screen.queryByRole('form', { name: /Registration form/i })).not.toBeInTheDocument();
+});
+
+test('renders registration form when registration is disabled but invite token is present', () => {
+  window.history.pushState({}, '', '/register?token=valid-invite-token');
+  const { getByRole } = setup({
+    useGetStartupConfigReturnValue: {
+      ...mockStartupConfig,
+      data: {
+        ...mockStartupConfig.data,
+        registrationEnabled: false,
+      },
+    },
+  });
+
+  expect(mockNavigate).not.toHaveBeenCalled();
+  expect(getByRole('form', { name: /Registration form/i })).toBeVisible();
 });
