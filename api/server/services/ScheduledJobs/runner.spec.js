@@ -205,6 +205,57 @@ describe('runScheduledJobNow', () => {
     expect(setFields.nextRunAt).toEqual(disabledSchedule.nextRunAt);
   });
 
+  it('passes user modelPermissions to executeScheduledRun for policy revalidation (VAL-CROSS-005)', async () => {
+    const restrictedPermissions = {
+      enabled: true,
+      rules: [{ endpoint: 'openAI', models: ['gpt-4'] }],
+    };
+    const { User } = require('~/db/models');
+    User.findById.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: 'user-1',
+          name: 'Test User',
+          email: 'test@example.com',
+          role: 'USER',
+          modelPermissions: restrictedPermissions,
+        }),
+      }),
+    });
+
+    const claimed = {
+      ...baseSchedule,
+      lastStatus: 'running',
+      currentRunId: 'run-1',
+      lockUntil: new Date(Date.now() + 300000),
+      lockedBy: 'runner-1',
+    };
+    mockFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(baseSchedule) });
+    mockFindOneAndUpdate
+      .mockReturnValueOnce({ lean: jest.fn().mockResolvedValue(claimed) })
+      .mockReturnValueOnce({
+        lean: jest.fn().mockResolvedValue({ ...baseSchedule, lastStatus: 'succeeded' }),
+      });
+
+    const { executeScheduledRun } = require('./execution');
+    executeScheduledRun.mockResolvedValue({
+      success: true,
+      conversationId: 'conv-1',
+      responseMessageId: 'msg-1',
+      preview: 'ok',
+    });
+
+    await runner.runScheduledJobNow('user-1', 's1');
+
+    // Verify the user passed to executeScheduledRun includes modelPermissions
+    const userArg = executeScheduledRun.mock.calls[0][1];
+    expect(userArg.modelPermissions).toEqual(restrictedPermissions);
+
+    // Verify User.findById().select() includes modelPermissions
+    const selectCall = User.findById.mock.results[0].value.select;
+    expect(selectCall).toHaveBeenCalledWith(expect.stringContaining('modelPermissions'));
+  });
+
   it('preserves failure metadata and notification results on execution error (VAL-SCHED-005)', async () => {
     const claimed = {
       ...baseSchedule,

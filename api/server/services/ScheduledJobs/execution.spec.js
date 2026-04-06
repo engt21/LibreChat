@@ -152,6 +152,49 @@ describe('executeScheduledRun', () => {
     );
   });
 
+  it('carries user modelPermissions into the internal request for policy filtering (VAL-CROSS-005)', async () => {
+    const restrictedUser = {
+      ...baseUser,
+      modelPermissions: {
+        enabled: true,
+        rules: [{ endpoint: 'openAI', models: ['gpt-4'] }],
+      },
+    };
+
+    await executeScheduledRun(baseSchedule, restrictedUser);
+
+    // Verify getModelsConfig received a request whose user has modelPermissions
+    const reqArg = mockGetModelsConfig.mock.calls[0][0];
+    expect(reqArg.user.modelPermissions).toEqual(restrictedUser.modelPermissions);
+  });
+
+  it('fails when model is removed from user permissions after schedule creation (VAL-CROSS-005)', async () => {
+    // Simulate: user had gpt-4 access when schedule was created, but admin later
+    // changed their modelPermissions to only allow gpt-5.1
+    const restrictedUser = {
+      ...baseUser,
+      modelPermissions: {
+        enabled: true,
+        rules: [{ endpoint: 'openAI', models: ['gpt-5.1'] }],
+      },
+    };
+
+    // getModelsConfig returns filtered results based on the user's current permissions
+    mockGetModelsConfig.mockResolvedValue({ openAI: ['gpt-5.1'] });
+    // validateModelAccess will fail because gpt-4 is not in the filtered list
+    mockValidateModelAccess.mockResolvedValue({
+      isValid: false,
+      text: 'Illegal model request',
+    });
+
+    await expect(executeScheduledRun(baseSchedule, restrictedUser)).rejects.toThrow(
+      'Illegal model request',
+    );
+
+    // Verify no conversation was created (no client interaction)
+    expect(mockInitializeClient).not.toHaveBeenCalled();
+  });
+
   it('skips model access validation for agent endpoints (agent targets use agent validation)', async () => {
     const agentSchedule = {
       ...baseSchedule,

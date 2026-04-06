@@ -106,7 +106,9 @@ function startHeartbeat(scheduleId, currentRunId) {
 }
 
 async function getScheduleUser(userId) {
-  return await User.findById(userId).select('name username email provider role').lean();
+  return await User.findById(userId)
+    .select('name username email provider role modelPermissions')
+    .lean();
 }
 
 async function finalizeScheduleRun(schedule, trigger, executionResult, error, notificationResults) {
