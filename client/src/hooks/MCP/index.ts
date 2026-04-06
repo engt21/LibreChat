@@ -1,3 +1,4 @@
+export * from './useAutoConnectMCP';
 export * from './useMCPConnectionStatus';
 export * from './useMCPSelect';
 export * from './useVisibleTools';

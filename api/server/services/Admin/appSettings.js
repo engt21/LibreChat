@@ -22,6 +22,8 @@ function toEffectiveAppSettings(doc) {
       ...getDefaultObservabilityLinks(),
       ...(doc?.observability || {}),
     },
+    mcpDomainFilterMode: doc?.mcpDomainFilterMode ?? 'denylist',
+    mcpAllowedDomains: doc?.mcpAllowedDomains ?? [],
   };
 }
 
@@ -58,6 +60,12 @@ async function updateAppSettings(updates, settingsId = DEFAULT_SETTINGS_ID) {
       ? { registrationEnabled: updates.registrationEnabled }
       : {}),
     observability: nextObservability,
+    ...(updates?.mcpDomainFilterMode !== undefined
+      ? { mcpDomainFilterMode: updates.mcpDomainFilterMode }
+      : {}),
+    ...(updates?.mcpAllowedDomains !== undefined
+      ? { mcpAllowedDomains: updates.mcpAllowedDomains }
+      : {}),
   };
 
   const updated = await AppSettings.findOneAndUpdate(

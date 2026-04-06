@@ -30,6 +30,15 @@ const appSettingsSchema = new Schema<IAppSettings>(
       },
       default: {},
     },
+    mcpDomainFilterMode: {
+      type: String,
+      enum: ['allowlist', 'denylist'],
+      default: 'denylist',
+    },
+    mcpAllowedDomains: {
+      type: [String],
+      default: undefined,
+    },
   },
   { timestamps: true },
 );

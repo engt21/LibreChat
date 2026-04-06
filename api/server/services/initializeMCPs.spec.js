@@ -54,6 +54,13 @@ jest.mock('~/config', () => ({
   },
 }));
 
+jest.mock('./Admin/appSettings', () => ({
+  getEffectiveAppSettings: jest.fn().mockResolvedValue({
+    mcpAllowedDomains: [],
+    mcpDomainFilterMode: 'denylist',
+  }),
+}));
+
 const { logger } = require('@librechat/data-schemas');
 const initializeMCPs = require('./initializeMCPs');
 
@@ -81,10 +88,11 @@ describe('initializeMCPs', () => {
       expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(
         expect.anything(), // mongoose
         ['localhost'],
+        'denylist',
       );
     });
 
-    it('should pass allowedDomains from mcpSettings to registry', async () => {
+    it('should pass allowedDomains and filterMode from settings to registry', async () => {
       const allowedDomains = ['localhost', '*.example.com', 'trusted-mcp.com'];
       mockGetAppConfig.mockResolvedValue({
         mcpConfig: null,
@@ -93,7 +101,11 @@ describe('initializeMCPs', () => {
 
       await initializeMCPs();
 
-      expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(expect.anything(), allowedDomains);
+      expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(
+        expect.anything(),
+        allowedDomains,
+        'denylist',
+      );
     });
 
     it('should handle undefined mcpSettings gracefully', async () => {
@@ -104,7 +116,11 @@ describe('initializeMCPs', () => {
 
       await initializeMCPs();
 
-      expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(expect.anything(), undefined);
+      expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(
+        expect.anything(),
+        undefined,
+        'denylist',
+      );
     });
 
     it('should throw and log error if MCPServersRegistry initialization fails', async () => {

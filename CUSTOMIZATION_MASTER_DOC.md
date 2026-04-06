@@ -302,6 +302,11 @@ Frontend/shared:
 
 - 2026-04-04 prod incident: a stable image still carried the legacy `graph.getStepIdByKey(stepKey)` web-search-status patch in `@librechat/agents`, which crashed GPT-5.4 / Responses streams with `Cannot access 'stepKey' before initialization` as soon as native web search status events arrived.
 - Prevention: keep the runtime patch validator and Jest coverage in place, and rebuild the affected rail after any runtime-patch change so the containerized `node_modules` copy cannot drift behind the worktree fix.
+- 2026-04-05 code interpreter failure: OpenAI Responses API rejects `reasoning` items (type `rs_…`) in reconstructed conversation history when the `id` field is present but the required following output item (e.g. `code_interpreter_call`) is not in the exact position the API expects. Fix: strip `id` from reasoning items during reconstruction in `_convertMessagesToOpenAIResponsesParams` and skip reasoning items that have no `summary` data. Patch added to `config/apply-runtime-patches.js` for both ESM and CJS dist targets.
+- 2026-04-05 deployment slowness: **never use `--no-cache` for Docker builds** unless the Dockerfile or base image changed. The `COPY . .` layer already invalidates everything after it when source files change, so cache is only skipped for the frontend build (~10 min) and later steps. Using `--no-cache` forces a full `npm install` (~3 min) on top of that, turning a 12-min build into 25+ min. For small fixes (e.g. a runtime patch or a few TS/JS file changes), the fastest deployment path is: **(1)** patch files directly inside the running container via `docker exec python3 -c "..."`, **(2)** `docker restart <container>`, **(3)** schedule a proper cached image rebuild for the next maintenance window. Record every in-container hotfix in `apply-runtime-patches.js` so the next `docker compose build` bakes it in permanently.
+- 2026-04-06 Langfuse Azure model naming: The `@langfuse/langchain` `CallbackHandler.extractModelNameFromMetadata()` reads `response_metadata.model_name` from the API response at generation END, overwriting the correct `azure-openai/gpt-5.4-mini` model name set at generation START via `invocationParams`. Azure API responses return bare model names without the `azure-openai/` prefix. Fix: disable `extractModelNameFromMetadata` (return `undefined`) in `@langfuse/langchain` so the START event model name from `invocationParams` is preserved. Patch added to `config/apply-runtime-patches.js` under `langfusePatchTargets`. Root cause chain: `AzureChatOpenAI.invocationParams()` → sets `params.model = 'azure-openai/X'` ✓ → Langfuse START uses it ✓ → Azure API responds with `model: 'X'` → Langfuse END overwrites with bare `'X'` ✗.
+- 2026-04-06 Ollama Cloud 401 unauthorized: Single `apiKey: '${OLLAMA_API_KEY}'` was shared across local and cloud `baseURLs`. Cloud (`ollama.com/v1/`) requires user-provided auth keys, while local Ollama needs none. Fix: split into two separate custom endpoints in `librechat.yaml` — "Ollama" (local, server key `${OLLAMA_MULTI_API_KEY}`, `baseURL` + `baseURLs` for local instances only, `models.default` listing actually-running local models) and "Ollama Cloud" (`apiKey: 'user_provided'`, `baseURL: 'https://ollama.com/v1/'`, `models.default` with available cloud models from API key). Notes: (1) `models.default` array is required by Zod validation — omitting it crashes startup. (2) After splitting endpoints, the `☁` cloud tagging in `loadConfigModels.js` becomes inert for the local endpoint (no cloud URL → `hasCloudURL` is false) but users may see stale `☁`-tagged models from browser cache until they hard-refresh. (3) Local model names include the tag suffix (e.g. `qwen3:14b`) — these must match exactly what `ollama list` reports on `192.168.50.201`. (4) Set `fetch: false` for local Ollama — `fetch: true` pulls ALL 14 models from `/v1/models` API regardless of the `default` list, showing models like `gemini-3-flash-preview:latest` which are cloud-only stubs and fail locally with "unauthorized". (5) For Ollama Cloud, `fetch: true` is inert because `apiKey: 'user_provided'` is detected and fetch is skipped; only the `default` list is shown.
+- 2026-04-06 Ollama agents "empty_messages" context window error: Agents endpoint uses `@librechat/api` `initializeAgent()` to calculate `maxContextTokens`. For Ollama/custom endpoints, `providerEndpointMap` has no entry, so `getModelMaxTokens()` returns `undefined` and the fallback was only 18000 tokens. With system instructions, tool schemas, and MCP tool definitions all counted against this budget, even a simple "hi" message could be pruned. Fix: increased the fallback from 18000 to 128000 in `packages/api/dist/index.js` (both `optionalChainWithEmptyCheck` fallback and `agentMaxContextNum` fallback). Patch added to `config/apply-runtime-patches.js` under `librechatApiPatchTargets`.
 
 ---
 
@@ -470,6 +475,50 @@ Frontend/shared:
 - `packages/api/src/mcp/__tests__/handler.test.ts` covers resource-metadata-based OAuth refresh behavior
 - `api/server/routes/__tests__/mcp.spec.js` includes callback URL precedence coverage, although the suite is still blocked locally by the existing Alpine `mongodb-memory-server` limitation
 - live validation on this branch connected to `https://api.arcade.dev/mcp/microsoft-tools`, listed 24 tools, and advanced `MicrosoftOnedrive_WhoAmI` plus `MicrosoftOnedrive_GetMyDrive` to provider authorization prompts instead of failing MCP initialization
+
+#### MCP domain filter mode (allow list vs deny list)
+
+**What it adds:**
+- adds `mcpDomainFilterMode` field (`'allowlist'` | `'denylist'`) to `AppSettings` schema, defaulting to `'denylist'`
+- admin UI now shows a filter mode dropdown (deny list / allow list) and dynamically relabels the domain list as "Blocked domains" or "Allowed domains"
+- in deny list mode: all domains are allowed except those explicitly listed (SSRF protection always active)
+- in allow list mode: only listed domains are allowed (original behavior)
+- the mode is threaded through the full stack: Mongoose schema, data-provider zod types, `isDomainAllowedCore()`, `isMCPDomainAllowed()`, `MCPServerInspector.inspect()`, `MCPServersRegistry`, `initializeMCPs.js`, and runtime domain checks in `MCP.js`
+
+**Key files:**
+- `packages/data-schemas/src/types/appSettings.ts` — `MCPDomainFilterMode` type
+- `packages/data-schemas/src/schema/appSettings.ts` — Mongoose field
+- `packages/data-provider/src/admin.ts` — zod schemas for admin settings
+- `packages/api/src/auth/domain.ts` — `DomainFilterMode` type, `matchesDomainList()` helper, denylist logic in `isDomainAllowedCore()`
+- `packages/api/src/mcp/registry/MCPServerInspector.ts` — `filterMode` parameter
+- `packages/api/src/mcp/registry/MCPServersRegistry.ts` — stores and passes `domainFilterMode`
+- `api/server/services/Admin/appSettings.js` — persists `mcpDomainFilterMode`
+- `api/server/services/MCP.js` — `getMergedMCPDomainConfig()` returns `{ domains, filterMode }`
+- `api/server/services/initializeMCPs.js` — passes `domainFilterMode` to registry
+- `client/src/components/Admin/AdminConsole.tsx` — mode dropdown and dynamic labels
+- `client/src/locales/en/translation.json` — new i18n keys
+
+**Preserve during merges:**
+- `mcpDomainFilterMode` default must remain `'denylist'` to avoid breaking existing deployments
+- the deny list logic in `isDomainAllowedCore` must keep SSRF protection active regardless of mode
+- `getMergedMCPDomainConfig()` replaces the old `getMergedMCPAllowedDomains()` function
+
+#### MCP auto-connect on tab open
+
+**What it adds:**
+- new `useAutoConnectMCP` hook auto-initializes disconnected non-OAuth MCP servers when a browser tab opens
+- uses `autoSelect=false` on `initializeServer()` so servers connect but are NOT added to the chat conversation
+- `initializeServer()` in `useMCPServerManager` now accepts a third `autoSelect` parameter (default `true`)
+- integrated into `useAppStartup.ts` after server list and connection status load
+
+**Key files:**
+- `client/src/hooks/MCP/useAutoConnectMCP.ts` — new hook
+- `client/src/hooks/MCP/useMCPServerManager.ts` — `autoSelect` parameter on `initializeServer()`
+- `client/src/hooks/Config/useAppStartup.ts` — integrates auto-connect
+
+**Preserve during merges:**
+- the `autoSelect` parameter must default to `true` for backward compatibility with manual initialization
+- the auto-connect hook must skip OAuth-required servers (user must manually auth those)
 
 ---
 

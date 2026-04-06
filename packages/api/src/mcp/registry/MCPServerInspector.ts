@@ -2,7 +2,7 @@ import { Constants } from 'librechat-data-provider';
 import type { JsonSchemaType } from '@librechat/data-schemas';
 import type { MCPConnection } from '~/mcp/connection';
 import type * as t from '~/mcp/types';
-import { isMCPDomainAllowed, extractMCPServerDomain } from '~/auth/domain';
+import { isMCPDomainAllowed, extractMCPServerDomain, type DomainFilterMode } from '~/auth/domain';
 import { MCPConnectionFactory } from '~/mcp/MCPConnectionFactory';
 import { MCPDomainNotAllowedError } from '~/mcp/errors';
 import { detectOAuthRequirement } from '~/mcp/oauth';
@@ -27,7 +27,8 @@ export class MCPServerInspector {
    * @param serverName - The name of the server (used for tool function naming)
    * @param rawConfig - The raw server configuration
    * @param connection - The MCP connection
-   * @param allowedDomains - Optional list of allowed domains for remote transports
+   * @param allowedDomains - Optional list of domains for remote transports
+   * @param filterMode - 'allowlist' or 'denylist'. Defaults to 'allowlist'.
    * @returns A fully processed and enriched configuration with server metadata
    */
   public static async inspect(
@@ -35,9 +36,10 @@ export class MCPServerInspector {
     rawConfig: t.MCPOptions,
     connection?: MCPConnection,
     allowedDomains?: string[] | null,
+    filterMode: DomainFilterMode = 'allowlist',
   ): Promise<t.ParsedServerConfig> {
-    // Validate domain against allowlist BEFORE attempting connection
-    const isDomainAllowed = await isMCPDomainAllowed(rawConfig, allowedDomains);
+    // Validate domain against the domain list BEFORE attempting connection
+    const isDomainAllowed = await isMCPDomainAllowed(rawConfig, allowedDomains, filterMode);
     if (!isDomainAllowed) {
       const domain = extractMCPServerDomain(rawConfig);
       throw new MCPDomainNotAllowedError(domain ?? 'unknown');

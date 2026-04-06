@@ -2,6 +2,7 @@ import { Keyv } from 'keyv';
 import { logger } from '@librechat/data-schemas';
 import type { IServerConfigsRepositoryInterface } from './ServerConfigsRepositoryInterface';
 import type * as t from '~/mcp/types';
+import type { DomainFilterMode } from '~/auth/domain';
 import { MCPInspectionFailedError, isMCPDomainNotAllowedError } from '~/mcp/errors';
 import { ServerConfigsCacheFactory } from './cache/ServerConfigsCacheFactory';
 import { MCPServerInspector } from './MCPServerInspector';
@@ -24,6 +25,7 @@ export class MCPServersRegistry {
   private readonly dbConfigsRepo: IServerConfigsRepositoryInterface;
   private readonly cacheConfigsRepo: IServerConfigsRepositoryInterface;
   private readonly allowedDomains?: string[] | null;
+  private readonly domainFilterMode: DomainFilterMode;
   private readonly readThroughCache: Keyv<t.ParsedServerConfig>;
   private readonly readThroughCacheAll: Keyv<Record<string, t.ParsedServerConfig>>;
   private readonly pendingGetAllPromises = new Map<
@@ -31,10 +33,15 @@ export class MCPServersRegistry {
     Promise<Record<string, t.ParsedServerConfig>>
   >();
 
-  constructor(mongoose: typeof import('mongoose'), allowedDomains?: string[] | null) {
+  constructor(
+    mongoose: typeof import('mongoose'),
+    allowedDomains?: string[] | null,
+    domainFilterMode: DomainFilterMode = 'allowlist',
+  ) {
     this.dbConfigsRepo = new ServerConfigsDB(mongoose);
     this.cacheConfigsRepo = ServerConfigsCacheFactory.create('App', false);
     this.allowedDomains = allowedDomains;
+    this.domainFilterMode = domainFilterMode;
 
     const ttl = cacheConfig.MCP_REGISTRY_CACHE_TTL;
 
@@ -53,6 +60,7 @@ export class MCPServersRegistry {
   public static createInstance(
     mongoose: typeof import('mongoose'),
     allowedDomains?: string[] | null,
+    domainFilterMode: DomainFilterMode = 'allowlist',
   ): MCPServersRegistry {
     if (!mongoose) {
       throw new Error(
@@ -65,7 +73,7 @@ export class MCPServersRegistry {
       return MCPServersRegistry.instance;
     }
     logger.info('[MCPServersRegistry] Creating new instance');
-    MCPServersRegistry.instance = new MCPServersRegistry(mongoose, allowedDomains);
+    MCPServersRegistry.instance = new MCPServersRegistry(mongoose, allowedDomains, domainFilterMode);
     return MCPServersRegistry.instance;
   }
 
@@ -176,6 +184,7 @@ export class MCPServersRegistry {
         config,
         undefined,
         this.allowedDomains,
+        this.domainFilterMode,
       );
     } catch (error) {
       logger.error(`[MCPServersRegistry] Failed to inspect server "${serverName}":`, error);
@@ -216,6 +225,7 @@ export class MCPServersRegistry {
         configForInspection,
         undefined,
         this.allowedDomains,
+        this.domainFilterMode,
       );
     } catch (error) {
       logger.error(`[MCPServersRegistry] Reinspection failed for server "${serverName}":`, error);
@@ -264,6 +274,7 @@ export class MCPServersRegistry {
         configForInspection,
         undefined,
         this.allowedDomains,
+        this.domainFilterMode,
       );
     } catch (error) {
       logger.error(`[MCPServersRegistry] Failed to inspect server "${serverName}":`, error);

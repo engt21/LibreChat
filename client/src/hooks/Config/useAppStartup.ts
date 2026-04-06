@@ -6,6 +6,8 @@ import type { TStartupConfig, TUser } from 'librechat-data-provider';
 import { cleanupTimestampedStorage } from '~/utils/timestamps';
 import useSpeechSettingsInit from './useSpeechSettingsInit';
 import { useMCPToolsQuery, useMCPServersQuery } from '~/data-provider';
+import { useMCPConnectionStatusQuery } from '~/data-provider/Tools/queries';
+import { useAutoConnectMCP, useMCPServerManager } from '~/hooks/MCP';
 import store from '~/store';
 
 export default function useAppStartup({
@@ -20,8 +22,24 @@ export default function useAppStartup({
   useSpeechSettingsInit(!!user);
   const { data: loadedServers, isLoading: serversLoading } = useMCPServersQuery();
 
+  const hasMCPServers = !serversLoading && !!loadedServers && Object.keys(loadedServers).length > 0;
+
   useMCPToolsQuery({
-    enabled: !serversLoading && !!loadedServers && Object.keys(loadedServers).length > 0 && !!user,
+    enabled: hasMCPServers && !!user,
+  });
+
+  const { data: connectionStatusData } = useMCPConnectionStatusQuery({
+    enabled: hasMCPServers && !!user,
+  });
+
+  const { availableMCPServers, initializeServer, isInitializing } = useMCPServerManager();
+
+  useAutoConnectMCP({
+    servers: availableMCPServers,
+    connectionStatus: connectionStatusData?.connectionStatus,
+    isLoading: serversLoading,
+    initializeServer,
+    isInitializing,
   });
 
   /** Clean up old localStorage entries on startup */

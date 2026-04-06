@@ -348,17 +348,56 @@ function hostnameMatches(inputHostname: string, allowedSpec: ParsedDomainSpec): 
 const HTTP_PROTOCOLS: SupportedProtocol[] = ['http:', 'https:'];
 const MCP_PROTOCOLS: SupportedProtocol[] = ['http:', 'https:', 'ws:', 'wss:'];
 
+export type DomainFilterMode = 'allowlist' | 'denylist';
+
+/**
+ * Checks if a domain matches any entry in the domain list (protocol/port aware).
+ */
+function matchesDomainList(
+  inputSpec: ParsedDomainSpec,
+  domainList: string[],
+  supportedProtocols: SupportedProtocol[],
+): boolean {
+  for (const entry of domainList) {
+    const entrySpec = parseDomainSpec(entry);
+    if (!entrySpec) {
+      continue;
+    }
+    if (entrySpec.protocol !== null && !supportedProtocols.includes(entrySpec.protocol)) {
+      continue;
+    }
+    if (!hostnameMatches(inputSpec.hostname, entrySpec)) {
+      continue;
+    }
+    if (entrySpec.protocol !== null) {
+      if (inputSpec.protocol === null || inputSpec.protocol !== entrySpec.protocol) {
+        continue;
+      }
+    }
+    if (entrySpec.explicitPort) {
+      if (!inputSpec.explicitPort || inputSpec.port !== entrySpec.port) {
+        continue;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
 /**
  * Core domain validation logic with configurable protocol support.
- * SECURITY: When no allowedDomains is configured, blocks SSRF-prone targets.
+ * SECURITY: When no domain list is configured, blocks SSRF-prone targets.
  * @param domain - The domain to check (can include protocol/port)
- * @param allowedDomains - List of allowed domain patterns
+ * @param allowedDomains - List of domain patterns (interpreted per filterMode)
  * @param supportedProtocols - Protocols to accept (others are rejected)
+ * @param filterMode - 'allowlist' (only listed allowed) or 'denylist' (listed are blocked).
+ *   Defaults to 'allowlist' for backward compatibility.
  */
 async function isDomainAllowedCore(
   domain: string,
   allowedDomains: string[] | null | undefined,
   supportedProtocols: SupportedProtocol[],
+  filterMode: DomainFilterMode = 'allowlist',
 ): Promise<boolean> {
   const inputSpec = parseDomainSpec(domain);
   if (!inputSpec) {
@@ -370,8 +409,26 @@ async function isDomainAllowedCore(
     return false;
   }
 
+  const hasList = Array.isArray(allowedDomains) && allowedDomains.length > 0;
+
+  if (filterMode === 'denylist') {
+    // DENYLIST: SSRF protection always applies
+    if (isSSRFTarget(inputSpec.hostname)) {
+      return false;
+    }
+    if (await resolveHostnameSSRF(inputSpec.hostname)) {
+      return false;
+    }
+    // If deny list has entries and domain matches one, block it
+    if (hasList && matchesDomainList(inputSpec, allowedDomains!, supportedProtocols)) {
+      return false;
+    }
+    return true;
+  }
+
+  // ALLOWLIST mode (original behavior)
   /** If no domain restrictions configured, block SSRF targets but allow all else */
-  if (!Array.isArray(allowedDomains) || !allowedDomains.length) {
+  if (!hasList) {
     /** SECURITY: Block SSRF-prone targets when no allowlist is configured */
     if (isSSRFTarget(inputSpec.hostname)) {
       return false;
@@ -384,43 +441,7 @@ async function isDomainAllowedCore(
   }
 
   /** When allowedDomains is configured, check against the list with protocol/port matching */
-  for (const allowedDomain of allowedDomains) {
-    const allowedSpec = parseDomainSpec(allowedDomain);
-    if (!allowedSpec) {
-      continue;
-    }
-
-    // Skip allowedDomains with unsupported protocols for this context
-    if (allowedSpec.protocol !== null && !supportedProtocols.includes(allowedSpec.protocol)) {
-      continue;
-    }
-
-    // Check hostname match (with wildcard support)
-    if (!hostnameMatches(inputSpec.hostname, allowedSpec)) {
-      continue;
-    }
-
-    // If allowedSpec has protocol restriction, input must match
-    if (allowedSpec.protocol !== null) {
-      // Input must have protocol specified to match a protocol-restricted rule
-      if (inputSpec.protocol === null || inputSpec.protocol !== allowedSpec.protocol) {
-        continue;
-      }
-    }
-
-    // If allowedSpec has explicit port restriction, input must have matching explicit port
-    if (allowedSpec.explicitPort) {
-      // Input must also have an explicit port that matches
-      if (!inputSpec.explicitPort || inputSpec.port !== allowedSpec.port) {
-        continue;
-      }
-    }
-
-    // All specified constraints matched
-    return true;
-  }
-
-  return false;
+  return matchesDomainList(inputSpec, allowedDomains!, supportedProtocols);
 }
 
 /**
@@ -466,7 +487,7 @@ export function extractMCPServerDomain(config: Record<string, unknown>): string 
 }
 
 /**
- * Validates MCP server domain against allowedDomains.
+ * Validates MCP server domain against a domain list.
  * Supports HTTP, HTTPS, WS, and WSS protocols (per MCP specification).
  * Stdio transports (no URL) are always allowed.
  * Configs with a non-empty URL that cannot be parsed are rejected fail-closed when an
@@ -475,14 +496,16 @@ export function extractMCPServerDomain(config: Record<string, unknown>): string 
  * When no allowlist is configured, unparseable URLs fall through to connection-level
  * SSRF protection (`createSSRFSafeUndiciConnect`).
  * @param config - MCP server configuration with optional url field
- * @param allowedDomains - List of allowed domains (with wildcard support)
+ * @param allowedDomains - List of domains (interpreted per filterMode)
+ * @param filterMode - 'allowlist' or 'denylist'. Defaults to 'allowlist'.
  */
 export async function isMCPDomainAllowed(
   config: Record<string, unknown>,
   allowedDomains?: string[] | null,
+  filterMode: DomainFilterMode = 'allowlist',
 ): Promise<boolean> {
   const domain = extractMCPServerDomain(config);
-  const hasAllowlist = Array.isArray(allowedDomains) && allowedDomains.length > 0;
+  const hasList = Array.isArray(allowedDomains) && allowedDomains.length > 0;
 
   const hasExplicitUrl =
     Object.prototype.hasOwnProperty.call(config, 'url') &&
@@ -490,7 +513,7 @@ export async function isMCPDomainAllowed(
     config.url.trim().length > 0;
 
   // Fail-closed: unparseable URL with active allowlist is rejected
-  if (!domain && hasExplicitUrl && hasAllowlist) {
+  if (!domain && hasExplicitUrl && hasList && filterMode === 'allowlist') {
     return false;
   }
 
@@ -500,7 +523,7 @@ export async function isMCPDomainAllowed(
   }
 
   // Use MCP_PROTOCOLS (HTTP/HTTPS/WS/WSS) for MCP server validation
-  return isDomainAllowedCore(domain, allowedDomains, MCP_PROTOCOLS);
+  return isDomainAllowedCore(domain, allowedDomains, MCP_PROTOCOLS, filterMode);
 }
 
 /**

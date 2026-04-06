@@ -32,11 +32,44 @@ const { findToken, createToken, updateToken } = require('~/models');
 const { getGraphApiToken } = require('./GraphTokenService');
 const { reinitMCPServer } = require('./Tools/mcp');
 const { getAppConfig } = require('./Config');
+const { getEffectiveAppSettings } = require('./Admin/appSettings');
 const { getLogStores } = require('~/cache');
 
 const MAX_CACHE_SIZE = 1000;
 const lastReconnectAttempts = new Map();
 const RECONNECT_THROTTLE_MS = 10_000;
+
+/**
+ * Merges MCP domains from yaml config and admin settings (MongoDB).
+ * Returns { domains, filterMode } where filterMode is 'allowlist' or 'denylist'.
+ */
+async function getMergedMCPDomainConfig(appConfig) {
+  const yamlDomains = appConfig?.mcpSettings?.allowedDomains;
+  let adminDomains;
+  let adminFilterMode;
+  try {
+    const adminSettings = await getEffectiveAppSettings();
+    adminDomains = adminSettings?.mcpAllowedDomains;
+    adminFilterMode = adminSettings?.mcpDomainFilterMode;
+  } catch {
+    adminDomains = undefined;
+    adminFilterMode = undefined;
+  }
+
+  const filterMode = adminFilterMode || 'denylist';
+
+  const hasYaml = Array.isArray(yamlDomains) && yamlDomains.length > 0;
+  const hasAdmin = Array.isArray(adminDomains) && adminDomains.length > 0;
+
+  let domains;
+  if (!hasYaml && !hasAdmin) {
+    domains = yamlDomains;
+  } else {
+    domains = [...new Set([...(hasYaml ? yamlDomains : []), ...(hasAdmin ? adminDomains : [])])];
+  }
+
+  return { domains, filterMode };
+}
 
 const missingToolCache = new Map();
 const MISSING_TOOL_TTL_MS = 10_000;
@@ -368,13 +401,13 @@ async function createMCPTools({
   streamId = null,
 }) {
   // Early domain validation before reconnecting server (avoid wasted work on disallowed domains)
-  // Use getAppConfig() to support per-user/role domain restrictions
+  // Merges yaml config and admin settings allowed domains
   const serverConfig =
     config ?? (await getMCPServersRegistry().getServerConfig(serverName, user?.id));
   if (serverConfig?.url) {
     const appConfig = await getAppConfig({ role: user?.role });
-    const allowedDomains = appConfig?.mcpSettings?.allowedDomains;
-    const isDomainAllowed = await isMCPDomainAllowed(serverConfig, allowedDomains);
+    const { domains: allowedDomains, filterMode } = await getMergedMCPDomainConfig(appConfig);
+    const isDomainAllowed = await isMCPDomainAllowed(serverConfig, allowedDomains, filterMode);
     if (!isDomainAllowed) {
       logger.warn(`[MCP][${serverName}] Domain not allowed, skipping all tools`);
       return [];
@@ -450,13 +483,13 @@ async function createMCPTool({
   const [toolName, serverName] = toolKey.split(Constants.mcp_delimiter);
 
   // Runtime domain validation: check if the server's domain is still allowed
-  // Use getAppConfig() to support per-user/role domain restrictions
+  // Merges yaml config and admin settings allowed domains
   const serverConfig =
     config ?? (await getMCPServersRegistry().getServerConfig(serverName, user?.id));
   if (serverConfig?.url) {
     const appConfig = await getAppConfig({ role: user?.role });
-    const allowedDomains = appConfig?.mcpSettings?.allowedDomains;
-    const isDomainAllowed = await isMCPDomainAllowed(serverConfig, allowedDomains);
+    const { domains: allowedDomains, filterMode } = await getMergedMCPDomainConfig(appConfig);
+    const isDomainAllowed = await isMCPDomainAllowed(serverConfig, allowedDomains, filterMode);
     if (!isDomainAllowed) {
       logger.warn(`[MCP][${serverName}] Domain no longer allowed, skipping tool: ${toolName}`);
       return undefined;

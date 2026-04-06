@@ -309,15 +309,17 @@ export function useMCPServerManager({
   );
 
   const initializeServer = useCallback(
-    async (serverName: string, autoOpenOAuth: boolean = true) => {
+    async (serverName: string, autoOpenOAuth: boolean = true, autoSelect: boolean = true) => {
       updateServerInitState(serverName, { isInitializing: true });
       try {
         const response = await reinitializeMutation.mutateAsync(serverName);
         if (!response.success) {
-          showToast({
-            message: localize('com_ui_mcp_init_failed', { 0: serverName }),
-            status: 'error',
-          });
+          if (autoSelect) {
+            showToast({
+              message: localize('com_ui_mcp_init_failed', { 0: serverName }),
+              status: 'error',
+            });
+          }
           cleanupServerState(serverName);
           return response;
         }
@@ -343,14 +345,16 @@ export function useMCPServerManager({
             queryClient.invalidateQueries([QueryKeys.mcpConnectionStatus]),
           ]);
 
-          showToast({
-            message: localize('com_ui_mcp_initialized_success', { 0: serverName }),
-            status: 'success',
-          });
+          if (autoSelect) {
+            showToast({
+              message: localize('com_ui_mcp_initialized_success', { 0: serverName }),
+              status: 'success',
+            });
 
-          const currentValues = mcpValues ?? [];
-          if (!currentValues.includes(serverName)) {
-            setMCPValues([...currentValues, serverName]);
+            const currentValues = mcpValues ?? [];
+            if (!currentValues.includes(serverName)) {
+              setMCPValues([...currentValues, serverName]);
+            }
           }
 
           cleanupServerState(serverName);
@@ -358,10 +362,12 @@ export function useMCPServerManager({
         return response;
       } catch (error) {
         console.error(`[MCP Manager] Failed to initialize ${serverName}:`, error);
-        showToast({
-          message: localize('com_ui_mcp_init_failed', { 0: serverName }),
-          status: 'error',
-        });
+        if (autoSelect) {
+          showToast({
+            message: localize('com_ui_mcp_init_failed', { 0: serverName }),
+            status: 'error',
+          });
+        }
         cleanupServerState(serverName);
       }
     },

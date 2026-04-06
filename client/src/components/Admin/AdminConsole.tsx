@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Shield, Users, Activity, Settings2, ExternalLink, BarChart3 } from 'lucide-react';
+import { Shield, Users, Activity, Settings2, ExternalLink, BarChart3, Plus, X } from 'lucide-react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Button, Input, Label, Spinner, Switch, useToastContext } from '@librechat/client';
+import {
+  Button,
+  Input,
+  Label,
+  OGDialog,
+  Spinner,
+  Switch,
+  TrashIcon,
+  useToastContext,
+  OGDialogTrigger,
+  OGDialogTemplate,
+} from '@librechat/client';
 import {
   AdminPermissions,
   SystemRoles,
@@ -23,6 +34,7 @@ import {
   useAdminSettingsQuery,
   useAdminPermissionsQuery,
   useAdminObservabilityQuery,
+  useDeleteAdminUserMutation,
   useUpdateAdminUserMutation,
   useUpdateAdminSettingsMutation,
 } from '~/data-provider';
@@ -36,6 +48,7 @@ const DEFAULT_SETTINGS: TAdminSettings = {
     metricsUrl: '',
     prometheusUrl: '',
   },
+  mcpDomainFilterMode: 'denylist',
 };
 
 const DEFAULT_MODEL_PERMISSIONS: TAdminModelPermissions = {
@@ -126,11 +139,13 @@ export default function AdminConsole() {
   const [userSearch, setUserSearch] = useState('');
   const [usageSearch, setUsageSearch] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedRole, setSelectedRole] = useState(SystemRoles.USER);
   const [selectedAdminRoleIds, setSelectedAdminRoleIds] = useState<string[]>([]);
   const [selectedModelPermissions, setSelectedModelPermissions] =
     useState<TAdminModelPermissions>(DEFAULT_MODEL_PERMISSIONS);
   const [settingsForm, setSettingsForm] = useState<TAdminSettings>(DEFAULT_SETTINGS);
+  const [newMcpDomain, setNewMcpDomain] = useState('');
 
   useDocumentTitle(`${localize('com_nav_admin_console')} | LibreChat`);
 
@@ -161,6 +176,11 @@ export default function AdminConsole() {
   const currentPermissions = adminPermissionsQuery.data?.permissions ?? [];
 
   const canReadUsers = hasPermission(isSuperAdmin, currentPermissions, AdminPermissions.USERS_READ);
+  const canDeleteUsers = hasPermission(
+    isSuperAdmin,
+    currentPermissions,
+    AdminPermissions.USERS_DELETE,
+  );
   const canReadUsage = hasPermission(isSuperAdmin, currentPermissions, AdminPermissions.USAGE_READ);
   const canReadSettings = hasPermission(
     isSuperAdmin,
@@ -221,6 +241,20 @@ export default function AdminConsole() {
     },
   });
 
+  const deleteAdminUserMutation = useDeleteAdminUserMutation({
+    onSuccess: (_data, variables) => {
+      setDeleteDialogOpen(false);
+      setSelectedUserId((current) => (current === variables.userId ? null : current));
+      showToast({ message: localize('com_admin_user_deleted'), status: 'success' });
+    },
+    onError: (error) => {
+      showToast({
+        message: error?.message || localize('com_admin_user_delete_error'),
+        status: 'error',
+      });
+    },
+  });
+
   useEffect(() => {
     if (updateSettingsMutation.isError && !updateSettingsMutation.error?.message) {
       showToast({ message: localize('com_admin_settings_save_error'), status: 'error' });
@@ -263,9 +297,18 @@ export default function AdminConsole() {
     }
   }, [adminSettingsQuery.data]);
 
+  useEffect(() => {
+    setDeleteDialogOpen(false);
+  }, [selectedUserId]);
+
   const selectedUser = adminUserQuery.data?.user;
   const selectedUserUsage = adminUserQuery.data?.usage;
   const isSelectedUserSuperAdmin = selectedRole === SystemRoles.ADMIN;
+  const canDeleteSelectedUser =
+    canDeleteUsers &&
+    selectedUser != null &&
+    selectedUser.id !== user?.id &&
+    (isSuperAdmin || selectedUser.role !== SystemRoles.ADMIN);
 
   const handleToggleAdminRole = (roleId: string) => {
     setSelectedAdminRoleIds((current) =>
@@ -343,8 +386,54 @@ export default function AdminConsole() {
     await updateSettingsMutation.mutateAsync({
       registrationEnabled: settingsForm.registrationEnabled,
       observability: settingsForm.observability,
+      mcpDomainFilterMode: settingsForm.mcpDomainFilterMode ?? 'denylist',
+      mcpAllowedDomains: settingsForm.mcpAllowedDomains ?? [],
     });
   };
+
+  let modelAccessOptionsContent: ReactNode;
+  if (adminModelsQuery.isLoading) {
+    modelAccessOptionsContent = (
+      <div className="flex items-center gap-2 text-sm text-text-secondary">
+        <Spinner className="text-text-primary" />
+        {loadingLabel}
+      </div>
+    );
+  } else if (availableModelEntries.length === 0) {
+    modelAccessOptionsContent = (
+      <div className="rounded-xl border border-border-light bg-surface-primary p-3 text-sm text-text-secondary">
+        {localize('com_admin_model_access_none_available')}
+      </div>
+    );
+  } else {
+    modelAccessOptionsContent = availableModelEntries.map(([endpoint, models]) => (
+      <div key={endpoint} className="rounded-xl border border-border-light bg-surface-primary p-3">
+        <div className="font-medium text-text-primary">
+          {alternateName[endpoint as keyof typeof alternateName] || endpoint}
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {models.map((model) => {
+            const checked = selectedModelRuleMap.get(endpoint)?.has(model) ?? false;
+
+            return (
+              <label
+                key={`${endpoint}-${model}`}
+                className="flex cursor-pointer items-start gap-3 rounded-xl border border-border-light bg-surface-secondary p-3"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleModelPermission(endpoint, model)}
+                  className="mt-1"
+                />
+                <div className="text-sm text-text-primary">{model}</div>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+    ));
+  }
 
   const adminUsers = adminUsersQuery.data?.users ?? [];
   const usageUsers = adminUsageQuery.data?.users ?? [];
@@ -413,10 +502,48 @@ export default function AdminConsole() {
     selectedUserContent = (
       <div className="space-y-5">
         <div>
-          <h3 className="text-lg font-semibold text-text-primary">
-            {selectedUser.name || selectedUser.email}
-          </h3>
-          <p className="text-sm text-text-secondary">{selectedUser.email}</p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-text-primary">
+                {selectedUser.name || selectedUser.email}
+              </h3>
+              <p className="text-sm text-text-secondary">{selectedUser.email}</p>
+            </div>
+
+            {canDeleteSelectedUser ? (
+              <OGDialog open={isDeleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <OGDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-red-500 text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                  >
+                    <span className="flex items-center gap-2">
+                      <TrashIcon />
+                      {localize('com_admin_delete_user')}
+                    </span>
+                  </Button>
+                </OGDialogTrigger>
+                <OGDialogTemplate
+                  title={localize('com_admin_delete_user')}
+                  className="max-w-[450px]"
+                  main={
+                    <div className="space-y-2 text-sm text-text-secondary">
+                      <p>{localize('com_admin_delete_user_confirm')}</p>
+                      <p>{localize('com_admin_delete_user_desc')}</p>
+                    </div>
+                  }
+                  selection={{
+                    selectHandler: () =>
+                      deleteAdminUserMutation.mutate({ userId: selectedUser.id }),
+                    selectClasses: 'bg-red-600 hover:bg-red-700 dark:hover:bg-red-800 text-white',
+                    isLoading: deleteAdminUserMutation.isLoading,
+                    selectText: localize('com_ui_delete'),
+                  }}
+                />
+              </OGDialog>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -583,48 +710,7 @@ export default function AdminConsole() {
                       {localize('com_admin_model_access_select_desc')}
                     </div>
 
-                    {adminModelsQuery.isLoading ? (
-                      <div className="flex items-center gap-2 text-sm text-text-secondary">
-                        <Spinner className="text-text-primary" />
-                        {loadingLabel}
-                      </div>
-                    ) : availableModelEntries.length === 0 ? (
-                      <div className="rounded-xl border border-border-light bg-surface-primary p-3 text-sm text-text-secondary">
-                        {localize('com_admin_model_access_none_available')}
-                      </div>
-                    ) : (
-                      availableModelEntries.map(([endpoint, models]) => (
-                        <div
-                          key={endpoint}
-                          className="rounded-xl border border-border-light bg-surface-primary p-3"
-                        >
-                          <div className="font-medium text-text-primary">
-                            {alternateName[endpoint as keyof typeof alternateName] || endpoint}
-                          </div>
-                          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                            {models.map((model) => {
-                              const checked =
-                                selectedModelRuleMap.get(endpoint)?.has(model) ?? false;
-
-                              return (
-                                <label
-                                  key={`${endpoint}-${model}`}
-                                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-border-light bg-surface-secondary p-3"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleModelPermission(endpoint, model)}
-                                    className="mt-1"
-                                  />
-                                  <div className="text-sm text-text-primary">{model}</div>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))
-                    )}
+                    {modelAccessOptionsContent}
                   </div>
                 ) : null}
               </div>
@@ -887,6 +973,120 @@ export default function AdminConsole() {
                     className="mt-2"
                   />
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-border-light bg-surface-primary p-4">
+                <div>
+                  <div className="font-medium text-text-primary">
+                    {localize('com_admin_mcp_domain_filter')}
+                  </div>
+                  <div className="mt-1 text-sm text-text-secondary">
+                    {localize('com_admin_mcp_domain_filter_desc')}
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <Label htmlFor="mcp-filter-mode">{localize('com_admin_mcp_filter_mode')}</Label>
+                  <select
+                    id="mcp-filter-mode"
+                    className="mt-2 flex h-10 w-full rounded-md border border-border-light bg-transparent px-3 py-2 text-sm text-text-primary"
+                    value={settingsForm.mcpDomainFilterMode ?? 'denylist'}
+                    disabled={!canWriteSettings}
+                    onChange={(event) =>
+                      setSettingsForm((current) => ({
+                        ...current,
+                        mcpDomainFilterMode: event.target.value as 'allowlist' | 'denylist',
+                      }))
+                    }
+                  >
+                    <option value="denylist">{localize('com_admin_mcp_filter_mode_denylist')}</option>
+                    <option value="allowlist">{localize('com_admin_mcp_filter_mode_allowlist')}</option>
+                  </select>
+                </div>
+
+                <div className="mt-4">
+                  <div className="font-medium text-text-primary">
+                    {settingsForm.mcpDomainFilterMode === 'allowlist'
+                      ? localize('com_admin_mcp_domains_label_allowlist')
+                      : localize('com_admin_mcp_domains_label_denylist')}
+                  </div>
+                  <div className="mt-1 text-sm text-text-secondary">
+                    {settingsForm.mcpDomainFilterMode === 'allowlist'
+                      ? localize('com_admin_mcp_domains_desc_allowlist')
+                      : localize('com_admin_mcp_domains_desc_denylist')}
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {(settingsForm.mcpAllowedDomains ?? []).map((domain, index) => (
+                    <div
+                      key={`mcp-domain-${index}`}
+                      className="flex items-center gap-2 rounded-lg border border-border-light bg-surface-secondary px-3 py-2"
+                    >
+                      <span className="flex-1 text-sm text-text-primary">{domain}</span>
+                      {canWriteSettings ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSettingsForm((current) => ({
+                              ...current,
+                              mcpAllowedDomains: (current.mcpAllowedDomains ?? []).filter(
+                                (_, i) => i !== index,
+                              ),
+                            }))
+                          }
+                          className="rounded p-1 text-text-secondary hover:bg-surface-tertiary hover:text-text-primary"
+                          aria-label={`Remove ${domain}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+
+                {canWriteSettings ? (
+                  <div className="mt-3 flex gap-2">
+                    <Input
+                      value={newMcpDomain}
+                      onChange={(event) => setNewMcpDomain(event.target.value)}
+                      placeholder={localize('com_admin_mcp_domain_placeholder')}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          const trimmed = newMcpDomain.trim();
+                          if (
+                            trimmed &&
+                            !(settingsForm.mcpAllowedDomains ?? []).includes(trimmed)
+                          ) {
+                            setSettingsForm((current) => ({
+                              ...current,
+                              mcpAllowedDomains: [...(current.mcpAllowedDomains ?? []), trimmed],
+                            }));
+                            setNewMcpDomain('');
+                          }
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const trimmed = newMcpDomain.trim();
+                        if (trimmed && !(settingsForm.mcpAllowedDomains ?? []).includes(trimmed)) {
+                          setSettingsForm((current) => ({
+                            ...current,
+                            mcpAllowedDomains: [...(current.mcpAllowedDomains ?? []), trimmed],
+                          }));
+                          setNewMcpDomain('');
+                        }
+                      }}
+                    >
+                      <Plus className="h-4 w-4" />
+                      {localize('com_admin_mcp_add_domain')}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
 
               {canWriteSettings ? (

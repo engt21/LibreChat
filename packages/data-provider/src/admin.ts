@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export enum AdminPermissions {
   USERS_READ = 'users.read',
+  USERS_DELETE = 'users.delete',
   USAGE_READ = 'usage.read',
   SETTINGS_READ = 'settings.read',
   SETTINGS_WRITE = 'settings.write',
@@ -43,9 +44,10 @@ export const defaultAdminRoles = adminRoleSchema.array().parse([
     adminRoleId: DefaultAdminRoleIds.WORKSPACE_ADMIN,
     name: 'Workspace Admin',
     description:
-      'View users and usage, manage safe live settings, and open observability dashboards.',
+      'View and delete users, manage safe live settings, and open observability dashboards.',
     permissions: [
       AdminPermissions.USERS_READ,
+      AdminPermissions.USERS_DELETE,
       AdminPermissions.USAGE_READ,
       AdminPermissions.SETTINGS_READ,
       AdminPermissions.SETTINGS_WRITE,
@@ -155,10 +157,15 @@ export const adminUserDetailsSchema = z.object({
 
 export type TAdminUserDetails = z.infer<typeof adminUserDetailsSchema>;
 
+export const mcpDomainFilterModeSchema = z.enum(['allowlist', 'denylist']);
+export type MCPDomainFilterMode = z.infer<typeof mcpDomainFilterModeSchema>;
+
 export const adminSettingsSchema = z.object({
   settingsId: z.string(),
   registrationEnabled: z.boolean(),
   observability: observabilityLinksSchema,
+  mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),
+  mcpAllowedDomains: z.array(z.string()).optional(),
 });
 
 export type TAdminSettings = z.infer<typeof adminSettingsSchema>;
@@ -166,6 +173,8 @@ export type TAdminSettings = z.infer<typeof adminSettingsSchema>;
 export const adminSettingsUpdateSchema = z.object({
   registrationEnabled: z.boolean().optional(),
   observability: observabilityLinksSchema.partial().optional(),
+  mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),
+  mcpAllowedDomains: z.array(z.string()).optional(),
 });
 
 export type TAdminSettingsUpdate = z.infer<typeof adminSettingsUpdateSchema>;
