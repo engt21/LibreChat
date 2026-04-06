@@ -80,6 +80,10 @@ jest.mock('./GraphTokenService', () => ({
   getGraphApiToken: jest.fn(),
 }));
 
+jest.mock('./Admin/appSettings', () => ({
+  getEffectiveAppSettings: jest.fn().mockResolvedValue({ mcpAllowedDomains: [] }),
+}));
+
 describe('tests for the new helper functions used by the MCP connection status endpoints', () => {
   let mockGetMCPManager;
   let mockGetFlowStateManager;
@@ -920,9 +924,12 @@ describe('User parameter passing tests', () => {
       expect(mockGetAppConfig).toHaveBeenCalledWith({ role: 'user' });
 
       // Verify domain validation was called with correct parameters
+      // getMergedMCPDomainConfig defaults filterMode to 'denylist' when admin settings
+      // don't specify mcpDomainFilterMode, so the third argument is 'denylist'.
       expect(mockIsMCPDomainAllowed).toHaveBeenCalledWith(
         { url: 'https://disallowed-domain.com/sse' },
         ['allowed-domain.com'],
+        'denylist',
       );
     });
 
