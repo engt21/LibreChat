@@ -36,9 +36,11 @@ jest.mock('uuid', () => ({
   v4: jest.fn(() => 'mock-uuid-1234'),
 }));
 
-// Mock axios
-jest.mock('axios');
-const axios = require('axios');
+// Mock axios instance used by process.js (via createAxiosInstance)
+const mockAxios = jest.fn().mockResolvedValue({
+  data: Buffer.from('file-content'),
+});
+mockAxios.post = jest.fn();
 
 // Mock logger
 jest.mock('@librechat/data-schemas', () => ({
@@ -54,12 +56,22 @@ jest.mock('@librechat/agents', () => ({
   getCodeBaseURL: jest.fn(() => 'https://code-api.example.com'),
 }));
 
-// Mock logAxiosError and getBasePath
-jest.mock('@librechat/api', () => ({
-  logAxiosError: jest.fn(),
-  getBasePath: jest.fn(() => ''),
-  sanitizeFilename: jest.fn((name) => name),
-}));
+// Mock @librechat/api with createAxiosInstance and code-server agents
+jest.mock('@librechat/api', () => {
+  const http = require('http');
+  const https = require('https');
+  return {
+    logAxiosError: jest.fn(),
+    getBasePath: jest.fn(() => ''),
+    sanitizeFilename: jest.fn((name) => name),
+    createAxiosInstance: jest.fn(() => mockAxios),
+    codeServerHttpAgent: new http.Agent({ keepAlive: false }),
+    codeServerHttpsAgent: new https.Agent({ keepAlive: false }),
+  };
+});
+
+// Re-alias for backward compat in test assertions
+const axios = mockAxios;
 
 // Mock models
 const mockClaimCodeFile = jest.fn();

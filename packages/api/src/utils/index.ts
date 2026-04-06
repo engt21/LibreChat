@@ -27,3 +27,4 @@ export * from './url';
 export * from './message';
 export * from './tracing';
 export * from './ports';
+export * from './code';

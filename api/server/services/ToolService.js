@@ -65,6 +65,26 @@ const { redactMessage } = require('~/config/parsers');
 const { findPluginAuthsByKeys } = require('~/models');
 const { getFlowStateManager } = require('~/config');
 const { getLogStores } = require('~/cache');
+
+/**
+ * Resolves the set of enabled agent capabilities from endpoints config,
+ * falling back to app-level or default capabilities for ephemeral agents.
+ * @param {ServerRequest} req
+ * @param {Object} appConfig
+ * @param {string} agentId
+ * @returns {Promise<Set<string>>}
+ */
+async function resolveAgentCapabilities(req, appConfig, agentId) {
+  const endpointsConfig = await getEndpointsConfig(req);
+  let capabilities = new Set(endpointsConfig?.[EModelEndpoint.agents]?.capabilities ?? []);
+  if (capabilities.size === 0 && isEphemeralAgentId(agentId)) {
+    capabilities = new Set(
+      appConfig.endpoints?.[EModelEndpoint.agents]?.capabilities ?? defaultAgentCapabilities,
+    );
+  }
+  return capabilities;
+}
+
 /**
  * Processes the required actions by calling the appropriate tools and returning the outputs.
  * @param {OpenAIClient} client - OpenAI or StreamRunManager Client.
@@ -451,17 +471,11 @@ async function loadToolDefinitionsWrapper({ req, res, agent, streamId = null, to
   }
 
   const appConfig = req.config;
-  const endpointsConfig = await getEndpointsConfig(req);
-  let enabledCapabilities = new Set(endpointsConfig?.[EModelEndpoint.agents]?.capabilities ?? []);
-
-  if (enabledCapabilities.size === 0 && isEphemeralAgentId(agent.id)) {
-    enabledCapabilities = new Set(
-      appConfig.endpoints?.[EModelEndpoint.agents]?.capabilities ?? defaultAgentCapabilities,
-    );
-  }
+  const enabledCapabilities = await resolveAgentCapabilities(req, appConfig, agent.id);
 
   const checkCapability = (capability) => enabledCapabilities.has(capability);
   const areToolsEnabled = checkCapability(AgentCapabilities.tools);
+  const actionsEnabled = checkCapability(AgentCapabilities.actions);
   const deferredToolsEnabled = checkCapability(AgentCapabilities.deferred_tools);
 
   const filteredTools = agent.tools?.filter((tool) => {
@@ -474,7 +488,10 @@ async function loadToolDefinitionsWrapper({ req, res, agent, streamId = null, to
     if (tool === Tools.web_search) {
       return checkCapability(AgentCapabilities.web_search);
     }
-    if (!areToolsEnabled && !tool.includes(actionDelimiter)) {
+    if (tool.includes(actionDelimiter)) {
+      return actionsEnabled;
+    }
+    if (!areToolsEnabled) {
       return false;
     }
     return true;
@@ -771,6 +788,7 @@ async function loadToolDefinitionsWrapper({ req, res, agent, streamId = null, to
     toolContextMap,
     toolDefinitions,
     hasDeferredTools,
+    actionsEnabled,
   };
 }
 
@@ -814,14 +832,7 @@ async function loadAgentTools({
   }
 
   const appConfig = req.config;
-  const endpointsConfig = await getEndpointsConfig(req);
-  let enabledCapabilities = new Set(endpointsConfig?.[EModelEndpoint.agents]?.capabilities ?? []);
-  /** Edge case: use defined/fallback capabilities when the "agents" endpoint is not enabled */
-  if (enabledCapabilities.size === 0 && isEphemeralAgentId(agent.id)) {
-    enabledCapabilities = new Set(
-      appConfig.endpoints?.[EModelEndpoint.agents]?.capabilities ?? defaultAgentCapabilities,
-    );
-  }
+  const enabledCapabilities = await resolveAgentCapabilities(req, appConfig, agent.id);
   const checkCapability = (capability) => {
     const enabled = enabledCapabilities.has(capability);
     if (!enabled) {
@@ -838,6 +849,7 @@ async function loadAgentTools({
     return enabled;
   };
   const areToolsEnabled = checkCapability(AgentCapabilities.tools);
+  const actionsEnabled = checkCapability(AgentCapabilities.actions);
 
   let includesWebSearch = false;
   const _agentTools = agent.tools?.filter((tool) => {
@@ -848,7 +860,9 @@ async function loadAgentTools({
     } else if (tool === Tools.web_search) {
       includesWebSearch = checkCapability(AgentCapabilities.web_search);
       return includesWebSearch;
-    } else if (!areToolsEnabled && !tool.includes(actionDelimiter)) {
+    } else if (tool.includes(actionDelimiter)) {
+      return actionsEnabled;
+    } else if (!areToolsEnabled) {
       return false;
     }
     return true;
@@ -953,13 +967,15 @@ async function loadAgentTools({
 
   agentTools.push(...additionalTools);
 
-  if (!checkCapability(AgentCapabilities.actions)) {
+  const hasActionTools = _agentTools.some((t) => t.includes(actionDelimiter));
+  if (!hasActionTools) {
     return {
       toolRegistry,
       userMCPAuthMap,
       toolContextMap,
       toolDefinitions,
       hasDeferredTools,
+      actionsEnabled,
       tools: agentTools,
     };
   }
@@ -975,6 +991,7 @@ async function loadAgentTools({
       toolContextMap,
       toolDefinitions,
       hasDeferredTools,
+      actionsEnabled,
       tools: agentTools,
     };
   }
@@ -1107,6 +1124,7 @@ async function loadAgentTools({
     userMCPAuthMap,
     toolDefinitions,
     hasDeferredTools,
+    actionsEnabled,
     tools: agentTools,
   };
 }
@@ -1139,10 +1157,16 @@ async function loadToolsForExecution({
   userMCPAuthMap,
   tool_resources,
   streamId = null,
+  actionsEnabled,
 }) {
   const appConfig = req.config;
   const allLoadedTools = [];
   const configurable = { userMCPAuthMap };
+
+  if (actionsEnabled === undefined) {
+    const enabledCapabilities = await resolveAgentCapabilities(req, appConfig, agent?.id);
+    actionsEnabled = enabledCapabilities.has(AgentCapabilities.actions);
+  }
 
   const isToolSearch = toolNames.includes(AgentConstants.TOOL_SEARCH);
   const isPTC = toolNames.includes(AgentConstants.PROGRAMMATIC_TOOL_CALLING);
@@ -1231,7 +1255,7 @@ async function loadToolsForExecution({
     }
   }
 
-  if (actionToolNames.length > 0 && agent) {
+  if (actionToolNames.length > 0 && agent && actionsEnabled) {
     const actionTools = await loadActionToolsForExecution({
       req,
       res,

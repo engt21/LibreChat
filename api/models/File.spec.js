@@ -152,7 +152,7 @@ describe('File Access Control', () => {
       expect(accessMap.get(fileIds[3])).toBe(false);
     });
 
-    it('should grant access to all files when user is the agent author', async () => {
+    it('should grant author access only to files attached to agent tool_resources', async () => {
       const authorId = new mongoose.Types.ObjectId();
       const agentId = uuidv4();
       const fileIds = [uuidv4(), uuidv4(), uuidv4()];
@@ -188,10 +188,10 @@ describe('File Access Control', () => {
         agentId,
       });
 
-      // Author should have access to all files
+      // Author should only have access to files attached to the agent's tool_resources
       expect(accessMap.get(fileIds[0])).toBe(true);
-      expect(accessMap.get(fileIds[1])).toBe(true);
-      expect(accessMap.get(fileIds[2])).toBe(true);
+      expect(accessMap.get(fileIds[1])).toBe(false); // Not attached to tool_resources
+      expect(accessMap.get(fileIds[2])).toBe(false); // Not attached to tool_resources
     });
 
     it('should handle non-existent agent gracefully', async () => {
