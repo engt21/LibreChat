@@ -198,7 +198,7 @@ function validateMCPOAuthConsent(schedule, userMCPAuthMap) {
  * interactive user to follow the authorization link.
  *
  * @param {object} response - The response object from sendMessage
- * @returns {{ isAuthContinuation: boolean, authUrl?: string }} Detection result
+ * @returns {{ isAuthContinuation: boolean, authUrl?: string, llmInstructions?: string }} Detection result with structured continuation metadata
  */
 function detectAuthContinuationResponse(response) {
   const text = extractResponsePreview(response);
@@ -212,7 +212,11 @@ function detectAuthContinuationResponse(response) {
   try {
     const parsed = JSON.parse(text);
     if (parsed && typeof parsed.authorization_url === 'string' && parsed.authorization_url) {
-      return { isAuthContinuation: true, authUrl: parsed.authorization_url };
+      const result = { isAuthContinuation: true, authUrl: parsed.authorization_url };
+      if (typeof parsed.llm_instructions === 'string' && parsed.llm_instructions) {
+        result.llmInstructions = parsed.llm_instructions;
+      }
+      return result;
     }
   } catch {
     // Not pure JSON — check for embedded JSON or substring patterns
@@ -222,7 +226,13 @@ function detectAuthContinuationResponse(response) {
   // Match authorization_url in any JSON-like fragment within the response
   const authUrlMatch = text.match(/"authorization_url"\s*:\s*"(https?:\/\/[^"]+)"/);
   if (authUrlMatch) {
-    return { isAuthContinuation: true, authUrl: authUrlMatch[1] };
+    const result = { isAuthContinuation: true, authUrl: authUrlMatch[1] };
+    // Try to extract llm_instructions from the same embedded JSON fragment
+    const instructionsMatch = text.match(/"llm_instructions"\s*:\s*"([^"]+)"/);
+    if (instructionsMatch) {
+      result.llmInstructions = instructionsMatch[1];
+    }
+    return result;
   }
 
   return { isAuthContinuation: false };
@@ -289,18 +299,32 @@ async function executeScheduledRun(schedule, user) {
     // These look like successful tool output but actually contain an authorization_url
     // that requires interactive user action — scheduled runs cannot follow those links,
     // so they must be recorded as durable failures instead of success previews.
+    // The error carries structured `continuationMetadata` (authorization_url,
+    // llm_instructions, servers) so callers can surface actionable details
+    // rather than only a generic auth error string (VAL-MCP-004).
     const preview = extractResponsePreview(response);
     const authContinuation = detectAuthContinuationResponse(response);
     if (authContinuation.isAuthContinuation) {
       const mcpServers = schedule.target?.ephemeralAgent?.mcp;
       const serverHint =
         Array.isArray(mcpServers) && mcpServers.length > 0 ? mcpServers.join(', ') : 'unknown';
-      throw new Error(
+      const servers =
+        Array.isArray(mcpServers) && mcpServers.length > 0 ? [...mcpServers] : ['unknown'];
+      const error = new Error(
         `MCP tool returned an authorization prompt instead of executing. ` +
           `Provider consent is required for MCP server(s): ${serverHint}. ` +
           `Complete the OAuth authorization flow interactively before scheduling runs ` +
           `that depend on these tools.`,
       );
+      // Attach structured continuation metadata for programmatic consumers
+      error.continuationMetadata = {
+        authorization_url: authContinuation.authUrl,
+        servers,
+      };
+      if (authContinuation.llmInstructions) {
+        error.continuationMetadata.llm_instructions = authContinuation.llmInstructions;
+      }
+      throw error;
     }
 
     return {

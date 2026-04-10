@@ -57,7 +57,12 @@ function handleMCPError(error, res) {
 }
 
 /**
- * Get all MCP tools available to the user
+ * Get all MCP tools available to the user.
+ *
+ * For OAuth-requiring servers where the user hasn't completed consent, falls back to
+ * `discoverServerTools` (per MCP spec, tool listing should be possible without auth).
+ * This ensures pending-consent servers expose truthful tool discovery and auth state
+ * on `/api/mcp/tools` (VAL-MCP-004).
  */
 const getMCPTools = async (req, res) => {
   try {
@@ -77,12 +82,24 @@ const getMCPTools = async (req, res) => {
     const mcpManager = getMCPManager();
     const mcpServers = {};
 
+    // Identify OAuth servers upfront for auth state surfacing
+    let oauthServers;
+    try {
+      oauthServers = await getMCPServersRegistry().getOAuthServers(userId);
+    } catch {
+      oauthServers = new Set();
+    }
+
     const cachePromises = configuredServers.map((serverName) =>
       getMCPServerTools(userId, serverName).then((tools) => ({ serverName, tools })),
     );
     const cacheResults = await Promise.all(cachePromises);
 
+    // Track both processed tools and raw discovery metadata per server
     const serverToolsMap = new Map();
+    /** @type {Map<string, { oauthRequired?: boolean, oauthUrl?: string|null, discoveredRawTools?: Array }>} */
+    const serverDiscoveryMeta = new Map();
+
     for (const { serverName, tools } of cacheResults) {
       if (tools) {
         serverToolsMap.set(serverName, tools);
@@ -94,19 +111,39 @@ const getMCPTools = async (req, res) => {
         serverTools = await mcpManager.getServerToolFunctions(userId, serverName);
       } catch (error) {
         logger.error(`[getMCPTools] Error fetching tools for server ${serverName}:`, error);
-        continue;
       }
-      if (!serverTools) {
-        logger.debug(`[getMCPTools] No tools found for server ${serverName}`);
-        continue;
-      }
-      serverToolsMap.set(serverName, serverTools);
 
-      if (Object.keys(serverTools).length > 0) {
-        // Cache asynchronously without blocking
-        cacheMCPServerTools({ userId, serverName, serverTools }).catch((err) =>
-          logger.error(`[getMCPTools] Failed to cache tools for ${serverName}:`, err),
-        );
+      if (serverTools) {
+        serverToolsMap.set(serverName, serverTools);
+        if (Object.keys(serverTools).length > 0) {
+          cacheMCPServerTools({ userId, serverName, serverTools }).catch((err) =>
+            logger.error(`[getMCPTools] Failed to cache tools for ${serverName}:`, err),
+          );
+        }
+        continue;
+      }
+
+      // For OAuth servers without an active connection, attempt pre-consent discovery
+      // (per MCP spec, tool listing should be possible before OAuth consent)
+      if (oauthServers.has(serverName) && typeof mcpManager.discoverServerTools === 'function') {
+        try {
+          const discovery = await mcpManager.discoverServerTools({ serverName });
+          serverDiscoveryMeta.set(serverName, {
+            oauthRequired: discovery.oauthRequired,
+            oauthUrl: discovery.oauthUrl,
+            discoveredRawTools: discovery.tools,
+          });
+          logger.debug(
+            `[getMCPTools] Pre-consent discovery for ${serverName}: ${discovery.tools?.length ?? 0} tools, oauthRequired=${discovery.oauthRequired}`,
+          );
+        } catch (discoveryError) {
+          logger.error(
+            `[getMCPTools] Pre-consent discovery failed for ${serverName}:`,
+            discoveryError,
+          );
+        }
+      } else {
+        logger.debug(`[getMCPTools] No tools found for server ${serverName}`);
       }
     }
 
@@ -114,10 +151,12 @@ const getMCPTools = async (req, res) => {
     for (const serverName of configuredServers) {
       try {
         const serverTools = serverToolsMap.get(serverName);
+        const discoveryMeta = serverDiscoveryMeta.get(serverName);
 
         // Get server config once
         const serverConfig = mcpConfig[serverName];
         const rawServerConfig = await getMCPServersRegistry().getServerConfig(serverName, userId);
+        const isOAuthServer = oauthServers.has(serverName);
 
         // Initialize server object with all server-level data
         const server = {
@@ -141,7 +180,7 @@ const getMCPTools = async (req, res) => {
           }
         }
 
-        // Process tools efficiently - no need for convertMCPToolToPlugin
+        // Process tools from established connections (LCAvailableTools format)
         if (serverTools) {
           for (const [toolKey, toolData] of Object.entries(serverTools)) {
             if (!toolData.function || !toolKey.includes(Constants.mcp_delimiter)) {
@@ -154,6 +193,40 @@ const getMCPTools = async (req, res) => {
               pluginKey: toolKey,
               description: toolData.function.description || '',
             });
+          }
+        }
+
+        // Process tools from pre-consent discovery (raw MCP Tool[] format)
+        if (!serverTools && discoveryMeta?.discoveredRawTools) {
+          for (const tool of discoveryMeta.discoveredRawTools) {
+            if (!tool.name) {
+              continue;
+            }
+            const pluginKey = `${tool.name}${Constants.mcp_delimiter}${serverName}`;
+            server.tools.push({
+              name: tool.name,
+              pluginKey,
+              description: tool.description || '',
+            });
+          }
+        }
+
+        // Surface auth state for OAuth servers (VAL-MCP-004)
+        if (isOAuthServer) {
+          if (serverTools) {
+            // Have active connection with tools — fully authorized
+            server.authState = 'authorized';
+          } else if (discoveryMeta?.oauthRequired !== false) {
+            // Tools discovered (or not) but OAuth is still needed for invocation
+            if (server.tools.length > 0 || discoveryMeta?.oauthUrl) {
+              server.authState = 'pending_consent';
+            } else {
+              server.authState = 'not_connected';
+            }
+            // Surface continuation metadata for pending-consent state
+            if (discoveryMeta?.oauthUrl) {
+              server.oauthUrl = discoveryMeta.oauthUrl;
+            }
           }
         }
 

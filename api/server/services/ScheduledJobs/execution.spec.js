@@ -173,6 +173,38 @@ describe('detectAuthContinuationResponse', () => {
     });
     expect(result.isAuthContinuation).toBe(false);
   });
+
+  it('extracts llm_instructions from pure JSON consent response (VAL-MCP-004)', () => {
+    const consentJson = JSON.stringify({
+      authorization_url:
+        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+      llm_instructions: 'Please share the authorization link with the user.',
+    });
+    const result = detectAuthContinuationResponse({ text: consentJson });
+    expect(result.isAuthContinuation).toBe(true);
+    expect(result.llmInstructions).toBe('Please share the authorization link with the user.');
+  });
+
+  it('extracts llm_instructions from embedded JSON consent response (VAL-MCP-004)', () => {
+    const text =
+      'Microsoft Outlook authorization required.\n\n' +
+      JSON.stringify({
+        authorization_url: 'https://cloud.arcade.dev/oauth2/authorize',
+        llm_instructions: 'Provider authorization needed.',
+      });
+    const result = detectAuthContinuationResponse({ text });
+    expect(result.isAuthContinuation).toBe(true);
+    expect(result.llmInstructions).toBe('Provider authorization needed.');
+  });
+
+  it('returns undefined llmInstructions when only authorization_url is present', () => {
+    const consentJson = JSON.stringify({
+      authorization_url: 'https://login.microsoftonline.com/authorize',
+    });
+    const result = detectAuthContinuationResponse({ text: consentJson });
+    expect(result.isAuthContinuation).toBe(true);
+    expect(result.llmInstructions).toBeUndefined();
+  });
 });
 
 describe('executeScheduledRun', () => {
@@ -733,6 +765,92 @@ describe('executeScheduledRun', () => {
 
       const result = await executeScheduledRun(noMcpSchedule, baseUser);
       expect(result.success).toBe(true);
+    });
+
+    it('surfaces structured continuation metadata in the thrown error (VAL-MCP-004)', async () => {
+      const consentJson = JSON.stringify({
+        authorization_url:
+          'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+        llm_instructions: 'Please share the authorization link with the user.',
+      });
+
+      const validAuthMap = {
+        'mcp_arcade-microsoft': { access_token: 'valid-token-123', token_type: 'bearer' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: consentJson,
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: validAuthMap,
+      });
+
+      const error = await executeScheduledRun(mcpSchedule, baseUser).catch((e) => e);
+      expect(error).toBeInstanceOf(Error);
+
+      // The error should carry structured continuation metadata
+      expect(error.continuationMetadata).toBeDefined();
+      expect(error.continuationMetadata.authorization_url).toBe(
+        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+      );
+      expect(error.continuationMetadata.llm_instructions).toBe(
+        'Please share the authorization link with the user.',
+      );
+      expect(error.continuationMetadata.servers).toEqual(['arcade-microsoft']);
+    });
+
+    it('surfaces structured continuation metadata from embedded JSON response (VAL-MCP-004)', async () => {
+      const embeddedConsent =
+        'Microsoft Outlook authorization required.\n\n' +
+        JSON.stringify({
+          authorization_url: 'https://cloud.arcade.dev/oauth2/authorize',
+          llm_instructions: 'Provider authorization needed.',
+        });
+
+      const validAuthMap = {
+        'mcp_arcade-microsoft': { access_token: 'valid-token-123', token_type: 'bearer' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: embeddedConsent,
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: validAuthMap,
+      });
+
+      const error = await executeScheduledRun(mcpSchedule, baseUser).catch((e) => e);
+      expect(error.continuationMetadata).toBeDefined();
+      expect(error.continuationMetadata.authorization_url).toBe(
+        'https://cloud.arcade.dev/oauth2/authorize',
+      );
+      expect(error.continuationMetadata.llm_instructions).toBe('Provider authorization needed.');
+    });
+
+    it('does not add continuationMetadata for non-auth-continuation errors', async () => {
+      const validAuthMap = {
+        'mcp_arcade-microsoft': { access_token: 'valid-token-123', token_type: 'bearer' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn().mockRejectedValue(new Error('Network timeout')),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: validAuthMap,
+      });
+
+      const error = await executeScheduledRun(mcpSchedule, baseUser).catch((e) => e);
+      expect(error.message).toBe('Network timeout');
+      expect(error.continuationMetadata).toBeUndefined();
     });
   });
 });
