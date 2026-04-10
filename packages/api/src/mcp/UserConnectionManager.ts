@@ -152,6 +152,12 @@ export abstract class UserConnectionManager {
     // If no valid connection exists, create a new one
     logger.info(`[MCP][User: ${userId}][${serverName}] Establishing new connection`);
 
+    // Only use OAuth when the server config actually requires it (requiresOAuth or oauthMetadata).
+    // Previously this was unconditionally `true`, which caused non-OAuth servers to be
+    // misclassified into the OAuth-consent path when any connection error (401/403/timeout)
+    // was encountered. This aligns with the gating in MCPManager.discoverServerTools().
+    const serverRequiresOAuth = Boolean(config.requiresOAuth || config.oauthMetadata);
+
     try {
       connection = await MCPConnectionFactory.create(
         {
@@ -160,19 +166,21 @@ export abstract class UserConnectionManager {
           dbSourced: !!config.dbId,
           useSSRFProtection: MCPServersRegistry.getInstance().shouldEnableSSRFProtection(),
         },
-        {
-          useOAuth: true,
-          user: user,
-          customUserVars: customUserVars,
-          flowManager: flowManager,
-          tokenMethods: tokenMethods,
-          signal: signal,
-          oauthStart: oauthStart,
-          oauthEnd: oauthEnd,
-          returnOnOAuth: returnOnOAuth,
-          requestBody: requestBody,
-          connectionTimeout: connectionTimeout,
-        },
+        serverRequiresOAuth
+          ? {
+              useOAuth: true,
+              user: user,
+              customUserVars: customUserVars,
+              flowManager: flowManager,
+              tokenMethods: tokenMethods,
+              signal: signal,
+              oauthStart: oauthStart,
+              oauthEnd: oauthEnd,
+              returnOnOAuth: returnOnOAuth,
+              requestBody: requestBody,
+              connectionTimeout: connectionTimeout,
+            }
+          : undefined,
       );
 
       if (!(await connection?.isConnected())) {

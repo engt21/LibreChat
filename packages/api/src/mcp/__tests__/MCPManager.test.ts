@@ -816,8 +816,10 @@ describe('MCPManager', () => {
 
     it('should surface provider-consent continuation metadata in tool call result', async () => {
       const consentJson = JSON.stringify({
-        authorization_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc&scope=User.Read',
-        llm_instructions: 'The user needs to authorize access to their Microsoft account. Please share the authorization URL with the user.',
+        authorization_url:
+          'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc&scope=User.Read',
+        llm_instructions:
+          'The user needs to authorize access to their Microsoft account. Please share the authorization URL with the user.',
       });
 
       const mockConsentConnection = {
@@ -867,6 +869,155 @@ describe('MCPManager', () => {
         }),
         expect.anything(),
         expect.anything(),
+      );
+    });
+  });
+
+  describe('getUserConnection - OAuth gating based on server config (VAL-MCP-001)', () => {
+    const mockUser = { id: 'user-456', email: 'test@example.com' } as unknown as IUser;
+    const mockFlowManager = {
+      getState: jest.fn(),
+      setState: jest.fn(),
+      clearState: jest.fn(),
+    };
+
+    const mockCreatedConnection = {
+      isConnected: jest.fn().mockResolvedValue(true),
+      setRequestHeaders: jest.fn(),
+      timeout: 30000,
+      client: {
+        request: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'OK' }],
+          isError: false,
+        }),
+      },
+    } as unknown as MCPConnection;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      (MCPConnectionFactory.create as jest.Mock) = jest.fn().mockResolvedValue(mockCreatedConnection);
+    });
+
+    it('should NOT pass OAuth options when server config has requiresOAuth=false', async () => {
+      // Non-OAuth server: app connections should miss (null) so getUserConnection fires
+      mockAppConnections({
+        get: jest.fn().mockResolvedValue(null),
+        has: jest.fn().mockResolvedValue(false),
+      });
+
+      (mockRegistryInstance.getServerConfig as jest.Mock).mockResolvedValue({
+        type: 'streamable-http',
+        url: 'http://localhost:4567/mcp',
+        requiresOAuth: false,
+      });
+
+      const manager = await MCPManager.createInstance(newMCPServersConfig());
+
+      // Use getConnection which delegates to getUserConnection for user-level servers
+      const connection = await manager.getConnection({
+        serverName,
+        user: mockUser,
+        flowManager: mockFlowManager as unknown as Parameters<
+          typeof manager.getConnection
+        >[0]['flowManager'],
+      });
+
+      expect(connection).toBe(mockCreatedConnection);
+      // MCPConnectionFactory.create should have been called WITHOUT oauth options (undefined)
+      expect(MCPConnectionFactory.create).toHaveBeenCalledWith(
+        expect.objectContaining({ serverName }),
+        undefined,
+      );
+    });
+
+    it('should pass OAuth options when server config has requiresOAuth=true', async () => {
+      mockAppConnections({
+        get: jest.fn().mockResolvedValue(null),
+        has: jest.fn().mockResolvedValue(false),
+      });
+
+      (mockRegistryInstance.getServerConfig as jest.Mock).mockResolvedValue({
+        type: 'streamable-http',
+        url: 'https://oauth.example.com/mcp',
+        requiresOAuth: true,
+      });
+
+      const manager = await MCPManager.createInstance(newMCPServersConfig());
+
+      const connection = await manager.getConnection({
+        serverName,
+        user: mockUser,
+        flowManager: mockFlowManager as unknown as Parameters<
+          typeof manager.getConnection
+        >[0]['flowManager'],
+      });
+
+      expect(connection).toBe(mockCreatedConnection);
+      // MCPConnectionFactory.create should have been called WITH oauth options
+      expect(MCPConnectionFactory.create).toHaveBeenCalledWith(
+        expect.objectContaining({ serverName }),
+        expect.objectContaining({ useOAuth: true, user: mockUser }),
+      );
+    });
+
+    it('should pass OAuth options when server config has oauthMetadata', async () => {
+      mockAppConnections({
+        get: jest.fn().mockResolvedValue(null),
+        has: jest.fn().mockResolvedValue(false),
+      });
+
+      (mockRegistryInstance.getServerConfig as jest.Mock).mockResolvedValue({
+        type: 'streamable-http',
+        url: 'https://arcade.example.com/mcp',
+        requiresOAuth: false,
+        oauthMetadata: { authorization_servers: ['https://auth.example.com'] },
+      });
+
+      const manager = await MCPManager.createInstance(newMCPServersConfig());
+
+      const connection = await manager.getConnection({
+        serverName,
+        user: mockUser,
+        flowManager: mockFlowManager as unknown as Parameters<
+          typeof manager.getConnection
+        >[0]['flowManager'],
+      });
+
+      expect(connection).toBe(mockCreatedConnection);
+      // oauthMetadata is truthy, so OAuth path should be used
+      expect(MCPConnectionFactory.create).toHaveBeenCalledWith(
+        expect.objectContaining({ serverName }),
+        expect.objectContaining({ useOAuth: true }),
+      );
+    });
+
+    it('should NOT pass OAuth options when server config has neither requiresOAuth nor oauthMetadata', async () => {
+      mockAppConnections({
+        get: jest.fn().mockResolvedValue(null),
+        has: jest.fn().mockResolvedValue(false),
+      });
+
+      (mockRegistryInstance.getServerConfig as jest.Mock).mockResolvedValue({
+        type: 'stdio',
+        command: 'test-server',
+        args: [],
+        // No requiresOAuth or oauthMetadata
+      });
+
+      const manager = await MCPManager.createInstance(newMCPServersConfig());
+
+      const connection = await manager.getConnection({
+        serverName,
+        user: mockUser,
+        flowManager: mockFlowManager as unknown as Parameters<
+          typeof manager.getConnection
+        >[0]['flowManager'],
+      });
+
+      expect(connection).toBe(mockCreatedConnection);
+      expect(MCPConnectionFactory.create).toHaveBeenCalledWith(
+        expect.objectContaining({ serverName }),
+        undefined,
       );
     });
   });
