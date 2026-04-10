@@ -251,3 +251,4 @@ The push notification delivery code (`notifications.js`) already prunes endpoint
 - **Operational updates from round 6 evidence:**
   - Local MCP validation servers now require `/mcp` suffix for successful inspection; root URL probes returned `MCP_INSPECTION_FAILED` (`transport POST -> Not Found`).
   - Azure user key prerequisite is now present for validation personas (`/api/keys?name=azureOpenAI` showed non-null expiry), but execution/connect paths still need deterministic completion evidence.
+- For file/transcription validation, prefer browser automation through the real React upload flow. If an API-level multipart probe is unavoidable, include `file_id` (UUID v4), `endpoint`, `endpointType`, and `message_file=true` alongside the file field; omitting them reproduces a harness artifact (`No file_id provided`) rather than the actual product path.
