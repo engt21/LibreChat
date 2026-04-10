@@ -165,6 +165,7 @@ helm/**/.values.yaml
 # Dev validation bootstrap (local-only, never commit)
 .dev-validation-manifest.local.json
 *-validation-manifest.local.json
+.dev-schedule-harness-results/
 
 # Removed Windows wrapper files per user request
 hive-mind-prompt-*.txt

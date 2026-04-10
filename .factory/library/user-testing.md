@@ -179,3 +179,51 @@ The full prerequisite inventory is at `.factory/validation/customization-preserv
   - `VAL-MCP-004` / `VAL-CROSS-005A` (pending-consent OAuth MCP schedule path still succeeds instead of durable auth failure).
 - **Still blocked (external/prereq):** Azure user key path, Google credential validity (`API_KEY_INVALID`), xAI user key, MCP domain allowlist for local test servers, and schedule delivery-observation sinks for payload/click verification.
 - **Operational note:** run `node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25` before each assertion group; temporary-ban state still recurs under mixed UI/API probing.
+
+## Schedule Validation Harness (VAL-SCHED-006, VAL-SCHED-008, VAL-SCHED-009)
+
+A dedicated dev-only harness script at `local-services/dev-validate-schedule-harness.sh` enables the next validator rerun to exercise the three previously blocked schedule assertions without touching the stable rail.
+
+### Quick start
+
+```bash
+# Prerequisites
+./local-services/generate-vapid-keys.sh          # one-time — generates VAPID keys in .env
+node local-services/dev-seed-validation-personas.js
+docker restart librechat-dev-api && sleep 25
+
+# Run all phases
+./local-services/dev-validate-schedule-harness.sh
+
+# Run individual phases
+./local-services/dev-validate-schedule-harness.sh --phase runner-disabled
+./local-services/dev-validate-schedule-harness.sh --phase push-lifecycle
+./local-services/dev-validate-schedule-harness.sh --phase push-payload
+```
+
+### Phase coverage
+
+| Phase | Assertion | What it proves |
+|-------|-----------|----------------|
+| `runner-disabled` | VAL-SCHED-006 | Toggles `SCHEDULED_RUNNER_ENABLED=false` in the dev container `.env`, restarts API, confirms "Scheduler disabled by configuration" log, validates manual `Run now` still works, then restores enabled state |
+| `push-lifecycle` | VAL-SCHED-009 | Subscribes a synthetic push endpoint, verifies `subscriptionCount`, re-subscribes (idempotent refresh), unsubscribes, verifies count decreased |
+| `push-payload` | VAL-SCHED-008 | Subscribes a harness endpoint, runs a push-enabled schedule, captures channel-level `notificationResults.push` with status/details/expiredEndpoints |
+
+### Harness behavior
+
+- **Isolation**: Only touches the dev container (`librechat-dev-api`). Stable rail is checked for reachability but never modified.
+- **Self-restoring**: The `runner-disabled` phase restores `SCHEDULED_RUNNER_ENABLED=true` and restarts the API after validation.
+- **Results**: All evidence is saved to `local-services/.dev-schedule-harness-results/` (gitignored directory).
+- **Auth**: Uses `val-superadmin@dev.local` credentials. If token acquisition fails, run `dev-seed-validation-personas.js` first.
+
+### Test coverage backing
+
+The assertions are also backed by unit test coverage:
+
+- **VAL-SCHED-006**: `runner.spec.js` — "returns false and logs disabled when SCHEDULED_RUNNER_ENABLED=false", "manual runScheduledJobNow still works when runner is disabled", "does not execute when runner is disabled"
+- **VAL-SCHED-008**: `notifications.spec.js` — "push payload includes conversationId, url, status, and tag for clickthrough", "push payload omits url cleanly when no conversationId", "push notification failure is non-fatal and reports channel-level result"
+- **VAL-SCHED-009**: `notifications.spec.js` — "sends push notification and prunes expired subscriptions", "prunes stale subscriptions returning 404 in addition to 410", "push-lifecycle" phase in harness script
+
+### Stale-endpoint pruning path
+
+The push notification delivery code (`notifications.js`) already prunes endpoints returning HTTP 404 or 410 from the push service. When `web-push` returns one of these status codes, the endpoint is collected in `expiredEndpoints` and passed to `removePushSubscriptions()` which removes them from the user's stored subscriptions. This is fully tested in `notifications.spec.js` and exercisable at runtime via the harness when a push-enabled schedule is executed against unreachable synthetic endpoints.

@@ -352,4 +352,188 @@ describe('sendScheduledRunNotifications', () => {
     expect(result.push.status).toBe('skipped');
     expect(result.push.reason).toContain('No push subscriptions');
   });
+
+  it('push payload includes conversationId, url, status, and tag for clickthrough (VAL-SCHED-008, VAL-SCHED-009)', async () => {
+    process.env.WEB_PUSH_VAPID_PUBLIC_KEY = 'pub-key';
+    process.env.WEB_PUSH_VAPID_PRIVATE_KEY = 'priv-key';
+    process.env.DOMAIN_CLIENT = 'https://chat.example.com';
+
+    const pushSchedule = {
+      ...schedule,
+      scheduleId: 'sched-click',
+      notifications: { email: false, sms: false, push: true },
+    };
+
+    getUserNotificationConfig.mockResolvedValue({
+      user: {},
+      settings: {
+        email: { enabled: false },
+        sms: { enabled: false },
+        push: {
+          enabled: true,
+          subscriptions: [
+            { endpoint: 'https://push.example.com/1', keys: { p256dh: 'a', auth: 'b' } },
+          ],
+        },
+      },
+      capabilities: { email: false, sms: false, push: true },
+    });
+
+    webpush.sendNotification.mockResolvedValueOnce({ statusCode: 201 });
+
+    await sendScheduledRunNotifications({
+      userId: 'user-1',
+      schedule: pushSchedule,
+      result: { conversationId: 'conv-click', preview: 'Completed successfully', error: null },
+    });
+
+    expect(webpush.sendNotification).toHaveBeenCalledTimes(1);
+    const [, payloadStr] = webpush.sendNotification.mock.calls[0];
+    const payload = JSON.parse(payloadStr);
+
+    // Clickthrough URL must be DOMAIN_CLIENT-rooted
+    expect(payload.url).toBe('https://chat.example.com/c/conv-click');
+    expect(payload.conversationId).toBe('conv-click');
+    expect(payload.tag).toBe('sched-click');
+    expect(payload.status).toBe('completed');
+    expect(payload.title).toContain('Test Schedule');
+    expect(payload.body).toBeTruthy();
+  });
+
+  it('push payload omits url cleanly when no conversationId (VAL-SCHED-008)', async () => {
+    process.env.WEB_PUSH_VAPID_PUBLIC_KEY = 'pub-key';
+    process.env.WEB_PUSH_VAPID_PRIVATE_KEY = 'priv-key';
+
+    const pushSchedule = {
+      ...schedule,
+      notifications: { email: false, sms: false, push: true },
+    };
+
+    getUserNotificationConfig.mockResolvedValue({
+      user: {},
+      settings: {
+        email: { enabled: false },
+        sms: { enabled: false },
+        push: {
+          enabled: true,
+          subscriptions: [
+            { endpoint: 'https://push.example.com/1', keys: { p256dh: 'a', auth: 'b' } },
+          ],
+        },
+      },
+      capabilities: { email: false, sms: false, push: true },
+    });
+
+    webpush.sendNotification.mockResolvedValueOnce({ statusCode: 201 });
+
+    await sendScheduledRunNotifications({
+      userId: 'user-1',
+      schedule: pushSchedule,
+      result: { conversationId: null, preview: '', error: 'Model access denied' },
+    });
+
+    const [, payloadStr] = webpush.sendNotification.mock.calls[0];
+    const payload = JSON.parse(payloadStr);
+    expect(payload.url).toBeNull();
+    expect(payload.conversationId).toBeNull();
+    expect(payload.status).toBe('failed');
+  });
+
+  it('prunes stale subscriptions returning 404 in addition to 410 (VAL-SCHED-009)', async () => {
+    process.env.WEB_PUSH_VAPID_PUBLIC_KEY = 'pub-key';
+    process.env.WEB_PUSH_VAPID_PRIVATE_KEY = 'priv-key';
+
+    const pushSchedule = {
+      ...schedule,
+      notifications: { email: false, sms: false, push: true },
+    };
+
+    getUserNotificationConfig.mockResolvedValue({
+      user: {},
+      settings: {
+        email: { enabled: false },
+        sms: { enabled: false },
+        push: {
+          enabled: true,
+          subscriptions: [
+            { endpoint: 'https://push.example.com/ok', keys: { p256dh: 'a', auth: 'b' } },
+            { endpoint: 'https://push.example.com/gone-410', keys: { p256dh: 'c', auth: 'd' } },
+            { endpoint: 'https://push.example.com/gone-404', keys: { p256dh: 'e', auth: 'f' } },
+          ],
+        },
+      },
+      capabilities: { email: false, sms: false, push: true },
+    });
+
+    webpush.sendNotification
+      .mockResolvedValueOnce({ statusCode: 201 }) // ok
+      .mockRejectedValueOnce({ statusCode: 410 }) // gone
+      .mockRejectedValueOnce({ statusCode: 404 }); // not found
+
+    const result = await sendScheduledRunNotifications({
+      userId: 'user-1',
+      schedule: pushSchedule,
+      result: { conversationId: 'c1', preview: 'ok', error: null },
+    });
+
+    expect(result.push.status).toBe('sent');
+    expect(result.push.details.sentCount).toBe(1);
+    expect(result.push.details.failedCount).toBe(2);
+    expect(result.push.details.expiredEndpoints).toEqual(
+      expect.arrayContaining([
+        'https://push.example.com/gone-410',
+        'https://push.example.com/gone-404',
+      ]),
+    );
+    // Both stale endpoints must be pruned
+    expect(removePushSubscriptions).toHaveBeenCalledWith(
+      'user-1',
+      expect.arrayContaining([
+        'https://push.example.com/gone-410',
+        'https://push.example.com/gone-404',
+      ]),
+    );
+  });
+
+  it('push notification failure is non-fatal and reports channel-level result (VAL-SCHED-008)', async () => {
+    process.env.WEB_PUSH_VAPID_PUBLIC_KEY = 'pub-key';
+    process.env.WEB_PUSH_VAPID_PRIVATE_KEY = 'priv-key';
+
+    const pushSchedule = {
+      ...schedule,
+      notifications: { email: true, sms: false, push: true },
+    };
+
+    getUserNotificationConfig.mockResolvedValue({
+      user: { name: 'Test' },
+      settings: {
+        email: { enabled: true, address: 'test@example.com' },
+        sms: { enabled: false },
+        push: {
+          enabled: true,
+          subscriptions: [
+            { endpoint: 'https://push.example.com/1', keys: { p256dh: 'a', auth: 'b' } },
+          ],
+        },
+      },
+      capabilities: { email: true, sms: false, push: true },
+    });
+
+    // Push delivery rejects all subscriptions with non-HTTP errors
+    webpush.sendNotification.mockRejectedValueOnce(new Error('Network timeout'));
+
+    const result = await sendScheduledRunNotifications({
+      userId: 'user-1',
+      schedule: pushSchedule,
+      result: { conversationId: 'c1', preview: 'ok', error: null },
+    });
+
+    // Email should still succeed even though push failed — non-fatal channel isolation
+    expect(result.email.status).toBe('sent');
+    // Push reports channel-level failure without crashing the notification flow
+    expect(result.push.status).toBe('failed');
+    expect(result.push.provider).toBe('web-push');
+    expect(result.push.details.sentCount).toBe(0);
+    expect(result.push.details.failedCount).toBe(1);
+  });
 });

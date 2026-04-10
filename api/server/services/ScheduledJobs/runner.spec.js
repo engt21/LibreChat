@@ -391,4 +391,128 @@ describe('startScheduledJobRunner / stopScheduledJobRunner', () => {
     expect(result).toBe(true);
     runner.stopScheduledJobRunner();
   });
+
+  it('returns false and logs disabled when SCHEDULED_RUNNER_ENABLED=false (VAL-SCHED-006)', () => {
+    // Re-import with disabled runner
+    jest.resetModules();
+    jest.mock('@librechat/data-schemas', () => ({
+      logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+    }));
+    jest.mock('@librechat/api', () => ({
+      isEnabled: jest.fn(() => false),
+    }));
+    jest.mock('~/db/models', () => ({
+      ScheduledJob: { findOneAndUpdate: jest.fn(), findOne: jest.fn(), updateOne: jest.fn() },
+      User: { findById: jest.fn() },
+    }));
+    jest.mock('./execution', () => ({ executeScheduledRun: jest.fn() }));
+    jest.mock('./notifications', () => ({ sendScheduledRunNotifications: jest.fn() }));
+    jest.mock('./cron', () => ({ getNextRunAt: jest.fn() }));
+
+    const origEnv = process.env.SCHEDULED_RUNNER_ENABLED;
+    process.env.SCHEDULED_RUNNER_ENABLED = 'false';
+    const disabledRunner = require('./runner');
+    process.env.SCHEDULED_RUNNER_ENABLED = origEnv;
+
+    const result = disabledRunner.startScheduledJobRunner();
+    expect(result).toBe(false);
+
+    const { logger } = require('@librechat/data-schemas');
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('Scheduler disabled by configuration'),
+    );
+
+    disabledRunner.stopScheduledJobRunner();
+  });
+
+  it('manual runScheduledJobNow still works when runner is disabled (VAL-SCHED-006)', async () => {
+    // Re-import with disabled runner
+    jest.resetModules();
+    jest.mock('@librechat/data-schemas', () => ({
+      logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+    }));
+    jest.mock('@librechat/api', () => ({
+      isEnabled: jest.fn(() => false),
+    }));
+    jest.mock('~/db/models', () => ({
+      ScheduledJob: {
+        findOneAndUpdate: (...args) => mockFindOneAndUpdate(...args),
+        findOne: (...args) => mockFindOne(...args),
+        updateOne: (...args) => mockUpdateOne(...args),
+      },
+      User: {
+        findById: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            lean: jest.fn().mockResolvedValue({
+              _id: 'user-1',
+              name: 'Test User',
+              email: 'test@example.com',
+              role: 'USER',
+            }),
+          }),
+        }),
+      },
+    }));
+    jest.mock('./execution', () => ({
+      executeScheduledRun: jest.fn().mockResolvedValue({
+        success: true,
+        conversationId: 'conv-manual',
+        preview: 'Manual run',
+      }),
+    }));
+    jest.mock('./notifications', () => ({
+      sendScheduledRunNotifications: jest.fn().mockResolvedValue({}),
+    }));
+    jest.mock('./cron', () => ({
+      getNextRunAt: jest.fn().mockReturnValue(new Date('2025-07-01T09:00:00Z')),
+    }));
+
+    const origEnv = process.env.SCHEDULED_RUNNER_ENABLED;
+    process.env.SCHEDULED_RUNNER_ENABLED = 'false';
+    const disabledRunner = require('./runner');
+    process.env.SCHEDULED_RUNNER_ENABLED = origEnv;
+
+    // Confirm runner is disabled
+    expect(disabledRunner.startScheduledJobRunner()).toBe(false);
+
+    const schedule = {
+      scheduleId: 's1',
+      user: 'user-1',
+      name: 'Test',
+      prompt: 'Run test',
+      cron: '0 9 * * *',
+      timezone: 'UTC',
+      enabled: true,
+      nextRunAt: new Date('2025-06-20T09:00:00Z'),
+      target: { endpoint: 'openAI', model: 'gpt-4' },
+      notifications: { email: false, sms: false, push: false },
+    };
+
+    const claimed = {
+      ...schedule,
+      lastStatus: 'running',
+      currentRunId: 'run-manual',
+      lockUntil: new Date(Date.now() + 300000),
+      lockedBy: 'runner-1',
+    };
+
+    mockFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(schedule) });
+    mockFindOneAndUpdate
+      .mockReturnValueOnce({ lean: jest.fn().mockResolvedValue(claimed) })
+      .mockReturnValueOnce({
+        lean: jest.fn().mockResolvedValue({
+          ...schedule,
+          lastStatus: 'succeeded',
+          lastConversationId: 'conv-manual',
+        }),
+      });
+
+    // Manual run should still work even with runner disabled
+    const result = await disabledRunner.runScheduledJobNow('user-1', 's1');
+    expect(result).toBeDefined();
+    expect(result.schedule).toBeDefined();
+    expect(result.executionResult.conversationId).toBe('conv-manual');
+
+    disabledRunner.stopScheduledJobRunner();
+  });
 });
