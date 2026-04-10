@@ -40,6 +40,67 @@ const lastReconnectAttempts = new Map();
 const RECONNECT_THROTTLE_MS = 10_000;
 
 /**
+ * Detects whether an MCP tool call result contains Arcade-style provider-consent
+ * continuation metadata (authorization_url and/or llm_instructions).
+ *
+ * When detected, callers should emit a structured auth delta event to the client
+ * so the UI can render an actionable auth link, rather than relying solely on
+ * the LLM to relay the raw consent JSON as text (VAL-MCP-004).
+ *
+ * @param {unknown} result - The result tuple from MCPManager.callTool / formatToolContent
+ * @returns {{ isConsent: boolean, authUrl?: string, llmInstructions?: string }}
+ */
+function detectMCPConsentContinuation(result) {
+  if (!Array.isArray(result)) {
+    return { isConsent: false };
+  }
+
+  const [content] = result;
+  let text = '';
+
+  // Extract text from the content portion of the [content, artifacts] tuple
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content
+      .filter((item) => item && item.type === 'text' && typeof item.text === 'string')
+      .map((item) => item.text)
+      .join('\n');
+  }
+
+  if (!text) {
+    return { isConsent: false };
+  }
+
+  // Try to parse as pure JSON first
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.authorization_url === 'string' && parsed.authorization_url) {
+      const detection = { isConsent: true, authUrl: parsed.authorization_url };
+      if (typeof parsed.llm_instructions === 'string' && parsed.llm_instructions) {
+        detection.llmInstructions = parsed.llm_instructions;
+      }
+      return detection;
+    }
+  } catch {
+    // Not pure JSON — check for embedded JSON or substring patterns
+  }
+
+  // Handle multi-part or LLM-wrapped responses where the JSON is embedded
+  const authUrlMatch = text.match(/"authorization_url"\s*:\s*"(https?:\/\/[^"]+)"/);
+  if (authUrlMatch) {
+    const detection = { isConsent: true, authUrl: authUrlMatch[1] };
+    const instructionsMatch = text.match(/"llm_instructions"\s*:\s*"([^"]+)"/);
+    if (instructionsMatch) {
+      detection.llmInstructions = instructionsMatch[1];
+    }
+    return detection;
+  }
+
+  return { isConsent: false };
+}
+
+/**
  * Merges MCP domains from yaml config and admin settings (MongoDB).
  * Returns { domains, filterMode } where filterMode is 'allowlist' or 'denylist'.
  */
@@ -658,6 +719,27 @@ function createToolInstance({
         graphTokenResolver: getGraphApiToken,
       });
 
+      // Detect Arcade-style provider-consent continuation in the tool result.
+      // When present, emit a structured auth delta event so the client renders
+      // an actionable auth link instead of relying on the LLM to relay raw JSON.
+      // The tool result is still returned to the LLM for a helpful text response.
+      // (VAL-MCP-004)
+      const consentDetection = detectMCPConsentContinuation(result);
+      if (consentDetection.isConsent && stepId) {
+        try {
+          await runStepDeltaEmitter(consentDetection.authUrl);
+          logger.debug(
+            `[MCP][${serverName}][${toolName}] Emitted structured consent auth delta`,
+            { authUrl: consentDetection.authUrl },
+          );
+        } catch (emitError) {
+          logger.warn(
+            `[MCP][${serverName}][${toolName}] Failed to emit consent auth delta`,
+            emitError,
+          );
+        }
+      }
+
       if (isAssistantsEndpoint(provider) && Array.isArray(result)) {
         return result[0];
       }
@@ -856,4 +938,5 @@ module.exports = {
   checkOAuthFlowStatus,
   getServerConnectionStatus,
   createUnavailableToolStub,
+  detectMCPConsentContinuation,
 };

@@ -46,6 +46,7 @@ const {
   checkOAuthFlowStatus,
   getServerConnectionStatus,
   createUnavailableToolStub,
+  detectMCPConsentContinuation,
 } = require('./MCP');
 
 jest.mock('./Config', () => ({
@@ -1347,5 +1348,361 @@ describe('User parameter passing tests', () => {
       // Verify reinitMCPServer was not called due to early error
       expect(mockReinitMCPServer).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('detectMCPConsentContinuation (VAL-MCP-004)', () => {
+  it('detects pure JSON consent response with authorization_url and llm_instructions', () => {
+    const consentJson = JSON.stringify({
+      authorization_url:
+        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+      llm_instructions: 'Please share the authorization link with the user.',
+    });
+    const result = [[{ type: 'text', text: consentJson }], null];
+    const detection = detectMCPConsentContinuation(result);
+    expect(detection.isConsent).toBe(true);
+    expect(detection.authUrl).toBe(
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+    );
+    expect(detection.llmInstructions).toBe('Please share the authorization link with the user.');
+  });
+
+  it('detects consent response with authorization_url only (no llm_instructions)', () => {
+    const consentJson = JSON.stringify({
+      authorization_url: 'https://login.microsoftonline.com/authorize',
+    });
+    const result = [[{ type: 'text', text: consentJson }], null];
+    const detection = detectMCPConsentContinuation(result);
+    expect(detection.isConsent).toBe(true);
+    expect(detection.authUrl).toBe('https://login.microsoftonline.com/authorize');
+    expect(detection.llmInstructions).toBeUndefined();
+  });
+
+  it('detects embedded JSON consent in multi-part text content', () => {
+    const consentJson = JSON.stringify({
+      authorization_url: 'https://cloud.arcade.dev/oauth2/authorize',
+      llm_instructions: 'Provider authorization needed.',
+    });
+    const multiPartText = 'Microsoft Outlook authorization required.\n\n' + consentJson;
+    const result = [[{ type: 'text', text: multiPartText }], null];
+    const detection = detectMCPConsentContinuation(result);
+    expect(detection.isConsent).toBe(true);
+    expect(detection.authUrl).toBe('https://cloud.arcade.dev/oauth2/authorize');
+    expect(detection.llmInstructions).toBe('Provider authorization needed.');
+  });
+
+  it('detects consent from string content (non-array)', () => {
+    const consentJson = JSON.stringify({
+      authorization_url: 'https://login.microsoftonline.com/authorize',
+      llm_instructions: 'Please authorize.',
+    });
+    const result = [consentJson, null];
+    const detection = detectMCPConsentContinuation(result);
+    expect(detection.isConsent).toBe(true);
+    expect(detection.authUrl).toBe('https://login.microsoftonline.com/authorize');
+  });
+
+  it('detects consent from multi-item array content', () => {
+    const item1 = { type: 'text', text: 'Authorization required.' };
+    const consentJson = JSON.stringify({
+      authorization_url: 'https://login.microsoftonline.com/authorize',
+    });
+    const item2 = { type: 'text', text: consentJson };
+    const result = [[item1, item2], null];
+    const detection = detectMCPConsentContinuation(result);
+    expect(detection.isConsent).toBe(true);
+  });
+
+  it('returns isConsent: false for normal tool output', () => {
+    const result = [[{ type: 'text', text: 'Here are your calendar events: ...' }], null];
+    const detection = detectMCPConsentContinuation(result);
+    expect(detection.isConsent).toBe(false);
+  });
+
+  it('returns isConsent: false for empty content', () => {
+    const result = [[], null];
+    const detection = detectMCPConsentContinuation(result);
+    expect(detection.isConsent).toBe(false);
+  });
+
+  it('returns isConsent: false for non-array result', () => {
+    expect(detectMCPConsentContinuation(null).isConsent).toBe(false);
+    expect(detectMCPConsentContinuation(undefined).isConsent).toBe(false);
+    expect(detectMCPConsentContinuation('text').isConsent).toBe(false);
+  });
+
+  it('returns isConsent: false for text mentioning authorization but without valid JSON URL', () => {
+    const result = [
+      [{ type: 'text', text: 'You need to complete the authorization process at the provider.' }],
+      null,
+    ];
+    const detection = detectMCPConsentContinuation(result);
+    expect(detection.isConsent).toBe(false);
+  });
+
+  it('does not false-positive on JSON with authorization_url as empty string', () => {
+    const json = JSON.stringify({ authorization_url: '', llm_instructions: 'test' });
+    const result = [[{ type: 'text', text: json }], null];
+    const detection = detectMCPConsentContinuation(result);
+    expect(detection.isConsent).toBe(false);
+  });
+});
+
+describe('createMCPTool — consent delta emission (VAL-MCP-004)', () => {
+  const { sendEvent, GenerationJobManager } = require('@librechat/api');
+  const { GraphEvents } = require('@librechat/agents');
+
+  let mockGetMCPManager;
+  let mockGetFlowStateManager;
+  let mockGetLogStores;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    mockGetMCPManager = require('~/config').getMCPManager;
+    mockGetFlowStateManager = require('~/config').getFlowStateManager;
+    mockGetLogStores = require('~/cache').getLogStores;
+
+    const mockFlowManager = {
+      getFlowState: jest.fn().mockResolvedValue(null),
+      createFlowWithHandler: jest.fn().mockImplementation(async (_id, _type, handler) => {
+        return handler();
+      }),
+    };
+
+    mockGetLogStores.mockReturnValue({});
+    mockGetFlowStateManager.mockReturnValue(mockFlowManager);
+  });
+
+  it('should emit structured auth delta event when tool result contains consent continuation', async () => {
+    const consentJson = JSON.stringify({
+      authorization_url:
+        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+      llm_instructions: 'Please share the authorization link with the user.',
+    });
+
+    const mockCallTool = jest.fn().mockResolvedValue([
+      [{ type: 'text', text: consentJson }],
+      null,
+    ]);
+
+    mockGetMCPManager.mockReturnValue({
+      callTool: mockCallTool,
+    });
+
+    const mockRes = { write: jest.fn(), flush: jest.fn() };
+
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      url: 'https://api.arcade.dev/mcp/microsoft',
+      requiresOAuth: true,
+    });
+
+    const availableTools = {
+      [`Microsoft_ListCalendarEvents${D}arcade-microsoft`]: {
+        function: {
+          description: 'List calendar events',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+    };
+
+    const toolInstance = await createMCPTool({
+      res: mockRes,
+      user: { id: 'user-1', role: 'user' },
+      toolKey: `Microsoft_ListCalendarEvents${D}arcade-microsoft`,
+      provider: 'openai',
+      userMCPAuthMap: {},
+      availableTools,
+    });
+
+    expect(toolInstance).toBeDefined();
+
+    // Invoke the tool to trigger the consent detection
+    const toolResult = await toolInstance.invoke(
+      { input: 'list my events' },
+      {
+        configurable: {
+          user: { id: 'user-1' },
+          user_id: 'user-1',
+          userMCPAuthMap: {},
+        },
+        metadata: {
+          provider: 'openai',
+          thread_id: 'thread-1',
+          run_id: 'run-1',
+        },
+        toolCall: {
+          id: 'call-1',
+          name: 'Microsoft_ListCalendarEvents',
+          type: 'tool_call_chunk',
+          args: '{}',
+          stepId: 'step-1',
+        },
+      },
+    );
+
+    // The tool result should still contain the consent text (passed through to LLM)
+    expect(toolResult).toBeDefined();
+
+    // sendEvent should have been called with structured auth delta
+    expect(sendEvent).toHaveBeenCalledWith(
+      mockRes,
+      expect.objectContaining({
+        event: GraphEvents.ON_RUN_STEP_DELTA,
+        data: expect.objectContaining({
+          id: 'step-1',
+          delta: expect.objectContaining({
+            auth: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+            expires_at: expect.any(Number),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('should NOT emit auth delta for normal (non-consent) tool output', async () => {
+    const normalOutput = 'Here are your calendar events for today: Meeting at 10am, Lunch at noon.';
+
+    const mockCallTool = jest.fn().mockResolvedValue([
+      [{ type: 'text', text: normalOutput }],
+      null,
+    ]);
+
+    mockGetMCPManager.mockReturnValue({
+      callTool: mockCallTool,
+    });
+
+    const mockRes = { write: jest.fn(), flush: jest.fn() };
+
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      url: 'https://api.arcade.dev/mcp/microsoft',
+    });
+
+    const availableTools = {
+      [`Microsoft_ListCalendarEvents${D}arcade-microsoft`]: {
+        function: {
+          description: 'List calendar events',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+    };
+
+    const toolInstance = await createMCPTool({
+      res: mockRes,
+      user: { id: 'user-1', role: 'user' },
+      toolKey: `Microsoft_ListCalendarEvents${D}arcade-microsoft`,
+      provider: 'openai',
+      userMCPAuthMap: {},
+      availableTools,
+    });
+
+    await toolInstance.invoke(
+      { input: 'list my events' },
+      {
+        configurable: {
+          user: { id: 'user-1' },
+          user_id: 'user-1',
+          userMCPAuthMap: {},
+        },
+        metadata: {
+          provider: 'openai',
+          thread_id: 'thread-1',
+          run_id: 'run-1',
+        },
+        toolCall: {
+          id: 'call-2',
+          name: 'Microsoft_ListCalendarEvents',
+          type: 'tool_call_chunk',
+          args: '{}',
+          stepId: 'step-2',
+        },
+      },
+    );
+
+    // sendEvent should NOT have been called with auth delta for normal output
+    const authCalls = sendEvent.mock.calls.filter(
+      (call) =>
+        call[1]?.event === GraphEvents.ON_RUN_STEP_DELTA && call[1]?.data?.delta?.auth != null,
+    );
+    expect(authCalls).toHaveLength(0);
+  });
+
+  it('should emit auth delta via GenerationJobManager.emitChunk when streamId is present', async () => {
+    const consentJson = JSON.stringify({
+      authorization_url: 'https://cloud.arcade.dev/oauth2/authorize',
+      llm_instructions: 'Provider authorization needed.',
+    });
+
+    const mockCallTool = jest.fn().mockResolvedValue([
+      [{ type: 'text', text: consentJson }],
+      null,
+    ]);
+
+    mockGetMCPManager.mockReturnValue({
+      callTool: mockCallTool,
+    });
+
+    const mockRes = { write: jest.fn(), flush: jest.fn() };
+
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      url: 'https://api.arcade.dev/mcp/github',
+    });
+
+    const availableTools = {
+      [`GitHub_ListRepos${D}arcade-github`]: {
+        function: {
+          description: 'List repos',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+    };
+
+    // Create tool with streamId to test resumable stream path
+    const toolInstance = await createMCPTool({
+      res: mockRes,
+      user: { id: 'user-1', role: 'user' },
+      toolKey: `GitHub_ListRepos${D}arcade-github`,
+      provider: 'openai',
+      userMCPAuthMap: {},
+      availableTools,
+      streamId: 'stream-123',
+    });
+
+    await toolInstance.invoke(
+      { input: 'list repos' },
+      {
+        configurable: {
+          user: { id: 'user-1' },
+          user_id: 'user-1',
+          userMCPAuthMap: {},
+        },
+        metadata: {
+          provider: 'openai',
+          thread_id: 'thread-1',
+          run_id: 'run-1',
+        },
+        toolCall: {
+          id: 'call-3',
+          name: 'GitHub_ListRepos',
+          type: 'tool_call_chunk',
+          args: '{}',
+          stepId: 'step-3',
+        },
+      },
+    );
+
+    // When streamId is present, GenerationJobManager.emitChunk should be used
+    expect(GenerationJobManager.emitChunk).toHaveBeenCalledWith(
+      'stream-123',
+      expect.objectContaining({
+        event: GraphEvents.ON_RUN_STEP_DELTA,
+        data: expect.objectContaining({
+          id: 'step-3',
+          delta: expect.objectContaining({
+            auth: 'https://cloud.arcade.dev/oauth2/authorize',
+          }),
+        }),
+      }),
+    );
   });
 });
