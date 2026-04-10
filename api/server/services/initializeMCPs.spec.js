@@ -85,15 +85,17 @@ describe('initializeMCPs', () => {
       await initializeMCPs();
 
       expect(mockCreateMCPServersRegistry).toHaveBeenCalledTimes(1);
+      // In denylist mode yaml allowedDomains are NOT added to the denylist;
+      // they only appear as ssrfExemptions so operators can approve private hosts.
       expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(
         expect.anything(), // mongoose
-        ['localhost'],
+        [], // denylist is empty (admin domains only)
         'denylist',
         ['localhost'], // ssrfExemptions: yaml allowedDomains
       );
     });
 
-    it('should pass allowedDomains, filterMode, and ssrfExemptions from settings to registry', async () => {
+    it('should pass yaml domains as ssrfExemptions only, not into denylist, in denylist mode', async () => {
       const allowedDomains = ['localhost', '*.example.com', 'trusted-mcp.com'];
       mockGetAppConfig.mockResolvedValue({
         mcpConfig: null,
@@ -102,9 +104,10 @@ describe('initializeMCPs', () => {
 
       await initializeMCPs();
 
+      // In denylist mode: yaml domains are exempt, not denied
       expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(
         expect.anything(),
-        allowedDomains,
+        [], // denylist: admin-only (empty here)
         'denylist',
         allowedDomains, // ssrfExemptions: yaml allowedDomains
       );
@@ -118,11 +121,58 @@ describe('initializeMCPs', () => {
 
       await initializeMCPs();
 
+      // In denylist mode with no yaml and no admin domains, the denylist is empty.
       expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(
         expect.anything(),
-        undefined,
+        [], // denylist: empty (no admin domains)
         'denylist',
         [], // ssrfExemptions: empty when no yaml domains
+      );
+    });
+
+    it('should merge yaml + admin domains into allowlist in allowlist mode', async () => {
+      const yamlDomains = ['http://192.168.50.4:8765', 'http://192.168.50.4:8766'];
+      const adminDomains = ['https://api.example.com'];
+      const { getEffectiveAppSettings } = require('./Admin/appSettings');
+      getEffectiveAppSettings.mockResolvedValueOnce({
+        mcpAllowedDomains: adminDomains,
+        mcpDomainFilterMode: 'allowlist',
+      });
+      mockGetAppConfig.mockResolvedValue({
+        mcpConfig: null,
+        mcpSettings: { allowedDomains: yamlDomains },
+      });
+
+      await initializeMCPs();
+
+      expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining([...yamlDomains, ...adminDomains]),
+        'allowlist',
+        yamlDomains, // ssrfExemptions: yaml allowedDomains
+      );
+    });
+
+    it('should put only admin entries in denylist while yaml stays in ssrfExemptions', async () => {
+      const yamlDomains = ['http://192.168.50.4:8765'];
+      const adminDomains = ['evil.com', 'spam.org'];
+      const { getEffectiveAppSettings } = require('./Admin/appSettings');
+      getEffectiveAppSettings.mockResolvedValueOnce({
+        mcpAllowedDomains: adminDomains,
+        mcpDomainFilterMode: 'denylist',
+      });
+      mockGetAppConfig.mockResolvedValue({
+        mcpConfig: null,
+        mcpSettings: { allowedDomains: yamlDomains },
+      });
+
+      await initializeMCPs();
+
+      expect(mockCreateMCPServersRegistry).toHaveBeenCalledWith(
+        expect.anything(),
+        adminDomains, // denylist: only admin entries
+        'denylist',
+        yamlDomains, // ssrfExemptions: yaml allowedDomains
       );
     });
 

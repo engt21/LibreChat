@@ -11,7 +11,11 @@ async function initializeMCPs() {
   const appConfig = await getAppConfig();
   const mcpServers = appConfig.mcpConfig;
 
-  // Merge domains from yaml config and admin settings (MongoDB)
+  // Merge domains from yaml config and admin settings (MongoDB).
+  // In denylist mode the first argument to the registry is the *deny* list, so yaml
+  // allowedDomains (semantically "allow these hosts") must NOT appear there — they
+  // only serve as SSRF exemptions.  In allowlist mode both sources are merged into
+  // the allow list as before.
   const yamlDomains = appConfig?.mcpSettings?.allowedDomains;
   let mergedDomains = yamlDomains;
   let domainFilterMode = 'denylist';
@@ -21,7 +25,14 @@ async function initializeMCPs() {
     domainFilterMode = adminSettings?.mcpDomainFilterMode || 'denylist';
     const hasYaml = Array.isArray(yamlDomains) && yamlDomains.length > 0;
     const hasAdmin = Array.isArray(adminDomains) && adminDomains.length > 0;
-    if (hasYaml || hasAdmin) {
+
+    if (domainFilterMode === 'denylist') {
+      // In denylist mode the registry argument is a *deny* list.
+      // yaml allowedDomains are operator-approved hosts and must NOT be denied;
+      // only admin-configured entries populate the denylist.
+      mergedDomains = hasAdmin ? adminDomains : [];
+    } else if (hasYaml || hasAdmin) {
+      // In allowlist mode, merge yaml + admin entries into the allow list.
       mergedDomains = [
         ...new Set([...(hasYaml ? yamlDomains : []), ...(hasAdmin ? adminDomains : [])]),
       ];
