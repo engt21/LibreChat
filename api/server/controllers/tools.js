@@ -148,29 +148,52 @@ const callTool = async (req, res) => {
       );
       return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
     }
-    const { loadedTools } = await loadTools({
-      user: req.user.id,
-      tools: [toolId],
-      functions: true,
-      options: {
-        req,
-        returnMetadata: true,
-        processFileURL,
-        uploadImageBuffer,
-      },
-      webSearch: appConfig.webSearch,
-      fileStrategy: appConfig.fileStrategy,
-      imageOutputType: appConfig.imageOutputType,
-    });
+    let loadResult;
+    try {
+      loadResult = await loadTools({
+        user: req.user.id,
+        tools: [toolId],
+        functions: true,
+        options: {
+          req,
+          returnMetadata: true,
+          processFileURL,
+          uploadImageBuffer,
+        },
+        webSearch: appConfig.webSearch,
+        fileStrategy: appConfig.fileStrategy,
+        imageOutputType: appConfig.imageOutputType,
+      });
+    } catch (loadError) {
+      logger.error(`[${toolId}/call] Error loading tool for user ${req.user.id}:`, loadError);
+      return res.status(500).json({ message: `Failed to load tool: ${loadError.message}` });
+    }
+
+    const { loadedTools } = loadResult;
+    if (!loadedTools || loadedTools.length === 0) {
+      logger.warn(`[${toolId}/call] No tools loaded for user ${req.user.id}`);
+      return res.status(500).json({ message: 'Tool could not be initialized' });
+    }
 
     const tool = loadedTools[0];
     const toolCallId = `${req.user.id}_${nanoid()}`;
-    const result = await tool.invoke({
-      args,
-      name: toolId,
-      id: toolCallId,
-      type: ToolCallTypes.TOOL_CALL,
-    });
+
+    let result;
+    try {
+      result = await tool.invoke({
+        args,
+        name: toolId,
+        id: toolCallId,
+        type: ToolCallTypes.TOOL_CALL,
+      });
+    } catch (execError) {
+      logger.error(`[${toolId}/call] Execution error for user ${req.user.id}:`, execError);
+      const status =
+        typeof execError?.status === 'number' && execError.status >= 400 && execError.status < 600
+          ? execError.status
+          : 500;
+      return res.status(status).json({ message: execError.message || 'Tool execution failed' });
+    }
 
     const { content, artifact } = result;
     const toolCallData = {
@@ -229,8 +252,12 @@ const callTool = async (req, res) => {
       attachments,
     });
   } catch (error) {
-    logger.error('Error calling tool', error);
-    res.status(500).json({ message: 'Error calling tool' });
+    logger.error('[callTool] Unexpected error:', error);
+    const status =
+      typeof error?.status === 'number' && error.status >= 400 && error.status < 600
+        ? error.status
+        : 500;
+    res.status(status).json({ message: error.message || 'Error calling tool' });
   }
 };
 
