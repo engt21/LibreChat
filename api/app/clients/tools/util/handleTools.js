@@ -246,6 +246,7 @@ const loadTools = async ({
     ephemeralAgent: options.req?.body?.ephemeralAgent,
     requestBody: options.req?.body,
     agentTools: agent?.tools,
+    model: agent?.model ?? options.req?.body?.model,
     enabled:
       tools.includes(Tools.web_search) ||
       tools.includes(OLLAMA_WEB_FETCH_TOOL) ||

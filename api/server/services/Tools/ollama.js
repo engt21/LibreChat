@@ -14,6 +14,106 @@ const OLLAMA_WEB_FETCH_API_URL = 'https://ollama.com/api/web_fetch';
 /** Request timeout for Ollama hosted API calls (30 seconds). */
 const OLLAMA_HOSTED_API_TIMEOUT_MS = 30_000;
 
+/**
+ * Model family prefixes known to support tool calling in Ollama.
+ * Models matching these prefixes will use the native Ollama web-search path.
+ * Based on Ollama's published tool-support category and empirical testing.
+ *
+ * @see https://ollama.com/search?c=tools
+ */
+const TOOL_CAPABLE_MODEL_PREFIXES = [
+  'llama3.1',
+  'llama3.2',
+  'llama3.3',
+  'llama4',
+  'mistral',
+  'mixtral',
+  'command-r',
+  'qwen2',
+  'qwen2.5',
+  'qwen3',
+  'deepseek-r1',
+  'deepseek-v2',
+  'deepseek-v3',
+  'nemotron',
+  'firefunction',
+  'hermes',
+  'granite3',
+  'smollm2',
+  'phi4',
+  'athene-v2',
+  'gpt-oss',
+];
+
+/**
+ * Model family prefixes known NOT to support tool calling.
+ * Models matching these prefixes will always fall back from native tool mode.
+ */
+const TOOL_INCOMPATIBLE_MODEL_PREFIXES = [
+  'llama2',
+  'llama3:', // llama3 (non-3.1+) does not support tools
+  'codellama',
+  'phi', // phi (non-phi4) does not support tools
+  'gemma', // gemma/gemma2 do not support tools via Ollama
+  'gemma2',
+  'vicuna',
+  'orca',
+  'tinyllama',
+  'stablelm',
+  'yi',
+  'solar',
+  'falcon',
+  'dolphin',
+  'starcoder',
+  'codestral',
+];
+
+/**
+ * Check whether an Ollama model name matches a tool-capability pattern.
+ *
+ * Returns:
+ * - `true`  if the model matches a known tool-capable family
+ * - `false` if the model matches a known tool-incompatible family
+ * - `null`  if the model is unknown (caller decides default behavior)
+ *
+ * @param {string | undefined | null} model
+ * @returns {boolean | null}
+ */
+function isOllamaModelToolCapable(model) {
+  if (typeof model !== 'string' || model.length === 0) {
+    return null;
+  }
+
+  const normalized = model.toLowerCase().trim();
+
+  for (const prefix of TOOL_CAPABLE_MODEL_PREFIXES) {
+    if (
+      normalized === prefix ||
+      normalized.startsWith(`${prefix}:`) ||
+      normalized.startsWith(`${prefix}-`)
+    ) {
+      return true;
+    }
+  }
+
+  for (const prefix of TOOL_INCOMPATIBLE_MODEL_PREFIXES) {
+    // For prefixes ending with ':', match exactly that prefix start
+    if (prefix.endsWith(':')) {
+      if (normalized.startsWith(prefix)) {
+        return false;
+      }
+    } else if (
+      normalized === prefix ||
+      normalized.startsWith(`${prefix}:`) ||
+      normalized.startsWith(`${prefix}-`)
+    ) {
+      return false;
+    }
+  }
+
+  return null;
+}
+
 function isOllamaEndpoint(endpoint) {
   return typeof endpoint === 'string' && endpoint.toLowerCase().startsWith(KnownEndpoints.ollama);
 }
@@ -30,7 +130,14 @@ function getOllamaWebSearchEnabled({ endpoint, ephemeralAgent, modelSpec, reques
   return modelSpec?.webSearch === true;
 }
 
-function getOllamaWebSearchMode({ endpoint, ephemeralAgent, requestBody, enabled, agentTools }) {
+function getOllamaWebSearchMode({
+  endpoint,
+  ephemeralAgent,
+  requestBody,
+  enabled,
+  agentTools,
+  model,
+}) {
   if (!enabled || !isOllamaEndpoint(endpoint)) {
     return WebSearchModes.librechat;
   }
@@ -52,9 +159,29 @@ function getOllamaWebSearchMode({ endpoint, ephemeralAgent, requestBody, enabled
     }
   }
 
-  return (
-    ephemeralAgent?.web_search_mode ?? requestBody?.web_search_mode ?? WebSearchModes.ollama_native
-  );
+  const preferredMode =
+    ephemeralAgent?.web_search_mode ?? requestBody?.web_search_mode ?? WebSearchModes.ollama_native;
+
+  // Gate native and MCP modes on model tool-capability.
+  // If the selected Ollama model is known to be tool-incompatible, fall back
+  // to the LibreChat search stack so the request doesn't dead-end with a
+  // provider 400 or stalled empty turn.
+  if (
+    (preferredMode === WebSearchModes.ollama_native ||
+      preferredMode === WebSearchModes.ollama_mcp) &&
+    model
+  ) {
+    const capable = isOllamaModelToolCapable(model);
+    if (capable === false) {
+      logger.warn(
+        `[OllamaWebSearch] Model "${model}" is not known to support tools – ` +
+          'falling back to LibreChat web search instead of native Ollama mode',
+      );
+      return WebSearchModes.librechat;
+    }
+  }
+
+  return preferredMode;
 }
 
 /**
@@ -76,13 +203,21 @@ function applyOllamaWebSearchMode({
   requestBody,
   tools,
   mcpServers,
+  model,
 }) {
   const enabled = getOllamaWebSearchEnabled({ endpoint, ephemeralAgent, modelSpec, requestBody });
   if (!enabled) {
     return;
   }
 
-  const mode = getOllamaWebSearchMode({ endpoint, ephemeralAgent, requestBody, enabled });
+  const resolvedModel = model ?? requestBody?.model;
+  const mode = getOllamaWebSearchMode({
+    endpoint,
+    ephemeralAgent,
+    requestBody,
+    enabled,
+    model: resolvedModel,
+  });
 
   // Gate Ollama-hosted modes on API key availability.  Without the key every
   // tool invocation would throw, so fall back to the generic LibreChat search
@@ -363,7 +498,10 @@ function createOllamaWebFetchTool() {
       } catch (err) {
         logger.error('[OllamaWebFetch] fetch failed', { url, error: err?.message });
         const errorMsg = `Ollama web fetch failed for ${url}: ${err?.message ?? 'unknown error'}`;
-        return [errorMsg, { [Tools.web_search]: buildFetchAttachment({ url, title: url, content: '' }, 0) }];
+        return [
+          errorMsg,
+          { [Tools.web_search]: buildFetchAttachment({ url, title: url, content: '' }, 0) },
+        ];
       }
     },
     {
@@ -382,6 +520,8 @@ module.exports = {
   OLLAMA_WEB_FETCH_TOOL,
   OLLAMA_SEARCH_FETCH_MCP_SERVER,
   OLLAMA_HOSTED_API_TIMEOUT_MS,
+  TOOL_CAPABLE_MODEL_PREFIXES,
+  TOOL_INCOMPATIBLE_MODEL_PREFIXES,
   applyOllamaWebSearchMode,
   createOllamaWebFetchTool,
   createOllamaWebSearchTool,
@@ -392,6 +532,7 @@ module.exports = {
   getOllamaWebSearchMode,
   isOllamaEndpoint,
   isOllamaHostedSearchReady,
+  isOllamaModelToolCapable,
   ollamaWebFetch,
   ollamaWebSearch,
 };

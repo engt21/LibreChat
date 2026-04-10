@@ -144,6 +144,7 @@ const loadAddedAgent = async ({ req, conversation, primaryAgent }) => {
     requestBody: req.body,
     tools,
     mcpServers,
+    model,
   });
 
   const addedServers = new Set();

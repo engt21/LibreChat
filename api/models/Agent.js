@@ -132,6 +132,7 @@ const loadEphemeralAgent = async ({ req, spec, endpoint, model_parameters: _m })
     requestBody: req.body,
     tools,
     mcpServers,
+    model,
   });
 
   const addedServers = new Set();

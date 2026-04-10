@@ -9,6 +9,8 @@ const {
   OLLAMA_WEB_FETCH_TOOL,
   OLLAMA_SEARCH_FETCH_MCP_SERVER,
   OLLAMA_HOSTED_API_TIMEOUT_MS,
+  TOOL_CAPABLE_MODEL_PREFIXES,
+  TOOL_INCOMPATIBLE_MODEL_PREFIXES,
   applyOllamaWebSearchMode,
   createOllamaWebFetchTool,
   createOllamaWebSearchTool,
@@ -17,6 +19,7 @@ const {
   getOllamaWebSearchEnabled,
   getOllamaWebSearchMode,
   isOllamaHostedSearchReady,
+  isOllamaModelToolCapable,
   ollamaWebSearch,
   ollamaWebFetch,
 } = require('./ollama');
@@ -417,10 +420,7 @@ describe('server/services/Tools/ollama', () => {
 
       const fetchTool = createOllamaWebFetchTool();
       const runnableConfig = { toolCall: { turn: 0 } };
-      const result = await fetchTool.invoke(
-        { url: 'https://example.com/page' },
-        runnableConfig,
-      );
+      const result = await fetchTool.invoke({ url: 'https://example.com/page' }, runnableConfig);
 
       expect(typeof result).toBe('string');
       expect(result).toContain('Ollama web fetch failed');
@@ -438,10 +438,7 @@ describe('server/services/Tools/ollama', () => {
 
       const fetchTool = createOllamaWebFetchTool();
       const runnableConfig = { toolCall: { turn: 0 } };
-      const result = await fetchTool.invoke(
-        { url: 'https://example.com/page' },
-        runnableConfig,
-      );
+      const result = await fetchTool.invoke({ url: 'https://example.com/page' }, runnableConfig);
 
       expect(typeof result).toBe('string');
       expect(result).toContain('Example Page');
@@ -462,6 +459,219 @@ describe('server/services/Tools/ollama', () => {
       await expect(ollamaWebFetch({ url: 'https://example.com' })).rejects.toThrow(
         /OLLAMA_API_KEY/,
       );
+    });
+  });
+
+  // --- Tool-capability gating ---
+
+  describe('isOllamaModelToolCapable', () => {
+    test('returns true for known tool-capable model families', () => {
+      expect(isOllamaModelToolCapable('llama3.1')).toBe(true);
+      expect(isOllamaModelToolCapable('llama3.1:8b')).toBe(true);
+      expect(isOllamaModelToolCapable('llama3.1:70b-instruct-q4_0')).toBe(true);
+      expect(isOllamaModelToolCapable('qwen2.5:latest')).toBe(true);
+      expect(isOllamaModelToolCapable('qwen2.5:7b')).toBe(true);
+      expect(isOllamaModelToolCapable('deepseek-r1:14b')).toBe(true);
+      expect(isOllamaModelToolCapable('deepseek-r1:latest')).toBe(true);
+      expect(isOllamaModelToolCapable('mistral:latest')).toBe(true);
+      expect(isOllamaModelToolCapable('command-r:latest')).toBe(true);
+      expect(isOllamaModelToolCapable('command-r-plus:latest')).toBe(true);
+      expect(isOllamaModelToolCapable('firefunction-v2:latest')).toBe(true);
+      expect(isOllamaModelToolCapable('phi4:latest')).toBe(true);
+      expect(isOllamaModelToolCapable('gpt-oss:latest')).toBe(true);
+    });
+
+    test('returns false for known tool-incompatible model families', () => {
+      expect(isOllamaModelToolCapable('llama2:latest')).toBe(false);
+      expect(isOllamaModelToolCapable('llama2:13b')).toBe(false);
+      expect(isOllamaModelToolCapable('llama3:latest')).toBe(false);
+      expect(isOllamaModelToolCapable('llama3:8b')).toBe(false);
+      expect(isOllamaModelToolCapable('codellama:latest')).toBe(false);
+      expect(isOllamaModelToolCapable('gemma:latest')).toBe(false);
+      expect(isOllamaModelToolCapable('gemma2:latest')).toBe(false);
+      expect(isOllamaModelToolCapable('phi:latest')).toBe(false);
+      expect(isOllamaModelToolCapable('vicuna:latest')).toBe(false);
+      expect(isOllamaModelToolCapable('tinyllama:latest')).toBe(false);
+    });
+
+    test('returns null for unknown model names', () => {
+      expect(isOllamaModelToolCapable('some-unknown-model:latest')).toBeNull();
+      expect(isOllamaModelToolCapable('custom-finetune:v1')).toBeNull();
+    });
+
+    test('returns null for undefined/empty/non-string input', () => {
+      expect(isOllamaModelToolCapable(undefined)).toBeNull();
+      expect(isOllamaModelToolCapable(null)).toBeNull();
+      expect(isOllamaModelToolCapable('')).toBeNull();
+      expect(isOllamaModelToolCapable(123)).toBeNull();
+    });
+
+    test('is case-insensitive', () => {
+      expect(isOllamaModelToolCapable('Llama3.1:8B')).toBe(true);
+      expect(isOllamaModelToolCapable('QWEN2.5:latest')).toBe(true);
+      expect(isOllamaModelToolCapable('GEMMA:latest')).toBe(false);
+    });
+
+    test('exported prefix lists are non-empty arrays', () => {
+      expect(Array.isArray(TOOL_CAPABLE_MODEL_PREFIXES)).toBe(true);
+      expect(TOOL_CAPABLE_MODEL_PREFIXES.length).toBeGreaterThan(0);
+      expect(Array.isArray(TOOL_INCOMPATIBLE_MODEL_PREFIXES)).toBe(true);
+      expect(TOOL_INCOMPATIBLE_MODEL_PREFIXES.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('getOllamaWebSearchMode – tool-capability gating', () => {
+    test('falls back to librechat for known tool-incompatible model', () => {
+      expect(
+        getOllamaWebSearchMode({
+          endpoint: 'Ollama',
+          enabled: true,
+          model: 'gemma2:latest',
+        }),
+      ).toBe(WebSearchModes.librechat);
+    });
+
+    test('falls back to librechat for incompatible model even when MCP is preferred', () => {
+      expect(
+        getOllamaWebSearchMode({
+          endpoint: 'Ollama',
+          ephemeralAgent: { web_search_mode: WebSearchModes.ollama_mcp },
+          enabled: true,
+          model: 'llama2:13b',
+        }),
+      ).toBe(WebSearchModes.librechat);
+    });
+
+    test('keeps native mode for known tool-capable model', () => {
+      expect(
+        getOllamaWebSearchMode({
+          endpoint: 'Ollama',
+          enabled: true,
+          model: 'llama3.1:8b',
+        }),
+      ).toBe(WebSearchModes.ollama_native);
+    });
+
+    test('keeps native mode for unknown model (optimistic default)', () => {
+      expect(
+        getOllamaWebSearchMode({
+          endpoint: 'Ollama',
+          enabled: true,
+          model: 'some-custom-model:latest',
+        }),
+      ).toBe(WebSearchModes.ollama_native);
+    });
+
+    test('keeps native mode when model is not provided', () => {
+      expect(
+        getOllamaWebSearchMode({
+          endpoint: 'Ollama',
+          enabled: true,
+        }),
+      ).toBe(WebSearchModes.ollama_native);
+    });
+
+    test('still respects explicit agentTools override even with incompatible model', () => {
+      // agentTools override takes precedence (already-configured agent tools)
+      expect(
+        getOllamaWebSearchMode({
+          endpoint: 'Ollama',
+          enabled: true,
+          model: 'gemma2:latest',
+          agentTools: [Tools.web_search, OLLAMA_WEB_FETCH_TOOL],
+        }),
+      ).toBe(WebSearchModes.ollama_native);
+    });
+  });
+
+  describe('applyOllamaWebSearchMode – tool-capability gating', () => {
+    test('falls back to librechat web_search for tool-incompatible model', () => {
+      const tools = [];
+      const mcpServers = new Set();
+
+      applyOllamaWebSearchMode({
+        endpoint: 'ollama',
+        ephemeralAgent: { web_search: true },
+        modelSpec: null,
+        tools,
+        mcpServers,
+        model: 'gemma2:latest',
+      });
+
+      // Should add generic web_search but NOT web_fetch
+      expect(tools).toEqual([Tools.web_search]);
+      expect(tools).not.toContain(OLLAMA_WEB_FETCH_TOOL);
+      expect(mcpServers.size).toBe(0);
+    });
+
+    test('uses native tools for tool-capable model', () => {
+      const tools = [];
+      const mcpServers = new Set();
+
+      applyOllamaWebSearchMode({
+        endpoint: 'ollama',
+        ephemeralAgent: { web_search: true },
+        modelSpec: null,
+        tools,
+        mcpServers,
+        model: 'llama3.1:8b',
+      });
+
+      expect(tools).toEqual([Tools.web_search, OLLAMA_WEB_FETCH_TOOL]);
+      expect(mcpServers.size).toBe(0);
+    });
+
+    test('uses native tools for unknown model (optimistic default)', () => {
+      const tools = [];
+      const mcpServers = new Set();
+
+      applyOllamaWebSearchMode({
+        endpoint: 'ollama',
+        ephemeralAgent: { web_search: true },
+        modelSpec: null,
+        tools,
+        mcpServers,
+        model: 'some-custom-model:v1',
+      });
+
+      expect(tools).toEqual([Tools.web_search, OLLAMA_WEB_FETCH_TOOL]);
+      expect(mcpServers.size).toBe(0);
+    });
+
+    test('resolves model from requestBody when model param is not provided', () => {
+      const tools = [];
+      const mcpServers = new Set();
+
+      applyOllamaWebSearchMode({
+        endpoint: 'ollama',
+        ephemeralAgent: { web_search: true },
+        modelSpec: null,
+        requestBody: { model: 'gemma:7b' },
+        tools,
+        mcpServers,
+      });
+
+      // gemma is tool-incompatible, should fall back
+      expect(tools).toEqual([Tools.web_search]);
+      expect(tools).not.toContain(OLLAMA_WEB_FETCH_TOOL);
+    });
+
+    test('falls back to librechat for MCP mode with tool-incompatible model', () => {
+      const tools = [];
+      const mcpServers = new Set();
+
+      applyOllamaWebSearchMode({
+        endpoint: 'ollama',
+        ephemeralAgent: { web_search: true, web_search_mode: WebSearchModes.ollama_mcp },
+        modelSpec: null,
+        tools,
+        mcpServers,
+        model: 'llama2:13b',
+      });
+
+      // MCP mode also requires tool calling, should fall back
+      expect(tools).toEqual([Tools.web_search]);
+      expect(mcpServers.size).toBe(0);
     });
   });
 });
