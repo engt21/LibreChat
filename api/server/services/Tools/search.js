@@ -133,6 +133,44 @@ function buildAttachment(context) {
   };
 }
 
+/**
+ * Helper to write web search status events either to res or to job emitter.
+ * Uses the same SSE envelope as callbacks.js `emitEvent` so the client's
+ * `on_web_search_status` handler in useStepHandler processes it identically
+ * to the OpenAI/Azure Responses-path status events.
+ *
+ * @param {import('http').ServerResponse} res
+ * @param {string | null} streamId
+ * @param {{ event: string, data: object }} eventData
+ */
+function writeStatusEvent(res, streamId, eventData) {
+  if (streamId) {
+    GenerationJobManager.emitChunk(streamId, eventData);
+  } else if (res.headersSent && !res.writableEnded) {
+    const { sendEvent } = require('@librechat/api');
+    sendEvent(res, eventData);
+  }
+}
+
+/**
+ * Creates a callback that emits `on_web_search_status` SSE events
+ * for tool-based web search flows (e.g. Ollama native search) where
+ * the provider does not natively emit search status stream events.
+ *
+ * @param {import('http').ServerResponse} res - The HTTP server response object
+ * @param {string | null} [streamId] - The stream ID for resumable mode, or null for standard mode
+ * @returns {(status: string) => void} Callback that emits a status event
+ */
+function createOnWebSearchStatus(res, streamId = null) {
+  return function onWebSearchStatus(status) {
+    writeStatusEvent(res, streamId, {
+      event: 'on_web_search_status',
+      data: { status: { status } },
+    });
+  };
+}
+
 module.exports = {
   createOnSearchResults,
+  createOnWebSearchStatus,
 };

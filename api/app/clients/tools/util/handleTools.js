@@ -39,6 +39,8 @@ const {
   TavilySearchResults,
   createGeminiImageTool,
   createOpenAIImageTools,
+  ScientificCalculator,
+  CodeInterpreterMath,
 } = require('../');
 const { primeFiles: primeCodeFiles } = require('~/server/services/Files/Code/process');
 const { createFileSearchTool, primeFiles: primeSearchFiles } = require('./fileSearch');
@@ -182,6 +184,8 @@ const loadTools = async ({
   const toolConstructors = {
     flux: FluxAPI,
     calculator: Calculator,
+    scientific_calculator: ScientificCalculator,
+    code_interpreter_math: CodeInterpreterMath,
     google: GoogleSearchAPI,
     open_weather: OpenWeather,
     wolfram: StructuredWolfram,
@@ -331,15 +335,16 @@ const loadTools = async ({
           files,
           entity_id: agent?.id,
           fileCitations,
+          req: options.req,
         });
       };
       continue;
     } else if (tool === Tools.web_search) {
       if (ollamaWebSearchMode === WebSearchModes.ollama_native) {
-        const { onSearchResults } = options?.[Tools.web_search] ?? {};
+        const { onSearchResults, onWebSearchStatus } = options?.[Tools.web_search] ?? {};
         requestedTools[tool] = async () => {
           toolContextMap[tool] = buildWebSearchContext();
-          return createOllamaWebSearchTool({ onSearchResults });
+          return createOllamaWebSearchTool({ onSearchResults, onWebSearchStatus });
         };
         continue;
       }

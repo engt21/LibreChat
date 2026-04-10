@@ -203,6 +203,42 @@ describe('server/services/Tools/ollama', () => {
     });
   });
 
+  test('createOllamaWebSearchTool invokes onWebSearchStatus with searching and completed', async () => {
+    fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        results: [{ title: 'R', url: 'https://example.com', content: 'C' }],
+      }),
+    });
+
+    const onWebSearchStatus = jest.fn();
+    const tool = createOllamaWebSearchTool({ onWebSearchStatus });
+    const runnableConfig = {
+      toolCall: { id: 'tc-1', name: 'web_search', turn: 0 },
+      metadata: { user_id: 'u1', thread_id: 't1', run_id: 'r1' },
+    };
+
+    await tool.invoke({ query: 'status test' }, runnableConfig);
+
+    expect(onWebSearchStatus).toHaveBeenCalledTimes(2);
+    expect(onWebSearchStatus).toHaveBeenNthCalledWith(1, 'searching');
+    expect(onWebSearchStatus).toHaveBeenNthCalledWith(2, 'completed');
+  });
+
+  test('createOllamaWebSearchTool emits completed status even on API failure', async () => {
+    fetch.mockRejectedValue(new Error('network error'));
+
+    const onWebSearchStatus = jest.fn();
+    const tool = createOllamaWebSearchTool({ onWebSearchStatus });
+    const runnableConfig = { toolCall: { turn: 0 } };
+
+    await tool.invoke({ query: 'fail test' }, runnableConfig);
+
+    expect(onWebSearchStatus).toHaveBeenCalledTimes(2);
+    expect(onWebSearchStatus).toHaveBeenNthCalledWith(1, 'searching');
+    expect(onWebSearchStatus).toHaveBeenNthCalledWith(2, 'completed');
+  });
+
   test('applyOllamaWebSearchMode adds librechat web_search for non-Ollama when enabled', () => {
     const tools = [];
     const mcpServers = new Set();

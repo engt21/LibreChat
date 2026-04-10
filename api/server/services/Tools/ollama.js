@@ -306,19 +306,22 @@ function getHostname(url) {
   }
 }
 
-function createOllamaWebSearchTool({ onSearchResults } = {}) {
+function createOllamaWebSearchTool({ onSearchResults, onWebSearchStatus } = {}) {
   return tool(
     async ({ query, max_results = 5 }, runnableConfig) => {
+      onWebSearchStatus?.('searching');
       try {
         const result = await ollamaWebSearch({ query, max_results });
         const results = Array.isArray(result?.results) ? result.results : [];
         const turn = runnableConfig?.toolCall?.turn ?? 0;
         const attachment = buildSearchAttachment(results, turn);
         onSearchResults?.({ success: true, data: attachment }, runnableConfig);
+        onWebSearchStatus?.('completed');
         return [formatSearchResults(query, results), { [Tools.web_search]: attachment }];
       } catch (err) {
         logger.error('[OllamaWebSearch] search failed', { query, error: err?.message });
         onSearchResults?.({ success: false, error: err?.message }, runnableConfig);
+        onWebSearchStatus?.('completed');
         const errorMsg = `Ollama web search failed: ${err?.message ?? 'unknown error'}. The model should answer without web results.`;
         return [errorMsg, { [Tools.web_search]: buildSearchAttachment([], 0) }];
       }

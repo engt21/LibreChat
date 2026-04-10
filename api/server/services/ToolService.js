@@ -56,7 +56,7 @@ const { processFileURL, uploadImageBuffer } = require('~/server/services/Files/p
 const { primeFiles: primeSearchFiles } = require('~/app/clients/tools/util/fileSearch');
 const { primeFiles: primeCodeFiles } = require('~/server/services/Files/Code/process');
 const { manifestToolMap, toolkits } = require('~/app/clients/tools/manifest');
-const { createOnSearchResults } = require('~/server/services/Tools/search');
+const { createOnSearchResults, createOnWebSearchStatus } = require('~/server/services/Tools/search');
 const { OLLAMA_WEB_FETCH_TOOL } = require('~/server/services/Tools/ollama');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { reinitMCPServer } = require('~/server/services/Tools/mcp');
@@ -872,10 +872,12 @@ async function loadAgentTools({
   if (!_agentTools || _agentTools.length === 0) {
     return {};
   }
-  /** @type {ReturnType<typeof createOnSearchResults>} */
+  /** @type {ReturnType<typeof createOnSearchResults> & { onWebSearchStatus?: (status: string) => void }} */
   let webSearchCallbacks;
   if (includesWebSearch) {
-    webSearchCallbacks = createOnSearchResults(res, streamId);
+    const searchCallbacks = createOnSearchResults(res, streamId);
+    const onWebSearchStatus = createOnWebSearchStatus(res, streamId);
+    webSearchCallbacks = { ...searchCallbacks, onWebSearchStatus };
   }
 
   /** @type {Record<string, Record<string, string>>} */
@@ -1228,7 +1230,9 @@ async function loadToolsForExecution({
   /** @type {Record<string, unknown>} */
   if (regularToolNames.length > 0) {
     const includesWebSearch = regularToolNames.includes(Tools.web_search);
-    const webSearchCallbacks = includesWebSearch ? createOnSearchResults(res, streamId) : undefined;
+    const webSearchCallbacks = includesWebSearch
+      ? { ...createOnSearchResults(res, streamId), onWebSearchStatus: createOnWebSearchStatus(res, streamId) }
+      : undefined;
 
     const { loadedTools } = await loadTools({
       agent,
