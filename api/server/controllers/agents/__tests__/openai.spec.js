@@ -102,6 +102,16 @@ jest.mock('~/models/Conversation', () => ({
   getConvoFiles: jest.fn().mockResolvedValue([]),
 }));
 
+jest.mock('~/server/services/Files/strategies', () => ({
+  getStrategyFunctions: jest.fn().mockReturnValue({
+    getDownloadStream: jest.fn(),
+  }),
+}));
+
+jest.mock('get-stream', () => ({
+  buffer: jest.fn().mockResolvedValue(Buffer.from('mock')),
+}));
+
 jest.mock('~/models/Agent', () => ({
   getAgent: jest.fn().mockResolvedValue({
     id: 'agent-123',
@@ -117,6 +127,7 @@ jest.mock('~/models', () => ({
   getFiles: jest.fn(),
   getUserKey: jest.fn(),
   getMessages: jest.fn(),
+  updateFile: jest.fn(),
   updateFilesUsage: jest.fn(),
   getUserKeyValues: jest.fn(),
   getUserCodeFiles: jest.fn(),

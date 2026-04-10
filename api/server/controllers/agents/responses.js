@@ -39,11 +39,26 @@ const { findAccessibleResources } = require('~/server/services/PermissionService
 const { getConvoFiles, saveConvo, getConvo } = require('~/models/Conversation');
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
 const { getMultiplier, getCacheMultiplier } = require('~/models/tx');
+const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { getAgent, getAgents } = require('~/models/Agent');
+const getStream = require('get-stream');
 const db = require('~/models');
 
 /** @type {import('@librechat/api').AppConfig | null} */
 let appConfig = null;
+
+/**
+ * Download a file from storage into a Buffer for provider-native tool uploads.
+ * @param {import('express').Request} req
+ * @param {import('@librechat/data-schemas').IMongoFile} file
+ * @returns {Promise<Buffer>}
+ */
+async function getFileBuffer(req, file) {
+  const source = file.source ?? 'local';
+  const { getDownloadStream } = getStrategyFunctions(source);
+  const stream = await getDownloadStream(req, file.filepath);
+  return getStream.buffer(stream);
+}
 
 /**
  * Set the app config for the controller
@@ -211,20 +226,24 @@ async function saveResponseOutput(req, conversationId, responseId, response, age
  * @param {string} conversationId
  * @param {string} agentId
  * @param {object} agent
+ * @param {object} [options]
+ * @param {string[]} [options.files] - File IDs to persist on the conversation for later rehydration
  * @returns {Promise<void>}
  */
-async function saveConversation(req, conversationId, agentId, agent) {
-  await saveConvo(
-    req,
-    {
-      conversationId,
-      endpoint: EModelEndpoint.agents,
-      agentId,
-      title: agent?.name || 'Open Responses Conversation',
-      model: agent?.model,
-    },
-    { context: 'Responses API - save conversation' },
-  );
+async function saveConversation(req, conversationId, agentId, agent, options = {}) {
+  const convoData = {
+    conversationId,
+    endpoint: EModelEndpoint.agents,
+    agentId,
+    title: agent?.name || 'Open Responses Conversation',
+    model: agent?.model,
+  };
+
+  if (options.files && options.files.length > 0) {
+    convoData.files = options.files;
+  }
+
+  await saveConvo(req, convoData, { context: 'Responses API - save conversation' });
 }
 
 /**
@@ -343,12 +362,15 @@ const createResponse = async (req, res) => {
       model_parameters: agent.model_parameters ?? {},
     };
 
+    /** @type {Array<import('@librechat/data-schemas').IMongoFile>} */
+    const requestFiles = req.body.files ?? [];
+
     const primaryConfig = await initializeAgent(
       {
         req,
         res,
         loadTools,
-        requestFiles: [],
+        requestFiles,
         conversationId,
         parentMessageId,
         agent,
@@ -359,8 +381,10 @@ const createResponse = async (req, res) => {
       {
         getConvoFiles,
         getFiles: db.getFiles,
+        getFileBuffer,
         getUserKey: db.getUserKey,
         getMessages: db.getMessages,
+        updateFile: db.updateFile,
         updateFilesUsage: db.updateFilesUsage,
         getUserKeyValues: db.getUserKeyValues,
         getUserCodeFiles: db.getUserCodeFiles,
@@ -368,6 +392,11 @@ const createResponse = async (req, res) => {
         getCodeGeneratedFiles: db.getCodeGeneratedFiles,
       },
     );
+
+    /** Collect file IDs from attachments so they persist on the conversation for later rehydration */
+    const attachmentFileIds = (primaryConfig.attachments ?? [])
+      .map((a) => a.file_id)
+      .filter(Boolean);
 
     // Determine if streaming is enabled (check both request and agent config)
     const streamingDisabled = !!primaryConfig.model_parameters?.disableStreaming;
@@ -567,7 +596,9 @@ const createResponse = async (req, res) => {
       if (request.store === true) {
         try {
           // Save conversation
-          await saveConversation(req, conversationId, agentId, agent);
+          await saveConversation(req, conversationId, agentId, agent, {
+            files: attachmentFileIds,
+          });
 
           // Save input messages
           await saveInputMessages(req, conversationId, inputMessages, agentId);
@@ -722,7 +753,9 @@ const createResponse = async (req, res) => {
 
       if (request.store === true) {
         try {
-          await saveConversation(req, conversationId, agentId, agent);
+          await saveConversation(req, conversationId, agentId, agent, {
+            files: attachmentFileIds,
+          });
 
           await saveInputMessages(req, conversationId, inputMessages, agentId);
 

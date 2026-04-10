@@ -1312,4 +1312,203 @@ describe('primeResources', () => {
       expect(result.tool_resources?.[EToolResources.image_edit]).toBeUndefined();
     });
   });
+
+  describe('native file_search rehydration (VAL-PROVIDER-002, VAL-FILES-003)', () => {
+    it('should categorize native file_search files into tool_resources and attachments', async () => {
+      const nativeFileSearchFile: TFile = {
+        user: 'user1',
+        file_id: 'native-fs-file-1',
+        filename: 'report.pdf',
+        filepath: '/uploads/report.pdf',
+        object: 'file',
+        type: 'application/pdf',
+        bytes: 4096,
+        embedded: false,
+        usage: 1,
+        metadata: { nativeTool: EToolResources.file_search },
+      };
+
+      const attachments = Promise.resolve([nativeFileSearchFile]);
+
+      const result = await primeResources({
+        req: mockReq,
+        appConfig: mockAppConfig,
+        getFiles: mockGetFiles,
+        requestFileSet: new Set(['native-fs-file-1']),
+        attachments,
+        tool_resources: {},
+      });
+
+      // File should appear in attachments for conversation linkage
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments![0]).toEqual(nativeFileSearchFile);
+
+      // File should also be categorized into file_search tool_resources
+      const fsResource = result.tool_resources?.[EToolResources.file_search];
+      expect(fsResource).toBeDefined();
+      expect(fsResource?.files).toHaveLength(1);
+      expect(fsResource?.files?.[0].file_id).toBe('native-fs-file-1');
+    });
+
+    it('should categorize embedded files into file_search tool_resources', async () => {
+      const embeddedFile: TFile = {
+        user: 'user1',
+        file_id: 'embedded-file-1',
+        filename: 'data.txt',
+        filepath: '/uploads/data.txt',
+        object: 'file',
+        type: 'text/plain',
+        bytes: 1024,
+        embedded: true,
+        usage: 1,
+      };
+
+      const attachments = Promise.resolve([embeddedFile]);
+
+      const result = await primeResources({
+        req: mockReq,
+        appConfig: mockAppConfig,
+        getFiles: mockGetFiles,
+        requestFileSet: new Set(['embedded-file-1']),
+        attachments,
+        tool_resources: {},
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      const fsResource = result.tool_resources?.[EToolResources.file_search];
+      expect(fsResource).toBeDefined();
+      expect(fsResource?.files).toHaveLength(1);
+      expect(fsResource?.files?.[0].file_id).toBe('embedded-file-1');
+    });
+
+    it('should not duplicate files already present in tool_resources.file_search', async () => {
+      const existingFile: TFile = {
+        user: 'user1',
+        file_id: 'existing-fs-file',
+        filename: 'old-report.pdf',
+        filepath: '/uploads/old-report.pdf',
+        object: 'file',
+        type: 'application/pdf',
+        bytes: 2048,
+        embedded: false,
+        usage: 1,
+        metadata: { nativeTool: EToolResources.file_search },
+      };
+
+      const attachments = Promise.resolve([existingFile]);
+
+      const result = await primeResources({
+        req: mockReq,
+        appConfig: mockAppConfig,
+        getFiles: mockGetFiles,
+        requestFileSet: new Set(['existing-fs-file']),
+        attachments,
+        tool_resources: {
+          [EToolResources.file_search]: {
+            files: [existingFile],
+          },
+        },
+      });
+
+      // Should not have duplicate in file_search
+      const fsResource = result.tool_resources?.[EToolResources.file_search];
+      expect(fsResource?.files).toHaveLength(1);
+      expect(fsResource?.files?.[0].file_id).toBe('existing-fs-file');
+    });
+
+    it('should preserve OpenAI metadata on rehydrated native file_search files', async () => {
+      const fileWithOpenAIMeta: TFile = {
+        user: 'user1',
+        file_id: 'rehydrated-file',
+        filename: 'report.pdf',
+        filepath: '/uploads/report.pdf',
+        object: 'file',
+        type: 'application/pdf',
+        bytes: 4096,
+        embedded: false,
+        usage: 2,
+        metadata: {
+          nativeTool: EToolResources.file_search,
+          openai: {
+            endpoint: 'openAI',
+            model: 'gpt-4o',
+            fileId: 'file-abc123',
+            vectorStoreId: 'vs-xyz789',
+          },
+        },
+      };
+
+      const attachments = Promise.resolve([fileWithOpenAIMeta]);
+
+      const result = await primeResources({
+        req: mockReq,
+        appConfig: mockAppConfig,
+        getFiles: mockGetFiles,
+        requestFileSet: new Set(['rehydrated-file']),
+        attachments,
+        tool_resources: {},
+      });
+
+      // The file should be in both attachments and file_search resources with metadata intact
+      expect(result.attachments).toHaveLength(1);
+      expect((result.attachments![0] as TFile).metadata).toEqual(fileWithOpenAIMeta.metadata);
+
+      const fsResource = result.tool_resources?.[EToolResources.file_search];
+      expect(fsResource?.files).toHaveLength(1);
+      expect((fsResource?.files?.[0] as TFile).metadata).toEqual(fileWithOpenAIMeta.metadata);
+    });
+
+    it('should handle mixed native file_search and regular attachment files', async () => {
+      const nativeFile: TFile = {
+        user: 'user1',
+        file_id: 'native-file',
+        filename: 'report.pdf',
+        filepath: '/uploads/report.pdf',
+        object: 'file',
+        type: 'application/pdf',
+        bytes: 4096,
+        embedded: false,
+        usage: 1,
+        metadata: { nativeTool: EToolResources.file_search },
+      };
+
+      const regularFile: TFile = {
+        user: 'user1',
+        file_id: 'regular-file',
+        filename: 'photo.jpg',
+        filepath: '/uploads/photo.jpg',
+        object: 'file',
+        type: 'image/jpeg',
+        bytes: 2048,
+        embedded: false,
+        usage: 1,
+        height: 600,
+        width: 800,
+      };
+
+      const attachments = Promise.resolve([nativeFile, regularFile]);
+
+      const result = await primeResources({
+        req: mockReq,
+        appConfig: mockAppConfig,
+        getFiles: mockGetFiles,
+        requestFileSet: new Set(['native-file', 'regular-file']),
+        attachments,
+        tool_resources: {},
+      });
+
+      // Both files should be in attachments
+      expect(result.attachments).toHaveLength(2);
+
+      // Only native file should be in file_search
+      const fsResource = result.tool_resources?.[EToolResources.file_search];
+      expect(fsResource?.files).toHaveLength(1);
+      expect(fsResource?.files?.[0].file_id).toBe('native-file');
+
+      // Regular image file should be in image_edit (since it's in requestFileSet and has dimensions)
+      const ieResource = result.tool_resources?.[EToolResources.image_edit];
+      expect(ieResource?.files).toHaveLength(1);
+      expect(ieResource?.files?.[0].file_id).toBe('regular-file');
+    });
+  });
 });

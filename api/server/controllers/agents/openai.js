@@ -28,8 +28,23 @@ const { findAccessibleResources } = require('~/server/services/PermissionService
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
 const { getMultiplier, getCacheMultiplier } = require('~/models/tx');
 const { getConvoFiles, getConvo } = require('~/models/Conversation');
+const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { getAgent, getAgents } = require('~/models/Agent');
+const getStream = require('get-stream');
 const db = require('~/models');
+
+/**
+ * Download a file from storage into a Buffer for provider-native tool uploads.
+ * @param {import('express').Request} req
+ * @param {import('@librechat/data-schemas').IMongoFile} file
+ * @returns {Promise<Buffer>}
+ */
+async function getFileBuffer(req, file) {
+  const source = file.source ?? 'local';
+  const { getDownloadStream } = getStrategyFunctions(source);
+  const stream = await getDownloadStream(req, file.filepath);
+  return getStream.buffer(stream);
+}
 
 /**
  * Creates a tool loader function for the agent.
@@ -206,12 +221,15 @@ const OpenAIChatCompletionController = async (req, res) => {
       model_parameters: agent.model_parameters ?? {},
     };
 
+    /** @type {Array<import('@librechat/data-schemas').IMongoFile>} */
+    const requestFiles = req.body.files ?? [];
+
     const primaryConfig = await initializeAgent(
       {
         req,
         res,
         loadTools,
-        requestFiles: [],
+        requestFiles,
         conversationId,
         parentMessageId,
         agent,
@@ -222,8 +240,10 @@ const OpenAIChatCompletionController = async (req, res) => {
       {
         getConvoFiles,
         getFiles: db.getFiles,
+        getFileBuffer,
         getUserKey: db.getUserKey,
         getMessages: db.getMessages,
+        updateFile: db.updateFile,
         updateFilesUsage: db.updateFilesUsage,
         getUserKeyValues: db.getUserKeyValues,
         getUserCodeFiles: db.getUserCodeFiles,
