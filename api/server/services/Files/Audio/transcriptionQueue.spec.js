@@ -564,6 +564,184 @@ describe('transcriptionQueue — per-conversation settings reuse (VAL-FILES-004)
   });
 });
 
+describe('transcriptionQueue — diarization speaker reference persistence (VAL-FILES-006)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    File.findOneAndUpdate.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(null),
+    });
+    saveMessage.mockImplementation(async (_req, payload) => ({
+      ...payload,
+      createdAt: new Date().toISOString(),
+    }));
+    getMessages.mockResolvedValue([]);
+    getConvo.mockResolvedValue(null);
+    updateFile.mockResolvedValue({});
+    saveConvo.mockResolvedValue({
+      conversationId: 'conv-diarize-1',
+      title: 'Transcript: diarize-test',
+      files: ['file-diarize'],
+    });
+  });
+
+  it('normalizes speaker references with all fields for conversation and file metadata', async () => {
+    File.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        file_id: 'file-diarize',
+        user: 'user-1',
+        filename: 'meeting.mp4',
+        filepath: '/uploads/meeting.mp4',
+        bytes: 4096,
+        type: 'video/mp4',
+        source: 'local',
+        embedded: false,
+        metadata: {},
+      }),
+    });
+
+    const req = {
+      user: { id: 'user-1' },
+      body: {
+        file_id: 'file-diarize',
+        endpoint: 'openAI',
+        model: 'gpt-4o-mini',
+        transcriptionModel: 'gpt-4o-transcribe-diarize',
+        speakerReferences: [
+          {
+            id: 'ref-1',
+            name: 'Alice',
+            file_id: 'ref-alice',
+            filename: 'alice.wav',
+            filepath: '/uploads/ref/alice.wav',
+            type: 'audio/wav',
+            bytes: 512,
+            durationSeconds: 4.2,
+            embedded: false,
+            source: 'local',
+          },
+          {
+            id: 'ref-2',
+            name: 'Bob',
+            file_id: 'ref-bob',
+            filename: 'bob.mp3',
+            filepath: '/uploads/ref/bob.mp3',
+            type: 'audio/mpeg',
+            bytes: 768,
+            durationSeconds: 6.0,
+            embedded: true,
+            source: 'local',
+          },
+        ],
+      },
+    };
+
+    await createAudioTranscriptionRequest(req);
+
+    // Conversation must receive the full speaker reference objects
+    expect(saveConvo).toHaveBeenCalledWith(
+      req,
+      expect.objectContaining({
+        transcriptionModel: 'gpt-4o-transcribe-diarize',
+        transcriptionSpeakerReferences: [
+          expect.objectContaining({
+            id: 'ref-1',
+            name: 'Alice',
+            file_id: 'ref-alice',
+            filename: 'alice.wav',
+            filepath: '/uploads/ref/alice.wav',
+            type: 'audio/wav',
+            bytes: 512,
+            durationSeconds: 4.2,
+            embedded: false,
+            source: 'local',
+          }),
+          expect.objectContaining({
+            id: 'ref-2',
+            name: 'Bob',
+            file_id: 'ref-bob',
+            filename: 'bob.mp3',
+            filepath: '/uploads/ref/bob.mp3',
+            type: 'audio/mpeg',
+            bytes: 768,
+            durationSeconds: 6.0,
+            embedded: true,
+            source: 'local',
+          }),
+        ],
+      }),
+      expect.any(Object),
+    );
+
+    // File metadata must also contain the speaker references for the runner
+    expect(updateFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_id: 'file-diarize',
+        metadata: expect.objectContaining({
+          transcription: expect.objectContaining({
+            transcriptionModel: 'gpt-4o-transcribe-diarize',
+            speakerReferences: [
+              expect.objectContaining({
+                name: 'Alice',
+                file_id: 'ref-alice',
+                type: 'audio/wav',
+              }),
+              expect.objectContaining({
+                name: 'Bob',
+                file_id: 'ref-bob',
+                type: 'audio/mpeg',
+              }),
+            ],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('strips invalid speaker references and caps at 4 entries', async () => {
+    File.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        file_id: 'file-diarize-2',
+        user: 'user-1',
+        filename: 'meeting2.mp3',
+        filepath: '/uploads/meeting2.mp3',
+        bytes: 1024,
+        type: 'audio/mpeg',
+        source: 'local',
+        embedded: false,
+        metadata: {},
+      }),
+    });
+
+    const req = {
+      user: { id: 'user-1' },
+      body: {
+        file_id: 'file-diarize-2',
+        endpoint: 'openAI',
+        model: 'gpt-4o-mini',
+        transcriptionModel: 'gpt-4o-transcribe-diarize',
+        speakerReferences: [
+          { name: 'A', file_id: 'f1' },
+          { name: '', file_id: 'f2' }, // empty name -> filtered
+          { name: 'B', file_id: '' }, // empty file_id -> filtered
+          { name: 'C', file_id: 'f3' },
+          { name: 'D', file_id: 'f4' },
+          { name: 'E', file_id: 'f5' },
+          { name: 'F', file_id: 'f6' }, // past the 4-cap
+        ],
+      },
+    };
+
+    await createAudioTranscriptionRequest(req);
+
+    const savedRefs = saveConvo.mock.calls[0][1].transcriptionSpeakerReferences;
+    expect(savedRefs).toHaveLength(4);
+    expect(savedRefs[0]).toMatchObject({ name: 'A', file_id: 'f1' });
+    expect(savedRefs[1]).toMatchObject({ name: 'C', file_id: 'f3' });
+    expect(savedRefs[2]).toMatchObject({ name: 'D', file_id: 'f4' });
+    expect(savedRefs[3]).toMatchObject({ name: 'E', file_id: 'f5' });
+  });
+});
+
 describe('transcriptionQueue — delete-during-processing resilience (VAL-FILES-009)', () => {
   beforeEach(() => {
     jest.clearAllMocks();

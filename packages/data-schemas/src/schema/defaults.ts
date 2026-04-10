@@ -1,5 +1,33 @@
 import { Schema } from 'mongoose';
 
+/**
+ * Mongoose subdocument schema for speaker references stored on a conversation.
+ *
+ * An explicit Schema is required (instead of an inline object definition)
+ * because the subdocument contains a field literally named `type`.  Mongoose
+ * uses `type` as a reserved keyword to declare the schema type of a path, so
+ * an inline `{ type: String }` inside an array element definition is
+ * interpreted as "the array element is a String" rather than "the subdocument
+ * has a field called type whose value is a String."  Using a proper Schema
+ * instance avoids this keyword collision.  `_id: false` is set because these
+ * are lightweight embedded value objects that do not need their own ObjectId.
+ */
+const speakerReferenceSchema = new Schema(
+  {
+    id: String,
+    name: String,
+    file_id: String,
+    filename: String,
+    filepath: String,
+    type: String,
+    bytes: Number,
+    durationSeconds: Number,
+    embedded: Boolean,
+    source: String,
+  },
+  { _id: false },
+);
+
 // @ts-ignore
 export const conversationPreset = {
   endpoint: {
@@ -148,6 +176,16 @@ export const conversationPreset = {
   },
   fileTokenLimit: {
     type: Number,
+  },
+  transcriptionModel: {
+    type: String,
+  },
+  transcriptionPrompt: {
+    type: String,
+  },
+  transcriptionSpeakerReferences: {
+    type: [speakerReferenceSchema],
+    default: undefined,
   },
   /** Reasoning models only */
   reasoning_effort: {
