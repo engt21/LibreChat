@@ -637,7 +637,14 @@ async function createAudioTranscriptionRequest(req) {
     throw new Error('file_id is required.');
   }
 
-  const file = await File.findOne({ file_id, user: req.user.id }).lean();
+  // Look up by file_id first, then fall back to temp_file_id.  The client
+  // may still be holding the temp (pre-upload) UUID when the user clicks
+  // "Transcribe" immediately after upload (before the server-assigned
+  // file_id propagates back through the UI state).
+  let file = await File.findOne({ file_id, user: req.user.id }).lean();
+  if (!file) {
+    file = await File.findOne({ temp_file_id: file_id, user: req.user.id }).lean();
+  }
   if (!file) {
     const error = new Error('File not found.');
     error.statusCode = 404;

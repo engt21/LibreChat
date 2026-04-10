@@ -266,6 +266,78 @@ describe('transcriptionQueue', () => {
       responseMessageId: 'response-1',
     });
   });
+
+  it('falls back to temp_file_id lookup when file_id does not match (VAL-FILES-006 /c/new handoff)', async () => {
+    // Simulate the race condition where the client still holds the temp
+    // file_id (the pre-upload UUID) when clicking "Transcribe" immediately
+    // after upload, before the server-assigned file_id propagates back.
+    const serverFileId = 'server-assigned-uuid';
+    const tempFileId = 'client-generated-temp-uuid';
+
+    let findOneCallCount = 0;
+    File.findOne.mockImplementation((query) => {
+      findOneCallCount++;
+      if (query.file_id === tempFileId) {
+        // First lookup by file_id: not found
+        return { lean: jest.fn().mockResolvedValue(null) };
+      }
+      if (query.temp_file_id === tempFileId) {
+        // Fallback lookup by temp_file_id: found
+        return {
+          lean: jest.fn().mockResolvedValue({
+            file_id: serverFileId,
+            temp_file_id: tempFileId,
+            user: 'user-1',
+            filename: 'meeting.mp3',
+            filepath: '/uploads/meeting.mp3',
+            bytes: 2048,
+            type: 'audio/mpeg',
+            source: 'local',
+            embedded: false,
+            metadata: {},
+          }),
+        };
+      }
+      return { lean: jest.fn().mockResolvedValue(null) };
+    });
+
+    const req = {
+      user: { id: 'user-1' },
+      body: {
+        file_id: tempFileId,
+        endpoint: 'openAI',
+        model: 'gpt-4o-mini',
+        transcriptionModel: 'gpt-4o-transcribe',
+      },
+    };
+
+    const result = await createAudioTranscriptionRequest(req);
+
+    // Both lookups should have been attempted
+    expect(findOneCallCount).toBe(2);
+
+    // The file metadata should be updated using the server-assigned file_id
+    expect(updateFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_id: serverFileId,
+        metadata: expect.objectContaining({
+          transcription: expect.objectContaining({
+            status: 'queued',
+            conversationId: expect.any(String),
+          }),
+        }),
+      }),
+    );
+
+    expect(result).toMatchObject({
+      conversation: expect.any(Object),
+      messages: expect.arrayContaining([
+        expect.objectContaining({ sender: 'User' }),
+        expect.objectContaining({ sender: 'Transcription' }),
+      ]),
+      responseMessageId: expect.any(String),
+    });
+  });
 });
 
 describe('transcriptionQueue runner drain semantics', () => {
@@ -1094,6 +1166,104 @@ describe('transcriptionQueue — completion and failure message updates (VAL-FIL
           transcription: expect.objectContaining({
             status: 'failed',
             error: 'Audio codec not supported',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('renders speaker-labeled transcript lines for diarized transcription (VAL-FILES-006)', async () => {
+    const mockFile = {
+      file_id: 'diarize-complete-1',
+      user: 'user-1',
+      filename: 'interview.mp3',
+      filepath: '/uploads/interview.mp3',
+      type: 'audio/mpeg',
+      source: 'local',
+      usage: 0,
+      metadata: {
+        transcription: {
+          conversationId: 'conv-diarize',
+          requestMessageId: 'req-diarize',
+          responseMessageId: 'resp-diarize',
+          language: null,
+          transcriptionModel: 'gpt-4o-transcribe-diarize',
+        },
+      },
+    };
+
+    let claimCount = 0;
+    File.findOneAndUpdate.mockImplementation(() => ({
+      lean: jest.fn().mockImplementation(() => {
+        claimCount++;
+        return claimCount === 1 ? Promise.resolve(mockFile) : Promise.resolve(null);
+      }),
+    }));
+
+    const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+    const { Readable } = require('node:stream');
+    getStrategyFunctions.mockReturnValue({
+      getDownloadStream: jest.fn().mockResolvedValue(Readable.from(Buffer.from('audio-data'))),
+    });
+
+    const { transcribeMediaFile } = require('./transcribeMediaFile');
+    transcribeMediaFile.mockResolvedValue({
+      text: '[Alice]: Hello, how are you?\n[Bob]: I am doing well, thanks!',
+      provider: 'openai',
+      model: 'gpt-4o-transcribe-diarize',
+      chunkCount: 1,
+      converted: false,
+      isDiarize: true,
+    });
+
+    const { updateMessage } = require('~/models');
+    updateMessage.mockResolvedValue({});
+    updateFile.mockResolvedValue({});
+    getConvo.mockResolvedValue({ conversationId: 'conv-diarize' });
+    saveConvo.mockResolvedValue({});
+
+    startAudioTranscriptionRunner();
+    jest.advanceTimersByTime(0);
+    jest.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await stopAudioTranscriptionRunner({ drain: true });
+
+    // The completed response must contain speaker-labeled lines
+    expect(updateMessage).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        messageId: 'resp-diarize',
+        sender: 'Transcription',
+        text: expect.stringContaining('[Alice]: Hello, how are you?'),
+        unfinished: false,
+        error: false,
+        model: 'gpt-4o-transcribe-diarize',
+        metadata: expect.objectContaining({
+          transcriptionStatus: 'completed',
+          model: 'gpt-4o-transcribe-diarize',
+        }),
+      }),
+      expect.any(Object),
+    );
+
+    // Verify both speaker labels are present in the completed text
+    const completedMessageCall = updateMessage.mock.calls.find(
+      (call) => call[1]?.messageId === 'resp-diarize',
+    );
+    expect(completedMessageCall).toBeDefined();
+    expect(completedMessageCall[1].text).toContain('[Alice]:');
+    expect(completedMessageCall[1].text).toContain('[Bob]:');
+    expect(completedMessageCall[1].text).toContain('Transcript for "interview.mp3"');
+
+    // File metadata should record the diarized transcript text
+    expect(updateFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file_id: 'diarize-complete-1',
+        text: '[Alice]: Hello, how are you?\n[Bob]: I am doing well, thanks!',
+        metadata: expect.objectContaining({
+          transcription: expect.objectContaining({
+            status: 'completed',
+            model: 'gpt-4o-transcribe-diarize',
           }),
         }),
       }),
