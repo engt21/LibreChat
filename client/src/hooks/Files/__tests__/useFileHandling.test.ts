@@ -297,4 +297,87 @@ describe('useFileHandling', () => {
       expect(formData.get('endpoint')).toBe('default');
     });
   });
+
+  describe('file_id handoff for audio uploads (VAL-FILES-006)', () => {
+    it('always includes a valid UUID file_id in the upload FormData for audio files', async () => {
+      mockConversation = {
+        conversationId: Constants.NEW_CONVO as string,
+        endpoint: 'openAI',
+        endpointType: 'openAI',
+        model: 'gpt-4o-mini',
+      };
+
+      const useFileHandling = await loadHook();
+      const { result } = renderHook(() => useFileHandling());
+
+      const audioFile = new File(['audio-data'], 'meeting.mp3', { type: 'audio/mpeg' });
+
+      await act(async () => {
+        await result.current.handleFiles([audioFile]);
+      });
+
+      expect(mockMutate).toHaveBeenCalledTimes(1);
+      const formData: FormData = mockMutate.mock.calls[0][0];
+      const fileId = formData.get('file_id') as string;
+      expect(fileId).toBeTruthy();
+      // UUID v4 format: 8-4-4-4-12 hex digits
+      expect(fileId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(formData.get('message_file')).toBe('true');
+    });
+
+    it('includes file_id in upload FormData for video files from /c/new', async () => {
+      mockConversation = {
+        conversationId: Constants.NEW_CONVO as string,
+        endpoint: 'openAI',
+        endpointType: 'openAI',
+        model: 'gpt-4o',
+      };
+
+      const useFileHandling = await loadHook();
+      const { result } = renderHook(() => useFileHandling());
+
+      const videoFile = new File(['video-data'], 'interview.mp4', { type: 'video/mp4' });
+
+      await act(async () => {
+        await result.current.handleFiles([videoFile]);
+      });
+
+      expect(mockMutate).toHaveBeenCalledTimes(1);
+      const formData: FormData = mockMutate.mock.calls[0][0];
+      const fileId = formData.get('file_id') as string;
+      expect(fileId).toBeTruthy();
+      expect(fileId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+    });
+
+    it('sends distinct file_ids when uploading multiple audio files sequentially', async () => {
+      mockConversation = {
+        conversationId: Constants.NEW_CONVO as string,
+        endpoint: 'openAI',
+        endpointType: 'openAI',
+      };
+
+      const useFileHandling = await loadHook();
+      const { result } = renderHook(() => useFileHandling());
+
+      const file1 = new File(['audio1'], 'part1.wav', { type: 'audio/wav' });
+      const file2 = new File(['audio2'], 'part2.wav', { type: 'audio/wav' });
+
+      await act(async () => {
+        await result.current.handleFiles([file1, file2]);
+      });
+
+      expect(mockMutate).toHaveBeenCalledTimes(2);
+      const formData1: FormData = mockMutate.mock.calls[0][0];
+      const formData2: FormData = mockMutate.mock.calls[1][0];
+      const id1 = formData1.get('file_id') as string;
+      const id2 = formData2.get('file_id') as string;
+      expect(id1).toBeTruthy();
+      expect(id2).toBeTruthy();
+      expect(id1).not.toBe(id2);
+    });
+  });
 });
