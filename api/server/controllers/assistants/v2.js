@@ -17,9 +17,6 @@ const { getOpenAIClient } = require('./helpers');
  */
 const createAssistant = async (req, res) => {
   try {
-    /** @type {{ openai: OpenAIClient }} */
-    const { openai } = await getOpenAIClient({ req, res });
-
     const {
       tools = [],
       endpoint,
@@ -30,6 +27,9 @@ const createAssistant = async (req, res) => {
     delete assistantData.conversation_starters;
     delete assistantData.append_current_datetime;
 
+    // Validate model access BEFORE initializing the OpenAI client to avoid
+    // side effects (connection init, credential resolution) when the model
+    // is blocked for this user (VAL-MODEL-003).
     const validationResult = await validateModelAccess({
       req,
       res,
@@ -41,6 +41,9 @@ const createAssistant = async (req, res) => {
     if (!validationResult.isValid) {
       return res.status(400).json({ error: validationResult.text });
     }
+
+    /** @type {{ openai: OpenAIClient }} */
+    const { openai } = await getOpenAIClient({ req, res });
 
     const toolDefinitions = (await getCachedTools()) ?? {};
 
@@ -315,10 +318,27 @@ const deleteResourceFileId = async ({ req, openai, assistant_id, tool_resource, 
  */
 const patchAssistant = async (req, res) => {
   try {
-    const { openai } = await getOpenAIClient({ req, res });
     const assistant_id = req.params.id;
     const { endpoint: _e, ...updateData } = req.body;
     updateData.tools = updateData.tools ?? [];
+
+    // Validate model access BEFORE initializing the OpenAI client so blocked
+    // models are rejected without triggering client init side effects (VAL-MODEL-003).
+    if (updateData.model && _e) {
+      const validationResult = await validateModelAccess({
+        req,
+        res,
+        endpoint: _e,
+        model: updateData.model,
+        modelsConfig: await getModelsConfig(req),
+      });
+
+      if (!validationResult.isValid) {
+        return res.status(400).json({ error: validationResult.text });
+      }
+    }
+
+    const { openai } = await getOpenAIClient({ req, res });
     const updatedAssistant = await updateAssistant({ req, res, openai, assistant_id, updateData });
     res.json(updatedAssistant);
   } catch (error) {

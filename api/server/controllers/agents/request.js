@@ -10,6 +10,8 @@ const {
   checkAndIncrementPendingRequest,
 } = require('@librechat/api');
 const { disposeClient, clientRegistry, requestDataMap } = require('~/server/cleanup');
+const { getModelsConfig } = require('~/server/controllers/ModelController');
+const { validateModelAccess } = require('~/server/services/ModelAccess');
 const { handleAbortError } = require('~/server/middleware');
 const { logViolation } = require('~/cache');
 const { saveMessage } = require('~/models');
@@ -67,6 +69,41 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
   let client = null;
 
   try {
+    // --- Model-access preflight (VAL-MODEL-003) ---
+    // Resolve the agent and validate the model BEFORE sending the `started` response.
+    // This prevents "headers already sent" errors and late stream failures when a
+    // restricted user attempts to chat with a blocked model.
+    if (endpointOption?.agent) {
+      const preflightAgent = await endpointOption.agent;
+      if (!preflightAgent) {
+        await decrementPendingRequest(userId);
+        return res.status(404).json({ error: 'Agent not found' });
+      }
+
+      const preflightModel = preflightAgent.model;
+      const preflightEndpoint = preflightAgent.provider || endpointOption.endpoint;
+
+      if (preflightModel && preflightEndpoint) {
+        const modelsConfig = await getModelsConfig(req);
+        const validationResult = await validateModelAccess({
+          req,
+          res,
+          endpoint: preflightEndpoint,
+          model: preflightModel,
+          modelsConfig,
+        });
+
+        if (!validationResult.isValid) {
+          await decrementPendingRequest(userId);
+          return res.status(403).json({ error: validationResult.text || 'Illegal model request' });
+        }
+      }
+
+      // Re-wrap the resolved agent as an already-resolved promise so initializeClient
+      // can still await it without re-fetching
+      endpointOption.agent = Promise.resolve(preflightAgent);
+    }
+
     logger.debug(`[ResumableAgentController] Creating job`, {
       streamId,
       conversationId,

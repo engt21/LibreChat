@@ -21,8 +21,6 @@ const { deleteFileByFilter } = require('~/models');
  */
 const createAssistant = async (req, res) => {
   try {
-    const { openai } = await getOpenAIClient({ req, res });
-
     const {
       tools = [],
       endpoint,
@@ -33,6 +31,9 @@ const createAssistant = async (req, res) => {
     delete assistantData.conversation_starters;
     delete assistantData.append_current_datetime;
 
+    // Validate model access BEFORE initializing the OpenAI client to avoid
+    // side effects (connection init, credential resolution) when the model
+    // is blocked for this user (VAL-MODEL-003).
     const validationResult = await validateModelAccess({
       req,
       res,
@@ -44,6 +45,8 @@ const createAssistant = async (req, res) => {
     if (!validationResult.isValid) {
       return res.status(400).json({ error: validationResult.text });
     }
+
+    const { openai } = await getOpenAIClient({ req, res });
 
     const toolDefinitions = (await getCachedTools()) ?? {};
 
@@ -139,12 +142,11 @@ const retrieveAssistant = async (req, res) => {
  */
 const patchAssistant = async (req, res) => {
   try {
-    const { openai } = await getOpenAIClient({ req, res });
-    await validateAuthor({ req, openai });
-
     const assistant_id = req.params.id;
     const { endpoint, conversation_starters, append_current_datetime, ...updateData } = req.body;
 
+    // Validate model access BEFORE initializing the OpenAI client so blocked
+    // models are rejected without triggering client init side effects (VAL-MODEL-003).
     if (updateData.model) {
       const validationResult = await validateModelAccess({
         req,
@@ -158,6 +160,9 @@ const patchAssistant = async (req, res) => {
         return res.status(400).json({ error: validationResult.text });
       }
     }
+
+    const { openai } = await getOpenAIClient({ req, res });
+    await validateAuthor({ req, openai });
 
     const toolDefinitions = (await getCachedTools()) ?? {};
 
