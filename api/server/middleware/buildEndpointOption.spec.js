@@ -254,3 +254,133 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
     expect(parsedResult.max_tokens).toBe(4096);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/*  Model-spec re-entry enforcement (VAL-MODEL-003)                    */
+/* ------------------------------------------------------------------ */
+
+const { handleError } = require('@librechat/api');
+
+describe('buildEndpointOption - model-spec re-entry enforcement (VAL-MODEL-003)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetEndpointsConfig.mockResolvedValue({});
+  });
+
+  it('rejects a blocked model-spec when enforce=true and spec is filtered out', async () => {
+    // The spec references a model that is blocked for this user.
+    // filterModelSpecsConfig removes specs whose models are not in modelsConfig.
+    mockGetModelsConfig.mockResolvedValue({
+      openAI: ['gpt-4o'], // gpt-5-turbo is NOT in the list
+    });
+
+    const blockedSpec = {
+      name: 'blocked-spec',
+      preset: {
+        endpoint: 'openAI',
+        model: 'gpt-5-turbo',
+      },
+    };
+    const allowedSpec = {
+      name: 'allowed-spec',
+      preset: {
+        endpoint: 'openAI',
+        model: 'gpt-4o',
+      },
+    };
+
+    const req = createReq(
+      {
+        endpoint: 'openAI',
+        spec: 'blocked-spec',
+        model: 'gpt-5-turbo',
+      },
+      {
+        modelSpecs: {
+          enforce: true,
+          list: [blockedSpec, allowedSpec],
+        },
+      },
+    );
+
+    const res = createRes();
+    const next = jest.fn();
+
+    await buildEndpointOption(req, res, next);
+
+    // The blocked spec should be filtered out by filterModelSpecsConfig,
+    // so the spec lookup returns nothing → "Invalid model spec"
+    expect(handleError).toHaveBeenCalledWith(res, expect.objectContaining({ text: 'Invalid model spec' }));
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('allows a valid model-spec when enforce=true and spec is accessible', async () => {
+    mockGetModelsConfig.mockResolvedValue({
+      openAI: ['gpt-4o'],
+    });
+
+    const allowedSpec = {
+      name: 'allowed-spec',
+      preset: {
+        endpoint: 'openAI',
+        model: 'gpt-4o',
+        temperature: 0.7,
+      },
+    };
+
+    // Use agents baseUrl so buildEndpointOption finds a valid builder function
+    const req = {
+      body: {
+        endpoint: 'openAI',
+        spec: 'allowed-spec',
+        model: 'gpt-4o',
+      },
+      config: {
+        modelSpecs: {
+          enforce: true,
+          list: [allowedSpec],
+        },
+      },
+      baseUrl: '/api/agents/chat',
+    };
+
+    const res = createRes();
+    const next = jest.fn();
+
+    await buildEndpointOption(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(handleError).not.toHaveBeenCalled();
+  });
+
+  it('rejects when enforce=true and no spec is provided', async () => {
+    mockGetModelsConfig.mockResolvedValue({ openAI: ['gpt-4o'] });
+
+    const req = createReq(
+      {
+        endpoint: 'openAI',
+        model: 'gpt-4o',
+        // Note: no spec field
+      },
+      {
+        modelSpecs: {
+          enforce: true,
+          list: [
+            {
+              name: 'spec-a',
+              preset: { endpoint: 'openAI', model: 'gpt-4o' },
+            },
+          ],
+        },
+      },
+    );
+
+    const res = createRes();
+    const next = jest.fn();
+
+    await buildEndpointOption(req, res, next);
+
+    expect(handleError).toHaveBeenCalledWith(res, expect.objectContaining({ text: 'No model spec selected' }));
+    expect(next).not.toHaveBeenCalled();
+  });
+});
