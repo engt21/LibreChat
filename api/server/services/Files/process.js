@@ -656,6 +656,17 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
 
         return await createTextFile({ text, bytes, filepath: ocrFileURL });
       }
+
+      // Images should still be preserved as vision attachments even when
+      // OCR extraction fails, so vision-capable models can still use them
+      // (VAL-FILES-002).
+      if (messageAttachment && file.mimetype.startsWith('image/')) {
+        logger.warn(
+          `[processAgentFileUpload] OCR extraction failed for image "${file.originalname}", preserving as vision attachment without OCR text`,
+        );
+        return await createImageContextFile({ text: '' });
+      }
+
       throw new Error(
         `Unable to extract text from "${file.originalname}". The document may be image-based and requires an OCR service to process.`,
       );
