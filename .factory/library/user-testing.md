@@ -227,3 +227,10 @@ The assertions are also backed by unit test coverage:
 ### Stale-endpoint pruning path
 
 The push notification delivery code (`notifications.js`) already prunes endpoints returning HTTP 404 or 410 from the push service. When `web-push` returns one of these status codes, the endpoint is collected in `expiredEndpoints` and passed to `removePushSubscriptions()` which removes them from the user's stored subscriptions. This is fully tested in `notifications.spec.js` and exercisable at runtime via the harness when a push-enabled schedule is executed against unreachable synthetic endpoints.
+
+## Round 5 rerun notes (2026-04-10)
+
+- **Now passing in rerun:** `VAL-FILES-001`, `VAL-PROVIDER-002`, `VAL-CROSS-005A`, `VAL-SCHED-006`.
+- **Still failing (high signal):** `VAL-FILES-002`, `VAL-FILES-006`, `VAL-MODEL-003`, `VAL-PROVIDER-001A`, `VAL-PROVIDER-010`, `VAL-PROVIDER-011`, `VAL-REALTIME-004`, `VAL-MCP-004`.
+- **Still blocked (external/prereq/observability):** Azure user credentials (`VAL-PROVIDER-001`, `VAL-REALTIME-002`, Azure branches of cross-provider assertions), Google credential validity (`VAL-PROVIDER-003/004/005`), xAI key (`VAL-PROVIDER-007/008/008A`), MCP domain/refresh/callback prerequisites (`VAL-MCP-001/002/003`), delivery-observation limits for push payload/click paths (`VAL-SCHED-008/009`), and user-surface limits for Ollama per-model origin proof (`VAL-PROVIDER-009`).
+- **Environment friction observed during setup:** `librechat-dev-langfuse-web-1` restart count increased repeatedly while ClickHouse reported memory-limit migration failures (`max=448MiB`) after a full `start-all.sh dev`; core assertion reruns still proceeded on dev API/auth surfaces, but this should be tracked as readiness risk before broad reruns.
