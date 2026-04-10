@@ -89,10 +89,11 @@ describe('initializeMCPs', () => {
         expect.anything(), // mongoose
         ['localhost'],
         'denylist',
+        ['localhost'], // ssrfExemptions: yaml allowedDomains
       );
     });
 
-    it('should pass allowedDomains and filterMode from settings to registry', async () => {
+    it('should pass allowedDomains, filterMode, and ssrfExemptions from settings to registry', async () => {
       const allowedDomains = ['localhost', '*.example.com', 'trusted-mcp.com'];
       mockGetAppConfig.mockResolvedValue({
         mcpConfig: null,
@@ -105,6 +106,7 @@ describe('initializeMCPs', () => {
         expect.anything(),
         allowedDomains,
         'denylist',
+        allowedDomains, // ssrfExemptions: yaml allowedDomains
       );
     });
 
@@ -120,6 +122,7 @@ describe('initializeMCPs', () => {
         expect.anything(),
         undefined,
         'denylist',
+        [], // ssrfExemptions: empty when no yaml domains
       );
     });
 

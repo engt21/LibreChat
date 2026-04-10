@@ -392,12 +392,16 @@ function matchesDomainList(
  * @param supportedProtocols - Protocols to accept (others are rejected)
  * @param filterMode - 'allowlist' (only listed allowed) or 'denylist' (listed are blocked).
  *   Defaults to 'allowlist' for backward compatibility.
+ * @param ssrfExemptions - Optional list of operator-approved domains that bypass SSRF
+ *   blocking in denylist mode.  Typically the yaml-configured `mcpSettings.allowedDomains`
+ *   which semantically always mean "allow these hosts" regardless of the UI filter mode.
  */
 async function isDomainAllowedCore(
   domain: string,
   allowedDomains: string[] | null | undefined,
   supportedProtocols: SupportedProtocol[],
   filterMode: DomainFilterMode = 'allowlist',
+  ssrfExemptions?: string[] | null,
 ): Promise<boolean> {
   const inputSpec = parseDomainSpec(domain);
   if (!inputSpec) {
@@ -412,12 +416,20 @@ async function isDomainAllowedCore(
   const hasList = Array.isArray(allowedDomains) && allowedDomains.length > 0;
 
   if (filterMode === 'denylist') {
-    // DENYLIST: SSRF protection always applies
-    if (isSSRFTarget(inputSpec.hostname)) {
-      return false;
-    }
-    if (await resolveHostnameSSRF(inputSpec.hostname)) {
-      return false;
+    // Operator-approved SSRF exemptions (e.g. yaml allowedDomains with private IPs)
+    // bypass the SSRF block so explicitly configured local servers remain reachable.
+    const hasExemptions = Array.isArray(ssrfExemptions) && ssrfExemptions.length > 0;
+    const isExempt =
+      hasExemptions && matchesDomainList(inputSpec, ssrfExemptions!, supportedProtocols);
+
+    if (!isExempt) {
+      // DENYLIST: SSRF protection applies to non-exempt domains
+      if (isSSRFTarget(inputSpec.hostname)) {
+        return false;
+      }
+      if (await resolveHostnameSSRF(inputSpec.hostname)) {
+        return false;
+      }
     }
     // If deny list has entries and domain matches one, block it
     if (hasList && matchesDomainList(inputSpec, allowedDomains!, supportedProtocols)) {
@@ -498,11 +510,14 @@ export function extractMCPServerDomain(config: Record<string, unknown>): string 
  * @param config - MCP server configuration with optional url field
  * @param allowedDomains - List of domains (interpreted per filterMode)
  * @param filterMode - 'allowlist' or 'denylist'. Defaults to 'allowlist'.
+ * @param ssrfExemptions - Optional operator-approved domains that bypass SSRF blocking
+ *   in denylist mode (typically yaml `mcpSettings.allowedDomains`).
  */
 export async function isMCPDomainAllowed(
   config: Record<string, unknown>,
   allowedDomains?: string[] | null,
   filterMode: DomainFilterMode = 'allowlist',
+  ssrfExemptions?: string[] | null,
 ): Promise<boolean> {
   const domain = extractMCPServerDomain(config);
   const hasList = Array.isArray(allowedDomains) && allowedDomains.length > 0;
@@ -523,7 +538,7 @@ export async function isMCPDomainAllowed(
   }
 
   // Use MCP_PROTOCOLS (HTTP/HTTPS/WS/WSS) for MCP server validation
-  return isDomainAllowedCore(domain, allowedDomains, MCP_PROTOCOLS, filterMode);
+  return isDomainAllowedCore(domain, allowedDomains, MCP_PROTOCOLS, filterMode, ssrfExemptions);
 }
 
 /**

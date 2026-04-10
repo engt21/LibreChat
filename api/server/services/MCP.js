@@ -68,7 +68,12 @@ async function getMergedMCPDomainConfig(appConfig) {
     domains = [...new Set([...(hasYaml ? yamlDomains : []), ...(hasAdmin ? adminDomains : [])])];
   }
 
-  return { domains, filterMode };
+  // yaml allowedDomains always serve as SSRF exemptions regardless of filter mode.
+  // This allows operators to explicitly approve private-network MCP servers via yaml config
+  // even when the admin UI is in denylist mode (where SSRF would otherwise block private IPs).
+  const ssrfExemptions = hasYaml ? yamlDomains : [];
+
+  return { domains, filterMode, ssrfExemptions };
 }
 
 const missingToolCache = new Map();
@@ -406,8 +411,17 @@ async function createMCPTools({
     config ?? (await getMCPServersRegistry().getServerConfig(serverName, user?.id));
   if (serverConfig?.url) {
     const appConfig = await getAppConfig({ role: user?.role });
-    const { domains: allowedDomains, filterMode } = await getMergedMCPDomainConfig(appConfig);
-    const isDomainAllowed = await isMCPDomainAllowed(serverConfig, allowedDomains, filterMode);
+    const {
+      domains: allowedDomains,
+      filterMode,
+      ssrfExemptions,
+    } = await getMergedMCPDomainConfig(appConfig);
+    const isDomainAllowed = await isMCPDomainAllowed(
+      serverConfig,
+      allowedDomains,
+      filterMode,
+      ssrfExemptions,
+    );
     if (!isDomainAllowed) {
       logger.warn(`[MCP][${serverName}] Domain not allowed, skipping all tools`);
       return [];
@@ -488,8 +502,17 @@ async function createMCPTool({
     config ?? (await getMCPServersRegistry().getServerConfig(serverName, user?.id));
   if (serverConfig?.url) {
     const appConfig = await getAppConfig({ role: user?.role });
-    const { domains: allowedDomains, filterMode } = await getMergedMCPDomainConfig(appConfig);
-    const isDomainAllowed = await isMCPDomainAllowed(serverConfig, allowedDomains, filterMode);
+    const {
+      domains: allowedDomains,
+      filterMode,
+      ssrfExemptions,
+    } = await getMergedMCPDomainConfig(appConfig);
+    const isDomainAllowed = await isMCPDomainAllowed(
+      serverConfig,
+      allowedDomains,
+      filterMode,
+      ssrfExemptions,
+    );
     if (!isDomainAllowed) {
       logger.warn(`[MCP][${serverName}] Domain no longer allowed, skipping tool: ${toolName}`);
       return undefined;

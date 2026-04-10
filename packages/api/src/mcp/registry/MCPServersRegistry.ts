@@ -26,6 +26,7 @@ export class MCPServersRegistry {
   private readonly cacheConfigsRepo: IServerConfigsRepositoryInterface;
   private readonly allowedDomains?: string[] | null;
   private readonly domainFilterMode: DomainFilterMode;
+  private readonly ssrfExemptions?: string[] | null;
   private readonly readThroughCache: Keyv<t.ParsedServerConfig>;
   private readonly readThroughCacheAll: Keyv<Record<string, t.ParsedServerConfig>>;
   private readonly pendingGetAllPromises = new Map<
@@ -37,11 +38,13 @@ export class MCPServersRegistry {
     mongoose: typeof import('mongoose'),
     allowedDomains?: string[] | null,
     domainFilterMode: DomainFilterMode = 'allowlist',
+    ssrfExemptions?: string[] | null,
   ) {
     this.dbConfigsRepo = new ServerConfigsDB(mongoose);
     this.cacheConfigsRepo = ServerConfigsCacheFactory.create('App', false);
     this.allowedDomains = allowedDomains;
     this.domainFilterMode = domainFilterMode;
+    this.ssrfExemptions = ssrfExemptions;
 
     const ttl = cacheConfig.MCP_REGISTRY_CACHE_TTL;
 
@@ -61,6 +64,7 @@ export class MCPServersRegistry {
     mongoose: typeof import('mongoose'),
     allowedDomains?: string[] | null,
     domainFilterMode: DomainFilterMode = 'allowlist',
+    ssrfExemptions?: string[] | null,
   ): MCPServersRegistry {
     if (!mongoose) {
       throw new Error(
@@ -73,7 +77,12 @@ export class MCPServersRegistry {
       return MCPServersRegistry.instance;
     }
     logger.info('[MCPServersRegistry] Creating new instance');
-    MCPServersRegistry.instance = new MCPServersRegistry(mongoose, allowedDomains, domainFilterMode);
+    MCPServersRegistry.instance = new MCPServersRegistry(
+      mongoose,
+      allowedDomains,
+      domainFilterMode,
+      ssrfExemptions,
+    );
     return MCPServersRegistry.instance;
   }
 
@@ -185,6 +194,7 @@ export class MCPServersRegistry {
         undefined,
         this.allowedDomains,
         this.domainFilterMode,
+        this.ssrfExemptions,
       );
     } catch (error) {
       logger.error(`[MCPServersRegistry] Failed to inspect server "${serverName}":`, error);
@@ -226,6 +236,7 @@ export class MCPServersRegistry {
         undefined,
         this.allowedDomains,
         this.domainFilterMode,
+        this.ssrfExemptions,
       );
     } catch (error) {
       logger.error(`[MCPServersRegistry] Reinspection failed for server "${serverName}":`, error);
@@ -275,6 +286,7 @@ export class MCPServersRegistry {
         undefined,
         this.allowedDomains,
         this.domainFilterMode,
+        this.ssrfExemptions,
       );
     } catch (error) {
       logger.error(`[MCPServersRegistry] Failed to inspect server "${serverName}":`, error);

@@ -29,6 +29,7 @@ export class MCPServerInspector {
    * @param connection - The MCP connection
    * @param allowedDomains - Optional list of domains for remote transports
    * @param filterMode - 'allowlist' or 'denylist'. Defaults to 'allowlist'.
+   * @param ssrfExemptions - Optional operator-approved domains that bypass SSRF blocking in denylist mode.
    * @returns A fully processed and enriched configuration with server metadata
    */
   public static async inspect(
@@ -37,9 +38,15 @@ export class MCPServerInspector {
     connection?: MCPConnection,
     allowedDomains?: string[] | null,
     filterMode: DomainFilterMode = 'allowlist',
+    ssrfExemptions?: string[] | null,
   ): Promise<t.ParsedServerConfig> {
     // Validate domain against the domain list BEFORE attempting connection
-    const isDomainAllowed = await isMCPDomainAllowed(rawConfig, allowedDomains, filterMode);
+    const isDomainAllowed = await isMCPDomainAllowed(
+      rawConfig,
+      allowedDomains,
+      filterMode,
+      ssrfExemptions,
+    );
     if (!isDomainAllowed) {
       const domain = extractMCPServerDomain(rawConfig);
       throw new MCPDomainNotAllowedError(domain ?? 'unknown');

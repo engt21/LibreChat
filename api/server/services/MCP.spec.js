@@ -926,10 +926,12 @@ describe('User parameter passing tests', () => {
       // Verify domain validation was called with correct parameters
       // getMergedMCPDomainConfig defaults filterMode to 'denylist' when admin settings
       // don't specify mcpDomainFilterMode, so the third argument is 'denylist'.
+      // The fourth argument is ssrfExemptions (yaml allowedDomains).
       expect(mockIsMCPDomainAllowed).toHaveBeenCalledWith(
         { url: 'https://disallowed-domain.com/sse' },
         ['allowed-domain.com'],
         'denylist',
+        ['allowed-domain.com'],
       );
     });
 

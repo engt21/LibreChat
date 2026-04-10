@@ -62,6 +62,81 @@ const checkMCPCreate = generateCheckAccess({
   getRoleByName,
 });
 
+function getForwardedHeaderValue(value) {
+  if (typeof value !== 'string' || value.length === 0) {
+    return null;
+  }
+
+  const [firstValue] = value.split(',');
+  return firstValue?.trim() || null;
+}
+
+function getOAuthCallbackUrl(req, serverName) {
+  const configuredDomainServer = process.env.DOMAIN_SERVER;
+  if (configuredDomainServer) {
+    try {
+      const configuredUrl = new URL(configuredDomainServer);
+      const pathname = configuredUrl.pathname.endsWith('/')
+        ? configuredUrl.pathname.slice(0, -1)
+        : configuredUrl.pathname;
+      configuredUrl.pathname = `${pathname === '/' ? '' : pathname}/api/mcp/${serverName}/oauth/callback`;
+      configuredUrl.search = '';
+      configuredUrl.hash = '';
+      const callbackUrl = configuredUrl.toString();
+      logger.debug('[MCP OAuth] Callback URL resolved via DOMAIN_SERVER', {
+        serverName,
+        source: 'DOMAIN_SERVER',
+        callbackUrl,
+      });
+      return callbackUrl;
+    } catch (error) {
+      logger.warn('[MCP OAuth] Failed to resolve callback URL from DOMAIN_SERVER', {
+        serverName,
+        domainServer: configuredDomainServer,
+        error,
+      });
+    }
+  }
+
+  const forwardedProto = getForwardedHeaderValue(req.headers['x-forwarded-proto']);
+  const forwardedHost = getForwardedHeaderValue(req.headers['x-forwarded-host']);
+  const protocol = forwardedProto || req.protocol;
+  const host = forwardedHost || req.get('host');
+
+  if (!host) {
+    logger.warn('[MCP OAuth] No host available for callback URL resolution', { serverName });
+    return undefined;
+  }
+
+  const source = forwardedHost ? 'forwarded-host' : 'request-host';
+
+  try {
+    const basePath = getBasePath();
+    const callbackUrl = new URL(
+      `${basePath}/api/mcp/${serverName}/oauth/callback`,
+      `${protocol}://${host}`,
+    ).toString();
+    logger.debug('[MCP OAuth] Callback URL resolved via request headers', {
+      serverName,
+      source,
+      protocol,
+      host,
+      forwardedProto: forwardedProto || '(none)',
+      forwardedHost: forwardedHost || '(none)',
+      callbackUrl,
+    });
+    return callbackUrl;
+  } catch (error) {
+    logger.warn('[MCP OAuth] Failed to resolve callback URL from request', {
+      serverName,
+      protocol,
+      host,
+      error,
+    });
+    return undefined;
+  }
+}
+
 /**
  * Get all MCP tools available to the user
  * Returns only MCP tools, completely decoupled from regular LibreChat tools
@@ -104,6 +179,7 @@ router.get('/:serverName/oauth/initiate', requireJwtAuth, setOAuthSession, async
     }
 
     const oauthHeaders = await getOAuthHeaders(serverName, userId);
+    const redirectUri = getOAuthCallbackUrl(req, serverName);
     const {
       authorizationUrl,
       flowId: oauthFlowId,
@@ -114,6 +190,7 @@ router.get('/:serverName/oauth/initiate', requireJwtAuth, setOAuthSession, async
       userId,
       oauthHeaders,
       oauthConfig,
+      redirectUri,
     );
 
     logger.debug('[MCP OAuth] OAuth flow initiated', { oauthFlowId, authorizationUrl });

@@ -30,8 +30,12 @@ async function initializeMCPs() {
     logger.debug('[MCP] Could not load admin settings for domain merge during init');
   }
 
+  // yaml allowedDomains always serve as SSRF exemptions regardless of filter mode,
+  // allowing operators to approve private-network MCP servers via yaml config.
+  const ssrfExemptions = Array.isArray(yamlDomains) && yamlDomains.length > 0 ? yamlDomains : [];
+
   try {
-    createMCPServersRegistry(mongoose, mergedDomains, domainFilterMode);
+    createMCPServersRegistry(mongoose, mergedDomains, domainFilterMode, ssrfExemptions);
   } catch (error) {
     logger.error('[MCP] Failed to initialize MCPServersRegistry:', error);
     throw error;

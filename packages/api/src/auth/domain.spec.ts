@@ -1169,6 +1169,105 @@ describe('isMCPDomainAllowed', () => {
       );
     });
   });
+
+  describe('denylist mode with ssrfExemptions (yaml allowedDomains bypass)', () => {
+    it('should allow private-IP MCP server when listed in ssrfExemptions', async () => {
+      const config = { url: 'http://192.168.50.4:8765/sse' };
+      const denylist: string[] = [];
+      const ssrfExemptions = ['http://192.168.50.4:8765'];
+      expect(await isMCPDomainAllowed(config, denylist, 'denylist', ssrfExemptions)).toBe(true);
+    });
+
+    it('should allow multiple private-IP MCP servers via ssrfExemptions', async () => {
+      const ssrfExemptions = ['http://192.168.50.4:8765', 'http://192.168.50.4:8766'];
+      expect(
+        await isMCPDomainAllowed(
+          { url: 'http://192.168.50.4:8765/sse' },
+          [],
+          'denylist',
+          ssrfExemptions,
+        ),
+      ).toBe(true);
+      expect(
+        await isMCPDomainAllowed(
+          { url: 'http://192.168.50.4:8766/sse' },
+          [],
+          'denylist',
+          ssrfExemptions,
+        ),
+      ).toBe(true);
+    });
+
+    it('should still block private-IP servers NOT in ssrfExemptions', async () => {
+      const config = { url: 'http://192.168.1.100:9999/sse' };
+      const ssrfExemptions = ['http://192.168.50.4:8765'];
+      expect(await isMCPDomainAllowed(config, [], 'denylist', ssrfExemptions)).toBe(false);
+    });
+
+    it('should still block SSRF targets in denylist mode without exemptions', async () => {
+      const config = { url: 'http://192.168.50.4:8765/sse' };
+      expect(await isMCPDomainAllowed(config, [], 'denylist')).toBe(false);
+      expect(await isMCPDomainAllowed(config, [], 'denylist', null)).toBe(false);
+      expect(await isMCPDomainAllowed(config, [], 'denylist', [])).toBe(false);
+    });
+
+    it('should block exempted domain if it also appears in the denylist', async () => {
+      const config = { url: 'http://192.168.50.4:8765/sse' };
+      const denylist = ['http://192.168.50.4:8765'];
+      const ssrfExemptions = ['http://192.168.50.4:8765'];
+      // SSRF exemption lets it past the IP check, but denylist still blocks it
+      expect(await isMCPDomainAllowed(config, denylist, 'denylist', ssrfExemptions)).toBe(false);
+    });
+
+    it('should respect port matching for ssrfExemptions', async () => {
+      const ssrfExemptions = ['http://192.168.50.4:8765'];
+      // Correct port is allowed
+      expect(
+        await isMCPDomainAllowed(
+          { url: 'http://192.168.50.4:8765/sse' },
+          [],
+          'denylist',
+          ssrfExemptions,
+        ),
+      ).toBe(true);
+      // Different port is still blocked
+      expect(
+        await isMCPDomainAllowed(
+          { url: 'http://192.168.50.4:9999/sse' },
+          [],
+          'denylist',
+          ssrfExemptions,
+        ),
+      ).toBe(false);
+    });
+
+    it('should allow localhost when listed in ssrfExemptions', async () => {
+      const config = { url: 'http://localhost:3000/mcp' };
+      const ssrfExemptions = ['localhost'];
+      expect(await isMCPDomainAllowed(config, [], 'denylist', ssrfExemptions)).toBe(true);
+    });
+
+    it('should not affect allowlist mode behavior', async () => {
+      // In allowlist mode, ssrfExemptions are irrelevant — only the allowlist matters
+      const config = { url: 'http://192.168.50.4:8765/sse' };
+      const allowlist = ['http://192.168.50.4:8765'];
+      // With matching allowlist: allowed
+      expect(
+        await isMCPDomainAllowed(config, allowlist, 'allowlist', ['http://192.168.50.4:8765']),
+      ).toBe(true);
+      // Without matching allowlist: blocked
+      expect(
+        await isMCPDomainAllowed(config, ['other.com'], 'allowlist', ['http://192.168.50.4:8765']),
+      ).toBe(false);
+    });
+
+    it('should allow public domains in denylist mode regardless of exemptions', async () => {
+      const config = { url: 'https://api.example.com/mcp' };
+      // Public domains are allowed in denylist mode without needing exemptions
+      expect(await isMCPDomainAllowed(config, [], 'denylist')).toBe(true);
+      expect(await isMCPDomainAllowed(config, [], 'denylist', [])).toBe(true);
+    });
+  });
 });
 
 describe('isPrivateIP — IPv6 link-local fe80::/10 range', () => {
@@ -1247,11 +1346,15 @@ describe('validateEndpointURL', () => {
   });
 
   it('should accept a valid public HTTPS URL', async () => {
-    await expect(validateEndpointURL('https://api.openai.com/v1', 'openAI')).resolves.toBeUndefined();
+    await expect(
+      validateEndpointURL('https://api.openai.com/v1', 'openAI'),
+    ).resolves.toBeUndefined();
   });
 
   it('should accept a valid public HTTP URL', async () => {
-    await expect(validateEndpointURL('http://api.example.com/v1', 'custom')).resolves.toBeUndefined();
+    await expect(
+      validateEndpointURL('http://api.example.com/v1', 'custom'),
+    ).resolves.toBeUndefined();
   });
 
   it('should reject an unparseable URL', async () => {
