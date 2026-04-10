@@ -153,21 +153,19 @@ function configureWebPush() {
 async function sendPushNotification({ subscriptions, schedule, context, result }) {
   configureWebPush();
 
+  const payload = {
+    title: context.title,
+    body: context.preview,
+    url: context.conversationUrl,
+    tag: schedule.scheduleId,
+    status: context.statusLabel,
+    conversationId: result.conversationId,
+  };
+
+  const payloadStr = JSON.stringify(payload);
   const expiredEndpoints = [];
   const deliveries = await Promise.allSettled(
-    subscriptions.map((subscription) =>
-      webpush.sendNotification(
-        subscription,
-        JSON.stringify({
-          title: context.title,
-          body: context.preview,
-          url: context.conversationUrl,
-          tag: schedule.scheduleId,
-          status: context.statusLabel,
-          conversationId: result.conversationId,
-        }),
-      ),
-    ),
+    subscriptions.map((subscription) => webpush.sendNotification(subscription, payloadStr)),
   );
 
   let sentCount = 0;
@@ -194,6 +192,7 @@ async function sendPushNotification({ subscriptions, schedule, context, result }
       sentCount,
       failedCount,
       expiredEndpoints,
+      sentPayload: payload,
     },
   };
 }

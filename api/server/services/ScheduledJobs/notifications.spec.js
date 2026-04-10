@@ -274,7 +274,7 @@ describe('sendScheduledRunNotifications', () => {
     expect(emailCall.payload.conversationUrl).toBe('https://chat.example.com/c/conv-abc');
   });
 
-  it('sends push notification and prunes expired subscriptions', async () => {
+  it('sends push notification, prunes expired subscriptions, and exposes sentPayload', async () => {
     process.env.WEB_PUSH_VAPID_PUBLIC_KEY = 'pub-key';
     process.env.WEB_PUSH_VAPID_PRIVATE_KEY = 'priv-key';
 
@@ -315,6 +315,11 @@ describe('sendScheduledRunNotifications', () => {
     expect(result.push.details.failedCount).toBe(1);
     expect(result.push.details.expiredEndpoints).toContain('https://push.example.com/2');
     expect(removePushSubscriptions).toHaveBeenCalledWith('user-1', ['https://push.example.com/2']);
+
+    // sentPayload must be exposed for runtime observability (VAL-SCHED-008)
+    expect(result.push.details.sentPayload).toBeDefined();
+    expect(result.push.details.sentPayload.conversationId).toBe('c1');
+    expect(result.push.details.sentPayload.status).toBe('completed');
   });
 
   it('reports channel-level results for all enabled channels', async () => {
@@ -381,7 +386,7 @@ describe('sendScheduledRunNotifications', () => {
 
     webpush.sendNotification.mockResolvedValueOnce({ statusCode: 201 });
 
-    await sendScheduledRunNotifications({
+    const result = await sendScheduledRunNotifications({
       userId: 'user-1',
       schedule: pushSchedule,
       result: { conversationId: 'conv-click', preview: 'Completed successfully', error: null },
@@ -398,6 +403,9 @@ describe('sendScheduledRunNotifications', () => {
     expect(payload.status).toBe('completed');
     expect(payload.title).toContain('Test Schedule');
     expect(payload.body).toBeTruthy();
+
+    // sentPayload in channel result must match the delivered payload (VAL-SCHED-008)
+    expect(result.push.details.sentPayload).toEqual(payload);
   });
 
   it('push payload omits url cleanly when no conversationId (VAL-SCHED-008)', async () => {
@@ -426,7 +434,7 @@ describe('sendScheduledRunNotifications', () => {
 
     webpush.sendNotification.mockResolvedValueOnce({ statusCode: 201 });
 
-    await sendScheduledRunNotifications({
+    const result = await sendScheduledRunNotifications({
       userId: 'user-1',
       schedule: pushSchedule,
       result: { conversationId: null, preview: '', error: 'Model access denied' },
@@ -437,6 +445,10 @@ describe('sendScheduledRunNotifications', () => {
     expect(payload.url).toBeNull();
     expect(payload.conversationId).toBeNull();
     expect(payload.status).toBe('failed');
+
+    // sentPayload in channel result reflects no-conversation omission (VAL-SCHED-008)
+    expect(result.push.details.sentPayload.url).toBeNull();
+    expect(result.push.details.sentPayload.conversationId).toBeNull();
   });
 
   it('prunes stale subscriptions returning 404 in addition to 410 (VAL-SCHED-009)', async () => {
@@ -535,5 +547,8 @@ describe('sendScheduledRunNotifications', () => {
     expect(result.push.provider).toBe('web-push');
     expect(result.push.details.sentCount).toBe(0);
     expect(result.push.details.failedCount).toBe(1);
+    // sentPayload is still captured even when delivery fails (VAL-SCHED-008)
+    expect(result.push.details.sentPayload).toBeDefined();
+    expect(result.push.details.sentPayload.title).toBeTruthy();
   });
 });
