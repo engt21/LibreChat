@@ -1,0 +1,590 @@
+{
+  "milestone": "customization-preservation",
+  "round": 2,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 59,
+    "passed": 19,
+    "failed": 4,
+    "blocked": 36
+  },
+  "passedAssertions": [
+    "VAL-ADMIN-001",
+    "VAL-ADMIN-002",
+    "VAL-ADMIN-004",
+    "VAL-ADMIN-005",
+    "VAL-ADMIN-006",
+    "VAL-ADMIN-007",
+    "VAL-CROSS-002",
+    "VAL-CROSS-002A",
+    "VAL-MODEL-002",
+    "VAL-PROVIDER-006",
+    "VAL-REALTIME-001",
+    "VAL-REALTIME-003",
+    "VAL-SCHED-001",
+    "VAL-SCHED-002",
+    "VAL-SCHED-003",
+    "VAL-SCHED-004",
+    "VAL-SCHED-005",
+    "VAL-SCHED-007",
+    "VAL-SCHED-010"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-ADMIN-003",
+      "reason": "Auto-promotion on auth flow did not occur after demotion/relogin in this test."
+    },
+    {
+      "id": "VAL-AUTH-001",
+      "reason": "/register remains fully accessible when registration is disabled; contract expects redirect or clear disabled-registration state."
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "reason": "Cross-policy run did not meet one or more required contract behaviors"
+    },
+    {
+      "id": "VAL-REALTIME-004",
+      "reason": "Observed sourced web-search answers, but the required inline search-progress status was not visible in repeated attempts."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-CROSS-001",
+      "blockedBy": "Could not conclusively verify allowlist-driven auto-promotion source because SUPERADMIN_EMAILS env value was not retrievable in this isolation run."
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "blockedBy": "Cross-provider native-tool + file-metadata contract could not be completed with missing provider credentials and insufficient request-level metadata exposure in this isolation run."
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "blockedBy": "Cross-flow was only partially observed before auth-ban enforcement prevented completion of the progress-metadata and post-completion follow-up-chat checks."
+    },
+    {
+      "id": "VAL-CROSS-005A",
+      "blockedBy": "Blocked: no authorized OAuth-backed MCP context (authorized/revoked/pending-consent variants) available for this user in the assigned dev isolation."
+    },
+    {
+      "id": "VAL-FILES-001",
+      "blockedBy": "Could not complete upload + follow-up file-search query cycle to confirm provider-pinned backend reuse because seeded persona became temporarily banned."
+    },
+    {
+      "id": "VAL-FILES-002",
+      "blockedBy": "Unable to validate stored OCR+image behavior because context-mode image upload was blocked by temporary-ban responses."
+    },
+    {
+      "id": "VAL-FILES-003",
+      "blockedBy": "Could not verify native routing/file bookkeeping because seeded persona was in temporary-ban state and request-level capture was unavailable."
+    },
+    {
+      "id": "VAL-FILES-004",
+      "blockedBy": "Could not validate explicit Transcribe action and transcript-conversation creation because media upload/transcribe routes were blocked by temporary-ban."
+    },
+    {
+      "id": "VAL-FILES-005",
+      "blockedBy": "Background status lifecycle cannot be validated until transcription jobs can be created."
+    },
+    {
+      "id": "VAL-FILES-006",
+      "blockedBy": "Only prompt-disablement was confirmed; speaker-reference upload constraints and diarized output rendering remain blocked by temporary-ban responses."
+    },
+    {
+      "id": "VAL-FILES-007",
+      "blockedBy": "OpenAI path and bridge persistence/warm reuse validated; complete Azure+Google model-chat turn coverage was not established in this isolation run."
+    },
+    {
+      "id": "VAL-FILES-008",
+      "blockedBy": "Could not complete the required post-handoff checks (source /c/new draft-file cleanup + explicit appendable follow-up chat send) because all seeded personas became temporarily banned during the same validation window."
+    },
+    {
+      "id": "VAL-FILES-009",
+      "blockedBy": "In-flight deletion and follow-up-job assertions were not testable because authenticated sessions could not be maintained or re-established after temporary-ban enforcement."
+    },
+    {
+      "id": "VAL-MCP-001",
+      "blockedBy": "Could not complete the OpenAI-compatible callable check because the available agent tool execution surface returned temporary-ban responses."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "blockedBy": "No OAuth-refresh-capable MCP resource/token state was available in this isolated dev environment."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "blockedBy": "No OAuth flow could be generated in-scope, so callback precedence behavior could not be observed on live initiate redirects."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "blockedBy": "Required Arcade/provider-consent integration surface was unavailable due allowlist restrictions and agent execution surface temporary-ban responses."
+    },
+    {
+      "id": "VAL-MODEL-001",
+      "blockedBy": "Federated/auto-provisioned auth path was not testable on this dev rail (all social/federated login toggles disabled in /api/config), so full contract coverage is blocked."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "blockedBy": "Anti-abuse/violation controls triggered during blocked-model probes, causing temporary bans that prevented completing the full agents/assistants/chat enforcement matrix with conclusive model-access error signatures."
+    },
+    {
+      "id": "VAL-PROVIDER-001",
+      "blockedBy": "OpenAI native-web evidence was captured, but Azure execution path could not be completed with a valid runnable Azure credential/session in this run."
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "blockedBy": "Direct /openai/v1 behavior, fallback deployments, per-user cache isolation, and settings preload were verified; legacy non-/openai/v1 api-version branch was not fully executable in this environment run."
+    },
+    {
+      "id": "VAL-PROVIDER-002",
+      "blockedBy": "Could not complete end-to-end native OpenAI file flow validation because auth-ban controls interrupted upload/chat execution and agent-browser upload interaction was non-deterministic for this menu-triggered file picker."
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "blockedBy": "Gemini native tool routing gates could not be validated without a working Google credential path in this environment run."
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "blockedBy": "Could not validate live Google discovery/capability metadata end-to-end because valid Google credentials were not available in this run."
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "blockedBy": "Grounded Gemini citation validation blocked by unavailable working Google runtime credentials/services in this run."
+    },
+    {
+      "id": "VAL-PROVIDER-007",
+      "blockedBy": "Auto-detection/bootstrap was observable, but explicit user-key-driven live refresh + alias verification could not be completed under current auth-ban interruption and missing xAI key setup."
+    },
+    {
+      "id": "VAL-PROVIDER-008",
+      "blockedBy": "Cannot validate runtime parameter sanitization without working xAI credentials and a successful outbound request path."
+    },
+    {
+      "id": "VAL-PROVIDER-008A",
+      "blockedBy": "Native-strip assertion requires successful xAI execution; environment lacks xAI key."
+    },
+    {
+      "id": "VAL-PROVIDER-009",
+      "blockedBy": "Could not prove per-model origin resolution or /api/tags->/models fallback behavior from assigned user-surface isolation."
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "blockedBy": "Hosted web-search behavior could not be fully validated because web-search-enabled Ollama turns did not complete deterministically in this environment."
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "blockedBy": "Could not confirm the explicit 'none' off-switch behavior due UI value normalization to Auto and non-completing deepseek response."
+    },
+    {
+      "id": "VAL-REALTIME-002",
+      "blockedBy": "Core auth-gating and stale-token cookie fallback are validated, but full provider-specific credential branches (Azure direct/xAI unavailable-model-with-valid-key) were not testable with available credentials."
+    },
+    {
+      "id": "VAL-REALTIME-005",
+      "blockedBy": "Source-link behavior was observed, but reasoning-chunk merge behavior remained untestable because no reasoning Thoughts stream appeared for tested prompts/models."
+    },
+    {
+      "id": "VAL-SCHED-006",
+      "blockedBy": "Verified enabled/disabled/manual behavior on runner-enabled dev rail, but could not execute required SCHEDULED_RUNNER_ENABLED=false branch without disruptive shared-dev restart."
+    },
+    {
+      "id": "VAL-SCHED-008",
+      "blockedBy": "Channel-level sent/skipped/failed and non-fatal execution behavior were validated on success/failure paths, but delivered payload URL-root checks (/c/<conversationId> under DOMAIN_CLIENT) are not directly observable from API-only evidence in this isolation."
+    },
+    {
+      "id": "VAL-SCHED-009",
+      "blockedBy": "Blocked for full contract coverage because WEB_PUSH_VAPID is not configured (capabilities.push=false), so delivered-push click behavior and 404/410 stale-prune behavior could not be validated end-to-end."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added guidance to reseed/restart after temporary-ban events during blocked-model probes and documented external prerequisite dependencies for provider/MCP assertions.",
+      "source": "flow-report"
+    }
+  ],
+  "flowReports": [
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-admin-rbac.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-auth-model.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-files-core.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-mcp-oauth.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-provider-advanced.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-provider-core.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-realtime-code.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-schedules-execution.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-schedules-settings.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-transcription-persistence.json"
+  ],
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "python3 (urllib)",
+    "node",
+    "python-requests",
+    "docker exec",
+    "docker logs",
+    "node-websocket",
+    "python",
+    "requests (API)",
+    "docker exec mongosh",
+    "python3-urllib-http"
+  ],
+  "frictions": [
+    {
+      "description": "After API and UI login activity, browser login attempts began returning 'Too many login attempts in a short amount of time' on /login.",
+      "resolved": true,
+      "resolution": "Used current API evidence for role/permission assertions, reused same-mission r2 UI captures for superadmin/workspace model-selector/admin-menu evidence, and reseeded personas to restore baseline identities.",
+      "affectedAssertions": [
+        "VAL-ADMIN-001",
+        "VAL-ADMIN-005",
+        "VAL-ADMIN-006",
+        "VAL-CROSS-002"
+      ]
+    },
+    {
+      "description": "agent-browser network-idle waits timed out intermittently on dev rail; fixed waits were required for deterministic screenshots.",
+      "resolved": true,
+      "resolution": "Used agent-browser wait 5000 before capture; collected screenshots successfully.",
+      "affectedAssertions": [
+        "VAL-AUTH-001",
+        "VAL-CROSS-001"
+      ]
+    },
+    {
+      "description": "Model-enforcement probe requests on agent/chat surfaces triggered violation handling (Illegal request -> temporary ban), interrupting deeper probe sequence.",
+      "resolved": false,
+      "resolution": "Reduced probe volume, restored user model permissions, and marked remaining matrix coverage blocked.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ]
+    },
+    {
+      "description": "Federated auth surfaces were disabled in /api/config, preventing required federated/auto-provisioned validation path execution.",
+      "resolved": false,
+      "resolution": "Captured config evidence and marked VAL-MODEL-001 blocked for that missing path.",
+      "affectedAssertions": [
+        "VAL-MODEL-001"
+      ]
+    },
+    {
+      "description": "Initial API probe without browser UA triggered NON_BROWSER violation and subsequent temporary-ban responses on seeded personas.",
+      "resolved": false,
+      "resolution": "Switched to browser surface and browser-like UA for probes, but ban state persisted for file/transcription routes.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ]
+    },
+    {
+      "description": "agent-browser network requests returned no captured entries for this session.",
+      "resolved": true,
+      "resolution": "Used curl status captures and browser console logs as fallback network evidence.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ]
+    },
+    {
+      "description": "MCP server title validation rejected hyphenated titles during setup.",
+      "resolved": true,
+      "resolution": "Retried with titles containing only letters/numbers/spaces.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004"
+      ]
+    },
+    {
+      "description": "Validation required temporary user-scoped MCP server creation to probe schema and connection behavior.",
+      "resolved": true,
+      "resolution": "Created `local-mcp-8765` and `local-mcp-8766`, collected evidence, then deleted both servers to restore prior state.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004"
+      ]
+    },
+    {
+      "description": "agent-browser network capture was initially sparse and required a later explicit export pass to capture chat routes.",
+      "resolved": true,
+      "resolution": "Captured final network log in customization-preservation/group-provider-advanced/55-agent-browser-network-requests-with-xai.txt.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008A",
+        "VAL-PROVIDER-010",
+        "VAL-CROSS-003"
+      ]
+    },
+    {
+      "description": "Multiple Ollama turns remained in a long-running state and required manual abort to proceed.",
+      "resolved": true,
+      "resolution": "Used Stop generating to unblock flow and recorded stalled behavior evidence.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011"
+      ]
+    },
+    {
+      "description": "agent-browser network request tracker did not reliably capture /api/ask details in this environment session.",
+      "resolved": true,
+      "resolution": "Used captured UI body text and dev API container logs for request/response evidence.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-PROVIDER-007"
+      ]
+    },
+    {
+      "description": "Menu-triggered file-picker flow (Upload for File Search) was not directly automatable via menuitem ref upload in agent-browser.",
+      "resolved": true,
+      "resolution": "Recorded the failed interaction and attempted API upload fallback; run still blocked by auth-ban controls before end-to-end native file validation completed.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-002"
+      ]
+    },
+    {
+      "description": "agent-browser wait --load networkidle timed out on login page due continuous background activity.",
+      "resolved": true,
+      "resolution": "Switched to fixed waits and URL/text waits for deterministic flow control.",
+      "affectedAssertions": [
+        "VAL-REALTIME-001",
+        "VAL-REALTIME-003"
+      ]
+    },
+    {
+      "description": "Tools popup dismiss click was intermittently blocked by overlay stacking.",
+      "resolved": true,
+      "resolution": "Used Escape key to close popover and continue flow.",
+      "affectedAssertions": [
+        "VAL-REALTIME-004",
+        "VAL-FILES-007"
+      ]
+    },
+    {
+      "description": "Direct code-interpreter API contract required X-API-Key plus updated payload shape (upload field=file, exec payload includes lang).",
+      "resolved": true,
+      "resolution": "Adjusted probes to include X-API-Key and correct request schema; reran complete endpoint and restart-persistence checks.",
+      "affectedAssertions": [
+        "VAL-FILES-007"
+      ]
+    },
+    {
+      "description": "agent-browser network capture lacks HTTP status/payload details for some chat requests.",
+      "resolved": true,
+      "resolution": "Corroborated with API/websocket probe artifacts and container logs.",
+      "affectedAssertions": [
+        "VAL-REALTIME-002",
+        "VAL-REALTIME-004",
+        "VAL-CROSS-002A"
+      ]
+    },
+    {
+      "description": "Scheduled cron validation requires 6-field cron syntax (seconds included). Initial 5-field payloads failed with \"Invalid cron expression, expected 6 fields\".",
+      "resolved": true,
+      "resolution": "Retested create/edit flows with 6-field cron expressions (e.g., \"0 */15 * * * *\").",
+      "affectedAssertions": [
+        "VAL-SCHED-001",
+        "VAL-SCHED-003",
+        "VAL-SCHED-004"
+      ]
+    },
+    {
+      "description": "Browser login attempts during UI evidence capture triggered 429 auth throttle and prevented authenticated settings-page interaction in that pass.",
+      "resolved": false,
+      "resolution": "Captured browser evidence for the blocked state and relied on authenticated API evidence for assertion coverage where applicable.",
+      "affectedAssertions": [
+        "VAL-SCHED-009"
+      ]
+    },
+    {
+      "description": "agent-browser element refs were blocked by an open attach popup when trying to click Transcribe.",
+      "resolved": true,
+      "resolution": "Pressed Escape to dismiss the popup and retried the click successfully.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-CROSS-004"
+      ]
+    },
+    {
+      "description": "agent-browser network request capture returned 'No requests captured' even after successful login/transcribe interactions.",
+      "resolved": true,
+      "resolution": "Used curl/API probes and saved explicit status-code evidence files for request outcomes.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-FILES-009",
+        "VAL-CROSS-004"
+      ]
+    }
+  ],
+  "systemicBlockers": [
+    {
+      "description": "Federated/auto-provisioned auth path unavailable (social/federated login toggles all false in dev config).",
+      "affectedAssertions": [
+        "VAL-MODEL-001"
+      ],
+      "quickFixAttempted": "Validated /api/config auth flags and attempted to rely on available seeded personas; still no federated flow available."
+    },
+    {
+      "description": "Anti-abuse temporary bans triggered during blocked-model enforcement probes on agent/chat surfaces.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ],
+      "quickFixAttempted": "Waited for login-rate reset window, retried with reduced probe volume and browser-like User-Agent, then restored permissions."
+    },
+    {
+      "description": "SUPERADMIN_EMAILS allowlist source could not be confirmed via environment probe (empty printenv output in dev-api container).",
+      "affectedAssertions": [
+        "VAL-CROSS-001"
+      ],
+      "quickFixAttempted": "Checked superadmin runtime permissions/models directly; allowlist-origin confirmation remained unavailable."
+    },
+    {
+      "description": "Seeded validation personas returned temporary-ban responses during this run, including file and transcription surfaces.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ],
+      "quickFixAttempted": "Retried with browser session, browser-like UA, and alternate seeded persona (val-superadmin), but /api/files and /api/files/transcribe remained 403."
+    },
+    {
+      "description": "Arcade endpoint required for OAuth/consent assertions is disallowed by current MCP domain allowlist.",
+      "affectedAssertions": [
+        "VAL-MCP-002",
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Tried creating `https://api.arcade.dev/mcp/microsoft-tools`; API returned 403 MCP_DOMAIN_NOT_ALLOWED."
+    },
+    {
+      "description": "No OAuth-capable MCP flow was available in-scope (all visible servers reported requiresOAuth=false).",
+      "affectedAssertions": [
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Created/initialized both allowed local MCP servers, then probed `/api/mcp/oauth/status/*` and `/oauth/initiate` with direct+forwarded headers; flow state remained unavailable (404)."
+    },
+    {
+      "description": "Agent tool execution user surface returned temporary-ban responses.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Checked with superadmin token (`GET /api/agents/tools` -> 403) and attempted `val-user` login (`POST /api/auth/login` -> 403 temporary-ban)."
+    },
+    {
+      "description": "Provider credentials unavailable for xAI (and similarly unresolved for Azure/Google in this environment) prevented successful native runtime verification.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Verified auth and key status via /api/keys probes; xai key remained unset (expiresAt null)."
+    },
+    {
+      "description": "Ollama advanced web-search/reasoning flows did not complete deterministically in this run, preventing full behavior confirmation.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011"
+      ],
+      "quickFixAttempted": "Retried with different Ollama models and waited extended windows; aborted stalled requests and captured evidence."
+    },
+    {
+      "description": "Per-model origin metadata needed for deterministic multi-source origin proof is not exposed on the tested user/API surface.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-009"
+      ],
+      "quickFixAttempted": "Validated visible merged model catalog via UI and /api/models, but no source-origin mapping was available to assert contract completion."
+    },
+    {
+      "description": "Auth safety controls re-triggered during provider-core run: superadmin login returned 403 temporary-ban; val-user upload call returned 403 temporary-ban.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-002",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-005",
+        "VAL-PROVIDER-007"
+      ],
+      "quickFixAttempted": "Reused existing sessions/tokens and refresh flow where possible; some tokens expired and refresh/login paths became banned."
+    },
+    {
+      "description": "Google provider runtime preconditions were not met for live Gemini native/grounding assertions (GOOGLE_KEY unset, fetch attempts returning 400).",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ],
+      "quickFixAttempted": "Validated env/runtime state via container env snapshot and API log capture."
+    },
+    {
+      "description": "xAI explicit user-key refresh validation could not be completed due absent key plus auth-ban interruption during follow-up mutations.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-007"
+      ],
+      "quickFixAttempted": "Verified bootstrap detection and current key/model state via /api/endpoints, /api/models, and /api/keys snapshots."
+    },
+    {
+      "description": "Azure and xAI realtime user credentials were unavailable in this isolation scope, preventing full provider-specific session-start branch coverage.",
+      "affectedAssertions": [
+        "VAL-REALTIME-002",
+        "VAL-FILES-007"
+      ],
+      "quickFixAttempted": "Used available providers (OpenAI/Gemini where possible), validated auth/policy branches, and documented untestable credential-dependent branches."
+    },
+    {
+      "description": "Reasoning Thoughts stream did not surface for tested prompts/models, so chunk-merge rendering behavior could not be directly exercised.",
+      "affectedAssertions": [
+        "VAL-REALTIME-005"
+      ],
+      "quickFixAttempted": "Ran additional reasoning-oriented prompt and inspected rendered output/body capture; no reasoning-block UI appeared."
+    },
+    {
+      "description": "SCHEDULED_RUNNER_ENABLED=false branch requires API process env change and restart on shared dev rail, which is outside non-disruptive validator scope.",
+      "affectedAssertions": [
+        "VAL-SCHED-006"
+      ],
+      "quickFixAttempted": "Validated runner-enabled auto-execution, disabled non-auto-run behavior, and manual run-now semantics without restart; added post-completion nextRunAt advancement recheck evidence."
+    },
+    {
+      "description": "Notification payload URL-root verification requires inbox/SMS/push recipient access; API run-now responses do not include delivered message URLs.",
+      "affectedAssertions": [
+        "VAL-SCHED-008"
+      ],
+      "quickFixAttempted": "Validated channel-level statuses and durable notificationResults on both success and failure run-now paths."
+    },
+    {
+      "description": "No authorized OAuth-backed MCP context available for scheduled MCP/OAuth execution checks (only disconnected non-OAuth ollama_search_fetch server present).",
+      "affectedAssertions": [
+        "VAL-CROSS-005A"
+      ],
+      "quickFixAttempted": "Queried /api/mcp/servers and /api/mcp/connection/status to confirm available MCP auth state before attempting scheduled MCP assertions."
+    },
+    {
+      "description": "Push notifications are not configured on dev rail (capabilities.push=false; no VAPID public/private keys exposed to schedules capability matrix).",
+      "affectedAssertions": [
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "Executed API subscribe/resubscribe/unsubscribe lifecycle checks to validate persistence portions, but full delivery/click contract remains untestable without VAPID-enabled push delivery."
+    },
+    {
+      "description": "Seeded validation personas were all rejected with temporary-ban responses during this run.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-FILES-009",
+        "VAL-CROSS-004"
+      ],
+      "quickFixAttempted": "Switched from val-user to val-superadmin and val-workspace-admin, but login remained blocked with the same temporary-ban message."
+    }
+  ],
+  "previousRound": "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/synthesis.round1.json"
+}

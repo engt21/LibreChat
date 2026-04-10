@@ -1,0 +1,206 @@
+{
+  "milestone": "customization-preservation",
+  "round": 3,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 41,
+    "passed": 3,
+    "failed": 14,
+    "blocked": 24
+  },
+  "passedAssertions": [
+    "VAL-ADMIN-003",
+    "VAL-CROSS-005",
+    "VAL-PROVIDER-001B"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-AUTH-001",
+      "reason": "/register still renders the full registration form when registration is disabled."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "reason": "Invite path and superadmin sync both worked, but ordinary invited-user first-session model restrictions were not aligned with documented defaults."
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "reason": "Cross-flow requirement failed on the final continuity condition because the transcript conversation was not appendable in UI after transcription handling."
+    },
+    {
+      "id": "VAL-CROSS-005A",
+      "reason": "Fail: pending-consent OAuth MCP path did not cause explicit durable schedule failure; execution succeeded and produced a normal conversation response."
+    },
+    {
+      "id": "VAL-FILES-001",
+      "reason": "Observed metadata did not persist local-RAG provider pinning (ragProvider/ragModel), so contract behavior was not confirmed."
+    },
+    {
+      "id": "VAL-FILES-002",
+      "reason": "Context-mode Upload-as-Text path produced binary dump instead of OCR text, so OCR-preservation contract failed."
+    },
+    {
+      "id": "VAL-FILES-004",
+      "reason": "Required explicit compose-bar Transcribe action did not appear after audio upload."
+    },
+    {
+      "id": "VAL-FILES-005",
+      "reason": "New transcription job failed with ENOENT (/app/uploads/temp/... missing), so reliable progress/completion lifecycle for newly uploaded media did not hold."
+    },
+    {
+      "id": "VAL-FILES-006",
+      "reason": "Diarization constraints partially worked, but request returned conversation-save error and final speaker-labeled transcript rendering could not be confirmed."
+    },
+    {
+      "id": "VAL-FILES-008",
+      "reason": "Appendable-follow-up requirement failed because transcript conversation composer stayed disabled after handoff."
+    },
+    {
+      "id": "VAL-MODEL-001",
+      "reason": "Observed first-login non-admin model defaults do not match the documented default allowlist; federated path was also unavailable (all social flags disabled)."
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "reason": "Observed behavior did not satisfy contract expectations for hosted web-search output/signals on tested Ollama flow."
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "reason": "Reasoning off-switch behavior failed: 'none' did not persist and visible reasoning output still appeared."
+    },
+    {
+      "id": "VAL-REALTIME-004",
+      "reason": "Inline \"Searching the web\u2026\" stream status was not observed; explicit text wait timed out despite source-linked completion output."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-CROSS-003",
+      "blockedBy": "Cross-provider native-tool contract could not be completed because Azure path was unavailable for this user and recurring temporary-ban prevented stable UI flow continuation."
+    },
+    {
+      "id": "VAL-FILES-003",
+      "blockedBy": "Cross-provider native-routing verification remained blocked by Azure/Google credential prerequisites in this environment partition."
+    },
+    {
+      "id": "VAL-FILES-007",
+      "blockedBy": "Full OpenAI/Azure/Google model-chat user-surface coverage could not be completed due recurring temporary-ban and missing Azure/Google executable prerequisites for this persona."
+    },
+    {
+      "id": "VAL-FILES-009",
+      "blockedBy": "Could not conclusively execute the specific in-flight-delete-then-follow-up-run path because anti-abuse ban recurred during follow-up queueing."
+    },
+    {
+      "id": "VAL-MCP-001",
+      "blockedBy": "Blocked: required no-input/open-object MCP test servers were rejected by MCP domain policy, and no equivalent callable user-surface path was available for this assertion."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "blockedBy": "Blocked: no authorized/expired OAuth token state was available, so token refresh behavior could not be validated."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "blockedBy": "Blocked: callback precedence rules were not conclusively observable because initiate required missing flow state and forwarded reinitialize did not return an OAuth URL."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "blockedBy": "Blocked: initialization continuation evidence exists, but required concrete tool-invocation continuation payload could not be captured from the available user-surface path."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "blockedBy": "Could not conclusively verify the full chat+agents+assistants enforcement matrix in this pass; agent blocked-model probe did not yield a definitive model-access denial artifact."
+    },
+    {
+      "id": "VAL-PROVIDER-001",
+      "blockedBy": "Azure credential-dependent execution branch remained blocked: AZURE_API_KEY and AZURE_OPENAI_BASEURL are configured as user_provided and user key status remained expiresAt=null, so Azure-native runtime behavior could not be conclusively exercised."
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "blockedBy": "Legacy non-/openai/v1 Azure branch (expected api-version-on-legacy verification) was not executed in this run; direct-route behavior and per-user isolation were validated."
+    },
+    {
+      "id": "VAL-PROVIDER-002",
+      "blockedBy": "Could not conclusively validate native OpenAI file-tracking/no-duplicate contract because official Upload-for-File-Search UI path was not reliably automatable and metadata verification attempts triggered anti-abuse ban responses in this run."
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "blockedBy": "Blocked by invalid Google runtime credential path (API_KEY_INVALID), so safe-request and mixed-payload routing gates could not be conclusively validated."
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "blockedBy": "Blocked by invalid Google key path: model discovery/fetch and execution both return 400/API_KEY_INVALID, preventing live-discovery capability validation."
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "blockedBy": "Blocked by Google API_KEY_INVALID errors, so grounded Gemini citation rendering could not be exercised in this environment run."
+    },
+    {
+      "id": "VAL-PROVIDER-007",
+      "blockedBy": "Blocked by missing xAI user key; live refresh-after-save and alias-preservation behavior cannot be completed without a valid saved key."
+    },
+    {
+      "id": "VAL-PROVIDER-008",
+      "blockedBy": "Blocked by missing xAI key; unsupported-runtime-parameter sanitization cannot be validated without a successful outbound xAI request path."
+    },
+    {
+      "id": "VAL-PROVIDER-008A",
+      "blockedBy": "Blocked: xAI-native strip behavior is not testable until a valid xAI key is saved for the user."
+    },
+    {
+      "id": "VAL-PROVIDER-009",
+      "blockedBy": "Blocked on observability: per-model origin resolution and explicit /api/tags-to-/models fallback behavior were not inspectable from assigned user-surface isolation."
+    },
+    {
+      "id": "VAL-REALTIME-002",
+      "blockedBy": "Core auth-gating and stale-token cookie fallback passed, but Azure credentialed provider-specific connect branch could not be executed in this isolation environment."
+    },
+    {
+      "id": "VAL-REALTIME-005",
+      "blockedBy": "Grounded/source-linked output was observed, but Thoughts chunk-merge behavior remained unobservable in tested prompts/models."
+    },
+    {
+      "id": "VAL-SCHED-006",
+      "blockedBy": "SCHEDULED_RUNNER_ENABLED=false branch remains blocked by local compose/container-name conflicts during env-override attempt."
+    },
+    {
+      "id": "VAL-SCHED-008",
+      "blockedBy": "Delivery payload URL-root verification is blocked by unavailable delivery-observation sinks in this environment."
+    },
+    {
+      "id": "VAL-SCHED-009",
+      "blockedBy": "Headless notification permission denial blocked browser-native subscription and click-path coverage; stale-prune path did not produce 404/410-expired endpoints in synthetic testing."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": ".env",
+      "description": "Generated and appended WEB_PUSH_VAPID_PUBLIC_KEY/WEB_PUSH_VAPID_PRIVATE_KEY via local-services/generate-vapid-keys.sh, then restarted dev API to enable push-capability validation attempts.",
+      "source": "setup"
+    },
+    {
+      "target": "user-testing.md",
+      "description": "Added round-3 rerun operational notes (VAPID setup status, VAL-PROVIDER-001B/VAL-CROSS-005 outcomes, MCP domain-policy blockage, and high-signal file/transcription failure focus) for future validators.",
+      "source": "flow-report"
+    }
+  ],
+  "flowReports": [
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round3-auth-model-realtime.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round3-files-core.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round3-files-cross.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round3-mcp-oauth.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round3-provider-advanced.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round3-provider-core.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round3-schedules-policy.json"
+  ],
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "docker exec",
+    "docker logs",
+    "docker runtime controls (dev-only)",
+    "node (ws)",
+    "python",
+    "python requests / curl API probes",
+    "python3",
+    "python3 (requests)"
+  ],
+  "previousRound": "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/synthesis.round2.json"
+}

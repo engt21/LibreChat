@@ -148,7 +148,7 @@ The full prerequisite inventory is at `.factory/validation/customization-preserv
 1. **Clear temp bans before every assertion group**: Run `node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25` before each assertion batch. The seeded personas accumulate bans during blocked-model probes, non-browser UA requests, and rapid login attempts.
 2. **VAPID push keys**: Run `./local-services/generate-vapid-keys.sh` to generate and append VAPID keys to `.env`, then restart the dev API. This unblocks VAL-SCHED-009.
 3. **SUPERADMIN_EMAILS env check**: The app loads this via `dotenv` from `/app/.env`, NOT from `printenv`. Use `docker exec librechat-dev-api node -e "require('dotenv').config({path:'/app/.env'}); console.log(process.env.SUPERADMIN_EMAILS ? 'SET' : 'UNSET')"` to verify. This unblocks VAL-CROSS-001.
-4. **Ollama**: Use `qwen2.5:latest` or `gemma3:latest` for basic tests (faster inference), `deepseek-r1:14b` for reasoning mode tests. Set explicit timeouts.
+4. **Ollama**: Use `deepseek-r1:14b` (or another model known to invoke tools reliably) for VAL-PROVIDER-010/011 validation. `qwen2.5:latest` may answer without actually calling the `web_search` tool in this environment, so do not treat it as the default validation model for the hosted web-search contract. Set explicit timeouts and add a direct instruction to use web search when validating the web-search path.
 5. **Anti-abuse mitigation**: Limit blocked-model probes to 2-3 per session, always use browser-like User-Agent headers, and check for ban state before starting file/transcription assertions.
 
 ### Requires user-provided secrets or external setup
@@ -158,3 +158,24 @@ The full prerequisite inventory is at `.factory/validation/customization-preserv
 8. **Azure credentials** (VAL-PROVIDER-001/001A, VAL-REALTIME-002): User must save Azure key + base URL via UI.
 9. **MCP OAuth/Arcade** (VAL-MCP-002/003/004, VAL-CROSS-005A): Need Arcade domain in `librechat.yaml` allowlist + Arcade API key + completed OAuth consent.
 10. **Federated auth** (VAL-MODEL-001): Need at least one social login provider configured.
+
+## Round 3 rerun notes (2026-04-06)
+
+- VAPID keys were generated locally via `./local-services/generate-vapid-keys.sh` and loaded after `docker restart librechat-dev-api`; push API lifecycle checks became testable, but headless browser notification permission remained denied for full click-path validation.
+- `VAL-PROVIDER-001B` (Responses history reconstruction) passed in a dedicated multi-turn OpenAI web-search flow; this assertion is no longer pending.
+- `VAL-CROSS-005` passed after policy-change revalidation checks, but `VAL-CROSS-005A` failed: pending-consent OAuth MCP scheduled run returned success instead of durable auth failure.
+- MCP local test servers at `http://192.168.50.4:8765` and `:8766` were still rejected by current domain policy during this run, preventing complete `VAL-MCP-001` user-surface coverage.
+- New high-signal failures were observed in file/transcription flows (missing compose-bar Transcribe affordance, ENOENT temp-file transcription failure, non-appendable transcript follow-up state); prioritize these before another broad rerun.
+
+## Round 4 rerun notes (2026-04-10)
+
+- **Now passing:** `VAL-AUTH-001`, `VAL-CROSS-001`, `VAL-MODEL-001`, `VAL-FILES-004`, `VAL-FILES-005`, `VAL-FILES-008`, `VAL-CROSS-004`, and `VAL-FILES-009`.
+- **Still failing (high signal):**
+  - `VAL-FILES-001` / `VAL-FILES-002` (provider-pin metadata + OCR text preservation still not confirmed in user/API surface),
+  - `VAL-FILES-006` (diarization `/c/new` handoff can fail with invalid conversation-id/saveConvo cast errors),
+  - `VAL-PROVIDER-001A` (legacy Azure branch still not showing expected `api-version` behavior in rerun evidence),
+  - `VAL-PROVIDER-010` / `VAL-PROVIDER-011` / `VAL-REALTIME-004` (Ollama web-search/reasoning/inline status behavior still unstable),
+  - `VAL-PROVIDER-002` / `VAL-FILES-003` / `VAL-FILES-007` / `VAL-CROSS-003` (native file/code-routing coherence gaps on tested OpenAI flow),
+  - `VAL-MCP-004` / `VAL-CROSS-005A` (pending-consent OAuth MCP schedule path still succeeds instead of durable auth failure).
+- **Still blocked (external/prereq):** Azure user key path, Google credential validity (`API_KEY_INVALID`), xAI user key, MCP domain allowlist for local test servers, and schedule delivery-observation sinks for payload/click verification.
+- **Operational note:** run `node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25` before each assertion group; temporary-ban state still recurs under mixed UI/API probing.

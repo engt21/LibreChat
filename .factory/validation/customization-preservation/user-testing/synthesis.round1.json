@@ -1,0 +1,639 @@
+{
+  "milestone": "customization-preservation",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 59,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 59
+  },
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-ADMIN-001",
+      "blockedBy": "Confirmed non-admin gating only (no Admin Console menu, /admin redirects to login, admin APIs return 403), but could not validate required superadmin and lower-tier-admin positive paths because privileged sessions were unavailable."
+    },
+    {
+      "id": "VAL-ADMIN-002",
+      "blockedBy": "Observed admin endpoint protections for a non-admin token (403 on /api/admin/rbac/roles, /api/admin/users, PATCH/DELETE admin-user, and PUT /api/admin/settings), but could not execute the required workspace_admin/support_admin/observability_admin scope matrix without role-specific credentials."
+    },
+    {
+      "id": "VAL-ADMIN-003",
+      "blockedBy": "Could not verify SUPERADMIN_EMAILS auto-promotion because allowlisted-email auth attempts were blocked by active anti-abuse responses (429 register throttling + 403 temporary ban on login)."
+    },
+    {
+      "id": "VAL-ADMIN-004",
+      "blockedBy": "Could not validate admin settings persistence and host-aware observability link rewriting because no authenticated admin/superadmin session was available to read/write /api/admin/settings."
+    },
+    {
+      "id": "VAL-ADMIN-005",
+      "blockedBy": "Captured non-admin authenticated UI state and account menu without admin-only entries, but could not complete required superadmin-visible provider-settings-cog and My Agents exclusion verification due lack of privileged sessions and unstable auth path."
+    },
+    {
+      "id": "VAL-ADMIN-006",
+      "blockedBy": "Could not test provider-settings reopen preloading because this requires entering the superadmin-only provider settings dialog, and no superadmin session could be established."
+    },
+    {
+      "id": "VAL-ADMIN-007",
+      "blockedBy": "Could not validate workspace-admin delete success (200), self-delete 400, and non-superadmin-on-superadmin 403 boundary matrix without workspace_admin and superadmin accounts."
+    },
+    {
+      "id": "VAL-AUTH-001",
+      "blockedBy": "Could not perform required admin toggle/disabled-registration checks because no working superadmin credentials were available (allowlisted emails returned login 404 Incorrect password), and later auth safety controls imposed temporary ban/rate limits that blocked further auth iterations."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "blockedBy": "Could not run the combined registration-disabled + invite-signup + immediate superadmin-sync flow because admin access was unavailable to disable registration or issue/validate invite setup, and auth safety controls began banning/rate-limiting the test path."
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "blockedBy": "Could not execute the required superadmin cross-flow (admin console + provider settings + per-user model access update + invalid combination rejection) because privileged admin access was unavailable and allowlisted auth remained blocked."
+    },
+    {
+      "id": "VAL-CROSS-002A",
+      "blockedBy": "Could not reach authenticated policy-restricted realtime discovery/session-start path or execute admin override setup."
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "blockedBy": "Could not execute required authenticated chat/upload/streaming flow; root blocker is auth safety controls on dev rail."
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "blockedBy": "Could not validate explicit-action/persistent-conversation/progress/follow-up-chat cross-flow behavior without authenticated UI/API access."
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "blockedBy": "Cross-policy scheduled execution contract requires authenticated schedule creation/execution and policy mutation context, unavailable in this run."
+    },
+    {
+      "id": "VAL-CROSS-005A",
+      "blockedBy": "MCP/OAuth scheduled execution validation requires authenticated MCP context; unavailable due auth block."
+    },
+    {
+      "id": "VAL-FILES-001",
+      "blockedBy": "Cannot validate provider-pinned file_search lifecycle without authenticated upload/chat execution path."
+    },
+    {
+      "id": "VAL-FILES-002",
+      "blockedBy": "Could not execute context-mode image upload flow required to confirm combined vision+OCR storage behavior."
+    },
+    {
+      "id": "VAL-FILES-003",
+      "blockedBy": "Could not validate native-tool routing/file-bookkeeping behavior without authenticated provider chat sessions and model access."
+    },
+    {
+      "id": "VAL-FILES-004",
+      "blockedBy": "Unable to validate transcribe action/conversation-creation behavior without authenticated UI/API access."
+    },
+    {
+      "id": "VAL-FILES-005",
+      "blockedBy": "No transcription job could be created, so progress/completion/failure state transitions were not testable."
+    },
+    {
+      "id": "VAL-FILES-006",
+      "blockedBy": "Could not validate diarization UI/API constraints because authenticated transcription workflow access was unavailable."
+    },
+    {
+      "id": "VAL-FILES-007",
+      "blockedBy": "Direct bridge behavior was validated, but required end-to-end authenticated model-chat execution and bridge-restart persistence checks were blocked in this isolation window."
+    },
+    {
+      "id": "VAL-FILES-008",
+      "blockedBy": "Could not validate /c/new draft cleanup, preview-cache clearing, transcript conversation navigation, or appendable follow-up chat without authenticated chat/transcription access."
+    },
+    {
+      "id": "VAL-FILES-009",
+      "blockedBy": "Could not validate in-flight transcript deletion resilience or subsequent job processing because no authenticated transcription job could be started."
+    },
+    {
+      "id": "VAL-MCP-001",
+      "blockedBy": "Could not execute any MCP tool call flow required to validate no-input/open-object schema handling because authenticated MCP surfaces were unavailable."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "blockedBy": "Missing authenticated MCP OAuth context (and corresponding OAuth integration state) blocked runtime token-refresh validation."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "blockedBy": "Route is auth-gated in this environment; without authenticated MCP OAuth initiate access, callback URL precedence output could not be observed."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "blockedBy": "Could not reach authenticated Arcade-backed MCP initialization/invocation path, and no OAuth integration credentials were available within assigned scope."
+    },
+    {
+      "id": "VAL-MODEL-001",
+      "blockedBy": "Local-registration non-admin default restrictions were observed, but full contract coverage requires federated/auto-provisioned path plus admin full-catalog comparison; federated logins are disabled in this environment and admin credentials were unavailable."
+    },
+    {
+      "id": "VAL-MODEL-002",
+      "blockedBy": "Could not execute superadmin override and lower-tier 403 validation because no superadmin session could be established (allowlisted-account logins failed) and subsequent anti-abuse ban/rate-limit controls blocked continued auth setup."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "blockedBy": "Confirmed partial server-side policy behavior (/api/models filtered for restricted user and blocked-model chat attempt returned Illegal request), but could not complete required full-path enforcement checks across chat, agents, assistants create/update/revert, and saved preset/model-spec re-entry due auth-ban state and lack of privileged setup access."
+    },
+    {
+      "id": "VAL-PROVIDER-001",
+      "blockedBy": "Could not reach authenticated chat-bar flow required to validate OpenAI/Azure native tool routing behavior."
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "blockedBy": "Cannot validate direct /openai/v1 api-version omission, rediscovery/fallback, or settings reopen without authenticated Azure per-user flow and credentials."
+    },
+    {
+      "id": "VAL-PROVIDER-002",
+      "blockedBy": "Unable to execute upload/chat workflow required to confirm native OpenAI file bookkeeping and duplicate-processing avoidance."
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "blockedBy": "Cannot run safe/unsafe Gemini request variants without authenticated chat session (and provider-ready model access)."
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "blockedBy": "Could not verify live Google discovery/capability behavior end-to-end because authenticated model/config access was unavailable."
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "blockedBy": "Cannot execute grounded Gemini conversation and UI citation verification without authenticated chat access."
+    },
+    {
+      "id": "VAL-PROVIDER-006",
+      "blockedBy": "Unable to verify disabled-control explanatory UX across Google/OpenAI model families without authenticated settings access."
+    },
+    {
+      "id": "VAL-PROVIDER-007",
+      "blockedBy": "Only bootstrap endpoint presence could be observed; live xAI model refresh and alias preservation requires authenticated user-key flow."
+    },
+    {
+      "id": "VAL-PROVIDER-008",
+      "blockedBy": "Could not access authenticated xAI settings/request path required for capability-aware control and runtime-param sanitization validation."
+    },
+    {
+      "id": "VAL-PROVIDER-008A",
+      "blockedBy": "Cannot validate xAI native web_search stripping semantics without authenticated xAI chat flow."
+    },
+    {
+      "id": "VAL-PROVIDER-009",
+      "blockedBy": "Required merged-discovery and per-model-origin routing checks need authenticated model/chat surfaces that are unavailable under current auth-ban state."
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "blockedBy": "Unable to execute Ollama web-search chat flow (native vs MCP mode) without authenticated session."
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "blockedBy": "Could not perform reasoning-none conversational verification due unavailable authenticated Ollama chat surface."
+    },
+    {
+      "id": "VAL-REALTIME-001",
+      "blockedBy": "Cannot validate realtime dialog controls without authenticated session."
+    },
+    {
+      "id": "VAL-REALTIME-002",
+      "blockedBy": "Only auth-gating and unauthorized websocket rejection were testable; credential-aware provider metadata and authenticated session-start behavior remain blocked."
+    },
+    {
+      "id": "VAL-REALTIME-003",
+      "blockedBy": "Live connect/disconnect persistence behavior is blocked without authenticated realtime session access."
+    },
+    {
+      "id": "VAL-REALTIME-004",
+      "blockedBy": "Streaming web-search UI validation requires authenticated provider chat execution, currently blocked."
+    },
+    {
+      "id": "VAL-REALTIME-005",
+      "blockedBy": "Grounded/reasoning render validation is blocked by missing authenticated chat access."
+    },
+    {
+      "id": "VAL-SCHED-001",
+      "blockedBy": "Cross-tenant portion of the assertion is blocked by auth controls; unauthenticated auth-gating portion is confirmed."
+    },
+    {
+      "id": "VAL-SCHED-002",
+      "blockedBy": "Could not obtain an authenticated user session needed to validate capability matrix exposure, persistence, and 400 validation paths."
+    },
+    {
+      "id": "VAL-SCHED-003",
+      "blockedBy": "No authenticated session available to execute schedule creation assertions."
+    },
+    {
+      "id": "VAL-SCHED-004",
+      "blockedBy": "No authenticated session available to execute create+partial-edit merge validation."
+    },
+    {
+      "id": "VAL-SCHED-005",
+      "blockedBy": "Authenticated Run-now execution path could not be reached due auth ban responses."
+    },
+    {
+      "id": "VAL-SCHED-006",
+      "blockedBy": "Could not create or observe authenticated schedules required for runner/autopoll assertions."
+    },
+    {
+      "id": "VAL-SCHED-007",
+      "blockedBy": "No authenticated schedule execution available to exercise 409 lock behavior."
+    },
+    {
+      "id": "VAL-SCHED-008",
+      "blockedBy": "Cannot validate channel-level notification outcomes without authenticated schedule runs."
+    },
+    {
+      "id": "VAL-SCHED-009",
+      "blockedBy": "Blocked before push-subscription lifecycle steps because authenticated session could not be established."
+    },
+    {
+      "id": "VAL-SCHED-010",
+      "blockedBy": "Could not reach authenticated delete-user path to validate schedule cleanup effects."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added customization-preservation round-1 auth-ban/throttle blocker notes (403 temporary-ban, 429 register throttle, stale refresh-token 401) to improve rerun setup guidance.",
+      "source": "flow-report"
+    }
+  ],
+  "flowReports": [
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-admin-rbac.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-auth-model.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-files-core.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-mcp-oauth.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-provider-advanced.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-provider-core.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-realtime-code.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-schedules-execution.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-schedules-settings.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-transcription-persistence.json"
+  ],
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "node-ws-probe"
+  ],
+  "frictions": [
+    "agent-browser initially failed due missing Playwright browser binaries; resolved non-disruptively with `agent-browser install`.",
+    "`agent-browser wait --load networkidle` on login/admin routes timed out; switched to fixed waits for deterministic screenshots.",
+    "Auth anti-abuse controls persisted across attempts, forcing most admin-path checks into blocked status despite valid non-admin API/UI evidence.",
+    "Login-page network-idle wait in agent-browser timed out; used fixed-delay capture for stable screenshots.",
+    "Auth checks quickly entered limiter/ban states, requiring retry-window handling and evidence capture across 429 then 403 responses.",
+    {
+      "description": "agent-browser network request capture for login flow returned no captured entries.",
+      "resolved": true,
+      "resolution": "Used curl route probes to capture concrete request/response evidence with status codes and payload messages.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ]
+    },
+    {
+      "description": "agent-browser network capture after the login-click flow returned no entries in one pass.",
+      "resolved": true,
+      "resolution": "Captured deterministic request/response evidence with curl and used a second browser navigation capture file containing request list.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004"
+      ]
+    },
+    {
+      "description": "agent-browser network request capture remained sparse for the login flow.",
+      "resolved": true,
+      "resolution": "Captured precise request/response codes with curl evidence files and kept screenshots for UI state.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A",
+        "VAL-PROVIDER-009",
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011",
+        "VAL-CROSS-003"
+      ]
+    },
+    {
+      "description": "agent-browser wait --load networkidle timed out on dev login route; switched to fixed waits for deterministic screenshot capture.",
+      "resolved": true,
+      "resolution": "Used explicit millisecond waits and captured annotated screenshots successfully.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-002",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-PROVIDER-006",
+        "VAL-PROVIDER-007"
+      ]
+    },
+    {
+      "description": "agent-browser network request tracker returned no captured entries for the login UI flow.",
+      "resolved": true,
+      "resolution": "Recorded concrete request/response evidence with curl for auth and provider-route probes.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-002",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-PROVIDER-006",
+        "VAL-PROVIDER-007"
+      ]
+    },
+    {
+      "description": "agent-browser `network requests` did not capture login XHR in one attempt.",
+      "resolved": true,
+      "resolution": "Captured authoritative request/response evidence with curl and an explicit node websocket probe.",
+      "affectedAssertions": [
+        "VAL-REALTIME-001",
+        "VAL-REALTIME-002",
+        "VAL-REALTIME-003",
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005",
+        "VAL-CROSS-002A"
+      ]
+    },
+    {
+      "description": "`agent-browser find label \"Email address\"` timed out on this login form.",
+      "resolved": true,
+      "resolution": "Switched to `agent-browser snapshot -i` refs (`@e2`, `@e3`, `@e4`) for deterministic interaction.",
+      "affectedAssertions": [
+        "VAL-REALTIME-001"
+      ]
+    },
+    {
+      "description": "agent-browser network request capture intermittently returned no captured requests in one extraction step.",
+      "resolved": true,
+      "resolution": "Collected network evidence via curl logs and a second browser network export file (`07-browser-network-final.txt`).",
+      "affectedAssertions": [
+        "VAL-SCHED-005",
+        "VAL-SCHED-006",
+        "VAL-SCHED-007",
+        "VAL-SCHED-008",
+        "VAL-SCHED-010",
+        "VAL-CROSS-005",
+        "VAL-CROSS-005A"
+      ]
+    },
+    {
+      "description": "agent-browser network request export returned no captured requests in this session.",
+      "resolved": true,
+      "resolution": "Captured concrete HTTP evidence with curl and used browser console + screenshots for UI evidence.",
+      "affectedAssertions": [
+        "VAL-SCHED-001",
+        "VAL-SCHED-002",
+        "VAL-SCHED-003",
+        "VAL-SCHED-004",
+        "VAL-SCHED-009"
+      ]
+    },
+    {
+      "description": "agent-browser network request capture returned no captured requests during login attempt.",
+      "resolved": true,
+      "resolution": "Collected definitive request/response evidence with curl probes in 00-auth-transcription-route-probes.txt.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-FILES-009",
+        "VAL-CROSS-004"
+      ]
+    }
+  ],
+  "systemicBlockers": [
+    "Dev-rail auth safety controls: repeated `POST /api/auth/register` returned 429 (too many accounts created), and allowlisted login attempts returned 403 temporary-ban responses.",
+    "No usable superadmin credentials/session available for `timothy.eng@outlook.com` or `te76@cornell.edu` during this run.",
+    "No dedicated lower-tier admin test accounts (workspace_admin/support_admin/observability_admin) available in the assigned isolation context.",
+    "No working credentials for allowlisted superadmin emails (te76@cornell.edu, timothy.eng@outlook.com) to access /api/admin surfaces.",
+    "Auth anti-abuse controls blocked continued flow setup: 429 Too Many Requests followed by persistent 403 temporary-ban responses for test auth attempts.",
+    "Federated auth providers are disabled in current config, preventing VAL-MODEL-001 federated/auto-provisioned path validation.",
+    {
+      "description": "Known validation accounts are temporarily banned for login attempts on dev rail.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ],
+      "quickFixAttempted": "Retried login with te76@cornell.edu, timothy.eng@outlook.com, and val.authmodel.1775405390@example.com; each POST /api/auth/login returned 403 temporary-ban."
+    },
+    {
+      "description": "Creating a fresh scoped test account is currently throttled.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ],
+      "quickFixAttempted": "Attempted POST /api/auth/register with a new timestamped email; server returned 429 Too many accounts created with Retry-After."
+    },
+    {
+      "description": "Transcription and file-search assertions require authenticated chat/upload/transcribe execution; unauthenticated probes are auth-gated.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ],
+      "quickFixAttempted": "Ran direct route probes; POST /api/files and POST /api/files/transcribe returned 401 while GET /api/endpoints returned 200 metadata only."
+    },
+    {
+      "description": "All available test identities in scope returned temporary-ban on login.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Retried login with three known validation identities; each POST /api/auth/login returned 403 temporary-ban."
+    },
+    {
+      "description": "No usable authenticated session token/cookie was available.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Attempted POST /api/auth/refresh with previously captured refresh cookie; server returned 401 refresh token expired/not found."
+    },
+    {
+      "description": "MCP/OAuth assertions require live integration access (e.g., OAuth-backed MCP server/Arcade consent path) which was not accessible within current auth-gated state.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-002",
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Probed MCP connection/tools/oauth routes; all relevant endpoints remained auth-gated (401) without a valid session."
+    },
+    {
+      "description": "Auth safety controls on dev rail block test setup: login returns 403 temporary-ban for known test users.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A",
+        "VAL-PROVIDER-009",
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Retried with multiple known test users and captured consistent 403 responses."
+    },
+    {
+      "description": "Creation of a fresh scoped test account is blocked by registration throttle.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Attempted new account registration; POST /api/auth/register returned 429 with retry-after window."
+    },
+    {
+      "description": "Known test identities were blocked by auth safety controls: POST /api/auth/login returned 403 temporary-ban for te76@cornell.edu, timothy.eng@outlook.com, and val.authmodel.1775405390@example.com.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-002",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-PROVIDER-006",
+        "VAL-PROVIDER-007"
+      ],
+      "quickFixAttempted": "Tried prior refresh-token reuse (POST /api/auth/refresh); response was 401 refresh token expired/not found."
+    },
+    {
+      "description": "Provider assertions require authenticated UI/API execution (chat, uploads, provider settings), which is unavailable under current auth-ban state.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-002",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-PROVIDER-006",
+        "VAL-PROVIDER-007"
+      ],
+      "quickFixAttempted": "Collected public dev-rail endpoint/config probes to salvage partial visibility where possible."
+    },
+    {
+      "description": "Known validation accounts returned temporary-ban responses on login.",
+      "affectedAssertions": [
+        "VAL-FILES-007",
+        "VAL-REALTIME-001",
+        "VAL-REALTIME-002",
+        "VAL-REALTIME-003",
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005",
+        "VAL-CROSS-002A"
+      ],
+      "quickFixAttempted": "Retried login attempts for te76@cornell.edu and val.authmodel.1775405390@example.com; both returned HTTP 403 with temporary-ban message."
+    },
+    {
+      "description": "Fresh account creation for isolated auth setup was throttled.",
+      "affectedAssertions": [
+        "VAL-FILES-007",
+        "VAL-REALTIME-001",
+        "VAL-REALTIME-002",
+        "VAL-REALTIME-003",
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005",
+        "VAL-CROSS-002A"
+      ],
+      "quickFixAttempted": "Attempted POST /api/auth/register with new timestamped email; server returned HTTP 429 Too many accounts created (Retry-After present)."
+    },
+    {
+      "description": "Realtime/session-policy assertions require authenticated admin and user flows not reachable in current dev auth state.",
+      "affectedAssertions": [
+        "VAL-REALTIME-001",
+        "VAL-REALTIME-002",
+        "VAL-REALTIME-003",
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005",
+        "VAL-CROSS-002A"
+      ],
+      "quickFixAttempted": "Collected unauthenticated route and websocket upgrade probes (401) and documented inability to proceed to authenticated policy checks."
+    },
+    {
+      "description": "Dev-rail auth safety controls blocked all authenticated schedule testing paths.",
+      "affectedAssertions": [
+        "VAL-SCHED-005",
+        "VAL-SCHED-006",
+        "VAL-SCHED-007",
+        "VAL-SCHED-008",
+        "VAL-SCHED-010",
+        "VAL-CROSS-005",
+        "VAL-CROSS-005A"
+      ],
+      "quickFixAttempted": "Retried refresh with prior nonadmin cookie (`POST /api/auth/refresh` -> 401), attempted fresh account register/login via curl (`POST /api/auth/register` and `/api/auth/login` -> 403 temporary-ban), and repeated login/register attempts via browser UI with matching temporary-ban response."
+    },
+    {
+      "description": "Known test identities are blocked by auth safety controls on dev rail.",
+      "affectedAssertions": [
+        "VAL-SCHED-001",
+        "VAL-SCHED-002",
+        "VAL-SCHED-003",
+        "VAL-SCHED-004",
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "Retried login for te76@cornell.edu, timothy.eng@outlook.com, and val.authmodel.1775405390@example.com; all returned 403 temporary-ban."
+    },
+    {
+      "description": "Could not create a fresh authenticated user for isolated testing.",
+      "affectedAssertions": [
+        "VAL-SCHED-001",
+        "VAL-SCHED-002",
+        "VAL-SCHED-003",
+        "VAL-SCHED-004",
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "POST /api/auth/register for a new scoped user returned 429 Too Many Requests (account creation throttle)."
+    },
+    {
+      "description": "Prior non-admin session could not be restored.",
+      "affectedAssertions": [
+        "VAL-SCHED-001",
+        "VAL-SCHED-002",
+        "VAL-SCHED-003",
+        "VAL-SCHED-004",
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "POST /api/auth/refresh with previously captured refresh token returned 401 (expired/not found)."
+    },
+    {
+      "description": "Known validation identities are temporarily banned on dev rail auth login.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-FILES-009",
+        "VAL-CROSS-004"
+      ],
+      "quickFixAttempted": "Retried POST /api/auth/login for te76@cornell.edu, timothy.eng@outlook.com, and val.authmodel.1775405390@example.com; all returned 403 temporary-ban."
+    },
+    {
+      "description": "Fallback account creation for scoped test user is throttled.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-FILES-009",
+        "VAL-CROSS-004"
+      ],
+      "quickFixAttempted": "Attempted POST /api/auth/register with fresh timestamped email; received 429 with Retry-After header."
+    },
+    {
+      "description": "Transcription and conversation routes required by persistence assertions are auth-gated and unreachable without session.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-FILES-009",
+        "VAL-CROSS-004"
+      ],
+      "quickFixAttempted": "Probed POST /api/files/transcribe, GET /api/convos, DELETE /api/convos/:id; all returned 401 unauthenticated."
+    }
+  ],
+  "previousRound": null
+}
