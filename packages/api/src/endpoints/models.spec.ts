@@ -160,10 +160,10 @@ describe('fetchModels', () => {
     );
   });
 
-  it('uses Azure model listing with the api-key header and a normalized v1 base URL', async () => {
+  it('probes /openai/v1/models without api-version for an explicit /openai/v1 Azure URL', async () => {
     await fetchModels({
       apiKey: 'azure-key',
-      baseURL: 'https://example-resource.openai.azure.com',
+      baseURL: 'https://example-resource.openai.azure.com/openai/v1',
       azure: true,
       name: EModelEndpoint.azureOpenAI,
     });
@@ -178,7 +178,40 @@ describe('fetchModels', () => {
     );
   });
 
-  it('normalizes Azure AI Foundry project endpoints before listing models', async () => {
+  it('returns empty models for a bare Azure resource root without azureApiVersion', async () => {
+    const models = await fetchModels({
+      apiKey: 'azure-key',
+      baseURL: 'https://example-resource.openai.azure.com',
+      azure: true,
+      name: EModelEndpoint.azureOpenAI,
+    });
+
+    expect(models).toEqual([]);
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
+  it('probes /models?api-version for a bare Azure resource root when azureApiVersion is provided', async () => {
+    await fetchModels({
+      apiKey: 'azure-key',
+      baseURL: 'https://example-resource.openai.azure.com',
+      azure: true,
+      name: EModelEndpoint.azureOpenAI,
+      azureApiVersion: '2024-10-21',
+    });
+
+    const calledURL = mockedAxios.get.mock.calls[0][0] as string;
+    expect(calledURL).toBe(
+      'https://example-resource.openai.azure.com/models?api-version=2024-10-21',
+    );
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      calledURL,
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'api-key': 'azure-key' }),
+      }),
+    );
+  });
+
+  it('normalizes Azure AI Foundry project endpoints to /openai/v1/models without api-version', async () => {
     await fetchModels({
       apiKey: 'azure-key',
       baseURL: 'https://example-resource.services.ai.azure.com/api/projects/demo-project',
@@ -186,6 +219,8 @@ describe('fetchModels', () => {
       name: EModelEndpoint.azureOpenAI,
     });
 
+    // AI Foundry project paths are recognised as direct v1 and normalised at
+    // request time, so the probe uses /openai/v1/models without api-version.
     expect(mockedAxios.get).toHaveBeenCalledWith(
       'https://example-resource.services.ai.azure.com/api/projects/demo-project/openai/v1/models',
       expect.any(Object),
@@ -227,6 +262,21 @@ describe('fetchModels', () => {
     // Verify api-version is NOT in the URL
     const calledURL = mockedAxios.get.mock.calls[0][0] as string;
     expect(calledURL).not.toContain('api-version');
+  });
+
+  it('probes /openai/deployments/{name}/models?api-version for legacy Azure deployment URLs', async () => {
+    await fetchModels({
+      apiKey: 'azure-key',
+      baseURL: 'https://example-resource.openai.azure.com/openai/deployments/gpt-4',
+      azure: true,
+      name: EModelEndpoint.azureOpenAI,
+      azureApiVersion: '2024-10-21',
+    });
+
+    const calledURL = mockedAxios.get.mock.calls[0][0] as string;
+    expect(calledURL).toBe(
+      'https://example-resource.openai.azure.com/openai/deployments/gpt-4/models?api-version=2024-10-21',
+    );
   });
 
   it('returns empty models for legacy Azure inference endpoints when no api-version is provided', async () => {
@@ -542,7 +592,7 @@ describe('getOpenAIModels', () => {
     expect(models).toEqual(expect.arrayContaining(['azure-model', 'azure-model-2']));
   });
 
-  it('fetches Azure models from a direct Azure OpenAI endpoint when credentials are provided', async () => {
+  it('fetches Azure models from an explicit /openai/v1 endpoint when credentials are provided', async () => {
     mockedAxios.get.mockResolvedValueOnce({
       data: {
         data: [{ id: 'gpt-4.1-prod' }, { id: 'gpt-4o-mini' }],
@@ -552,7 +602,7 @@ describe('getOpenAIModels', () => {
     const models = await getOpenAIModels({
       azure: true,
       openAIApiKey: 'azure-key',
-      baseURL: 'https://example-resource.openai.azure.com',
+      baseURL: 'https://example-resource.openai.azure.com/openai/v1',
     });
 
     expect(models).toEqual(['gpt-4.1-prod', 'gpt-4o-mini']);

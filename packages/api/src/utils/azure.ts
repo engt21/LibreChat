@@ -116,19 +116,33 @@ export function normalizeAzureOpenAIBaseURL(baseURL?: string | null): string | u
   }
 }
 
+/**
+ * Returns true only when the given URL carries an explicit `/openai/v1` path, an
+ * AI Foundry project path (which always normalises to `/openai/v1`), or their
+ * partial-project equivalents.  The check intentionally does NOT normalise bare
+ * Azure resource roots or `/openai/deployments/{name}` paths – those are legacy
+ * shapes that require `api-version` on model probes.
+ */
 export function supportsAzureOpenAIModelListing(baseURL?: string | null): boolean {
-  const normalizedBaseURL = normalizeAzureOpenAIBaseURL(baseURL);
-  if (!normalizedBaseURL) {
+  if (!baseURL) {
     return false;
   }
 
   try {
-    const url = new URL(normalizedBaseURL);
+    const url = new URL(baseURL);
+    if (!azureResourceHostRegex.test(url.hostname)) {
+      return false;
+    }
     const pathname = trimTrailingSlash(url.pathname || '');
-    return (
-      azureResourceHostRegex.test(url.hostname) &&
-      (/^\/openai\/v1$/i.test(pathname) || /^\/api\/projects\/[^/]+\/openai\/v1$/i.test(pathname))
-    );
+    // Explicit /openai/v1
+    if (/^\/openai\/v1$/i.test(pathname)) {
+      return true;
+    }
+    // AI Foundry project paths (all forms normalise to /openai/v1)
+    if (/^\/api\/projects\/[^/]+(\/openai(\/v1)?)?$/i.test(pathname)) {
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -176,9 +190,11 @@ export function resolveAzureOpenAIDirectConfig({
     }
   }
 
-  const resolvedBaseURL = normalizeAzureOpenAIBaseURL(
-    baseURL ?? getAzureInstanceBaseURL(azureOptions?.azureOpenAIApiInstanceName),
-  );
+  // Preserve the original URL shape so callers can distinguish explicit /openai/v1
+  // configs from bare roots or deployment paths that would normalise to /openai/v1.
+  // Only resolve short instance names into full URLs; do NOT normalise paths here.
+  const rawBaseURL = baseURL ?? getAzureInstanceBaseURL(azureOptions?.azureOpenAIApiInstanceName);
+  const resolvedBaseURL = rawBaseURL ? rawBaseURL : undefined;
 
   const manualModels = Array.isArray(models)
     ? models.map((model) => model.trim()).filter(Boolean)

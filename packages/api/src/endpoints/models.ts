@@ -503,6 +503,8 @@ export async function fetchModels({
     direct,
   }).map((urlConfig) => urlConfig.sourceURL);
   const baseURL = direct ? (extractBaseURL(_baseURL ?? '') ?? undefined) : _baseURL;
+  // Normalise Azure URLs for the actual HTTP request, but check the original shape
+  // first so we can distinguish explicit /openai/v1 from legacy roots/deployments.
   const resolvedBaseURL = azure ? (normalizeAzureOpenAIBaseURL(baseURL) ?? baseURL) : baseURL;
 
   if (!resolvedBaseURL && ollamaBaseURLs.length === 0 && !azure) {
@@ -513,11 +515,11 @@ export async function fetchModels({
     return models;
   }
 
-  /** Whether the resolved URL uses the direct /openai/v1 route that does not need api-version */
-  const isDirectAzureV1 = azure && supportsAzureOpenAIModelListing(resolvedBaseURL);
-  /** Whether the resolved URL is a legacy Azure endpoint that requires api-version on probes */
+  /** Whether the *original* (pre-normalisation) URL already carries /openai/v1 */
+  const isDirectAzureV1 = azure && supportsAzureOpenAIModelListing(baseURL);
+  /** Whether this is a legacy Azure endpoint that requires api-version on model probes */
   const isLegacyAzureEndpoint =
-    azure && !isDirectAzureV1 && isAzureOpenAIBaseURL(resolvedBaseURL) && !!azureApiVersion;
+    azure && !isDirectAzureV1 && isAzureOpenAIBaseURL(baseURL) && !!azureApiVersion;
 
   if (azure && !isDirectAzureV1 && !isLegacyAzureEndpoint) {
     return models;
@@ -595,7 +597,10 @@ export async function fetchModels({
       options.headers['OpenAI-Organization'] = process.env.OPENAI_ORGANIZATION;
     }
 
-    const url = new URL(`${(resolvedBaseURL ?? '').replace(/\/+$/, '')}/models`);
+    // For explicit /openai/v1 Azure configs, use the normalised URL (no api-version).
+    // For legacy Azure roots/deployments, use the original URL shape with api-version.
+    const probeBase = isLegacyAzureEndpoint ? (baseURL ?? '') : (resolvedBaseURL ?? '');
+    const url = new URL(`${probeBase.replace(/\/+$/, '')}/models`);
     if (isLegacyAzureEndpoint && azureApiVersion) {
       url.searchParams.append('api-version', azureApiVersion);
     }
@@ -672,9 +677,10 @@ export async function fetchOpenAIModels(
   }
 
   if (reverseProxyUrl) {
-    baseURL = opts.azure
-      ? (normalizeAzureOpenAIBaseURL(reverseProxyUrl) ?? reverseProxyUrl)
-      : (extractBaseURL(reverseProxyUrl) ?? openaiBaseURL);
+    // For Azure, preserve the original URL shape so fetchModels can distinguish
+    // explicit /openai/v1 configs from legacy roots/deployments. Normalization
+    // happens inside fetchModels at request-construction time.
+    baseURL = opts.azure ? reverseProxyUrl : (extractBaseURL(reverseProxyUrl) ?? openaiBaseURL);
   }
 
   const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);

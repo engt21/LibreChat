@@ -223,9 +223,12 @@ describe('ModelController loadModels', () => {
       baseURL: 'https://example.openai.azure.com',
       models: 'user-deployment',
     });
+    // resolveAzureOpenAIDirectConfig no longer normalises the URL – the bare
+    // root is preserved so downstream helpers can distinguish explicit /openai/v1
+    // from legacy shapes.
     resolveAzureOpenAIDirectConfig.mockReturnValue({
       apiKey: 'azure-user-key',
-      baseURL: 'https://example.openai.azure.com/openai/v1',
+      baseURL: 'https://example.openai.azure.com',
       manualModels: ['user-deployment'],
       isLegacyCredentialPayload: false,
     });
@@ -269,7 +272,7 @@ describe('ModelController loadModels', () => {
     getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
     resolveAzureOpenAIDirectConfig.mockReturnValue({
       apiKey: 'azure-key',
-      baseURL: 'https://example.openai.azure.com/openai/v1',
+      baseURL: 'https://example.openai.azure.com',
       manualModels: [],
       isLegacyCredentialPayload: false,
     });

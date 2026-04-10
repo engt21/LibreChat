@@ -272,8 +272,14 @@ describe('Azure endpoint helpers', () => {
     expect(isAzureOpenAIBaseURL('https://api.openai.com/v1')).toBe(false);
   });
 
-  test('detects whether Azure model listing is supported', () => {
-    expect(supportsAzureOpenAIModelListing('https://example.openai.azure.com')).toBe(true);
+  test('detects whether Azure model listing is supported only for explicit /openai/v1 paths', () => {
+    // Explicit /openai/v1 → supported (no api-version needed)
+    expect(supportsAzureOpenAIModelListing('https://example.openai.azure.com/openai/v1')).toBe(
+      true,
+    );
+    // Bare root Azure resource → NOT supported (legacy shape, needs api-version)
+    expect(supportsAzureOpenAIModelListing('https://example.openai.azure.com')).toBe(false);
+    // Legacy inference host → NOT supported
     expect(supportsAzureOpenAIModelListing('https://example.models.ai.azure.com/v1')).toBe(false);
   });
 
@@ -296,17 +302,39 @@ describe('Azure endpoint helpers', () => {
     expect(supportsAzureOpenAIModelListing(undefined)).toBe(false);
   });
 
-  test('supportsAzureOpenAIModelListing allows AI Foundry project /openai/v1 paths', () => {
+  test('supportsAzureOpenAIModelListing allows AI Foundry project paths (all forms)', () => {
     expect(
       supportsAzureOpenAIModelListing(
         'https://example.services.ai.azure.com/api/projects/my-proj/openai/v1',
       ),
     ).toBe(true);
+    // AI Foundry project without /openai/v1 suffix is still a direct-v1 shape
+    expect(
+      supportsAzureOpenAIModelListing(
+        'https://example.services.ai.azure.com/api/projects/my-proj',
+      ),
+    ).toBe(true);
+    expect(
+      supportsAzureOpenAIModelListing(
+        'https://example.services.ai.azure.com/api/projects/my-proj/openai',
+      ),
+    ).toBe(true);
+  });
+
+  test('supportsAzureOpenAIModelListing returns false for deployment and bare root URLs', () => {
+    expect(
+      supportsAzureOpenAIModelListing('https://example.openai.azure.com'),
+    ).toBe(false);
+    expect(
+      supportsAzureOpenAIModelListing(
+        'https://example.openai.azure.com/openai/deployments/gpt-4',
+      ),
+    ).toBe(false);
   });
 });
 
 describe('resolveAzureOpenAIDirectConfig', () => {
-  test('parses legacy stored Azure credentials into a direct endpoint config', () => {
+  test('parses legacy stored Azure credentials and preserves the un-normalised root URL', () => {
     const config = resolveAzureOpenAIDirectConfig({
       apiKey: JSON.stringify({
         azureOpenAIApiKey: 'azure-key',
@@ -317,9 +345,11 @@ describe('resolveAzureOpenAIDirectConfig', () => {
       models: 'gpt-4.1-prod, gpt-4o-mini',
     });
 
+    // The URL is the bare root resolved from the instance name – not normalised
+    // to /openai/v1 – so callers can distinguish legacy shapes from direct /openai/v1.
     expect(config).toMatchObject({
       apiKey: 'azure-key',
-      baseURL: 'https://example-instance.openai.azure.com/openai/v1',
+      baseURL: 'https://example-instance.openai.azure.com',
       manualModels: ['gpt-4.1-prod', 'gpt-4o-mini'],
       isLegacyCredentialPayload: true,
     });
@@ -358,7 +388,7 @@ describe('resolveAzureOpenAIDirectConfig', () => {
     expect(config.manualModels).toEqual(['gpt-4o', 'gpt-4.1-mini']);
   });
 
-  test('normalizes legacy instance name to full Azure base URL', () => {
+  test('resolves legacy instance name to bare Azure base URL without normalising path', () => {
     const config = resolveAzureOpenAIDirectConfig({
       apiKey: JSON.stringify({
         azureOpenAIApiKey: 'key',
@@ -368,7 +398,8 @@ describe('resolveAzureOpenAIDirectConfig', () => {
       }),
     });
 
-    expect(config.baseURL).toBe('https://my-instance.cognitiveservices.azure.com/openai/v1');
+    // Bare root – not normalised to /openai/v1
+    expect(config.baseURL).toBe('https://my-instance.cognitiveservices.azure.com');
   });
 });
 
