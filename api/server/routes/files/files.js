@@ -525,7 +525,11 @@ router.post('/', async (req, res) => {
       try {
         await fs.unlink(req.file.path);
       } catch (error) {
-        logger.error('[/files] Error deleting file after file processing:', error);
+        // ENOENT is expected when the storage strategy already moved or
+        // deleted the temp file during processing (e.g. saveLocalFile).
+        if (error.code !== 'ENOENT') {
+          logger.error('[/files] Error deleting file after file processing:', error);
+        }
       }
     } else {
       logger.debug('[/files] File processing completed without cleanup');

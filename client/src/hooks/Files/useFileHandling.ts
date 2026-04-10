@@ -1,22 +1,24 @@
 import React, { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import { v4 } from 'uuid';
-import { useSetRecoilState } from 'recoil';
+import { useSetRecoilState, useRecoilValue, useResetRecoilState } from 'recoil';
 import { useToastContext } from '@librechat/client';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import {
   QueryKeys,
   Constants,
+  LocalStorageKeys,
   EModelEndpoint,
   EToolResources,
+  dataService,
   mergeFileConfig,
   isAssistantsEndpoint,
   getEndpointFileConfig,
   defaultAssistantsVersion,
 } from 'librechat-data-provider';
 import debounce from 'lodash/debounce';
-import type { TEndpointsConfig, TError } from 'librechat-data-provider';
+import type { TConversation, TEndpointsConfig, TError, TMessage } from 'librechat-data-provider';
 import type { ExtendedFile, FileSetter } from '~/common';
-import type { TConversation } from 'librechat-data-provider';
 import { logger, validateFiles, cachePreview, getCachedPreview, removePreviewEntry } from '~/utils';
 import { useGetFileConfig, useUploadFileMutation } from '~/data-provider';
 import useLocalize, { TranslationKeys } from '~/hooks/useLocalize';
@@ -24,6 +26,7 @@ import { useDelayedUploadToast } from './useDelayedUploadToast';
 import { processFileForUpload } from '~/utils/heicConverter';
 import { useChatContext } from '~/Providers/ChatContext';
 import { ephemeralAgentByConvoId } from '~/store';
+import store from '~/store';
 import useClientResize from './useClientResize';
 import useUpdateFiles from './useUpdateFiles';
 
@@ -42,9 +45,15 @@ export type FileHandlingState = {
   setFiles: FileSetter;
   setFilesLoading?: React.Dispatch<React.SetStateAction<boolean>>;
   conversation?: TConversation | null;
+  setConversation?: (conversation: TConversation | null) => void;
+  setMessages?: (messages: TMessage[]) => void;
 };
 
 const noop = () => {};
+
+const transcribableMediaPattern =
+  /\.(aac|aif|aiff|amr|avi|caf|flac|m4a|m4b|m4p|m4r|mkv|mov|mp2|mp3|mp4|mpeg|mpga|oga|ogg|opus|wav|webm|wma)$/i;
+const DIARIZE_TRANSCRIPTION_MODEL = 'gpt-4o-transcribe-diarize';
 
 const getNativeUploadTool = ({
   endpoint,
@@ -63,18 +72,64 @@ const getNativeUploadTool = ({
   return undefined;
 };
 
+const _isTranscribableMediaUpload = ({ filename, type }: { filename?: string; type?: string }) =>
+  Boolean(
+    (type && (type.startsWith('audio/') || type.startsWith('video/'))) ||
+    (filename && transcribableMediaPattern.test(filename)),
+  );
+
+const normalizeTranscriptionEndpoint = ({
+  endpoint,
+  endpointType,
+}: {
+  endpoint?: string;
+  endpointType?: string;
+}) => {
+  if (endpoint === EModelEndpoint.agents) {
+    return endpointType || EModelEndpoint.openAI;
+  }
+
+  return endpoint || endpointType;
+};
+
+const mergeMessages = (currentMessages: TMessage[] = [], incomingMessages: TMessage[] = []) => {
+  const mergedMessages = new Map<string, TMessage>();
+
+  for (const message of [...currentMessages, ...incomingMessages]) {
+    if (message?.messageId) {
+      mergedMessages.set(message.messageId, message);
+    }
+  }
+
+  return Array.from(mergedMessages.values()).sort((a, b) => {
+    const first = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const second = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return first - second;
+  });
+};
+
+const getConversationSpeakerReferences = (conversation?: TConversation | null) =>
+  (conversation?.transcriptionSpeakerReferences ?? []).filter(
+    (speakerReference) => speakerReference?.name && speakerReference?.file_id,
+  );
+
 const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: FileHandlingState) => {
   const localize = useLocalize();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showToast } = useToastContext();
   const [errors, setErrors] = useState<string[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const transcriptionPollersRef = useRef<Map<string, number>>(new Map());
   const { startUploadTimer, clearUploadTimer } = useDelayedUploadToast();
-  const { files, setFiles, conversation } = fileState;
+  const { files, setFiles, conversation, setConversation, setMessages } = fileState;
   const setFilesLoading = fileState.setFilesLoading ?? noop;
   const setEphemeralAgent = useSetRecoilState(
     ephemeralAgentByConvoId(conversation?.conversationId ?? Constants.NEW_CONVO),
   );
+  const globalTranscriptionModel = useRecoilValue<string>(store.transcriptionModel);
+  const globalTranscriptionPrompt = useRecoilValue<string>(store.transcriptionPrompt);
+  const resetLatestMessage = useResetRecoilState(store.latestMessageFamily(0));
   const setError = (error: string) => setErrors((prevErrors) => [...prevErrors, error]);
   const { addFile, replaceFile, updateFileById, deleteFileById } = useUpdateFiles(
     params?.fileSetter ?? setFiles,
@@ -132,9 +187,198 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     return () => debouncedDisplayToast.cancel();
   }, [errors, debouncedDisplayToast]);
 
+  const clearTranscriptionPoller = useCallback((pollKey: string) => {
+    const intervalId = transcriptionPollersRef.current.get(pollKey);
+    if (intervalId != null) {
+      window.clearInterval(intervalId);
+      transcriptionPollersRef.current.delete(pollKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    const pollers = transcriptionPollersRef.current;
+    return () => {
+      for (const intervalId of pollers.values()) {
+        window.clearInterval(intervalId);
+      }
+
+      pollers.clear();
+    };
+  }, []);
+
+  const startTranscriptionPolling = useCallback(
+    (
+      conversationId: string,
+      responseMessageId: string,
+      filename: string,
+      updateActiveChat: boolean,
+    ) => {
+      const pollKey = `${conversationId}:${responseMessageId}`;
+      clearTranscriptionPoller(pollKey);
+
+      const pollMessages = async () => {
+        try {
+          const messages = await dataService.getMessagesByConvoId(conversationId);
+          queryClient.setQueryData<TMessage[]>([QueryKeys.messages, conversationId], messages);
+
+          if (updateActiveChat && conversation?.conversationId === conversationId) {
+            setMessages?.(messages);
+          }
+
+          const responseMessage = messages.find(
+            (message) => message.messageId === responseMessageId,
+          );
+          if (!responseMessage) {
+            return;
+          }
+
+          const meta = responseMessage.metadata as { transcriptionStatus?: string } | undefined;
+          const status = meta?.transcriptionStatus;
+
+          if (status === 'processing' || (!status && !responseMessage.error)) {
+            return;
+          }
+
+          clearTranscriptionPoller(pollKey);
+          queryClient.invalidateQueries([QueryKeys.files]);
+          queryClient.invalidateQueries([QueryKeys.allConversations]);
+
+          showToast({
+            message:
+              status === 'failed' || responseMessage.error
+                ? `Transcription failed for "${filename}"`
+                : `Transcript ready for "${filename}"`,
+            status: status === 'failed' || responseMessage.error ? 'error' : 'success',
+            duration: status === 'failed' || responseMessage.error ? 5000 : 3000,
+          });
+        } catch (error) {
+          console.warn('audio transcription poll failed', error);
+        }
+      };
+
+      const intervalId = window.setInterval(() => {
+        void pollMessages();
+      }, 5000);
+
+      transcriptionPollersRef.current.set(pollKey, intervalId);
+      void pollMessages();
+    },
+    [clearTranscriptionPoller, conversation?.conversationId, queryClient, setMessages, showToast],
+  );
+
+  const startQueuedTranscription = useCallback(
+    async ({
+      data,
+      variables,
+      tempFileId,
+      filename,
+      extraSpeakerRefs,
+    }: {
+      data: { file_id: string };
+      variables: FormData;
+      tempFileId: string;
+      filename: string;
+      extraSpeakerRefs?: Array<{ id?: string; name: string; file_id: string }>;
+    }) => {
+      const normalizedEndpoint = normalizeTranscriptionEndpoint({
+        endpoint: (variables.get('endpoint') as string) || undefined,
+        endpointType: (variables.get('endpointType') as string) || undefined,
+      });
+      const effectiveTranscriptionModel =
+        conversation?.transcriptionModel || globalTranscriptionModel || undefined;
+      const effectiveTranscriptionPrompt =
+        conversation?.transcriptionPrompt?.trim() || globalTranscriptionPrompt?.trim() || undefined;
+
+      const payload = {
+        file_id: data.file_id,
+        endpoint: normalizedEndpoint,
+        endpointType: normalizedEndpoint,
+        model: (variables.get('model') as string) || undefined,
+        transcriptionModel: effectiveTranscriptionModel,
+        prompt: effectiveTranscriptionPrompt,
+        speakerReferences: [
+          ...getConversationSpeakerReferences(conversation).map((speakerReference) => ({
+            id: speakerReference.id,
+            name: speakerReference.name,
+            file_id: speakerReference.file_id,
+          })),
+          ...(extraSpeakerRefs ?? []),
+        ],
+      };
+
+      if (
+        effectiveTranscriptionModel === DIARIZE_TRANSCRIPTION_MODEL &&
+        (conversation?.transcriptionSpeakerReferences?.length ?? 0) >
+          payload.speakerReferences.length
+      ) {
+        showToast({
+          message: 'Some diarization speaker references are incomplete and were skipped.',
+          status: 'warning',
+          duration: 4000,
+        });
+      }
+
+      const result = await dataService.startAudioTranscription(payload);
+      const nextConversationId = result.conversation.conversationId;
+      if (!nextConversationId || nextConversationId === Constants.NEW_CONVO) {
+        throw new Error('Audio transcription did not return a valid conversation ID.');
+      }
+
+      const cachedMessages =
+        queryClient.getQueryData<TMessage[]>([QueryKeys.messages, nextConversationId]) ?? [];
+      const mergedMessages = mergeMessages(cachedMessages, result.messages);
+
+      queryClient.setQueryData([QueryKeys.conversation, nextConversationId], result.conversation);
+      queryClient.setQueryData([QueryKeys.messages, nextConversationId], mergedMessages);
+      queryClient.invalidateQueries([QueryKeys.files]);
+      queryClient.invalidateQueries([QueryKeys.allConversations]);
+
+      const sourceConvoId = conversation?.conversationId || Constants.NEW_CONVO;
+      setFiles(new Map());
+      removePreviewEntry(tempFileId);
+      removePreviewEntry(data.file_id);
+      localStorage.removeItem(`${LocalStorageKeys.FILES_DRAFT}${sourceConvoId}`);
+      localStorage.removeItem(`${LocalStorageKeys.FILES_DRAFT}${Constants.NEW_CONVO}`);
+
+      // Reset latestMessage BEFORE setting conversation/messages so any
+      // stale error-state atom is cleared before React re-renders the new
+      // transcript conversation.  Without this, a prior error-state message
+      // can leave isNotAppendable stuck true and block follow-up chat.
+      resetLatestMessage();
+      setConversation?.(result.conversation);
+      setMessages?.(mergedMessages);
+      navigate(`/c/${nextConversationId}`, { replace: true, state: { focusChat: true } });
+      startTranscriptionPolling(nextConversationId, result.responseMessageId, filename, true);
+
+      setTimeout(() => {
+        localStorage.removeItem(`${LocalStorageKeys.FILES_DRAFT}${sourceConvoId}`);
+        localStorage.removeItem(`${LocalStorageKeys.FILES_DRAFT}${Constants.NEW_CONVO}`);
+      }, 0);
+
+      showToast({
+        message: `Started transcribing "${filename}"`,
+        status: 'info',
+        duration: 3000,
+      });
+    },
+    [
+      setFiles,
+      navigate,
+      queryClient,
+      setConversation,
+      setMessages,
+      showToast,
+      startTranscriptionPolling,
+      resetLatestMessage,
+      conversation,
+      globalTranscriptionModel,
+      globalTranscriptionPrompt,
+    ],
+  );
+
   const uploadFile = useUploadFileMutation(
     {
-      onSuccess: (data) => {
+      onSuccess: (data, variables) => {
         clearUploadTimer(data.temp_file_id);
         console.log('upload success', data);
         if (agent_id) {
@@ -150,7 +394,7 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
           assistant_id ? true : false,
         );
 
-        setTimeout(() => {
+        setTimeout(async () => {
           const cachedBlob = getCachedPreview(data.temp_file_id);
           if (cachedBlob && data.file_id !== data.temp_file_id) {
             cachePreview(data.file_id, cachedBlob);
@@ -172,6 +416,10 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
             },
             assistant_id ? true : false,
           );
+
+          // Audio/video files are no longer auto-transcribed on upload.
+          // The user triggers transcription explicitly via the inline
+          // AudioTranscriptionBar in the chat compose area.
         }, 300);
       },
       onError: (_error, body) => {
@@ -227,6 +475,22 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
           formData.append(key, value);
         }
       }
+    }
+
+    if (conversation?.conversationId) {
+      formData.append('conversationId', conversation.conversationId);
+    }
+
+    if (conversation?.model) {
+      formData.append('model', conversation.model);
+    }
+
+    if (conversation?.spec) {
+      formData.append('spec', conversation.spec);
+    }
+
+    if (conversation?.iconURL) {
+      formData.append('iconURL', conversation.iconURL);
     }
 
     if (!isAssistantsEndpoint(endpointType ?? endpoint)) {
@@ -480,10 +744,49 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     }
   };
 
+  const transcribeUploadedFile = useCallback(
+    async (
+      fileId: string,
+      filename: string,
+      extraSpeakerRefs?: Array<{ id?: string; name: string; file_id: string }>,
+    ) => {
+      const extendedFile = files.get(fileId);
+      if (!extendedFile) {
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('endpoint', endpoint);
+      formData.append('endpointType', endpointType ?? '');
+      if (conversation?.model) {
+        formData.append('model', conversation.model);
+      }
+
+      try {
+        await startQueuedTranscription({
+          data: { file_id: extendedFile.file_id ?? fileId },
+          variables: formData,
+          tempFileId: fileId,
+          filename,
+          extraSpeakerRefs,
+        });
+      } catch (_error) {
+        const error = _error as TError | undefined;
+        const message =
+          error?.response?.data?.message ||
+          error?.message ||
+          `Failed to start transcription for "${filename}"`;
+        showToast({ message, status: 'error', duration: 5000 });
+      }
+    },
+    [files, endpoint, endpointType, conversation?.model, startQueuedTranscription, showToast],
+  );
+
   return {
     handleFileChange,
     handleFiles,
     abortUpload,
+    transcribeUploadedFile,
     setFiles,
     files,
   };
@@ -495,12 +798,15 @@ export const useFileHandlingNoChatContext = (
 ) => useFileHandlingCore(params, fileState);
 
 const useFileHandling = (params?: UseFileHandling) => {
-  const { files, setFiles, setFilesLoading, conversation } = useChatContext();
+  const { files, setFiles, setFilesLoading, conversation, setConversation, setMessages } =
+    useChatContext();
 
   return useFileHandlingCore(params, {
     files,
     setFiles,
     conversation,
+    setConversation,
+    setMessages,
     setFilesLoading,
   });
 };

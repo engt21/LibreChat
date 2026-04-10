@@ -283,8 +283,19 @@ async function downloadFileToTemp(req, file, tempDir) {
     throw new Error(`Download is not supported for file source "${source}".`);
   }
 
-  const downloadStream = await getDownloadStream(req, file.filepath);
-  await pipeline(downloadStream, fs.createWriteStream(outputPath));
+  try {
+    const downloadStream = await getDownloadStream(req, file.filepath);
+    await pipeline(downloadStream, fs.createWriteStream(outputPath));
+  } catch (downloadError) {
+    // Surface a clear message instead of a raw ENOENT so operators can
+    // diagnose whether the stored filepath is stale or the volume mount
+    // is misconfigured.
+    const reason =
+      downloadError.code === 'ENOENT' ? 'file not found on disk' : downloadError.message;
+    throw new Error(
+      `Could not download "${file.filename}" for transcription (source=${source}, filepath=${file.filepath}): ${reason}`,
+    );
+  }
   return outputPath;
 }
 
@@ -691,6 +702,7 @@ async function createAudioTranscriptionRequest(req) {
       model: normalizedConversationFields.model,
       isCreatedByUser: false,
       unfinished: false,
+      error: false,
       metadata: {
         type: 'audio_transcription',
         file_id: file.file_id,

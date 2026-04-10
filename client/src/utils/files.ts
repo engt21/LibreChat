@@ -20,6 +20,27 @@ import type { ExtendedFile } from '~/common';
 
 export const partialTypes = ['text/x-'];
 
+/**
+ * Pattern matching the extensions accepted by the server-side transcription
+ * pipeline (mirrors `mediaExtensionPattern` in `transcriptionQueue.js` and
+ * `mediaFileTypes.js`).
+ */
+const transcribableMediaPattern =
+  /\.(aac|aif|aiff|amr|avi|caf|flac|m4a|m4b|m4p|m4r|mkv|mov|mp2|mp3|mp4|mpeg|mpga|oga|ogg|opus|wav|webm|wma)$/i;
+
+/**
+ * Returns `true` when the file is an audio or video upload that the server
+ * allows through even when the endpoint's `supportedMimeTypes` do not include
+ * the specific MIME type.  This mirrors the server-side bypass in
+ * `api/server/routes/files/multer.js` and `api/server/services/Files/process.js`.
+ */
+export function isTranscribableMediaUpload(filename: string, mimeType: string): boolean {
+  return Boolean(
+    (mimeType && (mimeType.startsWith('audio/') || mimeType.startsWith('video/'))) ||
+    (filename && transcribableMediaPattern.test(filename)),
+  );
+}
+
 const textDocument = {
   paths: TextPaths,
   fill: '#FF5588',
@@ -235,8 +256,7 @@ export const validateFiles = ({
   toolResource?: string;
   fileConfig: FileConfig | null;
 }) => {
-  const { fileLimit, fileSizeLimit, totalSizeLimit, supportedMimeTypes, disabled } =
-    endpointFileConfig;
+  const { fileSizeLimit, totalSizeLimit, supportedMimeTypes, disabled } = endpointFileConfig;
   /** Block all uploads if the endpoint is explicitly disabled */
   if (disabled === true) {
     setError('com_ui_attach_error_disabled');
@@ -249,11 +269,6 @@ export const validateFiles = ({
     return false;
   }
   const currentTotalSize = existingFiles.reduce((total, file) => total + file.size, 0);
-
-  if (fileLimit && fileList.length + files.size > fileLimit) {
-    setError(`You can only upload up to ${fileLimit} files at a time.`);
-    return false;
-  }
 
   for (let i = 0; i < fileList.length; i++) {
     let originalFile = fileList[i];
@@ -282,9 +297,13 @@ export const validateFiles = ({
     }
 
     if (!checkType(originalFile.type, mimeTypesToCheck)) {
-      console.log(originalFile);
-      setError('Currently, unsupported file type: ' + originalFile.type);
-      return false;
+      // Allow transcribable audio/video files through as message attachments;
+      // the server-side multer filter and filterFile apply the same bypass.
+      if (!isTranscribableMediaUpload(originalFile.name, originalFile.type)) {
+        console.log(originalFile);
+        setError('Currently, unsupported file type: ' + originalFile.type);
+        return false;
+      }
     }
 
     if (fileSizeLimit && originalFile.size >= fileSizeLimit) {
