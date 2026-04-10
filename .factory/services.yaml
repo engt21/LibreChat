@@ -1,9 +1,9 @@
 commands:
   install: cd /pool/home/timeng/LibreChat-custom && npm install
   lint: cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npx eslint api/ client/src/ packages/api/src/ packages/client/src/ packages/data-provider/src/ packages/data-schemas/src/ config/ --no-cache
-  test: cd /pool/home/timeng/LibreChat-custom && npm run test:all
+  test: cd /pool/home/timeng/LibreChat-custom && npm run test:client && npm run test:api -- --runInBand && npm run test:packages:api -- --runInBand --testPathIgnorePatterns="cache_integration|stream_integration" && npm run test:packages:data-provider && npm run test:packages:data-schemas
   build: cd /pool/home/timeng/LibreChat-custom && NODE_OPTIONS=--max-old-space-size=8192 npm run build
-  test_api: cd /pool/home/timeng/LibreChat-custom && npm run test:api
+  test_api: cd /pool/home/timeng/LibreChat-custom && npm run test:api -- --runInBand
   test_client: cd /pool/home/timeng/LibreChat-custom && npm run test:client
   test_packages_api: cd /pool/home/timeng/LibreChat-custom && npm run test:packages:api
   test_packages_api_no_redis: 'cd /pool/home/timeng/LibreChat-custom && npm run test:packages:api -- --runInBand --testPathIgnorePatterns="cache_integration|stream_integration"'
