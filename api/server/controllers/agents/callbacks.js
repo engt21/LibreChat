@@ -818,6 +818,7 @@ function createResponsesToolEndCallback({ req, res, tracker, artifactPromises })
 }
 
 module.exports = {
+  isThinkContent,
   getDefaultHandlers,
   createToolEndCallback,
   createResponsesToolEndCallback,

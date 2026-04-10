@@ -551,3 +551,147 @@ describe('getDefaultHandlers', () => {
     expect(sendEvent).toHaveBeenCalled();
   });
 });
+
+describe('isThinkContent', () => {
+  let isThinkContent;
+
+  beforeEach(() => {
+    const callbacks = require('../callbacks');
+    isThinkContent = callbacks.isThinkContent;
+  });
+
+  it('detects delta with direct type: "think"', () => {
+    expect(isThinkContent({ type: 'think' })).toBe(true);
+  });
+
+  it('detects delta with content array of all think parts', () => {
+    expect(
+      isThinkContent({
+        content: [
+          { type: 'think', think: 'reasoning text' },
+          { type: 'think', think: 'more reasoning' },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it('detects delta with content array of all thinking parts', () => {
+    expect(
+      isThinkContent({
+        content: [{ type: 'thinking', text: 'reasoning text' }],
+      }),
+    ).toBe(true);
+  });
+
+  it('returns false for delta with text content', () => {
+    expect(isThinkContent({ type: 'text', content: [{ type: 'text', text: 'hello' }] })).toBe(
+      false,
+    );
+  });
+
+  it('returns false for mixed content array', () => {
+    expect(
+      isThinkContent({
+        content: [
+          { type: 'think', think: 'reasoning' },
+          { type: 'text', text: 'response' },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it('returns false for empty content array', () => {
+    expect(isThinkContent({ content: [] })).toBe(false);
+  });
+
+  it('returns false for null/undefined delta', () => {
+    expect(isThinkContent(null)).toBe(false);
+    expect(isThinkContent(undefined)).toBe(false);
+  });
+
+  it('returns false for delta without type or content', () => {
+    expect(isThinkContent({})).toBe(false);
+    expect(isThinkContent({ id: 'step-1' })).toBe(false);
+  });
+});
+
+describe('Ollama reasoning suppression – end-to-end', () => {
+  let getDefaultHandlers, sendEvent;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    sendEvent = require('@librechat/api').sendEvent;
+    const callbacks = require('../callbacks');
+    getDefaultHandlers = callbacks.getDefaultHandlers;
+  });
+
+  it('suppresses all reasoning events while allowing text events for Ollama none mode', async () => {
+    const aggregateContent = jest.fn();
+    const handlers = getDefaultHandlers({
+      res: {},
+      aggregateContent,
+      collectedUsage: [],
+      collectedMetadata: {},
+      suppressReasoning: true,
+    });
+
+    const metadata = { last_agent_id: 'agent-1', langgraph_node: 'agent-1' };
+
+    // 1. Reasoning delta – should be suppressed
+    await handlers[GraphEvents.ON_REASONING_DELTA].handle(
+      GraphEvents.ON_REASONING_DELTA,
+      { id: 'step-1', delta: { content: [{ type: 'think', think: 'internal reasoning' }] } },
+      metadata,
+    );
+    expect(aggregateContent).not.toHaveBeenCalled();
+    expect(sendEvent).not.toHaveBeenCalled();
+
+    // 2. Think content in message delta – should be suppressed
+    await handlers[GraphEvents.ON_MESSAGE_DELTA].handle(
+      GraphEvents.ON_MESSAGE_DELTA,
+      { id: 'msg-1', delta: { content: [{ type: 'think', think: 'leaked reasoning' }] } },
+      metadata,
+    );
+    expect(aggregateContent).not.toHaveBeenCalled();
+
+    // 3. Text content in message delta – should pass through
+    await handlers[GraphEvents.ON_MESSAGE_DELTA].handle(
+      GraphEvents.ON_MESSAGE_DELTA,
+      { id: 'msg-2', delta: { content: [{ type: 'text', text: 'visible response' }] } },
+      metadata,
+    );
+    expect(aggregateContent).toHaveBeenCalledTimes(1);
+    expect(sendEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows all content types when suppressReasoning is false', async () => {
+    const aggregateContent = jest.fn();
+    const handlers = getDefaultHandlers({
+      res: {},
+      aggregateContent,
+      collectedUsage: [],
+      collectedMetadata: {},
+      suppressReasoning: false,
+    });
+
+    const metadata = { last_agent_id: 'agent-1', langgraph_node: 'agent-1' };
+
+    // Reasoning delta – should pass through
+    await handlers[GraphEvents.ON_REASONING_DELTA].handle(
+      GraphEvents.ON_REASONING_DELTA,
+      { id: 'step-1', delta: { content: [{ type: 'think', think: 'visible reasoning' }] } },
+      metadata,
+    );
+    expect(aggregateContent).toHaveBeenCalledTimes(1);
+    expect(sendEvent).toHaveBeenCalledTimes(1);
+
+    // Text content – should pass through
+    await handlers[GraphEvents.ON_MESSAGE_DELTA].handle(
+      GraphEvents.ON_MESSAGE_DELTA,
+      { id: 'msg-1', delta: { content: [{ type: 'text', text: 'visible text' }] } },
+      metadata,
+    );
+    expect(aggregateContent).toHaveBeenCalledTimes(2);
+    expect(sendEvent).toHaveBeenCalledTimes(2);
+  });
+});

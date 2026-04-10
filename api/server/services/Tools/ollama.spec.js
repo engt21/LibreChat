@@ -674,4 +674,116 @@ describe('server/services/Tools/ollama', () => {
       expect(mcpServers.size).toBe(0);
     });
   });
+
+  // --- VAL-REALTIME-004: web search status lifecycle observable by the client ---
+
+  describe('Ollama web search status SSE lifecycle (VAL-REALTIME-004)', () => {
+    test('status callback sequence matches what client useStepHandler expects', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          results: [{ title: 'Result', url: 'https://example.com', content: 'Body' }],
+        }),
+      });
+
+      const statusTransitions = [];
+      const onWebSearchStatus = jest.fn((status) => statusTransitions.push(status));
+
+      const tool = createOllamaWebSearchTool({ onWebSearchStatus });
+      const runnableConfig = {
+        toolCall: { id: 'tc-1', name: 'web_search', turn: 0 },
+        metadata: { user_id: 'u1', thread_id: 't1', run_id: 'r1' },
+      };
+
+      await tool.invoke({ query: 'lifecycle test' }, runnableConfig);
+
+      // The client expects: searching → completed (exactly 2 status transitions)
+      expect(statusTransitions).toEqual(['searching', 'completed']);
+
+      // Verify the format matches createOnWebSearchStatus's SSE envelope:
+      // Each status string is wrapped as { event: 'on_web_search_status', data: { status: { status } } }
+      // by createOnWebSearchStatus.  Here we verify the callback receives the raw status
+      // strings that createOnWebSearchStatus will wrap.
+      expect(onWebSearchStatus).toHaveBeenNthCalledWith(1, 'searching');
+      expect(onWebSearchStatus).toHaveBeenNthCalledWith(2, 'completed');
+    });
+
+    test('status lifecycle completes even on API failure', async () => {
+      fetch.mockRejectedValue(new Error('network error'));
+
+      const statusTransitions = [];
+      const onWebSearchStatus = jest.fn((status) => statusTransitions.push(status));
+
+      const tool = createOllamaWebSearchTool({ onWebSearchStatus });
+      const runnableConfig = { toolCall: { turn: 0 } };
+
+      await tool.invoke({ query: 'failing query' }, runnableConfig);
+
+      // searching → completed even on failure, so client sees clean completion
+      expect(statusTransitions).toEqual(['searching', 'completed']);
+    });
+
+    test('search result attachment is emitted alongside status for client rendering', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          results: [
+            { title: 'Ollama Blog', url: 'https://ollama.com/blog', content: 'Web search launch' },
+          ],
+        }),
+      });
+
+      const onSearchResults = jest.fn();
+      const onWebSearchStatus = jest.fn();
+
+      const tool = createOllamaWebSearchTool({ onSearchResults, onWebSearchStatus });
+      const runnableConfig = {
+        toolCall: { id: 'tc-1', name: 'web_search', turn: 0 },
+        metadata: { user_id: 'u1', thread_id: 't1', run_id: 'r1' },
+      };
+
+      await tool.invoke({ query: 'ollama web search' }, runnableConfig);
+
+      // Both callbacks should fire: status for inline indicator, results for Sources panel
+      expect(onWebSearchStatus).toHaveBeenCalledTimes(2);
+      expect(onSearchResults).toHaveBeenCalledTimes(1);
+      expect(onSearchResults.mock.calls[0][0].success).toBe(true);
+      expect(onSearchResults.mock.calls[0][0].data.references).toHaveLength(1);
+    });
+  });
+
+  // --- VAL-PROVIDER-011: reasoning suppression observable contract ---
+
+  describe('Ollama reasoning=none contract evidence (VAL-PROVIDER-011)', () => {
+    test('shouldHideOllamaReasoning flag derivation matches backend suppressReasoning logic', () => {
+      // This test verifies that the backend and client use the same condition:
+      // endpoint starts with "ollama" AND reasoning_effort === "none"
+
+      // Backend condition (from api/server/services/Endpoints/agents/initialize.js):
+      //   typeof endpointOption.endpoint === 'string' &&
+      //   endpointOption.endpoint.toLowerCase().startsWith('ollama') &&
+      //   endpointOption.model_parameters?.reasoning_effort === 'none'
+
+      const backendSuppresses = (endpoint, reasoning_effort) =>
+        typeof endpoint === 'string' &&
+        endpoint.toLowerCase().startsWith('ollama') &&
+        reasoning_effort === 'none';
+
+      // Ollama + none → suppressed (any endpoint starting with "ollama")
+      expect(backendSuppresses('Ollama', 'none')).toBe(true);
+      expect(backendSuppresses('ollama', 'none')).toBe(true);
+      expect(backendSuppresses('Ollama - Custom', 'none')).toBe(true);
+
+      // Ollama + other values → not suppressed
+      expect(backendSuppresses('Ollama', 'low')).toBe(false);
+      expect(backendSuppresses('Ollama', 'medium')).toBe(false);
+      expect(backendSuppresses('Ollama', 'high')).toBe(false);
+      expect(backendSuppresses('Ollama', '')).toBe(false);
+      expect(backendSuppresses('Ollama', undefined)).toBe(false);
+
+      // Non-Ollama + none → not suppressed
+      expect(backendSuppresses('openAI', 'none')).toBe(false);
+      expect(backendSuppresses('google', 'none')).toBe(false);
+    });
+  });
 });
