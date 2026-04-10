@@ -1,0 +1,154 @@
+{
+  "milestone": "customization-preservation",
+  "round": 5,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 30,
+    "passed": 4,
+    "failed": 8,
+    "blocked": 18
+  },
+  "passedAssertions": [
+    "VAL-CROSS-005A",
+    "VAL-FILES-001",
+    "VAL-PROVIDER-002",
+    "VAL-SCHED-006"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-FILES-002",
+      "reason": "OCR persistence requirement not met on observed file record (`file.text` empty) even though vision response succeeded."
+    },
+    {
+      "id": "VAL-FILES-006",
+      "reason": "Diarization constraints were validated, but end-to-end diarization output contract was not met in this run: /api/files main upload path failed with 500/No file_id and fallback completed transcript had no speaker-labeled lines."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "reason": "Fail: pending-consent path now fails correctly, but required continuation metadata/tool-listing contract was not met in this user-surface run."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "reason": "Fail signal: normal chat blocked-model probe did not return a model-access error and assistant create path returned 500 before model-access validation. Additional contract branches (blocked-model duplicate/revert, assistant update, preset/model-spec re-entry) remain unverified in this isolated run."
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "reason": "Legacy Azure api-version behavior is still mismatched (not fixed): legacy probes still route to /openai/v1/models without api-version."
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "reason": "Observed Ollama hosted web-search behavior did not satisfy contract in this run (tool-unsupported model error and empty/stalled assistant outputs without sources/artifacts)."
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "reason": "Reasoning off-switch behavior did not meet expectation in this run: UI value remained Auto despite off/none attempts, and resulting assistant turns did not provide stable content for suppression verification."
+    },
+    {
+      "id": "VAL-REALTIME-004",
+      "reason": "Expected inline web-search stream status was not observable in this run."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-CROSS-003",
+      "blockedBy": "Cross-provider validation could not be completed because required Azure/Google prerequisites were unavailable in this run."
+    },
+    {
+      "id": "VAL-FILES-003",
+      "blockedBy": "Full cross-provider assertion could not be completed because Azure user key and Google models were unavailable in this isolation context."
+    },
+    {
+      "id": "VAL-FILES-007",
+      "blockedBy": "OpenAI/local bridge path passed, but full OpenAI+Azure+Google assertion remains blocked by missing Azure key and unavailable Google models."
+    },
+    {
+      "id": "VAL-MCP-001",
+      "blockedBy": "Blocked by MCP domain policy rejecting both local validation servers (403 MCP_DOMAIN_NOT_ALLOWED)."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "blockedBy": "Blocked: no credentialed OAuth refresh-state persona/token exists in this partition (status remained PENDING)."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "blockedBy": "Blocked: forwarded precedence branch did not yield usable oauthUrl evidence from available API flow state."
+    },
+    {
+      "id": "VAL-PROVIDER-001",
+      "blockedBy": "Blocked by missing Azure user credentials; Azure execution branch cannot be validated beyond key-gated failure."
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "blockedBy": "Blocked by invalid/missing Google credentials in this partition (API_KEY_INVALID)."
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "blockedBy": "Blocked by missing/invalid Google credential path; live discovery/capability runtime verification remains incomplete."
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "blockedBy": "Blocked by Google API key failure; grounded citation/source contract cannot be exercised."
+    },
+    {
+      "id": "VAL-PROVIDER-007",
+      "blockedBy": "Blocked by missing xAI user credential in this partition; refresh-from-/v1/language-models and alias-preservation validation cannot be completed."
+    },
+    {
+      "id": "VAL-PROVIDER-008",
+      "blockedBy": "Blocked by missing xAI key on the tested persona; runtime parameter sanitization path is unreachable."
+    },
+    {
+      "id": "VAL-PROVIDER-008A",
+      "blockedBy": "Blocked by missing xAI credential; request-level native web-search strip behavior remains untestable."
+    },
+    {
+      "id": "VAL-PROVIDER-009",
+      "blockedBy": "Blocked by observability limits of the assigned user/API surface: per-model origin routing and explicit /api/tags fallback behavior cannot be proven from exposed data."
+    },
+    {
+      "id": "VAL-REALTIME-002",
+      "blockedBy": "Blocked for full contract completion because Azure/xAI credentialed branches are unavailable; xAI unavailable-model rejection under a credentialed path could not be exercised."
+    },
+    {
+      "id": "VAL-REALTIME-005",
+      "blockedBy": "Blocked by lack of successful grounded/reasoning output in this environment run; there was no payload to validate merged-thoughts/source-link presentation behavior."
+    },
+    {
+      "id": "VAL-SCHED-008",
+      "blockedBy": "Blocked on direct delivery-sink observability for payload URL root verification and on no-conversation payload branch coverage in this environment."
+    },
+    {
+      "id": "VAL-SCHED-009",
+      "blockedBy": "Blocked on runtime reproduction of 404/410 stale-endpoint pruning and browser notification click-open behavior."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": ".factory/library/user-testing.md",
+      "description": "Added round-5 rerun notes covering newly passed assertions, remaining fail/blocked clusters, and dev Langfuse setup friction observed during this run.",
+      "source": "flow-report"
+    }
+  ],
+  "flowReports": [
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round5-azure-google-realtime.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round5-files-native-routing.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round5-mcp-oauth-schedules.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round5-schedules-model.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round5-transcription-ollama-realtime.json",
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round5-xai-discovery.json"
+  ],
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "curl-compatible HTTP probes",
+    "docker",
+    "docker logs",
+    "node",
+    "python requests",
+    "python3",
+    "python3+requests",
+    "runtime-cli",
+    "web-ui-api-dev"
+  ],
+  "previousRound": "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/synthesis.round4.json"
+}

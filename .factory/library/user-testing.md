@@ -234,3 +234,20 @@ The push notification delivery code (`notifications.js`) already prunes endpoint
 - **Still failing (high signal):** `VAL-FILES-002`, `VAL-FILES-006`, `VAL-MODEL-003`, `VAL-PROVIDER-001A`, `VAL-PROVIDER-010`, `VAL-PROVIDER-011`, `VAL-REALTIME-004`, `VAL-MCP-004`.
 - **Still blocked (external/prereq/observability):** Azure user credentials (`VAL-PROVIDER-001`, `VAL-REALTIME-002`, Azure branches of cross-provider assertions), Google credential validity (`VAL-PROVIDER-003/004/005`), xAI key (`VAL-PROVIDER-007/008/008A`), MCP domain/refresh/callback prerequisites (`VAL-MCP-001/002/003`), delivery-observation limits for push payload/click paths (`VAL-SCHED-008/009`), and user-surface limits for Ollama per-model origin proof (`VAL-PROVIDER-009`).
 - **Environment friction observed during setup:** `librechat-dev-langfuse-web-1` restart count increased repeatedly while ClickHouse reported memory-limit migration failures (`max=448MiB`) after a full `start-all.sh dev`; core assertion reruns still proceeded on dev API/auth surfaces, but this should be tracked as readiness risk before broad reruns.
+
+## Round 6 rerun notes (2026-04-10)
+
+- **Now passing in rerun:** `VAL-SCHED-008` (channel-level push payload evidence captured, including valid conversation URL path and no-conversation branch with `url:null`).
+- **Still failing (high signal):** `VAL-MCP-001`, `VAL-MCP-004`, `VAL-FILES-002`, `VAL-FILES-006`, `VAL-MODEL-003`, `VAL-PROVIDER-001A`, `VAL-PROVIDER-010`, `VAL-PROVIDER-011`, `VAL-REALTIME-004`.
+- **Still blocked (external/prereq/observability):**
+  - `VAL-MCP-002` (no consented refresh-token OAuth state),
+  - `VAL-MCP-003` (forwarded/request-host callback-precedence branch remained unreachable from current flow state),
+  - `VAL-SCHED-009` (lifecycle proved, but stale-endpoint prune and real click-open path still not fully proven end-to-end),
+  - Google credential validity (`VAL-PROVIDER-003/004/005`, plus dependent `VAL-CROSS-003`, `VAL-FILES-003`, `VAL-FILES-007`),
+  - xAI key missing (`VAL-PROVIDER-007/008/008A`, plus xAI branch of `VAL-REALTIME-002`),
+  - Azure branch non-conclusive despite key presence (`VAL-PROVIDER-001`, `VAL-REALTIME-002`, dependent cross-provider assertions),
+  - Ollama per-model origin proof still not visible on allowed user/API surfaces (`VAL-PROVIDER-009`),
+  - no grounded/reasoning-rich payload available for merged-thought/source-link contract (`VAL-REALTIME-005`).
+- **Operational updates from round 6 evidence:**
+  - Local MCP validation servers now require `/mcp` suffix for successful inspection; root URL probes returned `MCP_INSPECTION_FAILED` (`transport POST -> Not Found`).
+  - Azure user key prerequisite is now present for validation personas (`/api/keys?name=azureOpenAI` showed non-null expiry), but execution/connect paths still need deterministic completion evidence.
