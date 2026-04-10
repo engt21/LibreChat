@@ -23,7 +23,11 @@ import {
   logAxiosError,
   inputSchema,
 } from '~/utils';
-import { normalizeAzureOpenAIBaseURL, supportsAzureOpenAIModelListing } from '~/utils/azure';
+import {
+  isAzureOpenAIBaseURL,
+  normalizeAzureOpenAIBaseURL,
+  supportsAzureOpenAIModelListing,
+} from '~/utils/azure';
 import { standardCache } from '~/cache';
 
 const GOOGLE_MODEL_CAPABILITIES_CACHE_KEY = `${EModelEndpoint.google}:capabilities`;
@@ -65,6 +69,8 @@ export interface FetchModelsParams {
   direct?: boolean;
   /** Whether to fetch from Azure */
   azure?: boolean;
+  /** Azure API version for legacy non-/openai/v1 discovery probes */
+  azureApiVersion?: string;
   /** Whether to send user ID as query parameter */
   userIdQuery?: boolean;
   /** Whether to create token configuration from API response */
@@ -482,6 +488,7 @@ export async function fetchModels({
   name = EModelEndpoint.openAI,
   direct = false,
   azure = false,
+  azureApiVersion,
   userIdQuery = false,
   createTokenConfig = true,
   disableOllamaFallback = false,
@@ -506,7 +513,13 @@ export async function fetchModels({
     return models;
   }
 
-  if (azure && (!resolvedBaseURL || !supportsAzureOpenAIModelListing(resolvedBaseURL))) {
+  /** Whether the resolved URL uses the direct /openai/v1 route that does not need api-version */
+  const isDirectAzureV1 = azure && supportsAzureOpenAIModelListing(resolvedBaseURL);
+  /** Whether the resolved URL is a legacy Azure endpoint that requires api-version on probes */
+  const isLegacyAzureEndpoint =
+    azure && !isDirectAzureV1 && isAzureOpenAIBaseURL(resolvedBaseURL) && !!azureApiVersion;
+
+  if (azure && !isDirectAzureV1 && !isLegacyAzureEndpoint) {
     return models;
   }
 
@@ -583,6 +596,9 @@ export async function fetchModels({
     }
 
     const url = new URL(`${(resolvedBaseURL ?? '').replace(/\/+$/, '')}/models`);
+    if (isLegacyAzureEndpoint && azureApiVersion) {
+      url.searchParams.append('api-version', azureApiVersion);
+    }
     if (user && userIdQuery) {
       url.searchParams.append('user', user);
     }
@@ -625,6 +641,8 @@ export interface GetOpenAIModelsOptions {
   userProvidedOpenAI?: boolean;
   /** Whether to bypass cached model discovery results */
   forceRefresh?: boolean;
+  /** Azure API version for legacy non-/openai/v1 discovery probes */
+  azureApiVersion?: string;
 }
 
 /**
@@ -672,6 +690,7 @@ export async function fetchOpenAIModels(
       apiKey: apiKey ?? '',
       baseURL,
       azure: opts.azure,
+      azureApiVersion: opts.azureApiVersion,
       user: opts.user,
       tokenKey: opts.cacheKey,
       name: opts.azure ? EModelEndpoint.azureOpenAI : EModelEndpoint.openAI,

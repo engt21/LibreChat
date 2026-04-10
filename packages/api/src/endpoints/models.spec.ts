@@ -192,6 +192,55 @@ describe('fetchModels', () => {
     );
   });
 
+  it('appends api-version to legacy Azure inference model probes', async () => {
+    await fetchModels({
+      apiKey: 'azure-key',
+      baseURL: 'https://example.models.ai.azure.com/v1',
+      azure: true,
+      name: EModelEndpoint.azureOpenAI,
+      azureApiVersion: '2024-10-21',
+    });
+
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://example.models.ai.azure.com/v1/models?api-version=2024-10-21',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'api-key': 'azure-key',
+        }),
+      }),
+    );
+  });
+
+  it('omits api-version from direct /openai/v1 Azure model probes', async () => {
+    await fetchModels({
+      apiKey: 'azure-key',
+      baseURL: 'https://example-resource.openai.azure.com/openai/v1',
+      azure: true,
+      name: EModelEndpoint.azureOpenAI,
+      azureApiVersion: '2024-10-21',
+    });
+
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://example-resource.openai.azure.com/openai/v1/models',
+      expect.any(Object),
+    );
+    // Verify api-version is NOT in the URL
+    const calledURL = mockedAxios.get.mock.calls[0][0] as string;
+    expect(calledURL).not.toContain('api-version');
+  });
+
+  it('returns empty models for legacy Azure inference endpoints when no api-version is provided', async () => {
+    const models = await fetchModels({
+      apiKey: 'azure-key',
+      baseURL: 'https://example.models.ai.azure.com/v1',
+      azure: true,
+      name: EModelEndpoint.azureOpenAI,
+    });
+
+    expect(models).toEqual([]);
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     jest.clearAllMocks();
   });
@@ -518,6 +567,25 @@ describe('getOpenAIModels', () => {
     });
 
     expect(models).toEqual(['deployment-a', 'deployment-b']);
+  });
+
+  it('fetches models from legacy Azure inference endpoints when azureApiVersion is provided', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [{ id: 'gpt-4.1-turbo' }, { id: 'gpt-4o' }],
+      },
+    });
+
+    const models = await getOpenAIModels({
+      azure: true,
+      openAIApiKey: 'azure-key',
+      baseURL: 'https://example-resource.models.ai.azure.com/v1',
+      azureApiVersion: '2024-10-21',
+    });
+
+    expect(models).toEqual(['gpt-4.1-turbo', 'gpt-4o']);
+    const calledURL = mockedAxios.get.mock.calls[0][0] as string;
+    expect(calledURL).toContain('api-version=2024-10-21');
   });
 
   it('returns `OPENAI_MODELS` with no flags (and fetch fails)', async () => {
