@@ -3,7 +3,7 @@ jest.mock('@librechat/data-schemas', () => ({
 }));
 
 jest.mock('librechat-data-provider', () => ({
-  Constants: { NO_PARENT: '00000000-0000-0000-0000-000000000000' },
+  Constants: { NO_PARENT: '00000000-0000-0000-0000-000000000000', mcp_prefix: 'mcp_' },
   EndpointURLs: { agents: '/api/agents' },
   parseTextParts: jest.fn((content) =>
     (content || [])
@@ -285,6 +285,21 @@ describe('executeScheduledRun', () => {
       next();
     });
 
+    // Provide valid MCP auth so the OAuth consent check passes
+    mockInitializeClient.mockResolvedValue({
+      client: {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'Response',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      },
+      userMCPAuthMap: {
+        'mcp_arcade-server': { access_token: 'valid-token' },
+      },
+    });
+
     await executeScheduledRun(scheduleWithTools, baseUser);
 
     const buildCall = mockBuildEndpointOption.mock.calls[0];
@@ -292,5 +307,190 @@ describe('executeScheduledRun', () => {
     expect(reqBody.endpoint).toBe('openAI');
     expect(reqBody.ephemeralAgent.web_search).toBe(true);
     expect(reqBody.ephemeralAgent.mcp).toEqual(['arcade-server']);
+  });
+
+  describe('MCP OAuth consent validation (VAL-CROSS-005A)', () => {
+    const mcpSchedule = {
+      ...baseSchedule,
+      target: {
+        endpoint: 'openAI',
+        model: 'gpt-4',
+        ephemeralAgent: {
+          mcp: ['arcade-microsoft'],
+        },
+      },
+    };
+
+    it('fails explicitly when MCP servers have empty auth (pending consent)', async () => {
+      // userMCPAuthMap has the server key but the auth values are empty (no tokens)
+      const emptyAuthMap = { 'mcp_arcade-microsoft': {} };
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'should not reach',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: emptyAuthMap,
+      });
+
+      await expect(executeScheduledRun(mcpSchedule, baseUser)).rejects.toThrow(
+        /OAuth consent.*arcade-microsoft/i,
+      );
+
+      // sendMessage should NOT have been called
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('fails explicitly when MCP servers are missing from auth map', async () => {
+      // userMCPAuthMap does not contain an entry for the requested server at all
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'should not reach',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {},
+      });
+
+      await expect(executeScheduledRun(mcpSchedule, baseUser)).rejects.toThrow(
+        /OAuth consent.*arcade-microsoft/i,
+      );
+
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('fails explicitly when userMCPAuthMap is null and MCP servers are required', async () => {
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'should not reach',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: null,
+      });
+
+      await expect(executeScheduledRun(mcpSchedule, baseUser)).rejects.toThrow(
+        /OAuth consent.*arcade-microsoft/i,
+      );
+
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('succeeds when MCP servers have valid auth tokens (consent complete)', async () => {
+      const validAuthMap = {
+        'mcp_arcade-microsoft': { access_token: 'valid-token-123', token_type: 'bearer' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'MCP tool executed successfully',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: { title: 'MCP Run' } }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: validAuthMap,
+      });
+
+      const result = await executeScheduledRun(mcpSchedule, baseUser);
+      expect(result.success).toBe(true);
+      expect(mockClient.sendMessage).toHaveBeenCalled();
+    });
+
+    it('skips MCP auth validation for schedules without MCP servers', async () => {
+      // Schedule without MCP - should succeed even with null auth map
+      const noMcpSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            web_search: true,
+          },
+        },
+      };
+
+      mockInitializeClient.mockResolvedValue({
+        client: {
+          sendMessage: jest.fn().mockResolvedValue({
+            text: 'Response',
+            messageId: 'msg-1',
+            conversationId: 'conv-1',
+            databasePromise: Promise.resolve({ conversation: {} }),
+          }),
+        },
+        userMCPAuthMap: null,
+      });
+
+      const result = await executeScheduledRun(noMcpSchedule, baseUser);
+      expect(result.success).toBe(true);
+    });
+
+    it('reports all MCP servers with missing auth in the error message', async () => {
+      const multiMcpSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['arcade-microsoft', 'arcade-github'],
+          },
+        },
+      };
+
+      mockInitializeClient.mockResolvedValue({
+        client: {
+          sendMessage: jest.fn(),
+        },
+        userMCPAuthMap: {
+          'mcp_arcade-microsoft': {},
+          'mcp_arcade-github': {},
+        },
+      });
+
+      await expect(executeScheduledRun(multiMcpSchedule, baseUser)).rejects.toThrow(
+        /arcade-microsoft.*arcade-github|arcade-github.*arcade-microsoft/,
+      );
+    });
+
+    it('fails only for MCP servers with missing auth, not ones with valid tokens', async () => {
+      const multiMcpSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['arcade-microsoft', 'arcade-github'],
+          },
+        },
+      };
+
+      mockInitializeClient.mockResolvedValue({
+        client: {
+          sendMessage: jest.fn(),
+        },
+        userMCPAuthMap: {
+          'mcp_arcade-microsoft': { access_token: 'valid-token' },
+          'mcp_arcade-github': {},
+        },
+      });
+
+      const error = await executeScheduledRun(multiMcpSchedule, baseUser).catch((e) => e);
+      expect(error.message).toMatch(/arcade-github/);
+      expect(error.message).not.toMatch(/arcade-microsoft/);
+    });
   });
 });

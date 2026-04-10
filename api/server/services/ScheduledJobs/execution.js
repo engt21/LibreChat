@@ -138,6 +138,45 @@ async function prepareExecutionContext(schedule, user) {
   return { req, res, conversationId };
 }
 
+/**
+ * Validates that all MCP servers referenced by the schedule have valid OAuth tokens.
+ * Scheduled runs cannot prompt the user for consent, so missing/empty auth must fail
+ * explicitly instead of producing a response with an authorization_url prompt.
+ *
+ * @param {object} schedule - The schedule being executed
+ * @param {object|null} userMCPAuthMap - The MCP auth map returned by initializeClient
+ */
+function validateMCPOAuthConsent(schedule, userMCPAuthMap) {
+  const mcpServers = schedule.target?.ephemeralAgent?.mcp;
+  if (!Array.isArray(mcpServers) || mcpServers.length === 0) {
+    return;
+  }
+
+  const serversWithMissingAuth = [];
+  for (const serverName of mcpServers) {
+    if (!serverName) {
+      continue;
+    }
+
+    const authKey = `${Constants.mcp_prefix}${serverName}`;
+    const authEntry = userMCPAuthMap?.[authKey];
+
+    // Auth entry is missing or has no stored token fields → consent incomplete
+    if (!authEntry || Object.keys(authEntry).length === 0) {
+      serversWithMissingAuth.push(serverName);
+    }
+  }
+
+  if (serversWithMissingAuth.length > 0) {
+    const serverList = serversWithMissingAuth.join(', ');
+    throw new Error(
+      `OAuth consent is required for MCP server(s): ${serverList}. ` +
+        `Complete the OAuth authorization flow interactively before scheduling runs ` +
+        `that depend on these tools.`,
+    );
+  }
+}
+
 async function executeScheduledRun(schedule, user) {
   const { req, res, conversationId } = await prepareExecutionContext(schedule, user);
   const abortController = new AbortController();
@@ -152,6 +191,10 @@ async function executeScheduledRun(schedule, user) {
     });
 
     client = initialized.client;
+
+    // Validate MCP OAuth consent state before executing — scheduled runs cannot
+    // prompt users for consent, so unmet prerequisites must fail explicitly.
+    validateMCPOAuthConsent(schedule, initialized.userMCPAuthMap);
 
     let requestMessage;
     const response = await client.sendMessage(schedule.prompt, {
