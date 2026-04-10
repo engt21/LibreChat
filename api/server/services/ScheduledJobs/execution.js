@@ -143,6 +143,10 @@ async function prepareExecutionContext(schedule, user) {
  * Scheduled runs cannot prompt the user for consent, so missing/empty auth must fail
  * explicitly instead of producing a response with an authorization_url prompt.
  *
+ * Checks for a real `access_token` field rather than just auth-map presence, because
+ * an auth entry may exist with metadata fields but no usable token when consent is
+ * still pending or the token has been revoked.
+ *
  * @param {object} schedule - The schedule being executed
  * @param {object|null} userMCPAuthMap - The MCP auth map returned by initializeClient
  */
@@ -161,8 +165,17 @@ function validateMCPOAuthConsent(schedule, userMCPAuthMap) {
     const authKey = `${Constants.mcp_prefix}${serverName}`;
     const authEntry = userMCPAuthMap?.[authKey];
 
-    // Auth entry is missing or has no stored token fields → consent incomplete
-    if (!authEntry || Object.keys(authEntry).length === 0) {
+    // Auth entry must exist AND contain a non-empty access_token.
+    // An entry with metadata keys but no access_token (e.g. pending consent,
+    // revoked token, or partial state) is not a usable OAuth credential.
+    const hasValidToken =
+      authEntry &&
+      typeof authEntry === 'object' &&
+      Object.keys(authEntry).length > 0 &&
+      typeof authEntry.access_token === 'string' &&
+      authEntry.access_token.length > 0;
+
+    if (!hasValidToken) {
       serversWithMissingAuth.push(serverName);
     }
   }
@@ -175,6 +188,44 @@ function validateMCPOAuthConsent(schedule, userMCPAuthMap) {
         `that depend on these tools.`,
     );
   }
+}
+
+/**
+ * Detects whether a scheduled run response contains an auth-continuation prompt
+ * (e.g. Arcade provider-consent responses with `authorization_url`) instead of
+ * real tool output. Such responses look like success to the client pipeline but
+ * should be treated as durable failures for scheduled runs because there is no
+ * interactive user to follow the authorization link.
+ *
+ * @param {object} response - The response object from sendMessage
+ * @returns {{ isAuthContinuation: boolean, authUrl?: string }} Detection result
+ */
+function detectAuthContinuationResponse(response) {
+  const text = extractResponsePreview(response);
+  if (!text) {
+    return { isAuthContinuation: false };
+  }
+
+  // Check if the response text contains an authorization_url pattern,
+  // either as parseable JSON or as a recognizable substring.
+  // Arcade consent responses return JSON with authorization_url and optionally llm_instructions.
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.authorization_url === 'string' && parsed.authorization_url) {
+      return { isAuthContinuation: true, authUrl: parsed.authorization_url };
+    }
+  } catch {
+    // Not pure JSON — check for embedded JSON or substring patterns
+  }
+
+  // Handle multi-part or LLM-wrapped responses where the JSON is embedded
+  // Match authorization_url in any JSON-like fragment within the response
+  const authUrlMatch = text.match(/"authorization_url"\s*:\s*"(https?:\/\/[^"]+)"/);
+  if (authUrlMatch) {
+    return { isAuthContinuation: true, authUrl: authUrlMatch[1] };
+  }
+
+  return { isAuthContinuation: false };
 }
 
 async function executeScheduledRun(schedule, user) {
@@ -234,6 +285,24 @@ async function executeScheduledRun(schedule, user) {
       });
     }
 
+    // Detect auth-continuation responses (e.g. Arcade provider-consent prompts).
+    // These look like successful tool output but actually contain an authorization_url
+    // that requires interactive user action — scheduled runs cannot follow those links,
+    // so they must be recorded as durable failures instead of success previews.
+    const preview = extractResponsePreview(response);
+    const authContinuation = detectAuthContinuationResponse(response);
+    if (authContinuation.isAuthContinuation) {
+      const mcpServers = schedule.target?.ephemeralAgent?.mcp;
+      const serverHint =
+        Array.isArray(mcpServers) && mcpServers.length > 0 ? mcpServers.join(', ') : 'unknown';
+      throw new Error(
+        `MCP tool returned an authorization prompt instead of executing. ` +
+          `Provider consent is required for MCP server(s): ${serverHint}. ` +
+          `Complete the OAuth authorization flow interactively before scheduling runs ` +
+          `that depend on these tools.`,
+      );
+    }
+
     return {
       success: true,
       conversationId: response.conversationId || conversationId,
@@ -241,7 +310,7 @@ async function executeScheduledRun(schedule, user) {
       requestMessageId: requestMessage?.messageId,
       response,
       conversation,
-      preview: extractResponsePreview(response),
+      preview,
     };
   } catch (error) {
     logger.error('[ScheduledJobs] Scheduled execution failed', error);
@@ -256,4 +325,5 @@ async function executeScheduledRun(schedule, user) {
 module.exports = {
   executeScheduledRun,
   extractResponsePreview,
+  detectAuthContinuationResponse,
 };

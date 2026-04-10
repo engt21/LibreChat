@@ -47,7 +47,11 @@ jest.mock('~/server/cleanup', () => ({
   disposeClient: jest.fn(),
 }));
 
-const { executeScheduledRun, extractResponsePreview } = require('./execution');
+const {
+  executeScheduledRun,
+  extractResponsePreview,
+  detectAuthContinuationResponse,
+} = require('./execution');
 
 const baseSchedule = {
   scheduleId: 's1',
@@ -116,6 +120,58 @@ describe('extractResponsePreview', () => {
   it('returns empty string for empty response', () => {
     expect(extractResponsePreview({})).toBe('');
     expect(extractResponsePreview(null)).toBe('');
+  });
+});
+
+describe('detectAuthContinuationResponse', () => {
+  it('detects pure JSON authorization_url response', () => {
+    const consentJson = JSON.stringify({
+      authorization_url:
+        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+      llm_instructions: 'Please share the authorization link.',
+    });
+    const result = detectAuthContinuationResponse({ text: consentJson });
+    expect(result.isAuthContinuation).toBe(true);
+    expect(result.authUrl).toContain('microsoftonline.com');
+  });
+
+  it('detects embedded authorization_url in multi-part response', () => {
+    const text =
+      'Microsoft Outlook authorization required.\n\n' +
+      JSON.stringify({
+        authorization_url: 'https://cloud.arcade.dev/oauth2/authorize',
+        llm_instructions: 'Provider authorization needed.',
+      });
+    const result = detectAuthContinuationResponse({ text });
+    expect(result.isAuthContinuation).toBe(true);
+    expect(result.authUrl).toContain('arcade.dev');
+  });
+
+  it('returns false for normal response text', () => {
+    const result = detectAuthContinuationResponse({ text: 'Here is your scheduled report.' });
+    expect(result.isAuthContinuation).toBe(false);
+    expect(result.authUrl).toBeUndefined();
+  });
+
+  it('returns false for empty response', () => {
+    expect(detectAuthContinuationResponse({}).isAuthContinuation).toBe(false);
+    expect(detectAuthContinuationResponse(null).isAuthContinuation).toBe(false);
+    expect(detectAuthContinuationResponse({ text: '' }).isAuthContinuation).toBe(false);
+  });
+
+  it('detects authorization_url-only JSON without llm_instructions', () => {
+    const consentJson = JSON.stringify({
+      authorization_url: 'https://login.microsoftonline.com/authorize',
+    });
+    const result = detectAuthContinuationResponse({ text: consentJson });
+    expect(result.isAuthContinuation).toBe(true);
+  });
+
+  it('does not flag responses that merely mention authorization in prose', () => {
+    const result = detectAuthContinuationResponse({
+      text: 'You need to complete the authorization process at the OAuth provider.',
+    });
+    expect(result.isAuthContinuation).toBe(false);
   });
 });
 
@@ -491,6 +547,192 @@ describe('executeScheduledRun', () => {
       const error = await executeScheduledRun(multiMcpSchedule, baseUser).catch((e) => e);
       expect(error.message).toMatch(/arcade-github/);
       expect(error.message).not.toMatch(/arcade-microsoft/);
+    });
+
+    it('fails when auth entry has metadata but no access_token (pending consent)', async () => {
+      // Auth entry exists with some keys but lacks the required access_token field.
+      // This can occur when OAuth metadata is stored before consent completes.
+      const metadataOnlyAuthMap = {
+        'mcp_arcade-microsoft': { token_type: 'bearer', scope: 'User.Read' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'should not reach',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: metadataOnlyAuthMap,
+      });
+
+      await expect(executeScheduledRun(mcpSchedule, baseUser)).rejects.toThrow(
+        /OAuth consent.*arcade-microsoft/i,
+      );
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('fails when auth entry has empty-string access_token', async () => {
+      const emptyTokenAuthMap = {
+        'mcp_arcade-microsoft': { access_token: '', token_type: 'bearer' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'should not reach',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: emptyTokenAuthMap,
+      });
+
+      await expect(executeScheduledRun(mcpSchedule, baseUser)).rejects.toThrow(
+        /OAuth consent.*arcade-microsoft/i,
+      );
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('fails when auth entry has non-string access_token', async () => {
+      const badTokenAuthMap = {
+        'mcp_arcade-microsoft': { access_token: 123, token_type: 'bearer' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: badTokenAuthMap,
+      });
+
+      await expect(executeScheduledRun(mcpSchedule, baseUser)).rejects.toThrow(
+        /OAuth consent.*arcade-microsoft/i,
+      );
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Auth-continuation response detection (VAL-MCP-004, VAL-CROSS-005A)', () => {
+    const mcpSchedule = {
+      ...baseSchedule,
+      target: {
+        endpoint: 'openAI',
+        model: 'gpt-4',
+        ephemeralAgent: {
+          mcp: ['arcade-microsoft'],
+        },
+      },
+    };
+
+    it('fails when sendMessage returns an authorization_url continuation prompt', async () => {
+      const consentJson = JSON.stringify({
+        authorization_url:
+          'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+        llm_instructions: 'Please share the authorization link with the user.',
+      });
+
+      const validAuthMap = {
+        'mcp_arcade-microsoft': { access_token: 'valid-token-123', token_type: 'bearer' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: consentJson,
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: validAuthMap,
+      });
+
+      await expect(executeScheduledRun(mcpSchedule, baseUser)).rejects.toThrow(
+        /authorization prompt.*provider consent.*arcade-microsoft/i,
+      );
+    });
+
+    it('fails when response contains embedded authorization_url in multi-part text', async () => {
+      const embeddedConsent =
+        'Microsoft Outlook authorization required.\n\n' +
+        JSON.stringify({
+          authorization_url: 'https://cloud.arcade.dev/oauth2/authorize',
+          llm_instructions: 'Provider authorization needed.',
+        });
+
+      const validAuthMap = {
+        'mcp_arcade-microsoft': { access_token: 'valid-token-123', token_type: 'bearer' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: embeddedConsent,
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: validAuthMap,
+      });
+
+      await expect(executeScheduledRun(mcpSchedule, baseUser)).rejects.toThrow(
+        /authorization prompt.*provider consent/i,
+      );
+    });
+
+    it('succeeds when response is normal tool output without authorization_url', async () => {
+      const validAuthMap = {
+        'mcp_arcade-microsoft': { access_token: 'valid-token-123', token_type: 'bearer' },
+      };
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'Here are your upcoming calendar events: Meeting at 2pm, Standup at 3pm.',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: { title: 'Calendar Events' } }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: validAuthMap,
+      });
+
+      const result = await executeScheduledRun(mcpSchedule, baseUser);
+      expect(result.success).toBe(true);
+      expect(result.preview).toContain('calendar events');
+    });
+
+    it('succeeds for schedule without MCP even if response mentions authorization', async () => {
+      // Non-MCP schedules should not trigger auth-continuation detection since the
+      // authorization_url detection only targets MCP tool consent patterns (JSON).
+      const noMcpSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+        },
+      };
+
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'You need to complete the authorization process at the OAuth provider.',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: null,
+      });
+
+      const result = await executeScheduledRun(noMcpSchedule, baseUser);
+      expect(result.success).toBe(true);
     });
   });
 });
