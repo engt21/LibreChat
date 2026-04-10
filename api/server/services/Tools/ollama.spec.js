@@ -8,13 +8,17 @@ const { Constants, Tools, WebSearchModes } = require('librechat-data-provider');
 const {
   OLLAMA_WEB_FETCH_TOOL,
   OLLAMA_SEARCH_FETCH_MCP_SERVER,
+  OLLAMA_HOSTED_API_TIMEOUT_MS,
   applyOllamaWebSearchMode,
+  createOllamaWebFetchTool,
   createOllamaWebSearchTool,
   ensureOllamaSearchMCPServer,
   formatSearchResults,
   getOllamaWebSearchEnabled,
   getOllamaWebSearchMode,
+  isOllamaHostedSearchReady,
   ollamaWebSearch,
+  ollamaWebFetch,
 } = require('./ollama');
 
 describe('server/services/Tools/ollama', () => {
@@ -232,5 +236,196 @@ describe('server/services/Tools/ollama', () => {
 
     expect(tools).toEqual([]);
     expect(mcpServers.size).toBe(0);
+  });
+
+  // --- Hardening: API key gating ---
+
+  describe('isOllamaHostedSearchReady', () => {
+    test('returns true when OLLAMA_API_KEY is set', () => {
+      process.env.OLLAMA_API_KEY = 'valid-key';
+      expect(isOllamaHostedSearchReady()).toBe(true);
+    });
+
+    test('returns false when OLLAMA_API_KEY is empty string', () => {
+      process.env.OLLAMA_API_KEY = '';
+      expect(isOllamaHostedSearchReady()).toBe(false);
+    });
+
+    test('returns false when OLLAMA_API_KEY is undefined', () => {
+      delete process.env.OLLAMA_API_KEY;
+      expect(isOllamaHostedSearchReady()).toBe(false);
+    });
+  });
+
+  describe('applyOllamaWebSearchMode – API key gating', () => {
+    test('falls back to librechat web_search when API key is missing (native mode)', () => {
+      delete process.env.OLLAMA_API_KEY;
+      const tools = [];
+      const mcpServers = new Set();
+
+      applyOllamaWebSearchMode({
+        endpoint: 'ollama',
+        ephemeralAgent: { web_search: true },
+        modelSpec: null,
+        tools,
+        mcpServers,
+      });
+
+      // Should add generic web_search but NOT web_fetch or MCP
+      expect(tools).toEqual([Tools.web_search]);
+      expect(tools).not.toContain(OLLAMA_WEB_FETCH_TOOL);
+      expect(mcpServers.size).toBe(0);
+    });
+
+    test('falls back to librechat web_search when API key is missing (MCP mode)', () => {
+      delete process.env.OLLAMA_API_KEY;
+      const tools = [];
+      const mcpServers = new Set();
+
+      applyOllamaWebSearchMode({
+        endpoint: 'ollama',
+        ephemeralAgent: { web_search: true, web_search_mode: WebSearchModes.ollama_mcp },
+        modelSpec: null,
+        tools,
+        mcpServers,
+      });
+
+      // Should add generic web_search, NOT MCP server
+      expect(tools).toEqual([Tools.web_search]);
+      expect(mcpServers.size).toBe(0);
+    });
+  });
+
+  // --- Hardening: request timeout ---
+
+  describe('callOllamaHostedAPI – timeout', () => {
+    test('ollamaWebSearch includes a signal for timeout enforcement', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ results: [] }),
+      });
+
+      await ollamaWebSearch({ query: 'test' });
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          signal: expect.any(AbortSignal),
+        }),
+      );
+    });
+
+    test('ollamaWebSearch surfaces a timeout error message', async () => {
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      fetch.mockRejectedValue(abortError);
+
+      await expect(ollamaWebSearch({ query: 'slow' })).rejects.toThrow(/timed out/);
+    });
+
+    test('ollamaWebSearch surfaces network errors', async () => {
+      fetch.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      await expect(ollamaWebSearch({ query: 'unreachable' })).rejects.toThrow(/ECONNREFUSED/);
+    });
+
+    test('OLLAMA_HOSTED_API_TIMEOUT_MS is exported and positive', () => {
+      expect(OLLAMA_HOSTED_API_TIMEOUT_MS).toBeGreaterThan(0);
+    });
+  });
+
+  // --- Hardening: tool error recovery ---
+
+  describe('createOllamaWebSearchTool – error recovery', () => {
+    // LangChain tool.invoke() with content_and_artifact returns only the
+    // content string.  The artifact is consumed internally by the agent
+    // framework, so we test callback behaviour for error propagation.
+
+    test('returns descriptive error message on API failure instead of throwing', async () => {
+      fetch.mockRejectedValue(new Error('OLLAMA_API_KEY is not configured'));
+
+      const onSearchResults = jest.fn();
+      const searchTool = createOllamaWebSearchTool({ onSearchResults });
+      const runnableConfig = { toolCall: { turn: 0 } };
+
+      // invoke should NOT throw – it should return an error string
+      const result = await searchTool.invoke({ query: 'fail test' }, runnableConfig);
+
+      expect(typeof result).toBe('string');
+      expect(result).toContain('Ollama web search failed');
+      expect(result).toContain('answer without web results');
+
+      // onSearchResults should be called with success=false
+      expect(onSearchResults).toHaveBeenCalledTimes(1);
+      expect(onSearchResults.mock.calls[0][0].success).toBe(false);
+    });
+
+    test('handles API response with missing results array gracefully', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({}), // no results field
+      });
+
+      const searchTool = createOllamaWebSearchTool();
+      const runnableConfig = { toolCall: { turn: 0 } };
+      const result = await searchTool.invoke({ query: 'empty test' }, runnableConfig);
+
+      expect(typeof result).toBe('string');
+      expect(result).toContain('No web results found');
+    });
+  });
+
+  describe('createOllamaWebFetchTool – error recovery', () => {
+    test('returns descriptive error message on fetch failure instead of throwing', async () => {
+      fetch.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const fetchTool = createOllamaWebFetchTool();
+      const runnableConfig = { toolCall: { turn: 0 } };
+      const result = await fetchTool.invoke(
+        { url: 'https://example.com/page' },
+        runnableConfig,
+      );
+
+      expect(typeof result).toBe('string');
+      expect(result).toContain('Ollama web fetch failed');
+      expect(result).toContain('ECONNREFUSED');
+    });
+
+    test('succeeds with valid response', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          title: 'Example Page',
+          content: 'Page content here',
+        }),
+      });
+
+      const fetchTool = createOllamaWebFetchTool();
+      const runnableConfig = { toolCall: { turn: 0 } };
+      const result = await fetchTool.invoke(
+        { url: 'https://example.com/page' },
+        runnableConfig,
+      );
+
+      expect(typeof result).toBe('string');
+      expect(result).toContain('Example Page');
+      expect(result).toContain('Page content here');
+    });
+  });
+
+  // --- Hardening: missing API key at invocation ---
+
+  describe('ollamaWebSearch / ollamaWebFetch – missing API key', () => {
+    test('ollamaWebSearch throws descriptive error when API key is missing', async () => {
+      delete process.env.OLLAMA_API_KEY;
+      await expect(ollamaWebSearch({ query: 'test' })).rejects.toThrow(/OLLAMA_API_KEY/);
+    });
+
+    test('ollamaWebFetch throws descriptive error when API key is missing', async () => {
+      delete process.env.OLLAMA_API_KEY;
+      await expect(ollamaWebFetch({ url: 'https://example.com' })).rejects.toThrow(
+        /OLLAMA_API_KEY/,
+      );
+    });
   });
 });

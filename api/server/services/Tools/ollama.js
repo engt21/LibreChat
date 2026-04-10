@@ -3,12 +3,16 @@ const { fetch, ProxyAgent } = require('undici');
 const { tool } = require('@langchain/core/tools');
 const { z } = require('zod');
 const { Constants: AgentConstants } = require('@librechat/agents');
+const { logger } = require('@librechat/data-schemas');
 const { Constants, Tools, KnownEndpoints, WebSearchModes } = require('librechat-data-provider');
 
 const OLLAMA_WEB_FETCH_TOOL = 'web_fetch';
 const OLLAMA_SEARCH_FETCH_MCP_SERVER = 'ollama_search_fetch';
 const OLLAMA_WEB_SEARCH_API_URL = 'https://ollama.com/api/web_search';
 const OLLAMA_WEB_FETCH_API_URL = 'https://ollama.com/api/web_fetch';
+
+/** Request timeout for Ollama hosted API calls (30 seconds). */
+const OLLAMA_HOSTED_API_TIMEOUT_MS = 30_000;
 
 function isOllamaEndpoint(endpoint) {
   return typeof endpoint === 'string' && endpoint.toLowerCase().startsWith(KnownEndpoints.ollama);
@@ -53,6 +57,18 @@ function getOllamaWebSearchMode({ endpoint, ephemeralAgent, requestBody, enabled
   );
 }
 
+/**
+ * Check whether the Ollama hosted web-search backend is configured.
+ * Returns `true` when `OLLAMA_API_KEY` is present so tools can be registered;
+ * returns `false` otherwise.  Callers should either skip Ollama-native/MCP
+ * registration or fall back to the default LibreChat search stack.
+ *
+ * @returns {boolean}
+ */
+function isOllamaHostedSearchReady() {
+  return typeof process.env.OLLAMA_API_KEY === 'string' && process.env.OLLAMA_API_KEY.length > 0;
+}
+
 function applyOllamaWebSearchMode({
   endpoint,
   ephemeralAgent,
@@ -67,6 +83,23 @@ function applyOllamaWebSearchMode({
   }
 
   const mode = getOllamaWebSearchMode({ endpoint, ephemeralAgent, requestBody, enabled });
+
+  // Gate Ollama-hosted modes on API key availability.  Without the key every
+  // tool invocation would throw, so fall back to the generic LibreChat search
+  // stack (if available) instead of registering broken Ollama tools.
+  if (
+    (mode === WebSearchModes.ollama_native || mode === WebSearchModes.ollama_mcp) &&
+    !isOllamaHostedSearchReady()
+  ) {
+    logger.warn(
+      '[OllamaWebSearch] OLLAMA_API_KEY is not configured – falling back to LibreChat web search',
+    );
+    if (!tools.includes(Tools.web_search)) {
+      tools.push(Tools.web_search);
+    }
+    return;
+  }
+
   if (mode === WebSearchModes.ollama_mcp) {
     mcpServers.add(OLLAMA_SEARCH_FETCH_MCP_SERVER);
     return;
@@ -122,15 +155,32 @@ async function callOllamaHostedAPI(url, body) {
     throw new Error('OLLAMA_API_KEY is not configured. Set it to enable Ollama hosted web search.');
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-    dispatcher: createDispatcher(),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OLLAMA_HOSTED_API_TIMEOUT_MS);
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      dispatcher: createDispatcher(),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err?.name === 'AbortError' || err?.code === 'UND_ERR_ABORTED') {
+      throw new Error(
+        `Ollama hosted API request timed out after ${OLLAMA_HOSTED_API_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    throw new Error(`Ollama hosted API request failed: ${err?.message ?? 'network error'}`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -259,11 +309,19 @@ function getHostname(url) {
 function createOllamaWebSearchTool({ onSearchResults } = {}) {
   return tool(
     async ({ query, max_results = 5 }, runnableConfig) => {
-      const result = await ollamaWebSearch({ query, max_results });
-      const turn = runnableConfig.toolCall?.turn ?? 0;
-      const attachment = buildSearchAttachment(result.results, turn);
-      onSearchResults?.({ success: true, data: attachment }, runnableConfig);
-      return [formatSearchResults(query, result.results), { [Tools.web_search]: attachment }];
+      try {
+        const result = await ollamaWebSearch({ query, max_results });
+        const results = Array.isArray(result?.results) ? result.results : [];
+        const turn = runnableConfig?.toolCall?.turn ?? 0;
+        const attachment = buildSearchAttachment(results, turn);
+        onSearchResults?.({ success: true, data: attachment }, runnableConfig);
+        return [formatSearchResults(query, results), { [Tools.web_search]: attachment }];
+      } catch (err) {
+        logger.error('[OllamaWebSearch] search failed', { query, error: err?.message });
+        onSearchResults?.({ success: false, error: err?.message }, runnableConfig);
+        const errorMsg = `Ollama web search failed: ${err?.message ?? 'unknown error'}. The model should answer without web results.`;
+        return [errorMsg, { [Tools.web_search]: buildSearchAttachment([], 0) }];
+      }
     },
     {
       name: Tools.web_search,
@@ -287,17 +345,23 @@ function createOllamaWebSearchTool({ onSearchResults } = {}) {
 function createOllamaWebFetchTool() {
   return tool(
     async ({ url }, runnableConfig) => {
-      const result = await ollamaWebFetch({ url });
-      const turn = runnableConfig.toolCall?.turn ?? 0;
-      const attachment = buildFetchAttachment(
-        {
-          url,
-          title: result.title,
-          content: truncateText(result.content),
-        },
-        turn,
-      );
-      return [formatFetchResult(url, result), { [Tools.web_search]: attachment }];
+      try {
+        const result = await ollamaWebFetch({ url });
+        const turn = runnableConfig?.toolCall?.turn ?? 0;
+        const attachment = buildFetchAttachment(
+          {
+            url,
+            title: result?.title,
+            content: truncateText(result?.content),
+          },
+          turn,
+        );
+        return [formatFetchResult(url, result ?? {}), { [Tools.web_search]: attachment }];
+      } catch (err) {
+        logger.error('[OllamaWebFetch] fetch failed', { url, error: err?.message });
+        const errorMsg = `Ollama web fetch failed for ${url}: ${err?.message ?? 'unknown error'}`;
+        return [errorMsg, { [Tools.web_search]: buildFetchAttachment({ url, title: url, content: '' }, 0) }];
+      }
     },
     {
       name: OLLAMA_WEB_FETCH_TOOL,
@@ -314,6 +378,7 @@ function createOllamaWebFetchTool() {
 module.exports = {
   OLLAMA_WEB_FETCH_TOOL,
   OLLAMA_SEARCH_FETCH_MCP_SERVER,
+  OLLAMA_HOSTED_API_TIMEOUT_MS,
   applyOllamaWebSearchMode,
   createOllamaWebFetchTool,
   createOllamaWebSearchTool,
@@ -323,6 +388,7 @@ module.exports = {
   getOllamaWebSearchEnabled,
   getOllamaWebSearchMode,
   isOllamaEndpoint,
+  isOllamaHostedSearchReady,
   ollamaWebFetch,
   ollamaWebSearch,
 };
