@@ -3,9 +3,10 @@
  * dev-seed-validation-personas.js
  *
  * Seeds deterministic validation personas into the **dev** rail MongoDB,
- * clears auth-abuse lockouts and stale sessions, and writes a local-only
- * manifest so automated validators can authenticate without hitting
- * rate-limit or ban walls.
+ * clears auth-abuse lockouts and stale sessions, ensures deterministic
+ * modelSpecs are present in the active librechat.yaml, and writes a
+ * local-only manifest so automated validators can authenticate without
+ * hitting rate-limit or ban walls.
  *
  * Run from the repo root with the dev Mongo exposed on 27018:
  *
@@ -20,7 +21,8 @@
  *   2. Drops ban, violation, and rate-limiter Keyv entries
  *   3. Creates or resets five validation personas (see PERSONAS below)
  *   4. Clears stale refresh-token sessions for those personas
- *   5. Writes .dev-validation-manifest.local.json (gitignored)
+ *   5. Ensures deterministic modelSpecs in librechat.yaml
+ *   6. Writes .dev-validation-manifest.local.json (gitignored)
  *
  * IMPORTANT: This script must NOT be used against the stable/prod rail.
  *            The manifest file must NOT be committed.
@@ -28,6 +30,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const yaml = require('js-yaml');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const { getDefaultModelPermissionsForRole } = require('../api/server/services/ModelAccess');
@@ -38,6 +41,57 @@ const { getDefaultModelPermissionsForRole } = require('../api/server/services/Mo
 
 const DEV_MONGO_URI = process.env.DEV_MONGO_URI || 'mongodb://127.0.0.1:27018/LibreChat';
 const MANIFEST_PATH = path.resolve(__dirname, '.dev-validation-manifest.local.json');
+const LIBRECHAT_YAML_PATH = path.resolve(__dirname, '..', 'librechat.yaml');
+
+/**
+ * Deterministic modelSpecs that cover a mix of allowed and blocked models
+ * for the default non-admin model permissions.
+ *
+ * Allowed for restricted users (present in DEFAULT_NON_ADMIN_MODEL_PERMISSIONS):
+ *   - GPT-5.4 Mini   (openAI / gpt-5.4-mini)
+ *   - Claude Sonnet 4.5 (anthropic / claude-sonnet-4-5)
+ *   - Ollama Local    (Ollama / qwen2.5:latest — Ollama allows all models)
+ *
+ * Blocked for restricted users (NOT in their allowed list):
+ *   - GPT-5           (openAI / gpt-5 — not in the allowed openAI models)
+ *   - Gemini 2.5 Pro  (google / gemini-2.5-pro — google endpoint not in default rules)
+ */
+const VALIDATION_MODEL_SPECS = {
+  enforce: false,
+  prioritize: true,
+  list: [
+    {
+      name: 'GPT-5.4 Mini',
+      label: 'GPT-5.4 Mini',
+      description: 'Fast, affordable OpenAI model',
+      preset: { endpoint: 'openAI', model: 'gpt-5.4-mini' },
+    },
+    {
+      name: 'GPT-5',
+      label: 'GPT-5',
+      description: 'Flagship OpenAI reasoning model',
+      preset: { endpoint: 'openAI', model: 'gpt-5' },
+    },
+    {
+      name: 'Claude Sonnet 4.5',
+      label: 'Claude Sonnet 4.5',
+      description: 'Anthropic balanced model',
+      preset: { endpoint: 'anthropic', model: 'claude-sonnet-4-5' },
+    },
+    {
+      name: 'Gemini 2.5 Pro',
+      label: 'Gemini 2.5 Pro',
+      description: 'Google flagship model',
+      preset: { endpoint: 'google', model: 'gemini-2.5-pro' },
+    },
+    {
+      name: 'Ollama Local',
+      label: 'Ollama Local',
+      description: 'Local Ollama model',
+      preset: { endpoint: 'Ollama', model: 'qwen2.5:latest' },
+    },
+  ],
+};
 
 const PERSONAS = [
   {
@@ -282,7 +336,50 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
-  // Step 5: Write local manifest
+  // Step 5: Ensure deterministic modelSpecs in librechat.yaml
+  // ------------------------------------------------------------------
+  console.log('[dev-seed] Ensuring deterministic modelSpecs in librechat.yaml…');
+  try {
+    if (fs.existsSync(LIBRECHAT_YAML_PATH)) {
+      const yamlContent = fs.readFileSync(LIBRECHAT_YAML_PATH, 'utf8');
+      const config = yaml.load(yamlContent) || {};
+
+      const existingSpecs = config.modelSpecs;
+      if (
+        existingSpecs &&
+        existingSpecs.list &&
+        Array.isArray(existingSpecs.list) &&
+        existingSpecs.list.length > 0
+      ) {
+        console.log(
+          `  modelSpecs already present (${existingSpecs.list.length} specs). Skipping.`,
+        );
+      } else {
+        config.modelSpecs = VALIDATION_MODEL_SPECS;
+        const updatedYaml = yaml.dump(config, {
+          lineWidth: -1,
+          noRefs: true,
+          quotingType: "'",
+          forceQuotes: false,
+        });
+        fs.writeFileSync(LIBRECHAT_YAML_PATH, updatedYaml);
+        console.log(
+          `  Added ${VALIDATION_MODEL_SPECS.list.length} deterministic modelSpecs to librechat.yaml`,
+        );
+        console.log('  IMPORTANT: Restart the dev API to pick up the updated config:');
+        console.log('    docker restart librechat-dev-api');
+      }
+    } else {
+      console.warn(`  Warning: ${LIBRECHAT_YAML_PATH} not found. Skipping modelSpecs provisioning.`);
+      console.log('  Create librechat.yaml or run ensure-runtime-files.sh first.');
+    }
+  } catch (yamlErr) {
+    console.warn(`  Warning: Could not update librechat.yaml: ${yamlErr.message}`);
+    console.log('  Add modelSpecs manually if needed for VAL-MODEL-003 validation.');
+  }
+
+  // ------------------------------------------------------------------
+  // Step 6: Write local manifest
   // ------------------------------------------------------------------
   const manifest = {
     _comment: 'DEV VALIDATION ONLY — DO NOT COMMIT. Generated by dev-seed-validation-personas.js',
