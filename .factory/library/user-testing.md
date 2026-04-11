@@ -258,3 +258,15 @@ The push notification delivery code (`notifications.js`) already prunes endpoint
 - For now, validator reruns should focus on local dev-rail migration regressions and preserved-behavior parity.
 - The following validation clusters are intentionally deferred until the user re-enables them: OCR-backed image text persistence, Google credential-dependent provider/file flows, xAI credential-dependent flows, Ollama Cloud hosted-search proof that depends on a refreshed cloud key, MCP refresh-token/consented-persona validation, and browser click-open proof for stale push endpoints.
 - Do not treat those deferred clusters as blockers for current local regression-fix reruns; leave an auditable paper trail so they can be resumed later on the dev rail.
+
+
+## Round 10 local-rerun notes (2026-04-11)
+
+- Scope followed the current user override: reran only local migration-regression assertions and skipped deferred OCR/provider/Ollama/MCP-refresh/push-click clusters.
+- Tested assertions: `VAL-MCP-001`, `VAL-MCP-004`, `VAL-FILES-006`, `VAL-MODEL-003`.
+- Outcomes:
+  - `VAL-FILES-006` now **passes** with completed diarized output using a long-speech fixture.
+  - `VAL-MCP-001` still **fails** because non-OAuth MCP callable runs are gated by OAuth-consent-required behavior.
+  - `VAL-MCP-004` still **fails** because pending-consent Arcade flow still lacks pre-consent tool discovery and continuation metadata.
+  - `VAL-MODEL-003` still **fails** because `/api/config` still omits filtered `modelSpecs` even though blocked-model enforcement succeeds across chat/agent/assistant probes.
+- Operational friction: high-volume negative-path probes can re-trigger anti-abuse state; reseed personas and restart `librechat-dev-api` before assertion batches when needed.
