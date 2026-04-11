@@ -43,6 +43,13 @@ jest.mock('~/server/services/Config', () => ({
   getAppConfig: jest.fn().mockResolvedValue({}),
 }));
 
+const mockGetServerConfig = jest.fn();
+jest.mock('~/config', () => ({
+  getMCPServersRegistry: () => ({
+    getServerConfig: (...args) => mockGetServerConfig(...args),
+  }),
+}));
+
 jest.mock('~/server/cleanup', () => ({
   disposeClient: jest.fn(),
 }));
@@ -102,6 +109,10 @@ beforeEach(() => {
     client: mockClient,
     userMCPAuthMap: null,
   });
+
+  // Default: MCP server config lookup returns an OAuth-requiring server.
+  // Tests for non-OAuth servers and missing servers override this.
+  mockGetServerConfig.mockResolvedValue({ requiresOAuth: true });
 });
 
 describe('extractResponsePreview', () => {
@@ -644,6 +655,248 @@ describe('executeScheduledRun', () => {
       await expect(executeScheduledRun(mcpSchedule, baseUser)).rejects.toThrow(
         /OAuth consent.*arcade-microsoft/i,
       );
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('MCP preflight auth classification (VAL-MCP-001, VAL-CROSS-005A)', () => {
+    it('allows non-OAuth (requiresOAuth=false) servers without access_token', async () => {
+      const nonOAuthSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['local-file-server'],
+          },
+        },
+      };
+
+      // Server config indicates no OAuth requirement
+      mockGetServerConfig.mockResolvedValue({ requiresOAuth: false });
+
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'File contents: hello world',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: { title: 'File Read' } }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: null, // No auth map at all — non-OAuth server needs none
+      });
+
+      const result = await executeScheduledRun(nonOAuthSchedule, baseUser);
+      expect(result.success).toBe(true);
+      expect(mockClient.sendMessage).toHaveBeenCalled();
+    });
+
+    it('fails missing/unregistered servers as registration errors, not OAuth errors', async () => {
+      const missingServerSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['nonexistent-server'],
+          },
+        },
+      };
+
+      // Server config returns undefined — server not registered
+      mockGetServerConfig.mockResolvedValue(undefined);
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: null,
+      });
+
+      const error = await executeScheduledRun(missingServerSchedule, baseUser).catch((e) => e);
+      expect(error.message).toMatch(/not found.*not registered|not registered.*not found/i);
+      expect(error.message).toMatch(/nonexistent-server/);
+      // Must NOT mention OAuth consent
+      expect(error.message).not.toMatch(/OAuth consent/i);
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('treats getServerConfig lookup failure as missing server', async () => {
+      const brokenLookupSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['broken-lookup-server'],
+          },
+        },
+      };
+
+      mockGetServerConfig.mockRejectedValue(new Error('DB connection error'));
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: null,
+      });
+
+      const error = await executeScheduledRun(brokenLookupSchedule, baseUser).catch((e) => e);
+      expect(error.message).toMatch(/not found.*not registered/i);
+      expect(error.message).toMatch(/broken-lookup-server/);
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('handles mixed: non-OAuth server passes while OAuth server without token fails', async () => {
+      const mixedSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['local-file-server', 'arcade-microsoft'],
+          },
+        },
+      };
+
+      // Return different configs based on server name
+      mockGetServerConfig.mockImplementation(async (serverName) => {
+        if (serverName === 'local-file-server') {
+          return { requiresOAuth: false };
+        }
+        if (serverName === 'arcade-microsoft') {
+          return { requiresOAuth: true };
+        }
+        return undefined;
+      });
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {}, // No token for arcade-microsoft
+      });
+
+      const error = await executeScheduledRun(mixedSchedule, baseUser).catch((e) => e);
+      // Should fail for the OAuth server, not the non-OAuth one
+      expect(error.message).toMatch(/OAuth consent.*arcade-microsoft/i);
+      expect(error.message).not.toMatch(/local-file-server/);
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('handles mixed: non-OAuth + valid-token OAuth both succeed', async () => {
+      const mixedSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['local-file-server', 'arcade-microsoft'],
+          },
+        },
+      };
+
+      mockGetServerConfig.mockImplementation(async (serverName) => {
+        if (serverName === 'local-file-server') {
+          return { requiresOAuth: false };
+        }
+        if (serverName === 'arcade-microsoft') {
+          return { requiresOAuth: true };
+        }
+        return undefined;
+      });
+
+      const mockClient = {
+        sendMessage: jest.fn().mockResolvedValue({
+          text: 'Combined tool result',
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          databasePromise: Promise.resolve({ conversation: {} }),
+        }),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {
+          'mcp_arcade-microsoft': { access_token: 'valid-token', token_type: 'bearer' },
+        },
+      });
+
+      const result = await executeScheduledRun(mixedSchedule, baseUser);
+      expect(result.success).toBe(true);
+      expect(mockClient.sendMessage).toHaveBeenCalled();
+    });
+
+    it('prioritizes missing-server errors over OAuth-consent errors', async () => {
+      const mixedSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['nonexistent-server', 'arcade-microsoft'],
+          },
+        },
+      };
+
+      mockGetServerConfig.mockImplementation(async (serverName) => {
+        if (serverName === 'nonexistent-server') {
+          return undefined;
+        }
+        if (serverName === 'arcade-microsoft') {
+          return { requiresOAuth: true };
+        }
+        return undefined;
+      });
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {}, // No token for arcade-microsoft either
+      });
+
+      const error = await executeScheduledRun(mixedSchedule, baseUser).catch((e) => e);
+      // Missing-server error takes priority
+      expect(error.message).toMatch(/not found.*not registered/i);
+      expect(error.message).toMatch(/nonexistent-server/);
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('recognizes servers with oauthMetadata (but no requiresOAuth) as OAuth-requiring', async () => {
+      const oauthMetaSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['oauth-meta-server'],
+          },
+        },
+      };
+
+      // Server has oauthMetadata but no explicit requiresOAuth flag
+      mockGetServerConfig.mockResolvedValue({
+        requiresOAuth: false,
+        oauthMetadata: { authorization_endpoint: 'https://auth.example.com/authorize' },
+      });
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {}, // No token
+      });
+
+      const error = await executeScheduledRun(oauthMetaSchedule, baseUser).catch((e) => e);
+      expect(error.message).toMatch(/OAuth consent.*oauth-meta-server/i);
       expect(mockClient.sendMessage).not.toHaveBeenCalled();
     });
   });

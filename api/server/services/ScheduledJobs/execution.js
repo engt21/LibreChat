@@ -13,6 +13,7 @@ const addTitle = require('~/server/services/Endpoints/agents/title');
 const { getModelsConfig } = require('~/server/controllers/ModelController');
 const { validateModelAccess } = require('~/server/services/ModelAccess');
 const { getAppConfig } = require('~/server/services/Config');
+const { getMCPServersRegistry } = require('~/config');
 const { disposeClient } = require('~/server/cleanup');
 
 function createResponseStub() {
@@ -139,29 +140,61 @@ async function prepareExecutionContext(schedule, user) {
 }
 
 /**
- * Validates that all MCP servers referenced by the schedule have valid OAuth tokens.
- * Scheduled runs cannot prompt the user for consent, so missing/empty auth must fail
- * explicitly instead of producing a response with an authorization_url prompt.
+ * Validates MCP server auth requirements for a scheduled run.
  *
- * Checks for a real `access_token` field rather than just auth-map presence, because
- * an auth entry may exist with metadata fields but no usable token when consent is
- * still pending or the token has been revoked.
+ * Classifies each referenced MCP server into one of three categories:
+ *  1. **Missing / unregistered** – the server name is not found in the registry.
+ *     Fails as a registration / discovery error so the operator knows the server
+ *     must be created or re-registered before the schedule can run.
+ *  2. **Non-OAuth** (`requiresOAuth === false`) – the server does not need an
+ *     `access_token` and is callable without OAuth state.
+ *  3. **OAuth-requiring** (`requiresOAuth === true`) – the existing access_token
+ *     validation is applied: the auth-map entry must exist AND contain a non-empty
+ *     `access_token` string.
+ *
+ * Scheduled runs cannot prompt the user for consent, so unmet auth prerequisites
+ * must fail explicitly instead of producing a response with an authorization_url
+ * prompt.
  *
  * @param {object} schedule - The schedule being executed
  * @param {object|null} userMCPAuthMap - The MCP auth map returned by initializeClient
+ * @param {string} [userId] - The user ID for server config lookups
  */
-function validateMCPOAuthConsent(schedule, userMCPAuthMap) {
+async function validateMCPOAuthConsent(schedule, userMCPAuthMap, userId) {
   const mcpServers = schedule.target?.ephemeralAgent?.mcp;
   if (!Array.isArray(mcpServers) || mcpServers.length === 0) {
     return;
   }
 
+  const missingServers = [];
   const serversWithMissingAuth = [];
+
   for (const serverName of mcpServers) {
     if (!serverName) {
       continue;
     }
 
+    // Look up the server configuration to determine its auth requirements
+    let serverConfig;
+    try {
+      serverConfig = await getMCPServersRegistry().getServerConfig(serverName, userId);
+    } catch {
+      // Config lookup failure — treat as missing
+    }
+
+    if (!serverConfig) {
+      // Server is not registered / not found in the registry
+      missingServers.push(serverName);
+      continue;
+    }
+
+    // Non-OAuth servers are callable without an access_token
+    const serverRequiresOAuth = Boolean(serverConfig.requiresOAuth || serverConfig.oauthMetadata);
+    if (!serverRequiresOAuth) {
+      continue;
+    }
+
+    // OAuth-required server: validate that a real access_token is present
     const authKey = `${Constants.mcp_prefix}${serverName}`;
     const authEntry = userMCPAuthMap?.[authKey];
 
@@ -180,6 +213,16 @@ function validateMCPOAuthConsent(schedule, userMCPAuthMap) {
     }
   }
 
+  // Report missing / unregistered servers as registration errors, not OAuth errors
+  if (missingServers.length > 0) {
+    const serverList = missingServers.join(', ');
+    throw new Error(
+      `MCP server(s) not found or not registered: ${serverList}. ` +
+        `Register the server(s) before scheduling runs that depend on their tools.`,
+    );
+  }
+
+  // Report OAuth-required servers that lack a valid token
   if (serversWithMissingAuth.length > 0) {
     const serverList = serversWithMissingAuth.join(', ');
     throw new Error(
@@ -255,7 +298,7 @@ async function executeScheduledRun(schedule, user) {
 
     // Validate MCP OAuth consent state before executing — scheduled runs cannot
     // prompt users for consent, so unmet prerequisites must fail explicitly.
-    validateMCPOAuthConsent(schedule, initialized.userMCPAuthMap);
+    await validateMCPOAuthConsent(schedule, initialized.userMCPAuthMap, req.user.id);
 
     let requestMessage;
     const response = await client.sendMessage(schedule.prompt, {
