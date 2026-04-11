@@ -420,6 +420,65 @@ describe('runScheduleController', () => {
     expect(body.notificationResults).toBeDefined();
     expect(body.executionResult).toBeDefined();
   });
+
+  it('surfaces structured continuationMetadata in the error response for MCP consent failures (VAL-MCP-004)', async () => {
+    const error = new Error(
+      'MCP tool returned an authorization prompt instead of executing. ' +
+        'Provider consent is required for MCP server(s): arcade-microsoft.',
+    );
+    error.schedule = {
+      scheduleId: 's1',
+      lastStatus: 'failed',
+      lockUntil: null,
+      lastError: error.message,
+    };
+    error.notificationResults = {};
+    error.executionResult = { conversationId: null, responseMessageId: null, preview: null };
+    error.continuationMetadata = {
+      authorization_url:
+        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+      llm_instructions: 'Please share the authorization link with the user.',
+      servers: ['arcade-microsoft'],
+    };
+    mockRunScheduledJobNow.mockRejectedValue(error);
+
+    const req = createReq({ params: { scheduleId: 's1' } });
+    const res = createRes();
+    await runScheduleController(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    const body = res.json.mock.calls[0][0];
+    expect(body.message).toContain('authorization prompt');
+    expect(body.continuationMetadata).toBeDefined();
+    expect(body.continuationMetadata.authorization_url).toBe(
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+    );
+    expect(body.continuationMetadata.llm_instructions).toBe(
+      'Please share the authorization link with the user.',
+    );
+    expect(body.continuationMetadata.servers).toEqual(['arcade-microsoft']);
+  });
+
+  it('does not include continuationMetadata when error has none (non-MCP failure)', async () => {
+    const error = new Error('Network timeout');
+    error.schedule = {
+      scheduleId: 's1',
+      lastStatus: 'failed',
+      lockUntil: null,
+    };
+    error.notificationResults = {};
+    error.executionResult = null;
+    mockRunScheduledJobNow.mockRejectedValue(error);
+
+    const req = createReq({ params: { scheduleId: 's1' } });
+    const res = createRes();
+    await runScheduleController(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    const body = res.json.mock.calls[0][0];
+    expect(body.message).toBe('Network timeout');
+    expect(body.continuationMetadata).toBeUndefined();
+  });
 });
 
 describe('listSchedulesController', () => {

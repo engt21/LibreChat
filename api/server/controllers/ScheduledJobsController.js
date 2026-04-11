@@ -277,7 +277,7 @@ async function runScheduleController(req, res) {
       return res.status(409).json({ message: error.message });
     }
 
-    return res.status(500).json({
+    const errorPayload = {
       message: error.message,
       schedule: serializeSchedule(error.schedule),
       notificationResults: error.notificationResults,
@@ -286,7 +286,16 @@ async function runScheduleController(req, res) {
         responseMessageId: error.executionResult?.responseMessageId ?? null,
         preview: error.executionResult?.preview ?? null,
       },
-    });
+    };
+
+    // Surface structured MCP consent-continuation metadata when present
+    // so API consumers and validators can see the authorization_url,
+    // llm_instructions, and affected servers (VAL-MCP-004).
+    if (error.continuationMetadata) {
+      errorPayload.continuationMetadata = error.continuationMetadata;
+    }
+
+    return res.status(500).json(errorPayload);
   }
 }
 
