@@ -13,9 +13,11 @@ const {
   isMCPDomainNotAllowedError,
   isMCPInspectionFailedError,
 } = require('@librechat/api');
-const { Constants, MCPServerUserInputSchema } = require('librechat-data-provider');
+const { CacheKeys, Constants, MCPServerUserInputSchema } = require('librechat-data-provider');
 const { cacheMCPServerTools, getMCPServerTools } = require('~/server/services/Config');
-const { getMCPManager, getMCPServersRegistry } = require('~/config');
+const { getMCPManager, getMCPServersRegistry, getFlowStateManager } = require('~/config');
+const { reinitMCPServer } = require('~/server/services/Tools/mcp');
+const { getLogStores } = require('~/cache');
 
 /**
  * Handles MCP-specific errors and sends appropriate HTTP responses.
@@ -97,7 +99,7 @@ const getMCPTools = async (req, res) => {
 
     // Track both processed tools and raw discovery metadata per server
     const serverToolsMap = new Map();
-    /** @type {Map<string, { oauthRequired?: boolean, oauthUrl?: string|null, discoveredRawTools?: Array }>} */
+    /** @type {Map<string, { oauthRequired?: boolean, oauthUrl?: string|null, discoveredRawTools?: Array, discoveredToolFunctions?: object }>} */
     const serverDiscoveryMeta = new Map();
 
     for (const { serverName, tools } of cacheResults) {
@@ -124,14 +126,67 @@ const getMCPTools = async (req, res) => {
       }
 
       // For OAuth servers without an active connection, attempt pre-consent discovery
-      // (per MCP spec, tool listing should be possible before OAuth consent)
-      if (oauthServers.has(serverName) && typeof mcpManager.discoverServerTools === 'function') {
+      // (per MCP spec, tool listing should be possible before OAuth consent).
+      // Check both the oauthServers set (based on config.requiresOAuth) and the
+      // raw server config's oauthMetadata, because newly created servers may have
+      // oauthMetadata populated before requiresOAuth is set (VAL-MCP-004).
+      const rawConfigForOAuthCheck = await getMCPServersRegistry().getServerConfig(
+        serverName,
+        userId,
+      );
+      const isOAuthLike =
+        oauthServers.has(serverName) ||
+        Boolean(rawConfigForOAuthCheck?.requiresOAuth) ||
+        Boolean(rawConfigForOAuthCheck?.oauthMetadata);
+      if (isOAuthLike && typeof mcpManager.discoverServerTools === 'function') {
         try {
-          const discovery = await mcpManager.discoverServerTools({ serverName, user: { id: userId } });
+          let discovery = await mcpManager.discoverServerTools({
+            serverName,
+            user: { id: userId },
+          });
+          let oauthUrl = discovery.oauthUrl ?? null;
+          let discoveredToolFunctions;
+
+          if ((!discovery.tools?.length || !oauthUrl) && req.user) {
+            try {
+              const result = await reinitMCPServer({
+                user: req.user,
+                serverName,
+                flowManager: getFlowStateManager(getLogStores(CacheKeys.FLOWS)),
+                returnOnOAuth: true,
+                oauthStart: async (authURL) => {
+                  oauthUrl = authURL;
+                },
+              });
+
+              if (!discovery.tools?.length && result?.tools?.length) {
+                discovery = {
+                  ...discovery,
+                  tools: result.tools,
+                  oauthRequired: result.oauthRequired ?? discovery.oauthRequired,
+                };
+              }
+
+              if (result?.availableTools && Object.keys(result.availableTools).length > 0) {
+                discoveredToolFunctions = result.availableTools;
+              }
+
+              if (!oauthUrl && result?.oauthUrl) {
+                oauthUrl = result.oauthUrl;
+              }
+            } catch (reinitError) {
+              logger.debug(
+                `[getMCPTools] Pre-consent reinit fallback failed for ${serverName}:`,
+                reinitError,
+              );
+            }
+          }
+
           serverDiscoveryMeta.set(serverName, {
             oauthRequired: discovery.oauthRequired,
-            oauthUrl: discovery.oauthUrl,
+            oauthUrl,
             discoveredRawTools: discovery.tools,
+            discoveredToolFunctions,
           });
           logger.debug(
             `[getMCPTools] Pre-consent discovery for ${serverName}: ${discovery.tools?.length ?? 0} tools, oauthRequired=${discovery.oauthRequired}`,
@@ -158,6 +213,13 @@ const getMCPTools = async (req, res) => {
         const rawServerConfig = await getMCPServersRegistry().getServerConfig(serverName, userId);
         const isOAuthServer = oauthServers.has(serverName);
 
+        const fallbackToolFunctions =
+          !serverTools &&
+          rawServerConfig?.toolFunctions &&
+          Object.keys(rawServerConfig.toolFunctions).length > 0
+            ? rawServerConfig.toolFunctions
+            : null;
+
         // Initialize server object with all server-level data
         const server = {
           name: serverName,
@@ -181,8 +243,10 @@ const getMCPTools = async (req, res) => {
         }
 
         // Process tools from established connections (LCAvailableTools format)
-        if (serverTools) {
-          for (const [toolKey, toolData] of Object.entries(serverTools)) {
+        if (serverTools || fallbackToolFunctions || discoveryMeta?.discoveredToolFunctions) {
+          const processedTools =
+            serverTools ?? fallbackToolFunctions ?? discoveryMeta?.discoveredToolFunctions ?? {};
+          for (const [toolKey, toolData] of Object.entries(processedTools)) {
             if (!toolData.function || !toolKey.includes(Constants.mcp_delimiter)) {
               continue;
             }
@@ -197,7 +261,12 @@ const getMCPTools = async (req, res) => {
         }
 
         // Process tools from pre-consent discovery (raw MCP Tool[] format)
-        if (!serverTools && discoveryMeta?.discoveredRawTools) {
+        if (
+          !serverTools &&
+          !fallbackToolFunctions &&
+          !discoveryMeta?.discoveredToolFunctions &&
+          discoveryMeta?.discoveredRawTools
+        ) {
           for (const tool of discoveryMeta.discoveredRawTools) {
             if (!tool.name) {
               continue;
