@@ -14,6 +14,7 @@ jest.mock('@librechat/data-schemas', () => ({
 }));
 
 jest.mock('librechat-data-provider', () => ({
+  CacheKeys: { FLOWS: 'flows' },
   Constants: {
     mcp_prefix: 'mcp_',
     mcp_delimiter: '___',
@@ -34,9 +35,25 @@ jest.mock('@librechat/api', () => ({
 
 const mockGetMCPManager = jest.fn();
 const mockGetMCPServersRegistry = jest.fn();
+const mockGetFlowStateManager = jest.fn();
 jest.mock('~/config', () => ({
   getMCPManager: (...args) => mockGetMCPManager(...args),
   getMCPServersRegistry: (...args) => mockGetMCPServersRegistry(...args),
+  getFlowStateManager: (...args) => mockGetFlowStateManager(...args),
+}));
+
+const mockReinitMCPServer = jest.fn();
+jest.mock('~/server/services/Tools/mcp', () => ({
+  reinitMCPServer: (...args) => mockReinitMCPServer(...args),
+}));
+
+jest.mock('~/cache', () => ({
+  getLogStores: jest.fn(() => ({})),
+}));
+
+const mockDiscoverAuthServerMetadata = jest.fn();
+jest.mock('@modelcontextprotocol/sdk/client/auth.js', () => ({
+  discoverAuthorizationServerMetadata: (...args) => mockDiscoverAuthServerMetadata(...args),
 }));
 
 const mockGetMCPServerTools = jest.fn();
@@ -79,6 +96,8 @@ beforeEach(() => {
   mockGetMCPServersRegistry.mockReturnValue(mockRegistryInstance);
   mockGetMCPServerTools.mockResolvedValue(null);
   mockCacheMCPServerTools.mockResolvedValue(undefined);
+  mockGetFlowStateManager.mockReturnValue({});
+  mockReinitMCPServer.mockResolvedValue(undefined);
 });
 
 describe('getMCPTools — pre-consent tool discovery (VAL-MCP-004)', () => {
@@ -272,6 +291,117 @@ describe('getMCPTools — pre-consent tool discovery (VAL-MCP-004)', () => {
     expect(server.oauthUrl).toBeUndefined();
   });
 
+  it('should fall back to stored config toolFunctions when cache and connection are empty', async () => {
+    const storedToolFunctions = {
+      'list_files___local-server': {
+        type: 'function',
+        function: {
+          name: 'list_files___local-server',
+          description: 'List files',
+          parameters: { type: 'object' },
+        },
+      },
+    };
+
+    mockRegistryInstance.getAllServerConfigs.mockResolvedValue({
+      'local-server': {
+        type: 'stdio',
+        command: 'node',
+        args: ['server.js'],
+      },
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'stdio',
+      command: 'node',
+      args: ['server.js'],
+      toolFunctions: storedToolFunctions,
+    });
+    mockRegistryInstance.getOAuthServers.mockResolvedValue(new Set());
+
+    const mockManager = {
+      getServerToolFunctions: jest.fn().mockResolvedValue(null),
+    };
+    mockGetMCPManager.mockReturnValue(mockManager);
+
+    const req = createReq();
+    const res = createRes();
+    await getMCPTools(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const server = res.body.servers['local-server'];
+    expect(server).toBeDefined();
+    expect(server.tools).toEqual([
+      {
+        name: 'list_files',
+        pluginKey: 'list_files___local-server',
+        description: 'List files',
+      },
+    ]);
+  });
+
+  it('should fall back to pre-consent reinit when discovery has no tools and no oauthUrl', async () => {
+    mockRegistryInstance.getAllServerConfigs.mockResolvedValue({
+      'arcade-microsoft': {
+        type: 'sse',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools',
+        requiresOAuth: true,
+      },
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'sse',
+      url: 'https://api.arcade.dev/mcp/microsoft-tools',
+      requiresOAuth: true,
+    });
+    mockRegistryInstance.getOAuthServers.mockResolvedValue(new Set(['arcade-microsoft']));
+
+    const mockManager = {
+      getServerToolFunctions: jest.fn().mockResolvedValue(null),
+      discoverServerTools: jest.fn().mockResolvedValue({
+        tools: null,
+        oauthRequired: true,
+        oauthUrl: null,
+      }),
+    };
+    mockGetMCPManager.mockReturnValue(mockManager);
+    mockReinitMCPServer.mockResolvedValue({
+      oauthRequired: true,
+      oauthUrl: 'https://login.microsoftonline.com/authorize',
+      availableTools: {
+        'Microsoft_ListCalendarEvents___arcade-microsoft': {
+          type: 'function',
+          function: {
+            name: 'Microsoft_ListCalendarEvents___arcade-microsoft',
+            description: 'List calendar events',
+            parameters: { type: 'object' },
+          },
+        },
+      },
+    });
+
+    const req = createReq();
+    const res = createRes();
+    await getMCPTools(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const server = res.body.servers['arcade-microsoft'];
+    expect(server).toBeDefined();
+    expect(server.authState).toBe('pending_consent');
+    expect(server.oauthUrl).toBe('https://login.microsoftonline.com/authorize');
+    expect(server.tools).toEqual([
+      {
+        name: 'Microsoft_ListCalendarEvents',
+        pluginKey: 'Microsoft_ListCalendarEvents___arcade-microsoft',
+        description: 'List calendar events',
+      },
+    ]);
+    expect(mockReinitMCPServer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'arcade-microsoft',
+        returnOnOAuth: true,
+      }),
+    );
+  });
+
   it('should fall back to discoverServerTools when getServerToolFunctions throws for OAuth server', async () => {
     const rawDiscoveredTools = [
       {
@@ -384,5 +514,111 @@ describe('getMCPTools — pre-consent tool discovery (VAL-MCP-004)', () => {
     expect(arcadeServer.tools).toHaveLength(1);
     expect(arcadeServer.authState).toBe('pending_consent');
     expect(arcadeServer.oauthUrl).toBe('https://login.microsoftonline.com/authorize');
+  });
+
+  it('should resolve oauthUrl from authorization_servers when discovery and reinit return no URL (VAL-MCP-004)', async () => {
+    mockRegistryInstance.getAllServerConfigs.mockResolvedValue({
+      'arcade-microsoft': {
+        type: 'sse',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools',
+        requiresOAuth: true,
+      },
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'sse',
+      url: 'https://api.arcade.dev/mcp/microsoft-tools',
+      requiresOAuth: true,
+      oauthMetadata: {
+        authorization_servers: ['https://cloud.arcade.dev/oauth2'],
+      },
+    });
+    mockRegistryInstance.getOAuthServers.mockResolvedValue(new Set(['arcade-microsoft']));
+
+    // discoverServerTools returns tools but no oauthUrl
+    const rawDiscoveredTools = [
+      {
+        name: 'Microsoft_ListCalendarEvents',
+        description: 'List calendar events',
+        inputSchema: { type: 'object' },
+      },
+    ];
+    const mockManager = {
+      getServerToolFunctions: jest.fn().mockResolvedValue(null),
+      discoverServerTools: jest.fn().mockResolvedValue({
+        tools: rawDiscoveredTools,
+        oauthRequired: true,
+        oauthUrl: null,
+      }),
+    };
+    mockGetMCPManager.mockReturnValue(mockManager);
+
+    // reinitMCPServer also returns no oauthUrl
+    mockReinitMCPServer.mockResolvedValue(undefined);
+
+    // Mock auth server metadata discovery to return authorization_endpoint
+    mockDiscoverAuthServerMetadata.mockResolvedValue({
+      authorization_endpoint: 'https://cloud.arcade.dev/oauth2/authorize',
+      token_endpoint: 'https://cloud.arcade.dev/oauth2/token',
+      issuer: 'https://cloud.arcade.dev/oauth2',
+    });
+
+    const req = createReq();
+    const res = createRes();
+    await getMCPTools(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const server = res.body.servers['arcade-microsoft'];
+    expect(server).toBeDefined();
+    expect(server.tools).toHaveLength(1);
+    expect(server.authState).toBe('pending_consent');
+    // oauthUrl should be resolved from authorization_servers via server metadata discovery
+    expect(server.oauthUrl).toBe('https://cloud.arcade.dev/oauth2/authorize');
+    expect(mockDiscoverAuthServerMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({ href: 'https://cloud.arcade.dev/oauth2' }),
+    );
+  });
+
+  it('should fall back to authorization_server URL when metadata discovery fails (VAL-MCP-004)', async () => {
+    mockRegistryInstance.getAllServerConfigs.mockResolvedValue({
+      'arcade-microsoft': {
+        type: 'sse',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools',
+        requiresOAuth: true,
+      },
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'sse',
+      url: 'https://api.arcade.dev/mcp/microsoft-tools',
+      requiresOAuth: true,
+      oauthMetadata: {
+        authorization_servers: ['https://cloud.arcade.dev/oauth2'],
+      },
+    });
+    mockRegistryInstance.getOAuthServers.mockResolvedValue(new Set(['arcade-microsoft']));
+
+    const mockManager = {
+      getServerToolFunctions: jest.fn().mockResolvedValue(null),
+      discoverServerTools: jest.fn().mockResolvedValue({
+        tools: null,
+        oauthRequired: true,
+        oauthUrl: null,
+      }),
+    };
+    mockGetMCPManager.mockReturnValue(mockManager);
+
+    mockReinitMCPServer.mockResolvedValue(undefined);
+    // Metadata discovery fails
+    mockDiscoverAuthServerMetadata.mockRejectedValue(new Error('Network error'));
+
+    const req = createReq();
+    const res = createRes();
+    await getMCPTools(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const server = res.body.servers['arcade-microsoft'];
+    expect(server).toBeDefined();
+    expect(server.authState).toBe('pending_consent');
+    // Should fall back to the authorization_server URL itself
+    expect(server.oauthUrl).toBe('https://cloud.arcade.dev/oauth2');
   });
 });

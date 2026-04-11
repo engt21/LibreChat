@@ -1,8 +1,9 @@
 jest.mock('@librechat/data-schemas', () => ({
-  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
 }));
 
 jest.mock('librechat-data-provider', () => ({
+  CacheKeys: { FLOWS: 'flows' },
   Constants: { NO_PARENT: '00000000-0000-0000-0000-000000000000', mcp_prefix: 'mcp_' },
   EndpointURLs: { agents: '/api/agents' },
   parseTextParts: jest.fn((content) =>
@@ -44,10 +45,31 @@ jest.mock('~/server/services/Config', () => ({
 }));
 
 const mockGetServerConfig = jest.fn();
+const mockDiscoverServerTools = jest.fn();
+const mockGetFlowStateManager = jest.fn();
 jest.mock('~/config', () => ({
   getMCPServersRegistry: () => ({
     getServerConfig: (...args) => mockGetServerConfig(...args),
   }),
+  getMCPManager: () => ({
+    discoverServerTools: (...args) => mockDiscoverServerTools(...args),
+  }),
+  getFlowStateManager: (...args) => mockGetFlowStateManager(...args),
+}));
+
+const mockReinitMCPServer = jest.fn();
+jest.mock('~/server/services/Tools/mcp', () => ({
+  reinitMCPServer: (...args) => mockReinitMCPServer(...args),
+}));
+
+const mockDiscoverAuthorizationServerMetadata = jest.fn();
+jest.mock('@modelcontextprotocol/sdk/client/auth.js', () => ({
+  discoverAuthorizationServerMetadata: (...args) =>
+    mockDiscoverAuthorizationServerMetadata(...args),
+}));
+
+jest.mock('~/cache', () => ({
+  getLogStores: jest.fn(() => ({})),
 }));
 
 jest.mock('~/server/cleanup', () => ({
@@ -113,6 +135,13 @@ beforeEach(() => {
   // Default: MCP server config lookup returns an OAuth-requiring server.
   // Tests for non-OAuth servers and missing servers override this.
   mockGetServerConfig.mockResolvedValue({ requiresOAuth: true });
+  mockGetFlowStateManager.mockReturnValue({});
+  mockDiscoverServerTools.mockResolvedValue({
+    tools: null,
+    oauthRequired: true,
+    oauthUrl: null,
+  });
+  mockReinitMCPServer.mockResolvedValue(undefined);
 });
 
 describe('extractResponsePreview', () => {
@@ -708,6 +737,109 @@ describe('executeScheduledRun', () => {
       expect(error.continuationMetadata.servers).toEqual(['arcade-microsoft']);
       // authorization_url should be undefined when oauthMetadata lacks authorization_endpoint
       expect(error.continuationMetadata.authorization_url).toBeUndefined();
+    });
+
+    it('resolves authorization_url from oauthMetadata.authorization_servers via server metadata discovery (VAL-MCP-004)', async () => {
+      // Server config has RFC 9728 resource metadata with authorization_servers
+      // but no explicit authorization_endpoint
+      mockGetServerConfig.mockResolvedValue({
+        requiresOAuth: true,
+        oauthMetadata: {
+          authorization_servers: ['https://cloud.arcade.dev/oauth2'],
+        },
+      });
+
+      // Mock the authorization server metadata discovery to return the authorization_endpoint
+      mockDiscoverAuthorizationServerMetadata.mockResolvedValue({
+        authorization_endpoint: 'https://cloud.arcade.dev/oauth2/authorize',
+        token_endpoint: 'https://cloud.arcade.dev/oauth2/token',
+        issuer: 'https://cloud.arcade.dev/oauth2',
+      });
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {},
+      });
+
+      const error = await executeScheduledRun(mcpSchedule, baseUser).catch((e) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.continuationMetadata).toBeDefined();
+      // authorization_url should be resolved from the authorization server metadata
+      expect(error.continuationMetadata.authorization_url).toBe(
+        'https://cloud.arcade.dev/oauth2/authorize',
+      );
+      expect(error.continuationMetadata.servers).toEqual(['arcade-microsoft']);
+      // discoverAuthorizationServerMetadata should have been called with the first authorization_server
+      expect(mockDiscoverAuthorizationServerMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({ href: 'https://cloud.arcade.dev/oauth2' }),
+      );
+    });
+
+    it('falls back to authorization_server URL when server metadata discovery fails (VAL-MCP-004)', async () => {
+      mockGetServerConfig.mockResolvedValue({
+        requiresOAuth: true,
+        oauthMetadata: {
+          authorization_servers: ['https://cloud.arcade.dev/oauth2'],
+        },
+      });
+
+      // Mock discovery failure
+      mockDiscoverAuthorizationServerMetadata.mockRejectedValue(
+        new Error('Discovery failed'),
+      );
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {},
+      });
+
+      const error = await executeScheduledRun(mcpSchedule, baseUser).catch((e) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.continuationMetadata).toBeDefined();
+      // Should fall back to the authorization_server URL itself
+      expect(error.continuationMetadata.authorization_url).toBe(
+        'https://cloud.arcade.dev/oauth2',
+      );
+      expect(error.continuationMetadata.servers).toEqual(['arcade-microsoft']);
+    });
+
+    it('falls back to reinit/discovery authorization_url when oauthMetadata lacks authorization_endpoint (VAL-MCP-004)', async () => {
+      mockGetServerConfig.mockResolvedValue({
+        requiresOAuth: true,
+      });
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {},
+      });
+
+      mockReinitMCPServer.mockResolvedValue({
+        oauthRequired: true,
+        oauthUrl: 'https://cloud.arcade.dev/oauth2/authorize',
+      });
+
+      const error = await executeScheduledRun(mcpSchedule, baseUser).catch((e) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.continuationMetadata).toBeDefined();
+      expect(error.continuationMetadata.authorization_url).toBe(
+        'https://cloud.arcade.dev/oauth2/authorize',
+      );
+      expect(mockReinitMCPServer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serverName: 'arcade-microsoft',
+          user: baseUser,
+          returnOnOAuth: true,
+        }),
+      );
     });
 
     it('attaches continuationMetadata with multiple servers on preflight failure (VAL-MCP-004)', async () => {

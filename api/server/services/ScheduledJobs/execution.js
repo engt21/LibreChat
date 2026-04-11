@@ -3,6 +3,7 @@ const EventEmitter = require('node:events');
 const { logger } = require('@librechat/data-schemas');
 const {
   Constants,
+  CacheKeys,
   EndpointURLs,
   parseTextParts,
   isAgentsEndpoint,
@@ -13,8 +14,10 @@ const addTitle = require('~/server/services/Endpoints/agents/title');
 const { getModelsConfig } = require('~/server/controllers/ModelController');
 const { validateModelAccess } = require('~/server/services/ModelAccess');
 const { getAppConfig } = require('~/server/services/Config');
-const { getMCPServersRegistry } = require('~/config');
+const { getMCPManager, getMCPServersRegistry, getFlowStateManager } = require('~/config');
+const { reinitMCPServer } = require('~/server/services/Tools/mcp');
 const { disposeClient } = require('~/server/cleanup');
+const { getLogStores } = require('~/cache');
 
 function createResponseStub() {
   return {
@@ -158,14 +161,15 @@ async function prepareExecutionContext(schedule, user) {
  *
  * @param {object} schedule - The schedule being executed
  * @param {object|null} userMCPAuthMap - The MCP auth map returned by initializeClient
- * @param {string} [userId] - The user ID for server config lookups
+ * @param {object} [user] - The executing user for server config lookups and OAuth fallback discovery
  */
-async function validateMCPOAuthConsent(schedule, userMCPAuthMap, userId) {
+async function validateMCPOAuthConsent(schedule, userMCPAuthMap, user) {
   const mcpServers = schedule.target?.ephemeralAgent?.mcp;
   if (!Array.isArray(mcpServers) || mcpServers.length === 0) {
     return;
   }
 
+  const userId = user?.id ?? user?._id?.toString?.() ?? user?._id;
   const missingServers = [];
   const serversWithMissingAuth = [];
   /** @type {Map<string, object|undefined>} Server name → serverConfig for servers needing auth */
@@ -242,10 +246,103 @@ async function validateMCPOAuthConsent(schedule, userMCPAuthMap, userId) {
       servers: [...serversWithMissingAuth],
     };
 
-    // Extract authorization_url from the first server that has it in oauthMetadata
+    const resolveAuthorizationUrl = async (name, config) => {
+      // Check for explicit authorization_endpoint or pre-configured authorization_url
+      const configuredAuthUrl =
+        config?.oauthMetadata?.authorization_endpoint || config?.oauth?.authorization_url;
+      if (typeof configuredAuthUrl === 'string' && configuredAuthUrl.length > 0) {
+        return configuredAuthUrl;
+      }
+
+      // Check for RFC 9728 protected resource metadata authorization_servers.
+      // The oauthMetadata from detectOAuthRequirement stores { authorization_servers: [...] }
+      // which is the resource metadata, not the authorization server metadata.
+      // Try to discover the authorization_endpoint from the first authorization server (VAL-MCP-004).
+      const authServers = config?.oauthMetadata?.authorization_servers;
+      if (Array.isArray(authServers) && authServers.length > 0) {
+        const authServerUrl = authServers[0];
+        if (typeof authServerUrl === 'string' && authServerUrl.length > 0) {
+          try {
+            const { discoverAuthorizationServerMetadata } = require(
+              '@modelcontextprotocol/sdk/client/auth.js',
+            );
+            const serverMetadata = await discoverAuthorizationServerMetadata(
+              new URL(authServerUrl),
+            );
+            if (
+              serverMetadata?.authorization_endpoint &&
+              typeof serverMetadata.authorization_endpoint === 'string'
+            ) {
+              return serverMetadata.authorization_endpoint;
+            }
+          } catch (discoveryErr) {
+            logger.debug?.(
+              `[ScheduledJobs] Failed to discover authorization endpoint from ${authServerUrl}`,
+              discoveryErr,
+            );
+          }
+          // Fall back to the authorization server URL itself as a best-effort hint
+          return authServerUrl;
+        }
+      }
+
+      if (!user || !userId) {
+        return undefined;
+      }
+
+      let discoveredAuthUrl;
+      try {
+        const reinitResult = await reinitMCPServer({
+          user,
+          serverName: name,
+          userMCPAuthMap,
+          flowManager: getFlowStateManager(getLogStores(CacheKeys.FLOWS)),
+          returnOnOAuth: true,
+          oauthStart: async (authURL) => {
+            discoveredAuthUrl = authURL;
+          },
+        });
+
+        if (!discoveredAuthUrl && typeof reinitResult?.oauthUrl === 'string') {
+          discoveredAuthUrl = reinitResult.oauthUrl;
+        }
+      } catch (error) {
+        logger.debug?.(
+          `[ScheduledJobs] Failed to resolve OAuth authorization URL for ${name}`,
+          error,
+        );
+      }
+
+      if (discoveredAuthUrl) {
+        return discoveredAuthUrl;
+      }
+
+      if (typeof getMCPManager()?.discoverServerTools === 'function') {
+        try {
+          const discovery = await getMCPManager().discoverServerTools({
+            serverName: name,
+            user: { id: userId },
+            flowManager: getFlowStateManager(getLogStores(CacheKeys.FLOWS)),
+            oauthStart: async (authURL) => {
+              discoveredAuthUrl = authURL;
+            },
+          });
+          return discoveredAuthUrl || discovery?.oauthUrl || undefined;
+        } catch (error) {
+          logger.debug?.(
+            `[ScheduledJobs] Discovery fallback failed while resolving OAuth URL for ${name}`,
+            error,
+          );
+        }
+      }
+
+      return undefined;
+    };
+
+    // Extract authorization_url from the first server that has it available
     for (const name of serversWithMissingAuth) {
       const config = serverConfigsByName.get(name);
-      const authEndpoint = config?.oauthMetadata?.authorization_endpoint;
+      const authEndpoint = await resolveAuthorizationUrl(name, config);
       if (typeof authEndpoint === 'string' && authEndpoint.length > 0) {
         continuationMetadata.authorization_url = authEndpoint;
         break;
@@ -322,7 +419,7 @@ async function executeScheduledRun(schedule, user) {
 
     // Validate MCP OAuth consent state before executing — scheduled runs cannot
     // prompt users for consent, so unmet prerequisites must fail explicitly.
-    await validateMCPOAuthConsent(schedule, initialized.userMCPAuthMap, req.user.id);
+    await validateMCPOAuthConsent(schedule, initialized.userMCPAuthMap, req.user);
 
     let requestMessage;
     const response = await client.sendMessage(schedule.prompt, {

@@ -182,6 +182,40 @@ const getMCPTools = async (req, res) => {
             }
           }
 
+          // If no oauthUrl was found via discovery/reinit, try to resolve from
+          // RFC 9728 protected resource metadata's authorization_servers (VAL-MCP-004).
+          if (!oauthUrl && rawConfigForOAuthCheck?.oauthMetadata?.authorization_servers) {
+            const authServers = rawConfigForOAuthCheck.oauthMetadata.authorization_servers;
+            if (Array.isArray(authServers) && authServers.length > 0) {
+              const authServerUrl = authServers[0];
+              if (typeof authServerUrl === 'string' && authServerUrl.length > 0) {
+                try {
+                  const { discoverAuthorizationServerMetadata } = require(
+                    '@modelcontextprotocol/sdk/client/auth.js',
+                  );
+                  const serverMetadata = await discoverAuthorizationServerMetadata(
+                    new URL(authServerUrl),
+                  );
+                  if (
+                    serverMetadata?.authorization_endpoint &&
+                    typeof serverMetadata.authorization_endpoint === 'string'
+                  ) {
+                    oauthUrl = serverMetadata.authorization_endpoint;
+                  }
+                } catch (metadataErr) {
+                  logger.debug(
+                    `[getMCPTools] Auth server metadata discovery failed for ${serverName}:`,
+                    metadataErr,
+                  );
+                }
+                // Fall back to the authorization server URL itself
+                if (!oauthUrl) {
+                  oauthUrl = authServerUrl;
+                }
+              }
+            }
+          }
+
           serverDiscoveryMeta.set(serverName, {
             oauthRequired: discovery.oauthRequired,
             oauthUrl,

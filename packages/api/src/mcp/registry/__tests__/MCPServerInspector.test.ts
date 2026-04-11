@@ -58,7 +58,7 @@ describe('MCPServerInspector', () => {
       });
     });
 
-    it('should detect OAuth and skip capabilities fetch for streamable-http server', async () => {
+    it('should detect OAuth and skip full capabilities fetch for streamable-http server', async () => {
       const rawConfig: t.MCPOptions = {
         type: 'streamable-http',
         url: 'https://api.example.com/mcp',
@@ -69,6 +69,13 @@ describe('MCPServerInspector', () => {
         method: 'protected-resource-metadata',
       });
 
+      // discoverTools returns no tools (server requires auth for listing)
+      (MCPConnectionFactory.discoverTools as jest.Mock).mockResolvedValue({
+        tools: null,
+        oauthRequired: true,
+        oauthUrl: null,
+      });
+
       const result = await MCPServerInspector.inspect('test_server', rawConfig, mockConnection);
 
       expect(result).toEqual({
@@ -77,6 +84,63 @@ describe('MCPServerInspector', () => {
         requiresOAuth: true,
         oauthMetadata: undefined,
         initDuration: expect.any(Number),
+      });
+      // Pre-consent basic discovery should have been attempted
+      expect(MCPConnectionFactory.discoverTools).toHaveBeenCalledWith(
+        expect.objectContaining({ serverName: 'test_server' }),
+      );
+    });
+
+    it('should discover and store tools for OAuth servers via basic pre-consent discovery (VAL-MCP-004)', async () => {
+      const rawConfig: t.MCPOptions = {
+        type: 'sse',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools',
+      };
+
+      mockDetectOAuthRequirement.mockResolvedValue({
+        requiresOAuth: true,
+        method: 'protected-resource-metadata',
+        metadata: { authorization_servers: ['https://cloud.arcade.dev/oauth2'] },
+      });
+
+      const mockTools = [
+        {
+          name: 'Microsoft_ListCalendarEvents',
+          description: 'List calendar events',
+          inputSchema: { type: 'object' },
+        },
+        {
+          name: 'Microsoft_SendEmail',
+          description: 'Send an email',
+          inputSchema: { type: 'object' },
+        },
+      ];
+
+      (MCPConnectionFactory.discoverTools as jest.Mock).mockResolvedValue({
+        tools: mockTools,
+        oauthRequired: true,
+        oauthUrl: null,
+      });
+
+      const result = await MCPServerInspector.inspect('arcade-microsoft', rawConfig, mockConnection);
+
+      expect(result.requiresOAuth).toBe(true);
+      expect(result.tools).toBe('Microsoft_ListCalendarEvents, Microsoft_SendEmail');
+      expect(result.toolFunctions).toEqual({
+        'Microsoft_ListCalendarEvents_mcp_arcade-microsoft': expect.objectContaining({
+          type: 'function',
+          function: expect.objectContaining({
+            name: 'Microsoft_ListCalendarEvents_mcp_arcade-microsoft',
+            description: 'List calendar events',
+          }),
+        }),
+        'Microsoft_SendEmail_mcp_arcade-microsoft': expect.objectContaining({
+          type: 'function',
+          function: expect.objectContaining({
+            name: 'Microsoft_SendEmail_mcp_arcade-microsoft',
+            description: 'Send an email',
+          }),
+        }),
       });
     });
 
@@ -164,6 +228,13 @@ describe('MCPServerInspector', () => {
         url: 'https://api.example.com/sse',
         requiresOAuth: true,
       };
+
+      // Pre-consent discovery returns no tools
+      (MCPConnectionFactory.discoverTools as jest.Mock).mockResolvedValue({
+        tools: null,
+        oauthRequired: true,
+        oauthUrl: null,
+      });
 
       const result = await MCPServerInspector.inspect('test_server', rawConfig, mockConnection);
 

@@ -1,5 +1,6 @@
 import { Constants } from 'librechat-data-provider';
 import type { JsonSchemaType } from '@librechat/data-schemas';
+import { logger } from '@librechat/data-schemas';
 import type { MCPConnection } from '~/mcp/connection';
 import type * as t from '~/mcp/types';
 import { isMCPDomainAllowed, extractMCPServerDomain, type DomainFilterMode } from '~/auth/domain';
@@ -82,6 +83,47 @@ export class MCPServerInspector {
       ]);
 
       if (tempConnection) await this.connection.disconnect();
+    }
+
+    // For OAuth servers, attempt basic (unauthenticated) tool discovery.
+    // Per MCP spec, tool listing should be possible without authentication.
+    // This lets pending-consent servers like Arcade expose their tools
+    // immediately after registration (VAL-MCP-004).
+    if (this.config.startup !== false && this.config.requiresOAuth) {
+      try {
+        const discoveryResult = await MCPConnectionFactory.discoverTools({
+          serverConfig: this.config,
+          serverName: this.serverName,
+          dbSourced: !!this.config.dbId,
+          useSSRFProtection: this.useSSRFProtection,
+        });
+        if (discoveryResult.tools && discoveryResult.tools.length > 0) {
+          const toolFunctions: t.LCAvailableTools = {};
+          for (const tool of discoveryResult.tools) {
+            const name = `${tool.name}${Constants.mcp_delimiter}${this.serverName}`;
+            toolFunctions[name] = {
+              type: 'function',
+              ['function']: {
+                name,
+                description: tool.description,
+                parameters: tool.inputSchema as JsonSchemaType,
+              },
+            };
+          }
+          this.config.toolFunctions = toolFunctions;
+          this.config.tools = discoveryResult.tools.map((tool) => tool.name).join(', ');
+          logger.debug(
+            `[MCPServerInspector] Pre-consent tool discovery for ${this.serverName}: ` +
+              `found ${discoveryResult.tools.length} tools`,
+          );
+        }
+      } catch (err) {
+        // Expected for servers that require auth even for tool listing
+        logger.debug(
+          `[MCPServerInspector] Pre-consent tool discovery failed for ${this.serverName}`,
+          err,
+        );
+      }
     }
   }
 
