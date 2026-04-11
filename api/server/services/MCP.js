@@ -753,7 +753,10 @@ function createToolInstance({
         error,
       );
 
-      /** OAuth error, provide a helpful message */
+      /** OAuth error, provide a helpful message — but only when the server actually requires OAuth.
+       *  Previously any 401/authentication error was re-wrapped as "OAuth authentication required",
+       *  which caused non-OAuth local MCP servers to be misreported as needing OAuth consent at
+       *  invocation time. */
       const isOAuthError =
         error.message?.includes('401') ||
         error.message?.includes('OAuth') ||
@@ -761,9 +764,19 @@ function createToolInstance({
         error.message?.includes('Non-200 status code (401)');
 
       if (isOAuthError) {
-        throw new Error(
-          `[MCP][${serverName}][${toolName}] OAuth authentication required. Please check the server logs for the authentication URL.`,
-        );
+        let serverNeedsOAuth = false;
+        try {
+          const rawConfig = await getMCPServersRegistry().getServerConfig(serverName, userId);
+          serverNeedsOAuth = Boolean(rawConfig?.requiresOAuth || rawConfig?.oauthMetadata);
+        } catch {
+          // If config lookup fails, fall through to generic error
+        }
+
+        if (serverNeedsOAuth) {
+          throw new Error(
+            `[MCP][${serverName}][${toolName}] OAuth authentication required. Please check the server logs for the authentication URL.`,
+          );
+        }
       }
 
       throw new Error(

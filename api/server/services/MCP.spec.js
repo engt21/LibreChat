@@ -1706,3 +1706,301 @@ describe('createMCPTool — consent delta emission (VAL-MCP-004)', () => {
     );
   });
 });
+
+describe('createMCPTool — invocation-time OAuth gating respects requiresOAuth (VAL-MCP-001)', () => {
+  const { sendEvent, GenerationJobManager } = require('@librechat/api');
+  const { GraphEvents } = require('@librechat/agents');
+
+  let mockGetMCPManager;
+  let mockGetFlowStateManager;
+  let mockGetLogStores;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    mockGetMCPManager = require('~/config').getMCPManager;
+    mockGetFlowStateManager = require('~/config').getFlowStateManager;
+    mockGetLogStores = require('~/cache').getLogStores;
+
+    const mockFlowManager = {
+      getFlowState: jest.fn().mockResolvedValue(null),
+      createFlowWithHandler: jest.fn().mockImplementation(async (_id, _type, handler) => {
+        return handler();
+      }),
+    };
+
+    mockGetLogStores.mockReturnValue({});
+    mockGetFlowStateManager.mockReturnValue(mockFlowManager);
+  });
+
+  it('should NOT wrap 401 errors as "OAuth authentication required" for non-OAuth servers', async () => {
+    const mockCallTool = jest.fn().mockRejectedValue(new Error('Non-200 status code (401)'));
+
+    mockGetMCPManager.mockReturnValue({
+      callTool: mockCallTool,
+    });
+
+    const mockRes = { write: jest.fn(), flush: jest.fn() };
+
+    // Non-OAuth server config
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      url: 'http://localhost:4567/mcp',
+      requiresOAuth: false,
+    });
+
+    const availableTools = {
+      [`echo${D}local-server`]: {
+        function: {
+          description: 'Echo tool',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+    };
+
+    const toolInstance = await createMCPTool({
+      res: mockRes,
+      user: { id: 'user-1', role: 'user' },
+      toolKey: `echo${D}local-server`,
+      provider: 'openai',
+      userMCPAuthMap: {},
+      availableTools,
+    });
+
+    expect(toolInstance).toBeDefined();
+
+    // Invoke the tool — should get generic error, NOT OAuth error
+    await expect(
+      toolInstance.invoke(
+        { input: 'test' },
+        {
+          configurable: {
+            user: { id: 'user-1' },
+            user_id: 'user-1',
+            userMCPAuthMap: {},
+          },
+          metadata: {
+            provider: 'openai',
+            thread_id: 'thread-1',
+            run_id: 'run-1',
+          },
+          toolCall: {
+            id: 'call-1',
+            name: 'echo',
+            type: 'tool_call_chunk',
+            args: '{}',
+          },
+        },
+      ),
+    ).rejects.toThrow(/tool call failed/);
+
+    // Crucially, the error should NOT say "OAuth authentication required"
+    await expect(
+      toolInstance.invoke(
+        { input: 'test' },
+        {
+          configurable: {
+            user: { id: 'user-1' },
+            user_id: 'user-1',
+            userMCPAuthMap: {},
+          },
+          metadata: {
+            provider: 'openai',
+            thread_id: 'thread-1',
+            run_id: 'run-1',
+          },
+          toolCall: {
+            id: 'call-2',
+            name: 'echo',
+            type: 'tool_call_chunk',
+            args: '{}',
+          },
+        },
+      ),
+    ).rejects.not.toThrow(/OAuth authentication required/);
+  });
+
+  it('should wrap 401 errors as "OAuth authentication required" for OAuth servers', async () => {
+    const mockCallTool = jest.fn().mockRejectedValue(new Error('Non-200 status code (401)'));
+
+    mockGetMCPManager.mockReturnValue({
+      callTool: mockCallTool,
+    });
+
+    const mockRes = { write: jest.fn(), flush: jest.fn() };
+
+    // OAuth server config
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      url: 'https://api.arcade.dev/mcp/microsoft',
+      requiresOAuth: true,
+    });
+
+    const availableTools = {
+      [`ListEvents${D}arcade-microsoft`]: {
+        function: {
+          description: 'List events',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+    };
+
+    const toolInstance = await createMCPTool({
+      res: mockRes,
+      user: { id: 'user-1', role: 'user' },
+      toolKey: `ListEvents${D}arcade-microsoft`,
+      provider: 'openai',
+      userMCPAuthMap: {},
+      availableTools,
+    });
+
+    expect(toolInstance).toBeDefined();
+
+    // Invoke the tool — should get OAuth error for OAuth server
+    await expect(
+      toolInstance.invoke(
+        { input: 'test' },
+        {
+          configurable: {
+            user: { id: 'user-1' },
+            user_id: 'user-1',
+            userMCPAuthMap: {},
+          },
+          metadata: {
+            provider: 'openai',
+            thread_id: 'thread-1',
+            run_id: 'run-1',
+          },
+          toolCall: {
+            id: 'call-1',
+            name: 'ListEvents',
+            type: 'tool_call_chunk',
+            args: '{}',
+          },
+        },
+      ),
+    ).rejects.toThrow(/OAuth authentication required/);
+  });
+
+  it('should NOT wrap 401 as OAuth when server has no requiresOAuth or oauthMetadata', async () => {
+    const mockCallTool = jest.fn().mockRejectedValue(new Error('authentication timeout'));
+
+    mockGetMCPManager.mockReturnValue({
+      callTool: mockCallTool,
+    });
+
+    const mockRes = { write: jest.fn(), flush: jest.fn() };
+
+    // Server config with neither requiresOAuth nor oauthMetadata (e.g., stdio server)
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'stdio',
+      command: 'node',
+      args: ['server.js'],
+    });
+
+    const availableTools = {
+      [`run${D}local-stdio`]: {
+        function: {
+          description: 'Run command',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+    };
+
+    const toolInstance = await createMCPTool({
+      res: mockRes,
+      user: { id: 'user-1', role: 'user' },
+      toolKey: `run${D}local-stdio`,
+      provider: 'openai',
+      userMCPAuthMap: {},
+      availableTools,
+    });
+
+    expect(toolInstance).toBeDefined();
+
+    // Invoke — generic error, NOT OAuth
+    await expect(
+      toolInstance.invoke(
+        { input: 'test' },
+        {
+          configurable: {
+            user: { id: 'user-1' },
+            user_id: 'user-1',
+            userMCPAuthMap: {},
+          },
+          metadata: {
+            provider: 'openai',
+            thread_id: 'thread-1',
+            run_id: 'run-1',
+          },
+          toolCall: {
+            id: 'call-1',
+            name: 'run',
+            type: 'tool_call_chunk',
+            args: '{}',
+          },
+        },
+      ),
+    ).rejects.toThrow(/tool call failed/);
+  });
+
+  it('should still wrap as OAuth when server has oauthMetadata even if requiresOAuth is false', async () => {
+    const mockCallTool = jest.fn().mockRejectedValue(new Error('Non-200 status code (401)'));
+
+    mockGetMCPManager.mockReturnValue({
+      callTool: mockCallTool,
+    });
+
+    const mockRes = { write: jest.fn(), flush: jest.fn() };
+
+    // Server with oauthMetadata but requiresOAuth=false (e.g., Arcade-style)
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      url: 'https://arcade.example.com/mcp',
+      requiresOAuth: false,
+      oauthMetadata: { authorization_servers: ['https://auth.example.com'] },
+    });
+
+    const availableTools = {
+      [`search${D}arcade-server`]: {
+        function: {
+          description: 'Search',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+    };
+
+    const toolInstance = await createMCPTool({
+      res: mockRes,
+      user: { id: 'user-1', role: 'user' },
+      toolKey: `search${D}arcade-server`,
+      provider: 'openai',
+      userMCPAuthMap: {},
+      availableTools,
+    });
+
+    expect(toolInstance).toBeDefined();
+
+    // Invoke — should get OAuth error because oauthMetadata is present
+    await expect(
+      toolInstance.invoke(
+        { input: 'test' },
+        {
+          configurable: {
+            user: { id: 'user-1' },
+            user_id: 'user-1',
+            userMCPAuthMap: {},
+          },
+          metadata: {
+            provider: 'openai',
+            thread_id: 'thread-1',
+            run_id: 'run-1',
+          },
+          toolCall: {
+            id: 'call-1',
+            name: 'search',
+            type: 'tool_call_chunk',
+            args: '{}',
+          },
+        },
+      ),
+    ).rejects.toThrow(/OAuth authentication required/);
+  });
+});

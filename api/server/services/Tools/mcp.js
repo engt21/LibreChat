@@ -109,7 +109,13 @@ async function reinitMCPServer({
 
       const isOAuthFlowInitiated = err.message === 'OAuth flow initiated - return early';
 
-      if (isOAuthError || oauthRequired || isOAuthFlowInitiated) {
+      // Only enter the OAuth path when the server config actually indicates OAuth is required.
+      // Previously any 401/authentication error from ANY server (including non-OAuth local
+      // servers) would set oauthRequired=true, causing non-OAuth MCP servers to be incorrectly
+      // routed through the OAuth-consent-required path at execution time.
+      const serverNeedsOAuth = Boolean(serverConfig?.requiresOAuth || serverConfig?.oauthMetadata);
+
+      if (serverNeedsOAuth && (isOAuthError || oauthRequired || isOAuthFlowInitiated)) {
         logger.info(
           `[MCP Reinitialize] OAuth required for ${serverName}, attempting tool discovery without auth`,
         );
