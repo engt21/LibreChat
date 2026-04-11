@@ -459,6 +459,43 @@ describe('runScheduleController', () => {
     expect(body.continuationMetadata.servers).toEqual(['arcade-microsoft']);
   });
 
+  it('surfaces preflight continuationMetadata with authorization_url from server oauthMetadata (VAL-MCP-004)', async () => {
+    const error = new Error(
+      'OAuth consent is required for MCP server(s): arcade-microsoft. ' +
+        'Complete the OAuth authorization flow interactively before scheduling runs ' +
+        'that depend on these tools.',
+    );
+    error.schedule = {
+      scheduleId: 's1',
+      lastStatus: 'failed',
+      lockUntil: null,
+      lastError: error.message,
+    };
+    error.notificationResults = {};
+    error.executionResult = { conversationId: null, responseMessageId: null, preview: null };
+    // Preflight-originated continuation metadata (from server oauthMetadata)
+    error.continuationMetadata = {
+      authorization_url: 'https://cloud.arcade.dev/oauth2/authorize',
+      servers: ['arcade-microsoft'],
+    };
+    mockRunScheduledJobNow.mockRejectedValue(error);
+
+    const req = createReq({ params: { scheduleId: 's1' } });
+    const res = createRes();
+    await runScheduleController(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    const body = res.json.mock.calls[0][0];
+    expect(body.message).toContain('OAuth consent');
+    expect(body.continuationMetadata).toBeDefined();
+    expect(body.continuationMetadata.authorization_url).toBe(
+      'https://cloud.arcade.dev/oauth2/authorize',
+    );
+    expect(body.continuationMetadata.servers).toEqual(['arcade-microsoft']);
+    // Preflight errors don't have llm_instructions
+    expect(body.continuationMetadata.llm_instructions).toBeUndefined();
+  });
+
   it('does not include continuationMetadata when error has none (non-MCP failure)', async () => {
     const error = new Error('Network timeout');
     error.schedule = {

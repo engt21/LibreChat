@@ -657,6 +657,130 @@ describe('executeScheduledRun', () => {
       );
       expect(mockClient.sendMessage).not.toHaveBeenCalled();
     });
+
+    it('attaches continuationMetadata with authorization_url from server oauthMetadata on preflight failure (VAL-MCP-004)', async () => {
+      // Server config includes oauthMetadata with authorization_endpoint
+      mockGetServerConfig.mockResolvedValue({
+        requiresOAuth: true,
+        oauthMetadata: {
+          authorization_endpoint: 'https://cloud.arcade.dev/oauth2/authorize',
+        },
+      });
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {},
+      });
+
+      const error = await executeScheduledRun(mcpSchedule, baseUser).catch((e) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toMatch(/OAuth consent.*arcade-microsoft/i);
+
+      // Must carry structured continuation metadata
+      expect(error.continuationMetadata).toBeDefined();
+      expect(error.continuationMetadata.authorization_url).toBe(
+        'https://cloud.arcade.dev/oauth2/authorize',
+      );
+      expect(error.continuationMetadata.servers).toEqual(['arcade-microsoft']);
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('attaches continuationMetadata without authorization_url when server oauthMetadata lacks it (VAL-MCP-004)', async () => {
+      // Server config has requiresOAuth but no oauthMetadata with authorization_endpoint
+      mockGetServerConfig.mockResolvedValue({
+        requiresOAuth: true,
+      });
+
+      const mockClient = {
+        sendMessage: jest.fn(),
+      };
+      mockInitializeClient.mockResolvedValue({
+        client: mockClient,
+        userMCPAuthMap: {},
+      });
+
+      const error = await executeScheduledRun(mcpSchedule, baseUser).catch((e) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.continuationMetadata).toBeDefined();
+      expect(error.continuationMetadata.servers).toEqual(['arcade-microsoft']);
+      // authorization_url should be undefined when oauthMetadata lacks authorization_endpoint
+      expect(error.continuationMetadata.authorization_url).toBeUndefined();
+    });
+
+    it('attaches continuationMetadata with multiple servers on preflight failure (VAL-MCP-004)', async () => {
+      const multiMcpSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['arcade-microsoft', 'arcade-github'],
+          },
+        },
+      };
+
+      mockGetServerConfig.mockImplementation(async (serverName) => {
+        if (serverName === 'arcade-microsoft') {
+          return {
+            requiresOAuth: true,
+            oauthMetadata: {
+              authorization_endpoint: 'https://cloud.arcade.dev/oauth2/authorize',
+            },
+          };
+        }
+        if (serverName === 'arcade-github') {
+          return {
+            requiresOAuth: true,
+            oauthMetadata: {
+              authorization_endpoint: 'https://github.arcade.dev/oauth2/authorize',
+            },
+          };
+        }
+        return undefined;
+      });
+
+      mockInitializeClient.mockResolvedValue({
+        client: { sendMessage: jest.fn() },
+        userMCPAuthMap: {},
+      });
+
+      const error = await executeScheduledRun(multiMcpSchedule, baseUser).catch((e) => e);
+      expect(error.continuationMetadata).toBeDefined();
+      expect(error.continuationMetadata.servers).toEqual(
+        expect.arrayContaining(['arcade-microsoft', 'arcade-github']),
+      );
+      // Should use the first server's authorization_url
+      expect(error.continuationMetadata.authorization_url).toBe(
+        'https://cloud.arcade.dev/oauth2/authorize',
+      );
+    });
+
+    it('does not attach continuationMetadata for missing/unregistered server errors', async () => {
+      const missingServerSchedule = {
+        ...baseSchedule,
+        target: {
+          endpoint: 'openAI',
+          model: 'gpt-4',
+          ephemeralAgent: {
+            mcp: ['nonexistent-server'],
+          },
+        },
+      };
+
+      mockGetServerConfig.mockResolvedValue(undefined);
+      mockInitializeClient.mockResolvedValue({
+        client: { sendMessage: jest.fn() },
+        userMCPAuthMap: null,
+      });
+
+      const error = await executeScheduledRun(missingServerSchedule, baseUser).catch((e) => e);
+      expect(error.message).toMatch(/not found.*not registered/i);
+      // Missing-server errors are registration errors, not OAuth — no continuationMetadata
+      expect(error.continuationMetadata).toBeUndefined();
+    });
   });
 
   describe('MCP preflight auth classification (VAL-MCP-001, VAL-CROSS-005A)', () => {

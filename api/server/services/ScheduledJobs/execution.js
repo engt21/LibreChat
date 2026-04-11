@@ -168,6 +168,8 @@ async function validateMCPOAuthConsent(schedule, userMCPAuthMap, userId) {
 
   const missingServers = [];
   const serversWithMissingAuth = [];
+  /** @type {Map<string, object|undefined>} Server name → serverConfig for servers needing auth */
+  const serverConfigsByName = new Map();
 
   for (const serverName of mcpServers) {
     if (!serverName) {
@@ -210,6 +212,7 @@ async function validateMCPOAuthConsent(schedule, userMCPAuthMap, userId) {
 
     if (!hasValidToken) {
       serversWithMissingAuth.push(serverName);
+      serverConfigsByName.set(serverName, serverConfig);
     }
   }
 
@@ -222,14 +225,35 @@ async function validateMCPOAuthConsent(schedule, userMCPAuthMap, userId) {
     );
   }
 
-  // Report OAuth-required servers that lack a valid token
+  // Report OAuth-required servers that lack a valid token.
+  // Attach structured continuation metadata so callers (e.g. /api/schedules/:id/run)
+  // can surface the authorization_url and affected servers instead of only a
+  // generic OAuth-consent-required message (VAL-MCP-004).
   if (serversWithMissingAuth.length > 0) {
     const serverList = serversWithMissingAuth.join(', ');
-    throw new Error(
+    const error = new Error(
       `OAuth consent is required for MCP server(s): ${serverList}. ` +
         `Complete the OAuth authorization flow interactively before scheduling runs ` +
         `that depend on these tools.`,
     );
+
+    // Build continuation metadata from available server OAuth configs
+    const continuationMetadata = {
+      servers: [...serversWithMissingAuth],
+    };
+
+    // Extract authorization_url from the first server that has it in oauthMetadata
+    for (const name of serversWithMissingAuth) {
+      const config = serverConfigsByName.get(name);
+      const authEndpoint = config?.oauthMetadata?.authorization_endpoint;
+      if (typeof authEndpoint === 'string' && authEndpoint.length > 0) {
+        continuationMetadata.authorization_url = authEndpoint;
+        break;
+      }
+    }
+
+    error.continuationMetadata = continuationMetadata;
+    throw error;
   }
 }
 
