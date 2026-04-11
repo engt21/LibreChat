@@ -141,6 +141,11 @@ describe('getMCPTools — pre-consent tool discovery (VAL-MCP-004)', () => {
 
     // Continuation metadata should be present
     expect(server.oauthUrl).toBe('https://login.microsoftonline.com/authorize');
+
+    // discoverServerTools must receive user context for per-user config lookup
+    expect(mockManager.discoverServerTools).toHaveBeenCalledWith(
+      expect.objectContaining({ serverName: 'arcade-microsoft', user: { id: 'user-1' } }),
+    );
   });
 
   it('should surface authState "authorized" for fully authorized OAuth servers', async () => {
@@ -311,7 +316,7 @@ describe('getMCPTools — pre-consent tool discovery (VAL-MCP-004)', () => {
     expect(server.tools[0].name).toBe('GitHub_ListRepos');
     expect(server.authState).toBe('pending_consent');
     expect(mockManager.discoverServerTools).toHaveBeenCalledWith(
-      expect.objectContaining({ serverName: 'arcade-github' }),
+      expect.objectContaining({ serverName: 'arcade-github', user: { id: 'user-1' } }),
     );
   });
 

@@ -176,6 +176,7 @@ export class MCPServersRegistry {
     const result = await configRepo.add(serverName, stubConfig, userId);
     await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName, userId));
     await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName));
+    await this.readThroughCacheAll.clear();
     return result;
   }
 
@@ -204,7 +205,13 @@ export class MCPServersRegistry {
       }
       throw new MCPInspectionFailedError(serverName, error as Error);
     }
-    return await configRepo.add(serverName, parsedConfig, userId);
+    const result = await configRepo.add(serverName, parsedConfig, userId);
+    // Invalidate read-through caches so the new server appears immediately
+    // in getAllServerConfigs and getServerConfig (cache freshness fix)
+    await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName, userId));
+    await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName));
+    await this.readThroughCacheAll.clear();
+    return result;
   }
 
   /**
@@ -297,6 +304,10 @@ export class MCPServersRegistry {
       throw new MCPInspectionFailedError(serverName, error as Error);
     }
     await configRepo.update(serverName, parsedConfig, userId);
+    // Invalidate read-through caches so the updated config is visible immediately
+    await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName, userId));
+    await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName));
+    await this.readThroughCacheAll.clear();
     return parsedConfig;
   }
 
@@ -321,6 +332,10 @@ export class MCPServersRegistry {
   ): Promise<void> {
     const configRepo = this.getConfigRepository(storageLocation);
     await configRepo.remove(serverName, userId);
+    // Invalidate read-through caches so the removed server disappears immediately
+    await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName, userId));
+    await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName));
+    await this.readThroughCacheAll.clear();
   }
 
   private getConfigRepository(storageLocation: 'CACHE' | 'DB'): IServerConfigsRepositoryInterface {

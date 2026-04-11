@@ -127,7 +127,7 @@ const getMCPTools = async (req, res) => {
       // (per MCP spec, tool listing should be possible before OAuth consent)
       if (oauthServers.has(serverName) && typeof mcpManager.discoverServerTools === 'function') {
         try {
-          const discovery = await mcpManager.discoverServerTools({ serverName });
+          const discovery = await mcpManager.discoverServerTools({ serverName, user: { id: userId } });
           serverDiscoveryMeta.set(serverName, {
             oauthRequired: discovery.oauthRequired,
             oauthUrl: discovery.oauthUrl,

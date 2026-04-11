@@ -271,6 +271,95 @@ describe('MCPServersRegistry', () => {
       });
     });
 
+    describe('cache invalidation on mutations', () => {
+      it('addServer should invalidate getAllServerConfigs cache so the new server appears immediately', async () => {
+        // Seed one server, then call getAllServerConfigs to populate the read-through cache
+        await registry.addServer('existing_server', testParsedConfig, 'CACHE');
+        const configsBefore = await registry.getAllServerConfigs();
+        expect(Object.keys(configsBefore)).toHaveLength(1);
+
+        // Add a second server — this should invalidate the getAllServerConfigs cache
+        await registry.addServer('new_server', testParsedConfig, 'CACHE');
+
+        // getAllServerConfigs must include the new server without requiring reset or TTL expiry
+        const configsAfter = await registry.getAllServerConfigs();
+        expect(Object.keys(configsAfter)).toHaveLength(2);
+        expect(configsAfter).toHaveProperty('new_server');
+      });
+
+      it('addServer should invalidate getServerConfig cache so the new server is individually retrievable', async () => {
+        // Prime a "not found" cache entry
+        const notFound = await registry.getServerConfig('brand_new_server');
+        expect(notFound).toBeUndefined();
+
+        // Add the server — the stale "not found" must be invalidated
+        await registry.addServer('brand_new_server', testParsedConfig, 'CACHE');
+
+        const config = await registry.getServerConfig('brand_new_server');
+        expect(config).toBeDefined();
+        expect(config?.type).toBe('stdio');
+      });
+
+      it('updateServer should invalidate caches so the updated config is visible immediately', async () => {
+        await registry.addServer('update_target', testParsedConfig, 'CACHE');
+
+        // Populate the read-through caches
+        const configBefore = await registry.getServerConfig('update_target');
+        expect(configBefore?.type).toBe('stdio');
+        const allBefore = await registry.getAllServerConfigs();
+        expect(allBefore['update_target']?.type).toBe('stdio');
+
+        // Update the server
+        const updatedConfig = { ...testParsedConfig, command: 'python' } as t.ParsedServerConfig;
+        await registry.updateServer('update_target', updatedConfig, 'CACHE');
+
+        // Both read surfaces must reflect the update immediately
+        const configAfter = await registry.getServerConfig('update_target');
+        expect(configAfter).toBeDefined();
+        if (configAfter && 'command' in configAfter) {
+          expect(configAfter.command).toBe('python');
+        }
+
+        const allAfter = await registry.getAllServerConfigs();
+        const entry = allAfter['update_target'];
+        expect(entry).toBeDefined();
+        if (entry && 'command' in entry) {
+          expect(entry.command).toBe('python');
+        }
+      });
+
+      it('removeServer should invalidate caches so the server disappears immediately', async () => {
+        await registry.addServer('remove_target', testParsedConfig, 'CACHE');
+
+        // Populate the read-through caches
+        const configBefore = await registry.getServerConfig('remove_target');
+        expect(configBefore).toBeDefined();
+        const allBefore = await registry.getAllServerConfigs();
+        expect(allBefore).toHaveProperty('remove_target');
+
+        // Remove the server
+        await registry.removeServer('remove_target', 'CACHE');
+
+        // Both read surfaces must reflect the removal immediately
+        const configAfter = await registry.getServerConfig('remove_target');
+        expect(configAfter).toBeUndefined();
+        const allAfter = await registry.getAllServerConfigs();
+        expect(allAfter).not.toHaveProperty('remove_target');
+      });
+
+      it('addServerStub should invalidate getAllServerConfigs cache', async () => {
+        await registry.addServer('existing_server', testParsedConfig, 'CACHE');
+        const configsBefore = await registry.getAllServerConfigs();
+        expect(Object.keys(configsBefore)).toHaveLength(1);
+
+        await registry.addServerStub('stub_server', testParsedConfig, 'CACHE');
+
+        const configsAfter = await registry.getAllServerConfigs();
+        expect(Object.keys(configsAfter)).toHaveLength(2);
+        expect(configsAfter).toHaveProperty('stub_server');
+      });
+    });
+
     describe('getAllServerConfigs', () => {
       it('should cache repeated calls', async () => {
         // Add servers to cache
