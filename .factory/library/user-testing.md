@@ -252,3 +252,9 @@ The push notification delivery code (`notifications.js`) already prunes endpoint
   - Local MCP validation servers now require `/mcp` suffix for successful inspection; root URL probes returned `MCP_INSPECTION_FAILED` (`transport POST -> Not Found`).
   - Azure user key prerequisite is now present for validation personas (`/api/keys?name=azureOpenAI` showed non-null expiry), but execution/connect paths still need deterministic completion evidence.
 - For file/transcription validation, prefer browser automation through the real React upload flow. If an API-level multipart probe is unavoidable, include `file_id` (UUID v4), `endpoint`, `endpointType`, and `message_file=true` alongside the file field; omitting them reproduces a harness artifact (`No file_id provided`) rather than the actual product path.
+
+## User-directed deferrals (2026-04-11)
+
+- For now, validator reruns should focus on local dev-rail migration regressions and preserved-behavior parity.
+- The following validation clusters are intentionally deferred until the user re-enables them: OCR-backed image text persistence, Google credential-dependent provider/file flows, xAI credential-dependent flows, Ollama Cloud hosted-search proof that depends on a refreshed cloud key, MCP refresh-token/consented-persona validation, and browser click-open proof for stale push endpoints.
+- Do not treat those deferred clusters as blockers for current local regression-fix reruns; leave an auditable paper trail so they can be resumed later on the dev rail.
