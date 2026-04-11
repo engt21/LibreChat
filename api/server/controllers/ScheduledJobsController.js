@@ -293,6 +293,17 @@ async function runScheduleController(req, res) {
     // llm_instructions, and affected servers (VAL-MCP-004).
     if (error.continuationMetadata) {
       errorPayload.continuationMetadata = error.continuationMetadata;
+
+      // Also surface top-level authorization_url and llm_instructions for
+      // easier consumption by callers that do not inspect continuationMetadata.
+      // This keeps the auth prompt fields consistent with the /api/mcp/tools
+      // surface where oauthUrl is a top-level server property (VAL-MCP-004).
+      if (error.continuationMetadata.authorization_url) {
+        errorPayload.authorization_url = error.continuationMetadata.authorization_url;
+      }
+      if (error.continuationMetadata.llm_instructions) {
+        errorPayload.llm_instructions = error.continuationMetadata.llm_instructions;
+      }
     }
 
     return res.status(500).json(errorPayload);

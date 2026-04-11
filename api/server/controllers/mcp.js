@@ -222,6 +222,42 @@ const getMCPTools = async (req, res) => {
             discoveredRawTools: discovery.tools,
             discoveredToolFunctions,
           });
+
+          // Cache pre-consent discovered tools so they serve as a trusted
+          // persisted fallback when live unauthenticated listTools returns
+          // empty (e.g. Arcade servers that gate tool listing on auth).
+          // This ensures subsequent /api/mcp/tools requests find tools via
+          // getMCPServerTools even when the live discovery path returns nothing (VAL-MCP-004).
+          if (discoveredToolFunctions && Object.keys(discoveredToolFunctions).length > 0) {
+            cacheMCPServerTools({ userId, serverName, serverTools: discoveredToolFunctions }).catch(
+              (err) =>
+                logger.error(
+                  `[getMCPTools] Failed to cache pre-consent tools for ${serverName}:`,
+                  err,
+                ),
+            );
+          } else if (discovery.tools?.length > 0) {
+            // Convert raw MCP Tool[] to LCAvailableTools format for cache
+            const convertedTools = {};
+            for (const tool of discovery.tools) {
+              const toolKey = `${tool.name}${Constants.mcp_delimiter}${serverName}`;
+              convertedTools[toolKey] = {
+                type: 'function',
+                function: {
+                  name: toolKey,
+                  description: tool.description || '',
+                  parameters: tool.inputSchema || { type: 'object' },
+                },
+              };
+            }
+            cacheMCPServerTools({ userId, serverName, serverTools: convertedTools }).catch((err) =>
+              logger.error(
+                `[getMCPTools] Failed to cache pre-consent raw tools for ${serverName}:`,
+                err,
+              ),
+            );
+          }
+
           logger.debug(
             `[getMCPTools] Pre-consent discovery for ${serverName}: ${discovery.tools?.length ?? 0} tools, oauthRequired=${discovery.oauthRequired}`,
           );

@@ -621,4 +621,168 @@ describe('getMCPTools — pre-consent tool discovery (VAL-MCP-004)', () => {
     // Should fall back to the authorization_server URL itself
     expect(server.oauthUrl).toBe('https://cloud.arcade.dev/oauth2');
   });
+
+  it('should cache pre-consent discovered raw tools for future fallback (VAL-MCP-004)', async () => {
+    const rawDiscoveredTools = [
+      {
+        name: 'Microsoft_ListCalendarEvents',
+        description: 'List calendar events',
+        inputSchema: { type: 'object' },
+      },
+    ];
+
+    mockRegistryInstance.getAllServerConfigs.mockResolvedValue({
+      'arcade-microsoft': {
+        type: 'sse',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools',
+        requiresOAuth: true,
+      },
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'sse',
+      url: 'https://api.arcade.dev/mcp/microsoft-tools',
+      requiresOAuth: true,
+    });
+    mockRegistryInstance.getOAuthServers.mockResolvedValue(new Set(['arcade-microsoft']));
+
+    const mockManager = {
+      getServerToolFunctions: jest.fn().mockResolvedValue(null),
+      discoverServerTools: jest.fn().mockResolvedValue({
+        tools: rawDiscoveredTools,
+        oauthRequired: true,
+        oauthUrl: 'https://login.microsoftonline.com/authorize',
+      }),
+    };
+    mockGetMCPManager.mockReturnValue(mockManager);
+
+    const req = createReq();
+    const res = createRes();
+    await getMCPTools(req, res);
+
+    expect(res.statusCode).toBe(200);
+    // Verify cacheMCPServerTools was called with the converted raw tools
+    expect(mockCacheMCPServerTools).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        serverName: 'arcade-microsoft',
+        serverTools: expect.objectContaining({
+          'Microsoft_ListCalendarEvents___arcade-microsoft': expect.objectContaining({
+            type: 'function',
+            function: expect.objectContaining({
+              name: 'Microsoft_ListCalendarEvents___arcade-microsoft',
+              description: 'List calendar events',
+            }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('should cache pre-consent discovered tool functions from reinit for future fallback (VAL-MCP-004)', async () => {
+    const reinitToolFunctions = {
+      'Microsoft_ListCalendarEvents___arcade-microsoft': {
+        type: 'function',
+        function: {
+          name: 'Microsoft_ListCalendarEvents___arcade-microsoft',
+          description: 'List calendar events',
+          parameters: { type: 'object' },
+        },
+      },
+    };
+
+    mockRegistryInstance.getAllServerConfigs.mockResolvedValue({
+      'arcade-microsoft': {
+        type: 'sse',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools',
+        requiresOAuth: true,
+      },
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'sse',
+      url: 'https://api.arcade.dev/mcp/microsoft-tools',
+      requiresOAuth: true,
+    });
+    mockRegistryInstance.getOAuthServers.mockResolvedValue(new Set(['arcade-microsoft']));
+
+    const mockManager = {
+      getServerToolFunctions: jest.fn().mockResolvedValue(null),
+      discoverServerTools: jest.fn().mockResolvedValue({
+        tools: null,
+        oauthRequired: true,
+        oauthUrl: null,
+      }),
+    };
+    mockGetMCPManager.mockReturnValue(mockManager);
+    mockReinitMCPServer.mockResolvedValue({
+      oauthRequired: true,
+      oauthUrl: 'https://login.microsoftonline.com/authorize',
+      availableTools: reinitToolFunctions,
+    });
+
+    const req = createReq();
+    const res = createRes();
+    await getMCPTools(req, res);
+
+    expect(res.statusCode).toBe(200);
+    // Verify cacheMCPServerTools was called with the reinit-discovered tool functions
+    expect(mockCacheMCPServerTools).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        serverName: 'arcade-microsoft',
+        serverTools: reinitToolFunctions,
+      }),
+    );
+  });
+
+  it('should use cached tools on subsequent request after pre-consent discovery (VAL-MCP-004)', async () => {
+    // Simulate cached tools being available from a previous pre-consent discovery
+    const cachedTools = {
+      'Microsoft_ListCalendarEvents___arcade-microsoft': {
+        type: 'function',
+        function: {
+          name: 'Microsoft_ListCalendarEvents___arcade-microsoft',
+          description: 'List calendar events',
+          parameters: { type: 'object' },
+        },
+      },
+    };
+
+    mockRegistryInstance.getAllServerConfigs.mockResolvedValue({
+      'arcade-microsoft': {
+        type: 'sse',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools',
+        requiresOAuth: true,
+      },
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'sse',
+      url: 'https://api.arcade.dev/mcp/microsoft-tools',
+      requiresOAuth: true,
+    });
+    mockRegistryInstance.getOAuthServers.mockResolvedValue(new Set(['arcade-microsoft']));
+
+    // Cache hit — previously discovered tools are available
+    mockGetMCPServerTools.mockResolvedValue(cachedTools);
+
+    const mockManager = {
+      getServerToolFunctions: jest.fn(),
+      discoverServerTools: jest.fn(),
+    };
+    mockGetMCPManager.mockReturnValue(mockManager);
+
+    const req = createReq();
+    const res = createRes();
+    await getMCPTools(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const server = res.body.servers['arcade-microsoft'];
+    expect(server).toBeDefined();
+    expect(server.tools).toHaveLength(1);
+    expect(server.tools[0].name).toBe('Microsoft_ListCalendarEvents');
+
+    // Should NOT have called getServerToolFunctions or discoverServerTools
+    // because cache hit short-circuits
+    expect(mockManager.getServerToolFunctions).not.toHaveBeenCalled();
+    expect(mockManager.discoverServerTools).not.toHaveBeenCalled();
+  });
 });

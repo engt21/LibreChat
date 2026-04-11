@@ -421,7 +421,7 @@ describe('runScheduleController', () => {
     expect(body.executionResult).toBeDefined();
   });
 
-  it('surfaces structured continuationMetadata in the error response for MCP consent failures (VAL-MCP-004)', async () => {
+  it('surfaces structured continuationMetadata and top-level auth fields in the error response for MCP consent failures (VAL-MCP-004)', async () => {
     const error = new Error(
       'MCP tool returned an authorization prompt instead of executing. ' +
         'Provider consent is required for MCP server(s): arcade-microsoft.',
@@ -457,9 +457,16 @@ describe('runScheduleController', () => {
       'Please share the authorization link with the user.',
     );
     expect(body.continuationMetadata.servers).toEqual(['arcade-microsoft']);
+    // Top-level auth fields must also be present for easier consumption (VAL-MCP-004)
+    expect(body.authorization_url).toBe(
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
+    );
+    expect(body.llm_instructions).toBe(
+      'Please share the authorization link with the user.',
+    );
   });
 
-  it('surfaces preflight continuationMetadata with authorization_url from server oauthMetadata (VAL-MCP-004)', async () => {
+  it('surfaces preflight continuationMetadata with authorization_url and top-level auth fields from server oauthMetadata (VAL-MCP-004)', async () => {
     const error = new Error(
       'OAuth consent is required for MCP server(s): arcade-microsoft. ' +
         'Complete the OAuth authorization flow interactively before scheduling runs ' +
@@ -494,9 +501,13 @@ describe('runScheduleController', () => {
     expect(body.continuationMetadata.servers).toEqual(['arcade-microsoft']);
     // Preflight errors don't have llm_instructions
     expect(body.continuationMetadata.llm_instructions).toBeUndefined();
+    // Top-level authorization_url must also be present (VAL-MCP-004)
+    expect(body.authorization_url).toBe('https://cloud.arcade.dev/oauth2/authorize');
+    // Top-level llm_instructions should be absent for preflight-only errors
+    expect(body.llm_instructions).toBeUndefined();
   });
 
-  it('does not include continuationMetadata when error has none (non-MCP failure)', async () => {
+  it('does not include continuationMetadata or top-level auth fields when error has none (non-MCP failure)', async () => {
     const error = new Error('Network timeout');
     error.schedule = {
       scheduleId: 's1',
@@ -515,6 +526,8 @@ describe('runScheduleController', () => {
     const body = res.json.mock.calls[0][0];
     expect(body.message).toBe('Network timeout');
     expect(body.continuationMetadata).toBeUndefined();
+    expect(body.authorization_url).toBeUndefined();
+    expect(body.llm_instructions).toBeUndefined();
   });
 });
 
