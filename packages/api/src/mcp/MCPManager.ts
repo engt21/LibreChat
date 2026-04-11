@@ -118,9 +118,25 @@ export class MCPManager extends UserConnectionManager {
       };
     }
 
-    if (!user || !args.flowManager) {
-      logger.warn(`${logPrefix} [Discovery] OAuth server requires user and flowManager`);
+    if (!user) {
+      logger.warn(`${logPrefix} [Discovery] OAuth server requires user for discovery`);
       return { tools: null, oauthRequired: true, oauthUrl: null };
+    }
+
+    // When flowManager is absent (e.g. the /api/mcp/tools controller),
+    // fall back to basic (non-OAuth) discovery.  Per MCP spec, tool listing
+    // should be possible without authentication, so this lets pending-consent
+    // servers expose their tools immediately after registration.
+    if (!args.flowManager) {
+      logger.debug(
+        `${logPrefix} [Discovery] OAuth server without flowManager, attempting basic discovery`,
+      );
+      const result = await MCPConnectionFactory.discoverTools(basic);
+      return {
+        tools: result.tools,
+        oauthRequired: true,
+        oauthUrl: result.oauthUrl,
+      };
     }
 
     const result = await MCPConnectionFactory.discoverTools(basic, {

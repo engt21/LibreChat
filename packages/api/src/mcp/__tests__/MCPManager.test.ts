@@ -1111,7 +1111,51 @@ describe('MCPManager', () => {
       expect(result.tools).toBeNull();
       expect(result.oauthRequired).toBe(true);
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('OAuth server requires user and flowManager'),
+        expect.stringContaining('OAuth server requires user for discovery'),
+      );
+    });
+
+    it('should discover tools via basic path when OAuth server has user but no flowManager', async () => {
+      const mockUser = { id: 'user456', email: 'pre-consent@example.com' } as unknown as IUser;
+
+      mockAppConnections({
+        get: jest.fn().mockResolvedValue(null),
+      });
+
+      (mockRegistryInstance.getServerConfig as jest.Mock).mockResolvedValue({
+        type: 'sse',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools',
+        requiresOAuth: true,
+      });
+
+      (MCPConnectionFactory.discoverTools as jest.Mock).mockResolvedValue({
+        tools: mockTools,
+        connection: null,
+        oauthRequired: false,
+        oauthUrl: null,
+      });
+
+      const manager = await MCPManager.createInstance(newMCPServersConfig());
+      // Pass user but no flowManager — simulates getMCPTools controller path
+      const result = await manager.discoverServerTools({
+        serverName,
+        user: mockUser,
+      });
+
+      // Tools should be discovered even without flowManager
+      expect(result.tools).toEqual(mockTools);
+      // oauthRequired should be true because the server requires OAuth for invocation
+      expect(result.oauthRequired).toBe(true);
+      // Basic discovery is called WITHOUT OAuth options
+      expect(MCPConnectionFactory.discoverTools).toHaveBeenCalledWith(
+        expect.objectContaining({ serverName }),
+      );
+      // Should NOT have been called with OAuth options (second arg)
+      expect(MCPConnectionFactory.discoverTools).toHaveBeenCalledTimes(1);
+      const callArgs = (MCPConnectionFactory.discoverTools as jest.Mock).mock.calls[0];
+      expect(callArgs).toHaveLength(1); // only basic options, no OAuth options
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('OAuth server without flowManager, attempting basic discovery'),
       );
     });
 
