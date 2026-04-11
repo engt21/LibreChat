@@ -233,8 +233,10 @@ describe('SetKeyDialog', () => {
       expect(screen.getByTestId('input-apiKey')).toHaveValue('legacy-azure-key');
     });
 
+    // Bare root URL – not normalised to /openai/v1 – so re-saving preserves the
+    // legacy URL shape that the backend needs for api-version model probes.
     expect(screen.getByTestId('input-baseURL')).toHaveValue(
-      'https://example-instance.openai.azure.com/openai/v1',
+      'https://example-instance.openai.azure.com',
     );
     expect(screen.getByTestId('input-models')).toHaveValue('gpt-4.1-prod');
   });
@@ -266,8 +268,9 @@ describe('SetKeyDialog', () => {
       expect(screen.getByTestId('input-apiKey')).toHaveValue('legacy-key');
     });
 
+    // Bare root URL – matches server-side getAzureInstanceBaseURL behavior.
     expect(screen.getByTestId('input-baseURL')).toHaveValue(
-      'https://my-instance.cognitiveservices.azure.com/openai/v1',
+      'https://my-instance.cognitiveservices.azure.com',
     );
   });
 
@@ -299,8 +302,9 @@ describe('SetKeyDialog', () => {
       expect(screen.getByTestId('input-apiKey')).toHaveValue('nested-key');
     });
 
+    // Bare root URL – not normalised to /openai/v1.
     expect(screen.getByTestId('input-baseURL')).toHaveValue(
-      'https://nested-instance.openai.azure.com/openai/v1',
+      'https://nested-instance.openai.azure.com',
     );
     expect(screen.getByTestId('input-models')).toHaveValue('gpt-4o');
   });

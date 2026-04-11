@@ -72,6 +72,13 @@ const AZURE_LEGACY_KEYS = [
 const isLegacyAzurePayload = (obj: Record<string, unknown>): boolean =>
   AZURE_LEGACY_KEYS.some((key) => typeof obj[key] === 'string' && obj[key] !== '');
 
+/**
+ * Resolves a legacy Azure instance name to a bare root URL without appending
+ * `/openai/v1`.  This keeps the stored URL shape aligned with the server-side
+ * `getAzureInstanceBaseURL` so that re-saving legacy credentials through the
+ * dialog does not collapse bare Azure roots into explicit `/openai/v1` configs
+ * (which would drop the required `api-version` on model discovery probes).
+ */
 const legacyInstanceToBaseURL = (instanceName?: string): string => {
   if (!instanceName) {
     return '';
@@ -80,9 +87,9 @@ const legacyInstanceToBaseURL = (instanceName?: string): string => {
     return instanceName;
   }
   if (instanceName.includes('.azure.com')) {
-    return `https://${instanceName}/openai/v1`;
+    return `https://${instanceName}`;
   }
-  return `https://${instanceName}.openai.azure.com/openai/v1`;
+  return `https://${instanceName}.openai.azure.com`;
 };
 
 const extractLegacyAzureFields = (
@@ -90,9 +97,7 @@ const extractLegacyAzureFields = (
 ): { apiKey: string; baseURL: string; models: string } => ({
   apiKey: typeof obj.azureOpenAIApiKey === 'string' ? obj.azureOpenAIApiKey : '',
   baseURL: legacyInstanceToBaseURL(
-    typeof obj.azureOpenAIApiInstanceName === 'string'
-      ? obj.azureOpenAIApiInstanceName
-      : undefined,
+    typeof obj.azureOpenAIApiInstanceName === 'string' ? obj.azureOpenAIApiInstanceName : undefined,
   ),
   models:
     typeof obj.azureOpenAIApiDeploymentName === 'string' ? obj.azureOpenAIApiDeploymentName : '',
