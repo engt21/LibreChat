@@ -1,0 +1,373 @@
+- generic [ref=e2]:
+  - generic [ref=e24]:
+    - navigation "Chat History" [ref=e28]:
+      - generic [ref=e29]:
+        - generic [ref=e30]:
+          - button "Close sidebar" [expanded] [ref=e31] [cursor=pointer]:
+            - img [ref=e32]
+          - generic [ref=e34]:
+            - button "Bookmarks" [ref=e35] [cursor=pointer]:
+              - img [ref=e36]
+            - link "New chat" [ref=e38] [cursor=pointer]:
+              - /url: /c/new
+              - img [ref=e39]
+        - generic [ref=e41] [cursor=pointer]:
+          - img [ref=e42]
+          - textbox "Search messages" [ref=e45]
+          - button "Clear search" [disabled] [ref=e46]:
+            - img [ref=e47]
+        - grid "Conversations" [ref=e53]:
+          - rowgroup [ref=e54]:
+            - button "Agent Marketplace" [ref=e58] [cursor=pointer]:
+              - generic [ref=e59]:
+                - img [ref=e61]
+                - generic [ref=e66]: Agent Marketplace
+            - button "Chats" [ref=e68] [cursor=pointer]:
+              - generic [ref=e69]: Chats
+              - img [ref=e70]
+      - button "Account Settings" [ref=e72] [cursor=pointer]:
+        - img "Validation SuperAdmin's avatar" [ref=e76]
+        - generic [ref=e77]: Validation SuperAdmin
+    - generic [ref=e79]:
+      - generic [ref=e80]:
+        - main [ref=e82]:
+          - generic [ref=e83]:
+            - generic [ref=e85]:
+              - generic [ref=e87]:
+                - generic [ref=e88]:
+                  - button "Select a model" [expanded] [ref=e89] [cursor=pointer]:
+                    - img [ref=e91]
+                    - generic [ref=e96]: Claude Sonnet 4.5
+                  - dialog "Select a model" [ref=e397]:
+                    - generic [ref=e399]:
+                      - combobox [expanded] [active] [ref=e400]
+                      - generic: Search models...
+                    - listbox [ref=e401]:
+                      - option "GPT-5.4 Mini Fast, affordable OpenAI model" [ref=e402] [cursor=pointer]:
+                        - generic [ref=e403]:
+                          - img [ref=e405]
+                          - generic [ref=e407]:
+                            - generic [ref=e408]: GPT-5.4 Mini
+                            - generic [ref=e409]: Fast, affordable OpenAI model
+                      - option "GPT-5 Flagship OpenAI reasoning model" [ref=e410] [cursor=pointer]:
+                        - generic [ref=e411]:
+                          - img [ref=e413]
+                          - generic [ref=e415]:
+                            - generic [ref=e416]: GPT-5
+                            - generic [ref=e417]: Flagship OpenAI reasoning model
+                      - option "Claude Sonnet 4.5 Anthropic balanced model selected" [selected] [ref=e418] [cursor=pointer]:
+                        - generic [ref=e419]:
+                          - img [ref=e421]
+                          - generic [ref=e426]:
+                            - generic [ref=e427]: Claude Sonnet 4.5
+                            - generic [ref=e428]: Anthropic balanced model
+                        - img [ref=e429]
+                        - generic [ref=e432]: selected
+                      - option "Gemini 2.5 Pro Google flagship model" [ref=e433] [cursor=pointer]:
+                        - generic [ref=e434]:
+                          - img [ref=e436]
+                          - generic [ref=e438]:
+                            - generic [ref=e439]: Gemini 2.5 Pro
+                            - generic [ref=e440]: Google flagship model
+                      - option "ollama Icon Ollama Local Local Ollama model" [ref=e441] [cursor=pointer]:
+                        - generic [ref=e442]:
+                          - img "ollama Icon" [ref=e444]
+                          - generic [ref=e445]:
+                            - generic [ref=e446]: Ollama Local
+                            - generic [ref=e447]: Local Ollama model
+                      - option "OpenAI Set API Key OpenAI" [ref=e448]:
+                        - generic [ref=e450]:
+                          - generic [ref=e451]:
+                            - img [ref=e453]
+                            - generic [ref=e455]: OpenAI
+                          - button "Set API Key OpenAI" [ref=e457] [cursor=pointer]:
+                            - img [ref=e458]
+                            - generic [ref=e462]: Set API Key
+                        - generic:
+                          - img
+                      - option "My Agents" [ref=e463] [cursor=pointer]:
+                        - generic [ref=e464]:
+                          - img [ref=e466]
+                          - generic [ref=e469]: My Agents
+                      - option "Azure OpenAI Set API Key Azure OpenAI" [ref=e470]:
+                        - generic [ref=e472]:
+                          - generic [ref=e473]:
+                            - img [ref=e475]
+                            - generic [ref=e479]: Azure OpenAI
+                          - button "Set API Key Azure OpenAI" [ref=e481] [cursor=pointer]:
+                            - img [ref=e482]
+                            - generic [ref=e486]: Set API Key
+                        - generic:
+                          - img
+                      - option "Google Set API Key Google" [ref=e487]:
+                        - generic [ref=e489]:
+                          - generic [ref=e490]:
+                            - img [ref=e492]
+                            - generic [ref=e494]: Google
+                          - button "Set API Key Google" [ref=e496] [cursor=pointer]:
+                            - img [ref=e497]
+                            - generic [ref=e501]: Set API Key
+                        - generic:
+                          - img
+                      - option "Anthropic Set API Key Anthropic" [ref=e502]:
+                        - generic [ref=e504]:
+                          - generic [ref=e505]:
+                            - img [ref=e507]
+                            - generic [ref=e512]: Anthropic
+                          - button "Set API Key Anthropic" [ref=e514] [cursor=pointer]:
+                            - img [ref=e515]
+                            - generic [ref=e519]: Set API Key
+                        - generic:
+                          - img
+                      - option "Ollama Set API Key Ollama" [ref=e520]:
+                        - generic [ref=e522]:
+                          - generic [ref=e523]:
+                            - img [ref=e525]
+                            - generic [ref=e526]: Ollama
+                          - button "Set API Key Ollama" [ref=e528] [cursor=pointer]:
+                            - img [ref=e529]
+                            - generic [ref=e533]: Set API Key
+                        - generic:
+                          - img
+                      - option "Ollama Cloud Set API Key Ollama Cloud" [ref=e534]:
+                        - generic [ref=e536]:
+                          - generic [ref=e537]:
+                            - img [ref=e539]
+                            - generic [ref=e542]: Ollama Cloud
+                          - button "Set API Key Ollama Cloud" [ref=e544] [cursor=pointer]:
+                            - img [ref=e545]
+                            - generic [ref=e549]: Set API Key
+                        - generic:
+                          - img
+                      - option "xAI Set API Key xAI" [ref=e550]:
+                        - generic [ref=e552]:
+                          - generic [ref=e553]:
+                            - img [ref=e555]
+                            - generic [ref=e557]: xAI
+                          - button "Set API Key xAI" [ref=e559] [cursor=pointer]:
+                            - img [ref=e560]
+                            - generic [ref=e564]: Set API Key
+                        - generic:
+                          - img
+                    - dialog "Anthropic Set API Key Anthropic" [ref=e570]:
+                      - generic [ref=e572]:
+                        - combobox [expanded] [ref=e573]
+                        - generic: Search Anthropic models...
+                      - listbox [ref=e574]:
+                        - generic [ref=e575]: Quick select
+                        - option "claude-opus-4-6" [ref=e576] [cursor=pointer]:
+                          - generic [ref=e578]: claude-opus-4-6
+                        - option "claude-sonnet-4-6" [ref=e580] [cursor=pointer]:
+                          - generic [ref=e582]: claude-sonnet-4-6
+                        - option "claude-opus-4-5" [ref=e584] [cursor=pointer]:
+                          - generic [ref=e586]: claude-opus-4-5
+                        - option "claude-sonnet-4-5" [ref=e588] [cursor=pointer]:
+                          - generic [ref=e590]: claude-sonnet-4-5
+                        - generic [ref=e592]: All models
+                        - option "claude-sonnet-4-5-20250929" [ref=e593] [cursor=pointer]:
+                          - generic [ref=e595]: claude-sonnet-4-5-20250929
+                        - option "claude-haiku-4-5" [ref=e597] [cursor=pointer]:
+                          - generic [ref=e599]: claude-haiku-4-5
+                        - option "claude-haiku-4-5-20251001" [ref=e601] [cursor=pointer]:
+                          - generic [ref=e603]: claude-haiku-4-5-20251001
+                        - option "claude-opus-4-1" [ref=e605] [cursor=pointer]:
+                          - generic [ref=e607]: claude-opus-4-1
+                        - option "claude-opus-4-1-20250805" [ref=e609] [cursor=pointer]:
+                          - generic [ref=e611]: claude-opus-4-1-20250805
+                        - option "claude-opus-4-0" [ref=e613] [cursor=pointer]:
+                          - generic [ref=e615]: claude-opus-4-0
+                        - option "claude-opus-4-20250514" [ref=e617] [cursor=pointer]:
+                          - generic [ref=e619]: claude-opus-4-20250514
+                        - option "claude-sonnet-4-0" [ref=e621] [cursor=pointer]:
+                          - generic [ref=e623]: claude-sonnet-4-0
+                        - option "claude-sonnet-4-20250514" [ref=e625] [cursor=pointer]:
+                          - generic [ref=e627]: claude-sonnet-4-20250514
+                        - option "claude-3-7-sonnet-latest" [ref=e629] [cursor=pointer]:
+                          - generic [ref=e631]: claude-3-7-sonnet-latest
+                        - option "claude-3-7-sonnet-20250219" [ref=e633] [cursor=pointer]:
+                          - generic [ref=e635]: claude-3-7-sonnet-20250219
+                        - option "claude-3-5-sonnet-latest" [ref=e637] [cursor=pointer]:
+                          - generic [ref=e639]: claude-3-5-sonnet-latest
+                        - option "claude-3-5-sonnet-20240620" [ref=e641] [cursor=pointer]:
+                          - generic [ref=e643]: claude-3-5-sonnet-20240620
+                        - option "claude-3-5-sonnet-20241022" [ref=e645] [cursor=pointer]:
+                          - generic [ref=e647]: claude-3-5-sonnet-20241022
+                        - option "claude-3-5-haiku-20241022" [ref=e649] [cursor=pointer]:
+                          - generic [ref=e651]: claude-3-5-haiku-20241022
+                - button "Presets" [ref=e97] [cursor=pointer]:
+                  - img [ref=e98]
+                - button "Add multi-conversation" [ref=e102] [cursor=pointer]:
+                  - img [ref=e103]
+              - button "Temporary Chat" [ref=e107] [cursor=pointer]:
+                - img [ref=e108]
+            - generic [ref=e117]:
+              - generic [ref=e120]:
+                - img [ref=e123]
+                - generic [ref=e128]: Happy late night, Validation SuperAdmin
+                - paragraph [ref=e129]:
+                  - generic [ref=e130]:
+                    - generic [ref=e131]: H
+                    - generic [ref=e132]: a
+                    - generic [ref=e133]: p
+                    - generic [ref=e134]: p
+                    - generic [ref=e135]: "y"
+                  - generic [ref=e137]:
+                    - generic [ref=e138]: l
+                    - generic [ref=e139]: a
+                    - generic [ref=e140]: t
+                    - generic [ref=e141]: e
+                  - generic [ref=e143]:
+                    - generic [ref=e144]: "n"
+                    - generic [ref=e145]: i
+                    - generic [ref=e146]: g
+                    - generic [ref=e147]: h
+                    - generic [ref=e148]: t
+                    - generic [ref=e149]: ","
+                  - generic [ref=e151]:
+                    - generic [ref=e152]: V
+                    - generic [ref=e153]: a
+                    - generic [ref=e154]: l
+                    - generic [ref=e155]: i
+                    - generic [ref=e156]: d
+                    - generic [ref=e157]: a
+                    - generic [ref=e158]: t
+                    - generic [ref=e159]: i
+                    - generic [ref=e160]: o
+                    - generic [ref=e161]: "n"
+                  - generic [ref=e163]:
+                    - generic [ref=e164]: S
+                    - generic [ref=e165]: u
+                    - generic [ref=e166]: p
+                    - generic [ref=e167]: e
+                    - generic [ref=e168]: r
+                    - generic [ref=e169]: A
+                    - generic [ref=e170]: d
+                    - generic [ref=e171]: m
+                    - generic [ref=e172]: i
+                    - generic [ref=e173]: "n"
+              - generic [ref=e178]:
+                - textbox "Message input" [ref=e181]:
+                  - /placeholder: Message Claude
+                - generic [ref=e183]:
+                  - button "Attach File Options" [ref=e185] [cursor=pointer]:
+                    - img [ref=e187]
+                  - button "Use microphone" [ref=e189] [cursor=pointer]:
+                    - img [ref=e190]
+                  - button "Open realtime voice dialog" [ref=e193] [cursor=pointer]:
+                    - img [ref=e194]
+                  - button "Send message" [disabled] [ref=e201]:
+                    - img [ref=e203]
+            - contentinfo [ref=e205]:
+              - generic [ref=e206]:
+                - link "LibreChat v0.8.3" [ref=e207] [cursor=pointer]:
+                  - /url: https://librechat.ai
+                - text: "- Every AI for Everyone."
+        - button "Close Control Panel" [expanded] [ref=e210] [cursor=pointer]
+        - separator [ref=e216]
+        - navigation "Controls" [ref=e217]:
+          - generic [ref=e223]:
+            - button "Agent Builder" [ref=e226] [cursor=pointer]:
+              - img [ref=e227]
+              - text: Agent Builder
+            - button "Prompts" [ref=e232] [cursor=pointer]:
+              - img [ref=e233]
+              - text: Prompts
+            - button "Memories" [ref=e239] [cursor=pointer]:
+              - img [ref=e240]
+              - text: Memories
+            - generic [ref=e245]:
+              - button "Parameters" [expanded] [ref=e246] [cursor=pointer]:
+                - img [ref=e247]
+                - text: Parameters
+              - region "Parameters" [ref=e250]:
+                - generic [ref=e252]:
+                  - generic [ref=e253]:
+                    - generic [ref=e255]:
+                      - generic [ref=e257]: Custom Name
+                      - textbox "Custom Name" [ref=e258]:
+                        - /placeholder: Set a custom name for the AI
+                    - generic [ref=e260]:
+                      - generic [ref=e262]: Custom Instructions
+                      - textbox "Custom Instructions" [ref=e263]:
+                        - /placeholder: "Set custom instructions to include in System Message. Default: none"
+                    - generic [ref=e265]:
+                      - generic [ref=e267]: Max Context Tokens
+                      - textbox "Max Context Tokens" [ref=e268]:
+                        - /placeholder: System
+                    - generic [ref=e270]:
+                      - generic [ref=e272]: Max Output Tokens
+                      - textbox "Max Output Tokens" [ref=e273]:
+                        - /placeholder: System
+                    - generic [ref=e275]:
+                      - generic [ref=e276]:
+                        - generic [ref=e277]: Temperature
+                        - spinbutton "Temperature" [ref=e280]: "1.00"
+                      - slider "Temperature" [ref=e285] [cursor=pointer]
+                    - generic [ref=e287]:
+                      - generic [ref=e288]:
+                        - generic [ref=e289]: Top P
+                        - spinbutton "Top P" [ref=e292]: "0.70"
+                      - slider "Top P" [ref=e297] [cursor=pointer]
+                    - generic [ref=e299]:
+                      - generic [ref=e300]:
+                        - generic [ref=e301]: Top K
+                        - spinbutton "Top K" [ref=e304]: "5"
+                      - slider "Top K" [ref=e309] [cursor=pointer]
+                    - generic [ref=e311]:
+                      - generic [ref=e313]: Stop Sequences
+                      - textbox "Stop Sequences" [ref=e316]:
+                        - /placeholder: "Separate values by pressing `Enter`"
+                    - generic [ref=e318]:
+                      - generic [ref=e320]: Resend Files
+                      - switch "Resend Files" [checked] [ref=e321] [cursor=pointer]
+                    - generic [ref=e323]:
+                      - generic [ref=e325]: Use Prompt Caching
+                      - switch "Use Prompt Caching" [checked] [ref=e326] [cursor=pointer]
+                    - generic [ref=e328]:
+                      - generic [ref=e330]: Thinking
+                      - switch "Thinking" [checked] [ref=e331] [cursor=pointer]
+                    - generic [ref=e333]:
+                      - generic [ref=e335]: Thinking Budget
+                      - textbox "Thinking Budget" [disabled] [ref=e336]:
+                        - /placeholder: ""
+                        - text: "2000"
+                    - generic [ref=e338]:
+                      - generic [ref=e339]:
+                        - generic [ref=e340]: Effort
+                        - textbox "Effort" [disabled] [ref=e341]: Auto
+                      - slider "Effort" [disabled] [ref=e345] [cursor=pointer]
+                    - generic [ref=e347]:
+                      - generic [ref=e348]:
+                        - generic [ref=e349]: Service tier
+                        - textbox "Service tier" [ref=e350]: Auto
+                      - slider "Service tier" [ref=e354] [cursor=pointer]
+                    - generic [ref=e356]:
+                      - generic [ref=e358]: Web Search
+                      - switch "Web Search" [ref=e359] [cursor=pointer]
+                    - generic [ref=e361]:
+                      - generic [ref=e363]: File Token Limit
+                      - textbox "File Token Limit" [ref=e364]:
+                        - /placeholder: System
+                  - button "Reset Model Parameters" [ref=e366] [cursor=pointer]:
+                    - img [ref=e367]
+                    - text: Reset Model Parameters
+                  - button "Save As Preset" [ref=e371] [cursor=pointer]
+            - button "Attach Files" [ref=e374] [cursor=pointer]:
+              - img [ref=e375]
+              - text: Attach Files
+            - button "Bookmarks" [ref=e379] [cursor=pointer]:
+              - img [ref=e380]
+              - text: Bookmarks
+            - button "MCP Settings" [ref=e384] [cursor=pointer]:
+              - img [ref=e385]
+              - text: MCP Settings
+            - button "Hide Panel" [ref=e391] [cursor=pointer]:
+              - img [ref=e392]
+              - text: Hide Panel
+      - button "Close right side panel"
+  - complementary "React Query Devtools":
+    - button "Open React Query Devtools" [ref=e14] [cursor=pointer]:
+      - img [ref=e15]
+      - generic [ref=e21]: Open React Query Devtools
+  - region "Notifications (F8)":
+    - list

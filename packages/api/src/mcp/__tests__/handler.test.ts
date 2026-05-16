@@ -93,6 +93,29 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
       );
     });
 
+    it('should use an explicit redirect URI override when provided', async () => {
+      const redirectUri = 'http://192.168.50.4:3080/api/mcp/test-server/oauth/callback';
+
+      await MCPOAuthHandler.initiateOAuthFlow(
+        mockServerName,
+        mockServerUrl,
+        mockUserId,
+        {},
+        baseConfig,
+        redirectUri,
+      );
+
+      expect(mockStartAuthorization).toHaveBeenCalledWith(
+        mockServerUrl,
+        expect.objectContaining({
+          clientInformation: expect.objectContaining({
+            redirect_uris: [redirectUri],
+          }),
+          redirectUrl: redirectUri,
+        }),
+      );
+    });
+
     it('should use custom grant_types_supported when provided', async () => {
       const config = {
         ...baseConfig,
@@ -269,6 +292,57 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
     });
 
     describe('with stored metadata', () => {
+      it('should use authorization server metadata from the protected resource for refresh', async () => {
+        const metadata = {
+          serverName: 'arcade-microsoft',
+          userId: 'user-123',
+          serverUrl: 'https://api.arcade.dev/mcp/microsoft-tools',
+          state: 'state-123',
+          clientInfo: {
+            client_id: 'test-client-id',
+            grant_types: ['authorization_code', 'refresh_token'],
+            scope: 'mcp',
+          },
+          resourceMetadata: {
+            resource: 'https://api.arcade.dev/mcp/microsoft-tools',
+            authorization_servers: ['https://cloud.arcade.dev/oauth2'],
+          },
+        };
+
+        mockDiscoverAuthorizationServerMetadata.mockResolvedValueOnce({
+          issuer: 'https://cloud.arcade.dev/oauth2',
+          authorization_endpoint: 'https://cloud.arcade.dev/oauth2/authorize',
+          token_endpoint: 'https://cloud.arcade.dev/oauth2/token',
+          token_endpoint_auth_methods_supported: ['none'],
+          response_types_supported: ['code'],
+          jwks_uri: 'https://cloud.arcade.dev/oauth2/jwks',
+          subject_types_supported: ['public'],
+          id_token_signing_alg_values_supported: ['RS256'],
+        } as AuthorizationServerMetadata);
+
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            access_token: 'new-access-token',
+            refresh_token: 'new-refresh-token',
+            expires_in: 3600,
+          }),
+        } as Response);
+
+        const result = await MCPOAuthHandler.refreshOAuthTokens(mockRefreshToken, metadata, {}, {});
+
+        expect(mockDiscoverAuthorizationServerMetadata).toHaveBeenCalledTimes(1);
+        const discoveryUrl = mockDiscoverAuthorizationServerMetadata.mock.calls[0][0] as URL;
+        expect(discoveryUrl.href).toBe('https://cloud.arcade.dev/oauth2');
+        expect(mockFetch).toHaveBeenCalledWith(
+          'https://cloud.arcade.dev/oauth2/token',
+          expect.objectContaining({
+            method: 'POST',
+          }),
+        );
+        expect(result.access_token).toBe('new-access-token');
+      });
+
       it('should use client_secret_post when server only supports that method', async () => {
         const metadata = {
           serverName: 'test-server',

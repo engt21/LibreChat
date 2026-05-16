@@ -4,6 +4,7 @@ import { isAssistantsEndpoint } from 'librechat-data-provider';
 import type { TMessage } from 'librechat-data-provider';
 import type { TMessageProps } from '~/common';
 import MessageContent from '~/components/Messages/MessageContent';
+import MessageRenderErrorBoundary from './MessageRenderErrorBoundary';
 import MessageParts from './MessageParts';
 import Message from './Message';
 import store from '~/store';
@@ -45,41 +46,49 @@ export default function MultiMessage({
     return null;
   }
 
+  const resetKey = `${message.messageId ?? messageId ?? 'unknown'}:${siblingIdx}`;
+
   if (isAssistantsEndpoint(message.endpoint) && message.content) {
     return (
-      <MessageParts
-        key={message.messageId}
-        message={message}
-        currentEditId={currentEditId}
-        setCurrentEditId={setCurrentEditId}
-        siblingIdx={messagesTree.length - siblingIdx - 1}
-        siblingCount={messagesTree.length}
-        setSiblingIdx={setSiblingIdxRev}
-      />
+      <MessageRenderErrorBoundary resetKey={resetKey}>
+        <MessageParts
+          key={message.messageId}
+          message={message}
+          currentEditId={currentEditId}
+          setCurrentEditId={setCurrentEditId}
+          siblingIdx={messagesTree.length - siblingIdx - 1}
+          siblingCount={messagesTree.length}
+          setSiblingIdx={setSiblingIdxRev}
+        />
+      </MessageRenderErrorBoundary>
     );
   } else if (message.content) {
     return (
-      <MessageContent
-        key={message.messageId}
-        message={message}
-        currentEditId={currentEditId}
-        setCurrentEditId={setCurrentEditId}
-        siblingIdx={messagesTree.length - siblingIdx - 1}
-        siblingCount={messagesTree.length}
-        setSiblingIdx={setSiblingIdxRev}
-      />
+      <MessageRenderErrorBoundary resetKey={resetKey}>
+        <MessageContent
+          key={message.messageId}
+          message={message}
+          currentEditId={currentEditId}
+          setCurrentEditId={setCurrentEditId}
+          siblingIdx={messagesTree.length - siblingIdx - 1}
+          siblingCount={messagesTree.length}
+          setSiblingIdx={setSiblingIdxRev}
+        />
+      </MessageRenderErrorBoundary>
     );
   }
 
   return (
-    <Message
-      key={message.messageId}
-      message={message}
-      currentEditId={currentEditId}
-      setCurrentEditId={setCurrentEditId}
-      siblingIdx={messagesTree.length - siblingIdx - 1}
-      siblingCount={messagesTree.length}
-      setSiblingIdx={setSiblingIdxRev}
-    />
+    <MessageRenderErrorBoundary resetKey={resetKey}>
+      <Message
+        key={message.messageId}
+        message={message}
+        currentEditId={currentEditId}
+        setCurrentEditId={setCurrentEditId}
+        siblingIdx={messagesTree.length - siblingIdx - 1}
+        siblingCount={messagesTree.length}
+        setSiblingIdx={setSiblingIdxRev}
+      />
+    </MessageRenderErrorBoundary>
   );
 }

@@ -111,8 +111,19 @@ resolve_shared_service_paths() {
   export LIBRECHAT_EXPORTER_ROOT="$(resolve_exporter_root "$root_dir")"
   export TOUCHDOWN_LOG_DIR="$(resolve_touchdown_log_dir "$root_dir")"
   export TOUCHDOWN_BACKWARDS_LOG_DIR="$(resolve_touchdown_backwards_log_dir "$root_dir")"
-  export PROMETHEUS_COMPOSE="$LIBRECHAT_EXPORTER_ROOT/prometheus-dev/docker-compose.yml"
-  export GRAFANA_COMPOSE="$LIBRECHAT_EXPORTER_ROOT/grafana-loki-dev/docker-compose.yml"
+  # Observability stack is shared across stable + dev LibreChat; directories were renamed
+  # 2026-04-24 from *-dev to *-stable to reflect their production role.  Keep fallbacks for
+  # worktrees that haven't synced the rename yet.
+  if [[ -f "$LIBRECHAT_EXPORTER_ROOT/prometheus-stable/docker-compose.yml" ]]; then
+    export PROMETHEUS_COMPOSE="$LIBRECHAT_EXPORTER_ROOT/prometheus-stable/docker-compose.yml"
+  else
+    export PROMETHEUS_COMPOSE="$LIBRECHAT_EXPORTER_ROOT/prometheus-dev/docker-compose.yml"
+  fi
+  if [[ -f "$LIBRECHAT_EXPORTER_ROOT/grafana-loki-stable/docker-compose.yml" ]]; then
+    export GRAFANA_COMPOSE="$LIBRECHAT_EXPORTER_ROOT/grafana-loki-stable/docker-compose.yml"
+  else
+    export GRAFANA_COMPOSE="$LIBRECHAT_EXPORTER_ROOT/grafana-loki-dev/docker-compose.yml"
+  fi
 }
 
 shared_observability_available() {
@@ -161,6 +172,8 @@ resolve_librechat_rail() {
       export LOCAL_CODE_SANDBOX_PYTHON_IMAGE="librechat-local-sandbox-python-stable:latest"
       export LIBRECHAT_API_MEM_LIMIT="3072m"
       export LIBRECHAT_API_NODE_MAX_OLD_SPACE="2048"
+      unset LANGFUSE_BASE_URL
+      unset LANGFUSE_UI_URL
       # Stable does not override Langfuse NODE_OPTIONS; the container uses
       # Node.js default heap sizing, which is appropriate for the higher
       # memory limits available on the production rail.
@@ -198,6 +211,10 @@ resolve_librechat_rail() {
       export LOCAL_CODE_SANDBOX_PYTHON_IMAGE="librechat-local-sandbox-python-dev:latest"
       export LIBRECHAT_API_MEM_LIMIT="1536m"
       export LIBRECHAT_API_NODE_MAX_OLD_SPACE="1024"
+      export LIBRECHAT_SHARED_LANGFUSE_BASE_URL="${LIBRECHAT_SHARED_LANGFUSE_BASE_URL:-http://host.docker.internal:3000}"
+      export LIBRECHAT_SHARED_LANGFUSE_UI_URL="${LIBRECHAT_SHARED_LANGFUSE_UI_URL:-http://127.0.0.1:3000}"
+      export LANGFUSE_BASE_URL="$LIBRECHAT_SHARED_LANGFUSE_BASE_URL"
+      export LANGFUSE_UI_URL="$LIBRECHAT_SHARED_LANGFUSE_UI_URL"
       # Dev-specific Langfuse memory limits to coexist with stable under constrained host memory.
       # These override the .env values that are tuned for production-scale stable workloads.
       # ClickHouse needs enough headroom for background merges on synced data; the memory.xml

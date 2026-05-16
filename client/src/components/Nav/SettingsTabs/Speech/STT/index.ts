@@ -4,3 +4,5 @@ export { default as EngineSTTDropdown } from './EngineSTTDropdown';
 export { default as DecibelSelector } from './DecibelSelector';
 export { default as AutoTranscribeAudioSwitch } from './AutoTranscribeAudioSwitch';
 export { default as LanguageSTTDropdown } from './LanguageSTTDropdown';
+export { default as TranscriptionModelDropdown } from './TranscriptionModelDropdown';
+export { default as TranscriptionPromptInput } from './TranscriptionPromptInput';

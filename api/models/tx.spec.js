@@ -21,6 +21,13 @@ describe('getValueKey', () => {
     expect(getValueKey('gpt-3.5-some-other-info')).toBe('4k');
   });
 
+  it('should return exact value keys for legacy OpenAI aliases with direct pricing', () => {
+    expect(getValueKey('gpt-3.5-turbo')).toBe('gpt-3.5-turbo');
+    expect(getValueKey('gpt-3.5-turbo-instruct')).toBe('gpt-3.5-turbo-instruct');
+    expect(getValueKey('davinci-002')).toBe('davinci-002');
+    expect(getValueKey('babbage-002')).toBe('babbage-002');
+  });
+
   it('should return "32k" for model name containing "gpt-4-32k"', () => {
     expect(getValueKey('gpt-4-32k-some-other-info')).toBe('32k');
   });
@@ -243,6 +250,12 @@ describe('getValueKey', () => {
     expect(getValueKey('gpt-oss-20b')).toBe('gpt-oss-20b');
     expect(getValueKey('oai/gpt-oss:20b')).toBe('gpt-oss:20b');
   });
+
+  it('should return expected value keys for Gemini latest aliases', () => {
+    expect(getValueKey('gemini-pro-latest')).toBe('gemini-pro-latest');
+    expect(getValueKey('models/gemini-flash-latest')).toBe('gemini-flash-latest');
+    expect(getValueKey('google/gemini-flash-lite-latest')).toBe('gemini-flash-lite-latest');
+  });
 });
 
 describe('getMultiplier', () => {
@@ -292,6 +305,21 @@ describe('getMultiplier', () => {
     );
     expect(getMultiplier({ valueKey: 'gpt-3.5-turbo-1106', tokenType: 'completion' })).toBe(
       tokenValues['gpt-3.5-turbo-1106'].completion,
+    );
+  });
+
+  it('should return correct multipliers for legacy OpenAI aliases with direct pricing', () => {
+    expect(getMultiplier({ tokenType: 'prompt', model: 'gpt-3.5-turbo' })).toBe(
+      tokenValues['gpt-3.5-turbo'].prompt,
+    );
+    expect(getMultiplier({ tokenType: 'completion', model: 'gpt-3.5-turbo-instruct' })).toBe(
+      tokenValues['gpt-3.5-turbo-instruct'].completion,
+    );
+    expect(getMultiplier({ tokenType: 'prompt', model: 'davinci-002' })).toBe(
+      tokenValues['davinci-002'].prompt,
+    );
+    expect(getMultiplier({ tokenType: 'prompt', model: 'babbage-002' })).toBe(
+      tokenValues['babbage-002'].prompt,
     );
   });
 
@@ -565,6 +593,21 @@ describe('getMultiplier', () => {
       expect(getMultiplier({ model: key, tokenType: 'prompt' })).toBe(expectedPrompt);
       expect(getMultiplier({ model: key, tokenType: 'completion' })).toBe(expectedCompletion);
     });
+  });
+
+  it('should return correct multipliers for Gemini latest aliases', () => {
+    expect(getMultiplier({ model: 'gemini-pro-latest', tokenType: 'prompt' })).toBe(
+      tokenValues['gemini-pro-latest'].prompt,
+    );
+    expect(getMultiplier({ model: 'gemini-pro-latest', tokenType: 'completion' })).toBe(
+      tokenValues['gemini-pro-latest'].completion,
+    );
+    expect(getMultiplier({ model: 'models/gemini-flash-latest', tokenType: 'prompt' })).toBe(
+      tokenValues['gemini-flash-latest'].prompt,
+    );
+    expect(
+      getMultiplier({ model: 'google/gemini-flash-lite-latest', tokenType: 'completion' }),
+    ).toBe(tokenValues['gemini-flash-lite-latest'].completion);
   });
 });
 
@@ -1471,6 +1514,15 @@ describe('getCacheMultiplier', () => {
     }
   });
 
+  it('should return correct cache multipliers for Gemini latest aliases', () => {
+    expect(getCacheMultiplier({ model: 'gemini-pro-latest', cacheType: 'write' })).toBe(
+      cacheTokenValues['gemini-pro-latest'].write,
+    );
+    expect(
+      getCacheMultiplier({ model: 'google/gemini-flash-lite-latest', cacheType: 'read' }),
+    ).toBe(cacheTokenValues['gemini-flash-lite-latest'].read);
+  });
+
   it('should handle models with "bedrock/" prefix', () => {
     expect(
       getCacheMultiplier({
@@ -1868,6 +1920,21 @@ describe('Grok Model Tests - Pricing', () => {
       );
     });
 
+    test('should return correct prompt and completion rates for Grok 4.20 models', () => {
+      expect(getMultiplier({ model: 'grok-4.20-beta-latest-reasoning', tokenType: 'prompt' })).toBe(
+        tokenValues['grok-4.20-beta'].prompt,
+      );
+      expect(
+        getMultiplier({ model: 'grok-4.20-beta-latest-reasoning', tokenType: 'completion' }),
+      ).toBe(tokenValues['grok-4.20-beta'].completion);
+      expect(getMultiplier({ model: 'grok-4.20-multi-agent-beta-0309', tokenType: 'prompt' })).toBe(
+        tokenValues['grok-4.20-multi-agent'].prompt,
+      );
+      expect(
+        getMultiplier({ model: 'grok-4.20-multi-agent-beta-0309', tokenType: 'completion' }),
+      ).toBe(tokenValues['grok-4.20-multi-agent'].completion);
+    });
+
     test('should return correct prompt and completion rates for Grok Code Fast model', () => {
       expect(getMultiplier({ model: 'grok-code-fast-1', tokenType: 'prompt' })).toBe(
         tokenValues['grok-code-fast'].prompt,
@@ -1935,6 +2002,27 @@ describe('Grok Model Tests - Pricing', () => {
       expect(
         getMultiplier({ model: 'xai/grok-4-1-fast-non-reasoning', tokenType: 'completion' }),
       ).toBe(tokenValues['grok-4-1-fast'].completion);
+    });
+
+    test('should return correct prompt and completion rates for Grok 4.20 models with prefixes', () => {
+      expect(
+        getMultiplier({ model: 'xai/grok-4.20-beta-latest-non-reasoning', tokenType: 'prompt' }),
+      ).toBe(tokenValues['grok-4.20-beta'].prompt);
+      expect(
+        getMultiplier({
+          model: 'xai/grok-4.20-beta-latest-non-reasoning',
+          tokenType: 'completion',
+        }),
+      ).toBe(tokenValues['grok-4.20-beta'].completion);
+      expect(
+        getMultiplier({ model: 'xai/grok-4.20-multi-agent-beta-0309', tokenType: 'prompt' }),
+      ).toBe(tokenValues['grok-4.20-multi-agent'].prompt);
+      expect(
+        getMultiplier({
+          model: 'xai/grok-4.20-multi-agent-beta-0309',
+          tokenType: 'completion',
+        }),
+      ).toBe(tokenValues['grok-4.20-multi-agent'].completion);
     });
 
     test('should return correct prompt and completion rates for Grok Code Fast model with prefixes', () => {

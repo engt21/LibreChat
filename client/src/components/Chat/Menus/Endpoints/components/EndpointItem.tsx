@@ -2,9 +2,15 @@ import { useMemo } from 'react';
 import { VisuallyHidden } from '@ariakit/react';
 import { Spinner, TooltipAnchor } from '@librechat/client';
 import { CheckCircle2, MousePointerClick } from 'lucide-react';
-import { isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
+import {
+  EModelEndpoint,
+  getAnthropicQuickSelectModelNames,
+  isAgentsEndpoint,
+  isAssistantsEndpoint,
+} from 'librechat-data-provider';
 import type { TModelSpec } from 'librechat-data-provider';
 import type { Endpoint } from '~/common';
+import { useGetStartupConfig } from '~/data-provider';
 import { CustomMenu as Menu, CustomMenuItem as MenuItem } from '../CustomMenu';
 import { useModelSelectorContext } from '../ModelSelectorContext';
 import { renderEndpointModels } from './EndpointModelItem';
@@ -34,6 +40,7 @@ function EndpointMenuContent({
   const localize = useLocalize();
   const { agentsMap, assistantsMap, modelSpecs, selectedValues, endpointSearchValues } =
     useModelSelectorContext();
+  const { data: startupConfig } = useGetStartupConfig();
   const { modelSpec: selectedSpec } = selectedValues;
   const searchValue = endpointSearchValues[endpoint.value] || '';
 
@@ -65,6 +72,19 @@ function EndpointMenuContent({
         assistantsMap,
       )
     : null;
+  const anthropicModelNames = endpoint.models?.map((model) => model.name) ?? [];
+  const anthropicQuickSelectModels =
+    !searchValue && endpoint.value === EModelEndpoint.anthropic
+      ? getAnthropicQuickSelectModelNames(
+          anthropicModelNames,
+          startupConfig?.anthropicModelCapabilities,
+          4,
+        )
+      : [];
+  const remainingAnthropicModels =
+    endpoint.value === EModelEndpoint.anthropic
+      ? anthropicModelNames.filter((model) => !anthropicQuickSelectModels.includes(model))
+      : [];
 
   return (
     <>
@@ -74,7 +94,34 @@ function EndpointMenuContent({
       {filteredModels
         ? renderEndpointModels(endpoint, endpoint.models || [], filteredModels, endpointIndex)
         : endpoint.models &&
-          renderEndpointModels(endpoint, endpoint.models, undefined, endpointIndex)}
+          (endpoint.value === EModelEndpoint.anthropic ? (
+            <>
+              {anthropicQuickSelectModels.length > 0 && (
+                <div className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
+                  Quick select
+                </div>
+              )}
+              {renderEndpointModels(
+                endpoint,
+                endpoint.models,
+                anthropicQuickSelectModels,
+                endpointIndex,
+              )}
+              {remainingAnthropicModels.length > 0 && anthropicQuickSelectModels.length > 0 && (
+                <div className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
+                  All models
+                </div>
+              )}
+              {renderEndpointModels(
+                endpoint,
+                endpoint.models,
+                remainingAnthropicModels,
+                endpointIndex,
+              )}
+            </>
+          ) : (
+            renderEndpointModels(endpoint, endpoint.models, undefined, endpointIndex)
+          ))}
     </>
   );
 }

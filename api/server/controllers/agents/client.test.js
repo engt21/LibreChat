@@ -51,6 +51,10 @@ jest.mock('~/models/Role', () => ({
   getRoleByName: jest.fn(),
 }));
 
+jest.mock('./googleVertexRefresh', () => ({
+  maybeRefreshGoogleVertexModelAccess: jest.fn().mockResolvedValue(false),
+}));
+
 // Mock getMCPManager
 const mockFormatInstructions = jest.fn();
 jest.mock('~/config', () => ({
@@ -1446,6 +1450,82 @@ describe('AgentClient - titleConvo', () => {
       // Should still have base instructions without MCP content (from agent config, not buildOptions)
       expect(client.options.agent.instructions).toContain('Base agent instructions');
       expect(client.options.agent.instructions).not.toContain('[object Promise]');
+    });
+
+    it('should sanitize orphaned Anthropic native web search blocks before history replay', async () => {
+      mockFormatInstructions.mockResolvedValue('');
+      client.getTokenCountForMessage = jest.fn(() => 1);
+
+      const messages = [
+        {
+          messageId: 'user-1',
+          parentMessageId: Constants.NO_PARENT,
+          sender: 'User',
+          text: 'Search the web',
+          isCreatedByUser: true,
+        },
+        {
+          messageId: 'assistant-1',
+          parentMessageId: 'user-1',
+          sender: 'Claude',
+          text: 'Partial answer',
+          isCreatedByUser: false,
+          content: [
+            {
+              type: 'server_tool_use',
+              id: 'srvtoolu_orphan',
+              name: 'web_search',
+              input: { query: 'orphaned search' },
+            },
+            {
+              type: 'server_tool_use',
+              id: 'srvtoolu_paired',
+              name: 'web_search',
+              input: { query: 'paired search' },
+            },
+            {
+              type: 'web_search_tool_result',
+              tool_use_id: 'srvtoolu_paired',
+              content: [
+                { type: 'web_search_result', title: 'Example', url: 'https://example.com' },
+              ],
+            },
+            { type: 'text', text: 'Partial answer' },
+          ],
+        },
+        {
+          messageId: 'user-2',
+          parentMessageId: 'assistant-1',
+          sender: 'User',
+          text: 'Continue',
+          isCreatedByUser: true,
+        },
+      ];
+
+      const result = await client.buildMessages(messages, 'user-2', {
+        instructions: null,
+        additional_instructions: null,
+      });
+
+      const replayedAssistant = result.messages.find(
+        (message) => message.messageId === 'assistant-1',
+      );
+      const replayedContent = replayedAssistant.content;
+
+      expect(replayedContent).toEqual([
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_paired',
+          name: 'web_search',
+          input: { query: 'paired search' },
+        },
+        {
+          type: 'web_search_tool_result',
+          tool_use_id: 'srvtoolu_paired',
+          content: [{ type: 'web_search_result', title: 'Example', url: 'https://example.com' }],
+        },
+        { type: 'text', text: 'Partial answer' },
+      ]);
     });
   });
 

@@ -34,6 +34,7 @@ import { getCustomEndpointConfig } from '~/app/config';
 import { filterFilesByEndpointConfig } from '~/files';
 import { generateArtifactsPrompt } from '~/prompts';
 import { getProviderConfig } from '~/endpoints';
+import { ANTHROPIC_CODE_EXECUTION_BETA } from '~/endpoints/anthropic/helpers';
 import {
   selectNativeTools,
   buildNativeProviderTools,
@@ -318,12 +319,25 @@ export async function initializeAgent(
     ? resolveXAIModelCapabilities(agent.model ?? null)
     : null;
   const nativeToolProvider = isXAIProvider ? KnownEndpoints.xai : provider;
+  const requestBody =
+    req.body != null && typeof req.body === 'object'
+      ? (req.body as Record<string, unknown>)
+      : undefined;
+  const requestEphemeralAgent =
+    requestBody?.ephemeralAgent != null && typeof requestBody.ephemeralAgent === 'object'
+      ? (requestBody.ephemeralAgent as Record<string, unknown>)
+      : undefined;
 
   const nativeToolSelection = selectNativeTools({
     agentId: agent.id,
     provider: nativeToolProvider,
     tools: agent.tools,
     tool_resources,
+    model: agent.model,
+    codeInterpreterMode:
+      typeof requestEphemeralAgent?.execute_code_mode === 'string'
+        ? requestEphemeralAgent.execute_code_mode
+        : undefined,
   });
 
   let toolNames = (agent.tools ?? []).filter((tool) => !nativeToolSelection.stripTools.has(tool));
@@ -378,6 +392,30 @@ export async function initializeAgent(
     model_parameters: finalModelOptions,
     db,
   });
+
+  if (
+    nativeToolProvider === EModelEndpoint.anthropic &&
+    nativeToolSelection.anthropicCodeExecution
+  ) {
+    const llmConfig = options.llmConfig as Record<string, unknown>;
+    const clientOptions = ((llmConfig?.clientOptions as Record<string, unknown> | undefined) ??
+      {}) as Record<string, unknown>;
+    const defaultHeaders = ((clientOptions.defaultHeaders as Record<string, string> | undefined) ??
+      {}) as Record<string, string>;
+    const anthropicBetas = [
+      ...(defaultHeaders['anthropic-beta']
+        ?.split(',')
+        .map((value) => value.trim())
+        .filter(Boolean) ?? []),
+      ANTHROPIC_CODE_EXECUTION_BETA,
+    ];
+
+    clientOptions.defaultHeaders = {
+      ...defaultHeaders,
+      'anthropic-beta': [...new Set(anthropicBetas)].join(','),
+    };
+    llmConfig.clientOptions = clientOptions;
+  }
 
   const nativeProviderTools = await buildNativeProviderTools({
     req,

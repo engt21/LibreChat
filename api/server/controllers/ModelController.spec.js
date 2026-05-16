@@ -7,11 +7,12 @@ jest.mock('@librechat/data-schemas', () => ({
 }));
 
 jest.mock('@librechat/api', () => ({
+  getAnthropicModels: jest.fn(),
   getGoogleModels: jest.fn(),
   getOpenAIModels: jest.fn(),
   resolveAzureOpenAIDirectConfig: jest.fn(),
   isUserProvided: jest.fn((value) => value === 'user_provided'),
-}));
+}), { virtual: true });
 
 jest.mock('~/server/services/Config', () => ({
   loadDefaultModels: jest.fn(),
@@ -38,6 +39,7 @@ describe('ModelController loadModels', () => {
   const mockReq = { user: { id: 'user-1' } };
   let mockCache;
   let originalEnv;
+  let getAnthropicModels;
   let getGoogleModels;
   let getOpenAIModels;
   let resolveAzureOpenAIDirectConfig;
@@ -53,6 +55,7 @@ describe('ModelController loadModels', () => {
     originalEnv = process.env;
     process.env = { ...originalEnv };
     ({
+      getAnthropicModels,
       getGoogleModels,
       getOpenAIModels,
       resolveAzureOpenAIDirectConfig,
@@ -68,6 +71,7 @@ describe('ModelController loadModels', () => {
     };
     getLogStores.mockReturnValue(mockCache);
     getAppConfig.mockResolvedValue({});
+    getAnthropicModels.mockResolvedValue([]);
     getOpenAIModels.mockResolvedValue([]);
     resolveAzureOpenAIDirectConfig.mockReturnValue({
       apiKey: undefined,
@@ -83,7 +87,11 @@ describe('ModelController loadModels', () => {
 
   it('keeps the cached models config when Google and Ollama models are unchanged', async () => {
     const cachedModelsConfig = {
+      anthropic: [],
+      assistants: [],
+      azureOpenAI: [],
       google: ['gemini-2.5-flash'],
+      openAI: [],
       ollama: ['gptossbigctx:latest'],
     };
 
@@ -113,6 +121,7 @@ describe('ModelController loadModels', () => {
     const result = await loadModels(mockReq);
 
     expect(mockCache.set).toHaveBeenCalledWith(CacheKeys.MODELS_CONFIG, {
+      anthropic: [],
       assistants: [],
       azureOpenAI: [],
       google: ['gemini-2.5-flash'],
@@ -120,6 +129,7 @@ describe('ModelController loadModels', () => {
       ollama: ['gptossbigctx:latest'],
     });
     expect(result).toEqual({
+      anthropic: [],
       assistants: [],
       azureOpenAI: [],
       google: ['gemini-2.5-flash'],
@@ -130,9 +140,11 @@ describe('ModelController loadModels', () => {
 
   it('refreshes cached OpenAI discovery on startup even when a shared cache entry already exists', async () => {
     mockCache.get.mockResolvedValue({
+      anthropic: [],
       google: ['gemini-2.5-flash'],
       openAI: ['gpt-4o'],
       assistants: ['gpt-4o'],
+      azureOpenAI: [],
       ollama: ['gptossbigctx:latest'],
     });
     getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
@@ -158,6 +170,7 @@ describe('ModelController loadModels', () => {
       expect.objectContaining({ assistants: true, forceRefresh: true }),
     );
     expect(mockCache.set).toHaveBeenCalledWith(CacheKeys.MODELS_CONFIG, {
+      anthropic: [],
       google: ['gemini-2.5-flash'],
       openAI: ['gpt-5-mini', 'gpt-5-nano'],
       assistants: ['gpt-5-mini'],
@@ -165,6 +178,7 @@ describe('ModelController loadModels', () => {
       ollama: ['gptossbigctx:latest'],
     });
     expect(result).toEqual({
+      anthropic: [],
       google: ['gemini-2.5-flash'],
       openAI: ['gpt-5-mini', 'gpt-5-nano'],
       assistants: ['gpt-5-mini'],
@@ -175,7 +189,11 @@ describe('ModelController loadModels', () => {
 
   it('returns user-specific xAI discovery results without persisting them into the shared cache', async () => {
     mockCache.get.mockResolvedValue({
+      anthropic: [],
+      assistants: [],
+      azureOpenAI: [],
       google: ['gemini-2.5-flash'],
+      openAI: [],
       xai: ['grok-4-0709'],
     });
     getAppConfig.mockResolvedValue({
@@ -201,6 +219,7 @@ describe('ModelController loadModels', () => {
     });
     expect(mockCache.set).not.toHaveBeenCalled();
     expect(result).toEqual({
+      anthropic: [],
       assistants: [],
       azureOpenAI: [],
       google: ['gemini-2.5-flash'],
@@ -214,7 +233,10 @@ describe('ModelController loadModels', () => {
     process.env.AZURE_OPENAI_BASEURL = 'user_provided';
 
     mockCache.get.mockResolvedValue({
+      anthropic: [],
+      assistants: [],
       google: ['gemini-2.5-flash'],
+      openAI: [],
       azureOpenAI: ['shared-deployment'],
     });
     getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
@@ -257,6 +279,7 @@ describe('ModelController loadModels', () => {
     });
     expect(mockCache.set).not.toHaveBeenCalled();
     expect(result).toEqual({
+      anthropic: [],
       assistants: [],
       google: ['gemini-2.5-flash'],
       openAI: [],
@@ -266,7 +289,10 @@ describe('ModelController loadModels', () => {
 
   it('refreshes the shared cache when direct Azure models change', async () => {
     mockCache.get.mockResolvedValue({
+      anthropic: [],
+      assistants: [],
       google: ['gemini-2.5-flash'],
+      openAI: [],
       azureOpenAI: ['old-deployment'],
     });
     getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
@@ -292,12 +318,14 @@ describe('ModelController loadModels', () => {
     const result = await loadModels(mockReq);
 
     expect(mockCache.set).toHaveBeenCalledWith(CacheKeys.MODELS_CONFIG, {
+      anthropic: [],
       assistants: [],
       google: ['gemini-2.5-flash'],
       openAI: [],
       azureOpenAI: ['new-deployment'],
     });
     expect(result).toEqual({
+      anthropic: [],
       assistants: [],
       google: ['gemini-2.5-flash'],
       openAI: [],
@@ -310,7 +338,10 @@ describe('ModelController loadModels', () => {
     process.env.AZURE_OPENAI_BASEURL = 'user_provided';
 
     mockCache.get.mockResolvedValue({
+      anthropic: [],
+      assistants: [],
       google: ['gemini-2.5-flash'],
+      openAI: [],
       azureOpenAI: [],
     });
     getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);

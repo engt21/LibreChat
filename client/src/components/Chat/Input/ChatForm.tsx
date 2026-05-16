@@ -19,7 +19,9 @@ import {
   useSubmitMessage,
   useFocusChatEffect,
 } from '~/hooks';
+import useFileHandling from '~/hooks/Files/useFileHandling';
 import { mainTextareaId, BadgeItem } from '~/common';
+import AudioTranscriptionBar from './Files/AudioTranscriptionBar';
 import AttachFileChat from './Files/AttachFileChat';
 import FileFormChat from './Files/FileFormChat';
 import { cn, removeFocusRings } from '~/utils';
@@ -27,6 +29,7 @@ import TextareaHeader from './TextareaHeader';
 import PromptsCommand from './PromptsCommand';
 import AudioRecorder from './AudioRecorder';
 import CollapseChat from './CollapseChat';
+import RealtimeButton from './Realtime/RealtimeButton';
 import StreamAudio from './StreamAudio';
 import StopButton from './StopButton';
 import SendButton from './SendButton';
@@ -64,6 +67,27 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   );
 
   const { requiresKey } = useRequiresKey();
+  // Super-admin BadgeRow gate removed 2026-04-26. Tool toggles (Web Search, Code Interpreter,
+  // File Search, Artifacts, MCP Servers, Image generation) and the ToolsDropdown render for
+  // everyone who has the appropriate per-tool permission, including super admins.
+  const { transcribeUploadedFile } = useFileHandling();
+  const [isTranscribing, setIsTranscribing] = useState(false);
+
+  const handleTranscribeFile = useCallback(
+    async (
+      fileId: string,
+      filename: string,
+      speakerRefs?: Array<{ id?: string; name: string; file_id: string }>,
+    ) => {
+      setIsTranscribing(true);
+      try {
+        await transcribeUploadedFile(fileId, filename, speakerRefs);
+      } finally {
+        setIsTranscribing(false);
+      }
+    },
+    [transcribeUploadedFile],
+  );
   const methods = useChatFormContext();
   const {
     files,
@@ -254,6 +278,10 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
               setBadges={setBadges}
             />
             <FileFormChat conversation={conversation} />
+            <AudioTranscriptionBar
+              onTranscribe={handleTranscribeFile}
+              isTranscribing={isTranscribing}
+            />
             {endpoint && (
               <div className={cn('flex', isRTL ? 'flex-row-reverse' : 'flex-row')}>
                 <div
@@ -330,6 +358,9 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
                   Array.isArray(conversation?.messages) && conversation.messages.length >= 1
                 }
               />
+              {/* The previous super-admin gate around BadgeRow was removed (2026-04-26) so super
+                  admins also get tool toggles (Web Search, Code Interpreter, File Search,
+                  Artifacts, MCP Servers, Image generation) and the ToolsDropdown menu. */}
               <div className="mx-auto flex" />
               {SpeechToText && (
                 <AudioRecorder
@@ -340,6 +371,11 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
                   isSubmitting={isSubmitting}
                 />
               )}
+              <RealtimeButton
+                disabled={disableInputs || isSubmitting}
+                currentEndpoint={endpoint}
+                currentModel={conversation?.model}
+              />
               <div className={`${isRTL ? 'ml-2' : 'mr-2'}`}>
                 {isSubmitting && showStopButton ? (
                   <StopButton stop={handleStopGenerating} setShowStopButton={setShowStopButton} />

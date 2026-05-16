@@ -1,5 +1,6 @@
 const {
   applyReplacement,
+  langchainAnthropicPatchTargets,
   patchTargets,
   validatePatchedFile,
 } = require('../../../../config/apply-runtime-patches');
@@ -52,6 +53,125 @@ describe('apply-runtime-patches web search status patch', () => {
         /stepKey is referenced before initialization/,
       );
     }
+  });
+});
+
+describe('apply-runtime-patches optional replacements', () => {
+  it('skips optional replacements when a target image already uses a different equivalent shape', () => {
+    const contents = 'const alreadyEquivalent = true;';
+    const result = applyReplacement(
+      contents,
+      {
+        optional: true,
+        from: 'const oldShape = true;',
+        to: 'const newShape = true;',
+      },
+      'dist/index.js',
+    );
+
+    expect(result).toBe(contents);
+  });
+});
+
+describe('apply-runtime-patches Anthropic web search replay guard', () => {
+  const replayTargetPaths = [
+    'src/llm/anthropic/utils/message_inputs.ts',
+    'dist/esm/llm/anthropic/utils/message_inputs.mjs',
+    'dist/cjs/llm/anthropic/utils/message_inputs.cjs',
+  ];
+
+  const replayTargets = patchTargets.filter(
+    (target) =>
+      replayTargetPaths.includes(target.relativePath) &&
+      target.replacements.some((replacement) => replacement.to.includes('webSearchToolResultIds')),
+  );
+
+  it('has orphan web_search replay guards for src, esm, and cjs', () => {
+    const paths = replayTargets.map((target) => target.relativePath);
+    expect(paths).toEqual(expect.arrayContaining(replayTargetPaths));
+  });
+
+  const describeReplayTargets =
+    replayTargets.length > 0
+      ? describe.each(replayTargets)
+      : describe.skip.each([{ relativePath: 'missing', replacements: [] }]);
+
+  describeReplayTargets('$relativePath', (target) => {
+    const replacement = target.replacements.find((candidate) =>
+      candidate.to.includes('webSearchToolResultIds'),
+    );
+
+    it('drops server_tool_use blocks without matching web_search_tool_result blocks', () => {
+      const patched = applyReplacement(replacement.from, replacement, target.relativePath);
+
+      expect(patched).toContain("block.type === 'server_tool_use'");
+      expect(patched).toContain('webSearchToolResultIds.has(block.id)');
+      expect(patched).toContain("block.type === 'web_search_tool_result'");
+      expect(patched).toContain('serverToolUseIds.has(block.tool_use_id)');
+      expect(patched).toContain("block.text === ''");
+      expect(patched).not.toContain('return contentBlocks.filter((block) => block !== null);');
+    });
+
+    it('upgrades the empty-text legacy filter in place', () => {
+      const patched = applyReplacement(replacement.legacy[0], replacement, target.relativePath);
+
+      expect(patched).toBe(replacement.to);
+      expect(patched).toContain('webSearchToolResultIds');
+      expect(patched).toContain("block.text === ''");
+    });
+
+    it('is idempotent when the replay guard is already applied', () => {
+      expect(applyReplacement(replacement.to, replacement, target.relativePath)).toBe(
+        replacement.to,
+      );
+    });
+  });
+});
+
+describe('apply-runtime-patches LangChain Anthropic web search replay guard', () => {
+  const replayTargetPaths = ['dist/utils/message_inputs.js', 'dist/utils/message_inputs.cjs'];
+
+  it('patches both LangChain Anthropic module formats', () => {
+    const paths = langchainAnthropicPatchTargets.map((target) => target.relativePath);
+    expect(paths).toEqual(expect.arrayContaining(replayTargetPaths));
+  });
+
+  describe.each(langchainAnthropicPatchTargets)('$relativePath', (target) => {
+    const thinkingReplacement = target.replacements.find((candidate) =>
+      candidate.to.includes('contentPart.signature.length === 0'),
+    );
+    const replayReplacement = target.replacements.find((candidate) =>
+      candidate.to.includes('webSearchToolResultIds'),
+    );
+
+    it('drops malformed thinking blocks before LangChain Anthropic replay', () => {
+      const patched = applyReplacement(
+        thinkingReplacement.from,
+        thinkingReplacement,
+        target.relativePath,
+      );
+
+      expect(patched).toContain('contentPart.thinking.length === 0');
+      expect(patched).toContain('return null;');
+    });
+
+    it('drops orphaned server_tool_use blocks before LangChain Anthropic replay', () => {
+      const patched = applyReplacement(
+        replayReplacement.from,
+        replayReplacement,
+        target.relativePath,
+      );
+
+      expect(patched).toContain('webSearchToolResultIds.has(block.id)');
+      expect(patched).toContain('serverToolUseIds.has(block.tool_use_id)');
+      expect(patched).not.toBe(replayReplacement.from);
+    });
+
+    it('keeps the LangChain Anthropic replay guard idempotent', () => {
+      expect(applyReplacement(replayReplacement.to, replayReplacement, target.relativePath)).toBe(
+        replayReplacement.to,
+      );
+    });
   });
 });
 
@@ -140,7 +260,6 @@ describe('apply-runtime-patches reasoning history reconstruction', () => {
       // In the patched code, reasoning items are pushed BEFORE the message item.
       // The reasoning block ends before the "// ai content" block begins.
       const reasoningIdx = patched.indexOf('reasoningWithoutId');
-      const messageIdx = patched.indexOf("type: 'message'");
 
       // Both must be present and reasoning must come first
       expect(reasoningIdx).toBeGreaterThan(-1);

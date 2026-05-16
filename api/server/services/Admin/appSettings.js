@@ -18,6 +18,10 @@ function toEffectiveAppSettings(doc) {
   return {
     settingsId: doc?.settingsId || DEFAULT_SETTINGS_ID,
     registrationEnabled: doc?.registrationEnabled ?? isEnabled(process.env.ALLOW_REGISTRATION),
+    platformPrompt:
+      typeof doc?.platformPrompt === 'string' && doc.platformPrompt.trim()
+        ? doc.platformPrompt.trim()
+        : null,
     observability: {
       ...getDefaultObservabilityLinks(),
       ...(doc?.observability || {}),
@@ -48,6 +52,15 @@ async function invalidateAppSettingsCaches() {
   ]);
 }
 
+function normalizePlatformPrompt(platformPrompt) {
+  if (typeof platformPrompt !== 'string') {
+    return null;
+  }
+
+  const trimmed = platformPrompt.trim();
+  return trimmed || null;
+}
+
 async function updateAppSettings(updates, settingsId = DEFAULT_SETTINGS_ID) {
   const current = await getAppSettingsDoc(settingsId);
   const nextObservability = {
@@ -58,6 +71,9 @@ async function updateAppSettings(updates, settingsId = DEFAULT_SETTINGS_ID) {
   const persistedUpdates = {
     ...(updates?.registrationEnabled !== undefined
       ? { registrationEnabled: updates.registrationEnabled }
+      : {}),
+    ...(updates?.platformPrompt !== undefined
+      ? { platformPrompt: normalizePlatformPrompt(updates.platformPrompt) }
       : {}),
     observability: nextObservability,
     ...(updates?.mcpDomainFilterMode !== undefined
@@ -87,5 +103,6 @@ module.exports = {
   getAppSettingsDoc,
   getEffectiveAppSettings,
   invalidateAppSettingsCaches,
+  normalizePlatformPrompt,
   updateAppSettings,
 };

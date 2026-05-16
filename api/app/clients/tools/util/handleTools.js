@@ -18,10 +18,13 @@ const { getMCPServersRegistry } = require('~/config');
 const {
   Tools,
   Constants,
+  EModelEndpoint,
   WebSearchModes,
   Permissions,
   EToolResources,
   PermissionTypes,
+  ImageGenProvider,
+  imageGenDefaultModel,
 } = require('librechat-data-provider');
 const {
   availableTools,
@@ -55,6 +58,11 @@ const {
 } = require('~/server/services/Tools/ollama');
 const { getMCPServerTools } = require('~/server/services/Config');
 const { getRoleByName } = require('~/models/Role');
+const { getUserKeyValues } = require('~/models');
+
+const imageGenDefaultModelOverrides = {
+  [ImageGenProvider.azureOpenAI]: 'gpt-image-2',
+};
 
 /**
  * Validates the availability and authentication of tools for a user based on environment variables or user-specific plugin authentication values.
@@ -121,6 +129,70 @@ const validateTools = async (user, tools = []) => {
 
 /** @typedef {typeof import('@langchain/core/tools').Tool} ToolConstructor */
 /** @typedef {import('@langchain/core/tools').Tool} Tool */
+
+/**
+ * Resolves the preferred image-generation model for a given tool based on the
+ * current user's saved preferences. Falls back to `undefined`, which makes each
+ * tool honor its own env-var default.
+ *
+ * @param {object} params
+ * @param {string} params.toolKey - Image tool key (e.g. `image_gen_oai`, `gemini_image_gen`, `flux`, `stable-diffusion`).
+ * @param {string | undefined} params.endpoint - Current endpoint (used to pick OAI vs xAI vs Azure).
+ * @param {IUser | undefined} params.user - The current user, when available.
+ * @returns {string | undefined}
+ */
+function resolveImageModelOverride({ toolKey, endpoint, user }) {
+  const prefs = user?.imageGenerationPrefs;
+  if (!prefs?.models) {
+    return undefined;
+  }
+  /** @param {ImageGenProvider} provider */
+  const pickFor = (provider) =>
+    prefs.models?.[provider] ||
+    imageGenDefaultModelOverrides[provider] ||
+    imageGenDefaultModel[provider];
+
+  if (toolKey === 'flux') {
+    return pickFor(ImageGenProvider.flux);
+  }
+  if (toolKey === 'stable-diffusion') {
+    return pickFor(ImageGenProvider.stability);
+  }
+  if (toolKey === 'gemini_image_gen') {
+    return pickFor(ImageGenProvider.google) || pickFor(ImageGenProvider.vertex);
+  }
+  if (toolKey === 'image_gen_oai') {
+    const normalizedEndpoint = (endpoint ?? '').toString().toLowerCase();
+    if (normalizedEndpoint.includes('xai')) {
+      return pickFor(ImageGenProvider.xai);
+    }
+    if (normalizedEndpoint.includes('azure')) {
+      return pickFor(ImageGenProvider.azureOpenAI);
+    }
+    return pickFor(ImageGenProvider.openai);
+  }
+  return undefined;
+}
+
+async function loadOpenAIImageAuthValues({ userId }) {
+  const authValues = await loadAuthValues({
+    userId,
+    authFields: getAuthFields('image_gen_oai'),
+    throwError: false,
+  });
+  if (authValues.IMAGE_GEN_OAI_API_KEY || authValues.OPENAI_API_KEY) {
+    return authValues;
+  }
+  try {
+    const openAIValues = await getUserKeyValues({ userId, name: EModelEndpoint.openAI });
+    if (openAIValues?.apiKey) {
+      authValues.OPENAI_API_KEY = openAIValues.apiKey;
+    }
+  } catch {
+    // Optional fallback; the tool constructor will raise a clear error if no key exists.
+  }
+  return authValues;
+}
 
 /**
  * Initializes a tool with authentication values for the given user, supporting alternate authentication fields.
@@ -197,8 +269,7 @@ const loadTools = async ({
 
   const customConstructors = {
     image_gen_oai: async (toolContextMap) => {
-      const authFields = getAuthFields('image_gen_oai');
-      const authValues = await loadAuthValues({ userId: user, authFields });
+      const authValues = await loadOpenAIImageAuthValues({ userId: user });
       const imageFiles = options.tool_resources?.[EToolResources.image_edit]?.files ?? [];
       const toolContext = buildImageToolContext({
         imageFiles,
@@ -208,6 +279,11 @@ const loadTools = async ({
       if (toolContext) {
         toolContextMap.image_edit_oai = toolContext;
       }
+      const modelOverride = resolveImageModelOverride({
+        toolKey: 'image_gen_oai',
+        endpoint: agent?.provider ?? endpoint,
+        user: options.req?.user,
+      });
       return createOpenAIImageTools({
         ...authValues,
         isAgent: !!agent,
@@ -215,6 +291,7 @@ const loadTools = async ({
         imageOutputType,
         fileStrategy,
         imageFiles,
+        model: modelOverride,
       });
     },
     gemini_image_gen: async (toolContextMap) => {
@@ -229,6 +306,11 @@ const loadTools = async ({
       if (toolContext) {
         toolContextMap.gemini_image_gen = toolContext;
       }
+      const modelOverride = resolveImageModelOverride({
+        toolKey: 'gemini_image_gen',
+        endpoint: agent?.provider ?? endpoint,
+        user: options.req?.user,
+      });
       return createGeminiImageTool({
         ...authValues,
         isAgent: !!agent,
@@ -236,6 +318,7 @@ const loadTools = async ({
         imageFiles,
         userId: user,
         fileStrategy,
+        model: modelOverride,
       });
     },
   };
@@ -267,10 +350,21 @@ const loadTools = async ({
     uploadImageBuffer: options.uploadImageBuffer,
   };
 
+  const fluxModelOverride = resolveImageModelOverride({
+    toolKey: 'flux',
+    endpoint: agent?.provider ?? endpoint,
+    user: options.req?.user,
+  });
+  const stableDiffusionModelOverride = resolveImageModelOverride({
+    toolKey: 'stable-diffusion',
+    endpoint: agent?.provider ?? endpoint,
+    user: options.req?.user,
+  });
+
   const toolOptions = {
-    flux: imageGenOptions,
+    flux: { ...imageGenOptions, model: fluxModelOverride },
     dalle: imageGenOptions,
-    'stable-diffusion': imageGenOptions,
+    'stable-diffusion': { ...imageGenOptions, model: stableDiffusionModelOverride },
     gemini_image_gen: imageGenOptions,
   };
 
@@ -489,6 +583,11 @@ const loadTools = async ({
             }),
           );
           continue;
+        }
+        if (!availableTools) {
+          if (config.config?.toolFunctions && Object.keys(config.config.toolFunctions).length > 0) {
+            availableTools = config.config.toolFunctions;
+          }
         }
         if (!availableTools) {
           try {

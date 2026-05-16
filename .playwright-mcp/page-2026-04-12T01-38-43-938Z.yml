@@ -1,0 +1,22 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - navigation "Chat History" [ref=e8]:
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - button "Close sidebar" [expanded] [ref=e11] [cursor=pointer]:
+            - img [ref=e12]
+          - link "New chat" [ref=e15] [cursor=pointer]:
+            - /url: /c/new
+            - img [ref=e16]
+        - grid "Conversations" [ref=e23]:
+          - rowgroup [ref=e24]:
+            - button "Chats" [ref=e32] [cursor=pointer]:
+              - generic [ref=e33]: Chats
+              - img [ref=e34]
+            - generic [ref=e37]:
+              - img [ref=e38]
+              - generic [ref=e41]: Loading...
+    - status [ref=e44]:
+      - img [ref=e45]
+  - region "Notifications (F8)":
+    - list

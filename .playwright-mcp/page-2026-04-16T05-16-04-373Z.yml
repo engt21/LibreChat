@@ -1,0 +1,216 @@
+- generic [ref=e2]:
+  - generic [ref=e40]:
+    - navigation "Chat History" [ref=e44]:
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - button "Close sidebar" [expanded] [ref=e47] [cursor=pointer]:
+            - img [ref=e48]
+          - generic [ref=e50]:
+            - button "Bookmarks" [ref=e51] [cursor=pointer]:
+              - img [ref=e52]
+            - link "New chat" [ref=e54] [cursor=pointer]:
+              - /url: /c/new
+              - img [ref=e55]
+        - generic [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - textbox "Search messages" [ref=e61]
+          - button "Clear search" [disabled] [ref=e62]:
+            - img [ref=e63]
+        - grid "Conversations" [ref=e69]:
+          - rowgroup [ref=e70]:
+            - button "Agent Marketplace" [ref=e74] [cursor=pointer]:
+              - generic [ref=e75]:
+                - img [ref=e77]
+                - generic [ref=e82]: Agent Marketplace
+            - button "Chats" [ref=e84] [cursor=pointer]:
+              - generic [ref=e85]: Chats
+              - img [ref=e86]
+      - button "Account Settings" [ref=e88] [cursor=pointer]:
+        - img "Validation SuperAdmin's avatar" [ref=e92]
+        - generic [ref=e93]: Validation SuperAdmin
+    - generic [ref=e95]:
+      - generic [ref=e96]:
+        - main [ref=e98]:
+          - generic [ref=e99]:
+            - generic [ref=e101]:
+              - generic [ref=e103]:
+                - button "Select a model" [ref=e105] [cursor=pointer]:
+                  - img [ref=e447]
+                  - generic [ref=e109]: Claude Sonnet 4.5
+                - button "Presets" [ref=e110] [cursor=pointer]:
+                  - img [ref=e111]
+                - button "Add multi-conversation" [ref=e115] [cursor=pointer]:
+                  - img [ref=e116]
+              - button "Temporary Chat" [ref=e120] [cursor=pointer]:
+                - img [ref=e121]
+            - generic [ref=e130]:
+              - generic [ref=e133]:
+                - img [ref=e452]
+                - generic [ref=e138]: Happy late night, Validation SuperAdmin
+                - paragraph [ref=e139]:
+                  - generic [ref=e140]:
+                    - generic [ref=e141]: H
+                    - generic [ref=e142]: a
+                    - generic [ref=e143]: p
+                    - generic [ref=e144]: p
+                    - generic [ref=e145]: "y"
+                  - generic [ref=e147]:
+                    - generic [ref=e148]: l
+                    - generic [ref=e149]: a
+                    - generic [ref=e150]: t
+                    - generic [ref=e151]: e
+                  - generic [ref=e153]:
+                    - generic [ref=e154]: "n"
+                    - generic [ref=e155]: i
+                    - generic [ref=e156]: g
+                    - generic [ref=e157]: h
+                    - generic [ref=e158]: t
+                    - generic [ref=e159]: ","
+                  - generic [ref=e161]:
+                    - generic [ref=e162]: V
+                    - generic [ref=e163]: a
+                    - generic [ref=e164]: l
+                    - generic [ref=e165]: i
+                    - generic [ref=e166]: d
+                    - generic [ref=e167]: a
+                    - generic [ref=e168]: t
+                    - generic [ref=e169]: i
+                    - generic [ref=e170]: o
+                    - generic [ref=e171]: "n"
+                  - generic [ref=e173]:
+                    - generic [ref=e174]: S
+                    - generic [ref=e175]: u
+                    - generic [ref=e176]: p
+                    - generic [ref=e177]: e
+                    - generic [ref=e178]: r
+                    - generic [ref=e179]: A
+                    - generic [ref=e180]: d
+                    - generic [ref=e181]: m
+                    - generic [ref=e182]: i
+                    - generic [ref=e183]: "n"
+              - generic [ref=e188]:
+                - textbox "Message input" [ref=e191]:
+                  - /placeholder: Message Claude
+                - generic [ref=e193]:
+                  - button "Attach File Options" [ref=e457] [cursor=pointer]:
+                    - img [ref=e459]
+                  - button "Use microphone" [ref=e199] [cursor=pointer]:
+                    - img [ref=e200]
+                  - button "Open realtime voice dialog" [ref=e203] [cursor=pointer]:
+                    - img [ref=e204]
+                  - button "Send message" [disabled] [ref=e211]:
+                    - img [ref=e213]
+            - contentinfo [ref=e215]:
+              - generic [ref=e216]:
+                - link "LibreChat v0.8.3" [ref=e217] [cursor=pointer]:
+                  - /url: https://librechat.ai
+                - text: "- Every AI for Everyone."
+        - button "Close Control Panel" [expanded] [ref=e475] [cursor=pointer]
+        - separator [ref=e226]
+        - navigation "Controls" [ref=e227]:
+          - generic [ref=e233]:
+            - button "Agent Builder" [ref=e478] [cursor=pointer]:
+              - img [ref=e479]
+              - text: Agent Builder
+            - button "Prompts" [ref=e484] [cursor=pointer]:
+              - img [ref=e485]
+              - text: Prompts
+            - button "Memories" [ref=e491] [cursor=pointer]:
+              - img [ref=e492]
+              - text: Memories
+            - generic [ref=e497]:
+              - button "Parameters" [expanded] [active] [ref=e715] [cursor=pointer]:
+                - img [ref=e716]
+                - text: Parameters
+              - region "Parameters" [ref=e743]:
+                - generic [ref=e745]:
+                  - generic [ref=e746]:
+                    - generic [ref=e748]:
+                      - generic [ref=e750]: Custom Name
+                      - textbox "Custom Name" [ref=e751]:
+                        - /placeholder: Set a custom name for the AI
+                    - generic [ref=e753]:
+                      - generic [ref=e755]: Custom Instructions
+                      - textbox "Custom Instructions" [ref=e756]:
+                        - /placeholder: "Set custom instructions to include in System Message. Default: none"
+                    - generic [ref=e758]:
+                      - generic [ref=e760]: Max Context Tokens
+                      - textbox "Max Context Tokens" [ref=e761]:
+                        - /placeholder: System
+                    - generic [ref=e763]:
+                      - generic [ref=e765]: Max Output Tokens
+                      - textbox "Max Output Tokens" [ref=e766]:
+                        - /placeholder: System
+                    - generic [ref=e768]:
+                      - generic [ref=e769]:
+                        - generic [ref=e770]: Temperature
+                        - spinbutton "Temperature" [ref=e773]: "1.00"
+                      - slider "Temperature" [ref=e778] [cursor=pointer]
+                    - generic [ref=e780]:
+                      - generic [ref=e781]:
+                        - generic [ref=e782]: Top P
+                        - spinbutton "Top P" [ref=e785]: "0.70"
+                      - slider "Top P" [ref=e790] [cursor=pointer]
+                    - generic [ref=e792]:
+                      - generic [ref=e793]:
+                        - generic [ref=e794]: Top K
+                        - spinbutton "Top K" [ref=e797]: "5"
+                      - slider "Top K" [ref=e802] [cursor=pointer]
+                    - generic [ref=e804]:
+                      - generic [ref=e806]: Stop Sequences
+                      - textbox "Stop Sequences" [ref=e809]:
+                        - /placeholder: "Separate values by pressing `Enter`"
+                    - generic [ref=e811]:
+                      - generic [ref=e813]: Resend Files
+                      - switch "Resend Files" [checked] [ref=e814] [cursor=pointer]
+                    - generic [ref=e816]:
+                      - generic [ref=e818]: Use Prompt Caching
+                      - switch "Use Prompt Caching" [checked] [ref=e819] [cursor=pointer]
+                    - generic [ref=e821]:
+                      - generic [ref=e823]: Thinking
+                      - switch "Thinking" [checked] [ref=e824] [cursor=pointer]
+                    - generic [ref=e826]:
+                      - generic [ref=e828]: Thinking Budget
+                      - textbox "Thinking Budget" [disabled] [ref=e829]:
+                        - /placeholder: ""
+                        - text: "2000"
+                    - generic [ref=e831]:
+                      - generic [ref=e832]:
+                        - generic [ref=e833]: Effort
+                        - textbox "Effort" [disabled] [ref=e834]: Auto
+                      - slider "Effort" [disabled] [ref=e838] [cursor=pointer]
+                    - generic [ref=e840]:
+                      - generic [ref=e841]:
+                        - generic [ref=e842]: Service tier
+                        - textbox "Service tier" [ref=e843]: Auto
+                      - slider "Service tier" [ref=e847] [cursor=pointer]
+                    - generic [ref=e849]:
+                      - generic [ref=e851]: Web Search
+                      - switch "Web Search" [ref=e852] [cursor=pointer]
+                    - generic [ref=e854]:
+                      - generic [ref=e856]: File Token Limit
+                      - textbox "File Token Limit" [ref=e857]:
+                        - /placeholder: System
+                  - button "Reset Model Parameters" [ref=e859] [cursor=pointer]:
+                    - img [ref=e860]
+                    - text: Reset Model Parameters
+                  - button "Save As Preset" [ref=e864] [cursor=pointer]
+            - button "Attach Files" [ref=e719] [cursor=pointer]:
+              - img [ref=e720]
+              - text: Attach Files
+            - button "Bookmarks" [ref=e722] [cursor=pointer]:
+              - img [ref=e723]
+              - text: Bookmarks
+            - button "MCP Settings" [ref=e725] [cursor=pointer]:
+              - img [ref=e726]
+              - text: MCP Settings
+            - button "Hide Panel" [ref=e732] [cursor=pointer]:
+              - img [ref=e733]
+              - text: Hide Panel
+      - button "Close right side panel"
+  - complementary "React Query Devtools":
+    - button "Open React Query Devtools" [ref=e14] [cursor=pointer]:
+      - img [ref=e15]
+      - generic [ref=e21]: Open React Query Devtools
+  - region "Notifications (F8)":
+    - list

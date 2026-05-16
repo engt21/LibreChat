@@ -13,13 +13,14 @@ const { getAppConfig } = require('./app');
  * @async
  * @function
  * @param {ServerRequest} req - The Express request object.
- * @param {{ forceOpenAIRefresh?: boolean }} [options] - Optional model discovery overrides.
+ * @param {{ forceOpenAIRefresh?: boolean, forceAnthropicRefresh?: boolean }} [options] - Optional model discovery overrides.
  */
 async function loadDefaultModels(req, options = {}) {
   try {
     const appConfig = req.config ?? (await getAppConfig({ role: req.user?.role }));
     const vertexConfig = appConfig?.endpoints?.[EModelEndpoint.anthropic]?.vertexConfig;
     const forceOpenAIRefresh = options.forceOpenAIRefresh === true;
+    const forceAnthropicRefresh = options.forceAnthropicRefresh === true;
 
     const [openAI, anthropic, azureOpenAI, assistants, azureAssistants, google, bedrock] =
       await Promise.all([
@@ -27,12 +28,14 @@ async function loadDefaultModels(req, options = {}) {
           logger.error('Error fetching OpenAI models:', error);
           return [];
         }),
-        getAnthropicModels({ user: req.user.id, vertexModels: vertexConfig?.modelNames }).catch(
-          (error) => {
-            logger.error('Error fetching Anthropic models:', error);
-            return [];
-          },
-        ),
+        getAnthropicModels({
+          user: req.user.id,
+          vertexModels: vertexConfig?.modelNames,
+          forceRefresh: forceAnthropicRefresh,
+        }).catch((error) => {
+          logger.error('Error fetching Anthropic models:', error);
+          return [];
+        }),
         getOpenAIModels({ user: req.user.id, azure: true }).catch((error) => {
           logger.error('Error fetching Azure OpenAI models:', error);
           return [];

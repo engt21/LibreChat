@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ArtifactModes,
   EModelEndpoint,
   PermissionBits,
+  WebSearchModes,
   type TScheduledJob,
   type TScheduledJobCreatePayload,
 } from 'librechat-data-provider';
@@ -26,6 +28,7 @@ import {
   useDeleteScheduledJobMutation,
   useGetEndpointsQuery,
   useListAgentsQuery,
+  useMCPServersQuery,
   useRunScheduledJobMutation,
   useScheduledJobNotificationsQuery,
   useScheduledJobsQuery,
@@ -49,11 +52,22 @@ type ScheduleFormState = {
   model: string;
   promptPrefix: string;
   webSearch: boolean;
+  webSearchMode: WebSearchModes;
+  executeCode: boolean;
+  fileSearch: boolean;
+  artifacts: ArtifactModes | '';
+  mcpServers: string[];
   notifications: {
     email: boolean;
     sms: boolean;
     push: boolean;
   };
+};
+
+type MCPServerOption = {
+  value: string;
+  label: string;
+  description?: string;
 };
 
 type NotificationDraft = {
@@ -67,6 +81,23 @@ type NotificationDraft = {
 };
 
 const DEFAULT_CRON = '0 9 * * *';
+
+function isOllamaEndpoint(endpoint?: string) {
+  return String(endpoint ?? '')
+    .trim()
+    .toLowerCase()
+    .startsWith('ollama');
+}
+
+function getDefaultWebSearchMode(endpoint: string) {
+  return isOllamaEndpoint(endpoint) ? WebSearchModes.ollama_native : WebSearchModes.librechat;
+}
+
+function getArtifactMode(value?: string | null): ArtifactModes | '' {
+  return Object.values(ArtifactModes).includes(value as ArtifactModes)
+    ? (value as ArtifactModes)
+    : '';
+}
 
 function getBrowserTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -159,6 +190,11 @@ function createFormState(
       model: fallbackModel,
       promptPrefix: '',
       webSearch: false,
+      webSearchMode: getDefaultWebSearchMode(fallbackEndpoint),
+      executeCode: false,
+      fileSearch: false,
+      artifacts: '',
+      mcpServers: [],
       notifications: {
         email: true,
         sms: false,
@@ -179,6 +215,13 @@ function createFormState(
     model: schedule.target?.model || fallbackModel,
     promptPrefix: schedule.target?.promptPrefix || '',
     webSearch: schedule.target?.ephemeralAgent?.web_search === true,
+    webSearchMode:
+      schedule.target?.ephemeralAgent?.web_search_mode ||
+      getDefaultWebSearchMode(schedule.target?.endpoint || fallbackEndpoint),
+    executeCode: schedule.target?.ephemeralAgent?.execute_code === true,
+    fileSearch: schedule.target?.ephemeralAgent?.file_search === true,
+    artifacts: getArtifactMode(schedule.target?.ephemeralAgent?.artifacts),
+    mcpServers: schedule.target?.ephemeralAgent?.mcp || [],
     notifications: {
       email: schedule.notifications?.email === true,
       sms: schedule.notifications?.sms === true,
@@ -211,6 +254,11 @@ function buildPayload(form: ScheduleFormState): TScheduledJobCreatePayload {
             promptPrefix: form.promptPrefix.trim() || undefined,
             ephemeralAgent: {
               web_search: form.webSearch,
+              web_search_mode: form.webSearch ? form.webSearchMode : undefined,
+              execute_code: form.executeCode,
+              file_search: form.fileSearch,
+              artifacts: form.artifacts || undefined,
+              mcp: form.mcpServers.length ? form.mcpServers : undefined,
             },
           },
   };
@@ -244,6 +292,7 @@ export default function ScheduledRuns() {
   const notificationsQuery = useScheduledJobNotificationsQuery();
   const agentsQuery = useListAgentsQuery({ limit: 100, requiredPermission: PermissionBits.VIEW });
   const endpointsQuery = useGetEndpointsQuery();
+  const mcpServersQuery = useMCPServersQuery();
   const modelsQuery = useGetModelsQuery();
 
   const createMutation = useCreateScheduledJobMutation();
@@ -328,6 +377,45 @@ export default function ScheduledRuns() {
     [form.endpoint, modelsQuery.data],
   );
 
+  const mcpServerOptions = useMemo<MCPServerOption[]>(() => {
+    return Object.entries(mcpServersQuery.data ?? {})
+      .filter(([, server]) => server.consumeOnly !== true)
+      .map(([serverName, server]) => ({
+        value: serverName,
+        label: server.title || serverName,
+        description: server.description,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [mcpServersQuery.data]);
+
+  const ollamaWebSearchModeOptions = useMemo(
+    () => [
+      {
+        value: WebSearchModes.librechat,
+        label: localize('com_ui_schedule_web_search_mode_librechat'),
+      },
+      {
+        value: WebSearchModes.ollama_native,
+        label: localize('com_ui_schedule_web_search_mode_ollama_native'),
+      },
+      {
+        value: WebSearchModes.ollama_mcp,
+        label: localize('com_ui_schedule_web_search_mode_ollama_mcp'),
+      },
+    ],
+    [localize],
+  );
+
+  const artifactModeOptions = useMemo(
+    () => [
+      { value: 'none', label: localize('com_ui_schedule_artifacts_none') },
+      { value: ArtifactModes.DEFAULT, label: localize('com_ui_schedule_artifacts_default') },
+      { value: ArtifactModes.SHADCNUI, label: localize('com_ui_schedule_artifacts_shadcnui') },
+      { value: ArtifactModes.CUSTOM, label: localize('com_ui_schedule_artifacts_custom') },
+    ],
+    [localize],
+  );
+
   const resetForm = useCallback(
     (schedule: TScheduledJob | null) => {
       setForm(
@@ -395,6 +483,58 @@ export default function ScheduledRuns() {
     setNotificationDirty(true);
     setNotificationDraft((current) => ({ ...current, [key]: value }));
   };
+
+  const handleMcpServerToggle = (serverName: string, checked: boolean) => {
+    setForm((current) => {
+      const nextServers = checked
+        ? Array.from(new Set([...current.mcpServers, serverName]))
+        : current.mcpServers.filter((value) => value !== serverName);
+
+      return {
+        ...current,
+        mcpServers: nextServers,
+      };
+    });
+  };
+
+  let mcpServersContent: React.ReactNode;
+  if (mcpServersQuery.isLoading) {
+    mcpServersContent = (
+      <div className="flex items-center gap-2 rounded-lg border border-border-light px-3 py-2 text-sm text-text-secondary">
+        <Spinner className="h-4 w-4" />
+        {localize('com_ui_loading')}
+      </div>
+    );
+  } else if (mcpServerOptions.length === 0) {
+    mcpServersContent = (
+      <div className="rounded-lg border border-dashed border-border-medium px-3 py-2 text-sm text-text-secondary">
+        {localize('com_ui_schedule_mcp_servers_empty')}
+      </div>
+    );
+  } else {
+    mcpServersContent = (
+      <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-border-light p-3">
+        {mcpServerOptions.map((server) => (
+          <label
+            key={server.value}
+            className="flex items-start gap-3 rounded-md border border-transparent px-2 py-1.5 text-sm hover:bg-surface-secondary"
+          >
+            <input
+              type="checkbox"
+              checked={form.mcpServers.includes(server.value)}
+              onChange={(event) => handleMcpServerToggle(server.value, event.target.checked)}
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-text-primary">{server.label}</span>
+              {server.description ? (
+                <span className="block text-xs text-text-secondary">{server.description}</span>
+              ) : null}
+            </span>
+          </label>
+        ))}
+      </div>
+    );
+  }
 
   const openCreateDialog = () => {
     setEditingSchedule(null);
@@ -839,6 +979,7 @@ export default function ScheduledRuns() {
                         onChange={(value) => {
                           handleFormChange('endpoint', value);
                           handleFormChange('model', (modelsQuery.data?.[value] ?? [])[0] || '');
+                          handleFormChange('webSearchMode', getDefaultWebSearchMode(value));
                         }}
                         options={endpointOptions}
                         portal={false}
@@ -880,6 +1021,95 @@ export default function ScheduledRuns() {
                       onCheckedChange={(checked) => handleFormChange('webSearch', checked)}
                       aria-label={localize('com_ui_schedule_web_search')}
                     />
+                  </div>
+
+                  {form.webSearch && isOllamaEndpoint(form.endpoint) && (
+                    <div className="space-y-2">
+                      <Label>{localize('com_ui_schedule_web_search_mode')}</Label>
+                      <Dropdown
+                        value={form.webSearchMode}
+                        onChange={(value) =>
+                          handleFormChange('webSearchMode', value as WebSearchModes)
+                        }
+                        options={ollamaWebSearchModeOptions}
+                        portal={false}
+                      />
+                      <p className="text-xs text-text-secondary">
+                        {localize('com_ui_schedule_web_search_mode_description')}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <div>
+                      <Label>{localize('com_ui_schedule_automation_tools')}</Label>
+                      <p className="text-xs text-text-secondary">
+                        {localize('com_ui_schedule_automation_tools_description')}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="flex items-center justify-between rounded-lg border border-border-light p-3">
+                        <div>
+                          <div className="font-medium">
+                            {localize('com_ui_schedule_code_interpreter')}
+                          </div>
+                          <p className="text-xs text-text-secondary">
+                            {localize('com_ui_schedule_code_interpreter_description')}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={form.executeCode}
+                          onCheckedChange={(checked) => handleFormChange('executeCode', checked)}
+                          aria-label={localize('com_ui_schedule_code_interpreter')}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-lg border border-border-light p-3">
+                        <div>
+                          <div className="font-medium">
+                            {localize('com_ui_schedule_file_search')}
+                          </div>
+                          <p className="text-xs text-text-secondary">
+                            {localize('com_ui_schedule_file_search_description')}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={form.fileSearch}
+                          onCheckedChange={(checked) => handleFormChange('fileSearch', checked)}
+                          aria-label={localize('com_ui_schedule_file_search')}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>{localize('com_ui_schedule_artifacts_mode')}</Label>
+                    <Dropdown
+                      value={form.artifacts || 'none'}
+                      onChange={(value) =>
+                        handleFormChange(
+                          'artifacts',
+                          value === 'none' ? '' : (value as ArtifactModes),
+                        )
+                      }
+                      options={artifactModeOptions}
+                      portal={false}
+                    />
+                    <p className="text-xs text-text-secondary">
+                      {localize('com_ui_schedule_artifacts_mode_description')}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <Label>{localize('com_ui_schedule_mcp_servers')}</Label>
+                      <p className="text-xs text-text-secondary">
+                        {localize('com_ui_schedule_mcp_servers_description')}
+                      </p>
+                    </div>
+
+                    {mcpServersContent}
                   </div>
                 </>
               )}

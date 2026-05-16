@@ -51,6 +51,11 @@ jest.mock('~/server/controllers/ModelController', () => ({
   getModelsConfig: (...args) => mockGetModelsConfig(...args),
 }));
 
+const mockGetEffectiveAppSettings = jest.fn();
+jest.mock('~/server/services/Admin/appSettings', () => ({
+  getEffectiveAppSettings: (...args) => mockGetEffectiveAppSettings(...args),
+}));
+
 jest.mock('@librechat/api', () => ({
   handleError: jest.fn(),
 }));
@@ -71,6 +76,7 @@ const createRes = () => ({
 describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetEffectiveAppSettings.mockResolvedValue({ platformPrompt: null });
     mockGetModelsConfig.mockResolvedValue({
       AnthropicClaude: ['anthropic/claude-opus-4.5'],
       MyOpenRouter: ['gpt-4o'],
@@ -253,6 +259,26 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
     expect(parsedResult.maxOutputTokens).toBeUndefined();
     expect(parsedResult.max_tokens).toBe(4096);
   });
+
+  it('should prepend the platform prompt to assistant prompt prefixes', async () => {
+    mockGetEffectiveAppSettings.mockResolvedValue({ platformPrompt: 'Platform policy' });
+    mockGetEndpointsConfig.mockResolvedValue({});
+
+    const req = createReq(
+      {
+        endpoint: EModelEndpoint.assistants,
+        endpointType: EModelEndpoint.assistants,
+        model: 'gpt-4o',
+        promptPrefix: 'Preset instructions',
+      },
+      { modelSpecs: null },
+    );
+
+    await buildEndpointOption(req, createRes(), jest.fn());
+
+    expect(req.body.promptPrefix).toBe('Platform policy\n\nPreset instructions');
+    expect(req.body.endpointOption.promptPrefix).toBe('Platform policy\n\nPreset instructions');
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -264,6 +290,7 @@ const { handleError } = require('@librechat/api');
 describe('buildEndpointOption - model-spec re-entry enforcement (VAL-MODEL-003)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetEffectiveAppSettings.mockResolvedValue({ platformPrompt: null });
     mockGetEndpointsConfig.mockResolvedValue({});
   });
 
@@ -310,7 +337,10 @@ describe('buildEndpointOption - model-spec re-entry enforcement (VAL-MODEL-003)'
 
     // The blocked spec should be filtered out by filterModelSpecsConfig,
     // so the spec lookup returns nothing → "Invalid model spec"
-    expect(handleError).toHaveBeenCalledWith(res, expect.objectContaining({ text: 'Invalid model spec' }));
+    expect(handleError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ text: 'Invalid model spec' }),
+    );
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -380,7 +410,10 @@ describe('buildEndpointOption - model-spec re-entry enforcement (VAL-MODEL-003)'
 
     await buildEndpointOption(req, res, next);
 
-    expect(handleError).toHaveBeenCalledWith(res, expect.objectContaining({ text: 'No model spec selected' }));
+    expect(handleError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ text: 'No model spec selected' }),
+    );
     expect(next).not.toHaveBeenCalled();
   });
 });

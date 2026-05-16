@@ -6,9 +6,9 @@ import { useOptionalMessagesConversation, useOptionalMessagesOperations } from '
 import { useLocalize } from '~/hooks';
 
 interface MCPUIResourceProps {
-  node: {
-    properties: {
-      resourceId: string;
+  node?: {
+    properties?: {
+      resourceId?: string;
     };
   };
 }
@@ -18,20 +18,24 @@ interface MCPUIResourceProps {
  * Works in both main app and share view.
  */
 export function MCPUIResource(props: MCPUIResourceProps) {
-  const { resourceId } = props.node.properties;
+  const resourceId = props.node?.properties?.resourceId;
   const localize = useLocalize();
   const { ask } = useOptionalMessagesOperations();
   const { conversationId } = useOptionalMessagesConversation();
 
   const conversationResourceMap = useConversationUIResources(conversationId ?? undefined);
 
-  const uiResource = conversationResourceMap.get(resourceId ?? '');
+  if (!resourceId) {
+    return null;
+  }
+
+  const uiResource = conversationResourceMap.get(resourceId);
 
   if (!uiResource) {
     return (
       <span className="inline-flex items-center rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
         {localize('com_ui_ui_resource_not_found', {
-          0: resourceId ?? '',
+          0: resourceId,
         })}
       </span>
     );

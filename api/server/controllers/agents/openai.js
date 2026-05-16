@@ -24,6 +24,7 @@ const {
 } = require('@librechat/api');
 const { loadAgentTools, loadToolsForExecution } = require('~/server/services/ToolService');
 const { createToolEndCallback } = require('~/server/controllers/agents/callbacks');
+const { maybeRefreshGoogleVertexModelAccess } = require('~/server/controllers/agents/googleVertexRefresh');
 const { findAccessibleResources } = require('~/server/services/PermissionService');
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
 const { getMultiplier, getCacheMultiplier } = require('~/models/tx');
@@ -191,6 +192,7 @@ const OpenAIChatCompletionController = async (req, res) => {
     }
   });
 
+  let primaryConfig;
   try {
     if (request.conversation_id != null) {
       if (typeof request.conversation_id !== 'string') {
@@ -224,7 +226,7 @@ const OpenAIChatCompletionController = async (req, res) => {
     /** @type {Array<import('@librechat/data-schemas').IMongoFile>} */
     const requestFiles = req.body.files ?? [];
 
-    const primaryConfig = await initializeAgent(
+    primaryConfig = await initializeAgent(
       {
         req,
         res,
@@ -599,6 +601,15 @@ const OpenAIChatCompletionController = async (req, res) => {
       );
     }
   } catch (error) {
+    void maybeRefreshGoogleVertexModelAccess({
+      error,
+      provider: primaryConfig?.provider ?? agent.provider,
+      clientOptions: primaryConfig?.model_parameters ?? agent.model_parameters,
+      model:
+        primaryConfig?.model ??
+        primaryConfig?.model_parameters?.model ??
+        agent.model_parameters?.model,
+    });
     const errorMessage = error instanceof Error ? error.message : 'An error occurred';
     logger.error('[OpenAI API] Error:', error);
 

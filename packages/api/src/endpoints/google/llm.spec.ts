@@ -255,6 +255,23 @@ describe('getGoogleConfig', () => {
       expect(result.llmConfig).toHaveProperty('location', 'europe-west1');
     });
 
+    it('should honor an explicit per-model Vertex location override', () => {
+      const credentials = {
+        [AuthKeys.GOOGLE_SERVICE_KEY]: {
+          project_id: 'test-project',
+        },
+      };
+
+      const result = getGoogleConfig(credentials, {
+        modelOptions: {
+          model: 'gemini-3.1-pro-preview',
+        },
+        vertexLocation: 'global',
+      });
+
+      expect(result.llmConfig).toHaveProperty('location', 'global');
+    });
+
     it('should handle service key as JSON string', () => {
       const credentials = {
         [AuthKeys.GOOGLE_SERVICE_KEY]: JSON.stringify({
@@ -410,6 +427,27 @@ describe('getGoogleConfig', () => {
       expect(result.provider).toBe(Providers.VERTEXAI);
       expect(result.llmConfig).toHaveProperty('thinkingBudget', 3000);
       expect(result.llmConfig).toHaveProperty('includeThoughts', true);
+    });
+
+    it('should strip unsupported thinking defaults for gemini-2.5-flash-lite on Vertex AI', () => {
+      const credentials = {
+        [AuthKeys.GOOGLE_SERVICE_KEY]: {
+          project_id: 'test-project',
+        },
+      };
+
+      const result = getGoogleConfig(credentials, {
+        modelOptions: {
+          model: 'gemini-2.5-flash-lite',
+          thinking: true,
+          thinkingBudget: 3000,
+        },
+      });
+
+      expect(result.provider).toBe(Providers.VERTEXAI);
+      expect(result.llmConfig).not.toHaveProperty('thinkingBudget');
+      expect(result.llmConfig).not.toHaveProperty('includeThoughts');
+      expect(result.llmConfig).not.toHaveProperty('thinkingConfig');
     });
   });
 

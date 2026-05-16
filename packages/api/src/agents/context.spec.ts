@@ -217,6 +217,19 @@ describe('Agent Context Utilities', () => {
       expect(result).toBe('Shared context\n\nBase instructions\n\nMCP instructions');
     });
 
+    it('should prepend platform prompt before all other instruction parts', () => {
+      const result = buildAgentInstructions({
+        platformPrompt: 'Platform policy',
+        sharedRunContext: 'Shared context',
+        baseInstructions: 'Base instructions',
+        mcpInstructions: 'MCP instructions',
+      });
+
+      expect(result).toBe(
+        'Platform policy\n\nShared context\n\nBase instructions\n\nMCP instructions',
+      );
+    });
+
     it('should filter out empty parts', () => {
       const result = buildAgentInstructions({
         sharedRunContext: 'Shared context',
@@ -314,6 +327,7 @@ describe('Agent Context Utilities', () => {
 
       await applyContextToAgent({
         agent,
+        platformPrompt: 'Platform policy',
         sharedRunContext: 'Shared context',
         mcpManager: mockMCPManager,
         agentId: 'test-agent',
@@ -321,7 +335,7 @@ describe('Agent Context Utilities', () => {
       });
 
       expect(agent.instructions).toBe(
-        'Shared context\n\nOriginal instructions\n\nMCP instructions',
+        'Platform policy\n\nShared context\n\nOriginal instructions\n\nMCP instructions',
       );
       expect(mockLogger.debug).toHaveBeenCalledWith(
         '[AgentContext] Applied context to agent: test-agent',

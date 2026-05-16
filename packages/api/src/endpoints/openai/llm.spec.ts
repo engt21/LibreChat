@@ -990,6 +990,30 @@ describe('getOpenAILLMConfig', () => {
       expect(result.llmConfig).not.toHaveProperty('disableStreaming', true);
       expect(result.llmConfig.reasoning).toEqual({ effort: ReasoningEffort.high });
     });
+
+    it('never emits an xAI web_search tool without forcing the Responses API (regression: 422 live_search)', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        baseURL: 'https://api.x.ai/v1',
+        endpoint: 'xai',
+        streaming: true,
+        modelOptions: {
+          model: 'grok-4-0709',
+          web_search: true,
+        },
+      });
+
+      const hasWebSearchTool = (result.tools ?? []).some(
+        (tool) =>
+          tool != null &&
+          typeof tool === 'object' &&
+          (tool as { type?: unknown }).type === 'web_search',
+      );
+
+      if (hasWebSearchTool) {
+        expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      }
+    });
   });
 });
 

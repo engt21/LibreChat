@@ -47,6 +47,18 @@ const conversationAttachmentsSelector = selectorFamily<
     },
 });
 
+type WebSearchAction = {
+  type?: string;
+  queries?: string[];
+  query?: string;
+  sources?: Array<{ url: string; title?: string }>;
+};
+
+const latestWebSearchAction = atom<WebSearchAction | null>({
+  key: 'latestWebSearchAction',
+  default: null,
+});
+
 const queriesEnabled = atom<boolean>({
   key: 'queriesEnabled',
   default: true,
@@ -68,6 +80,7 @@ export default {
   hideBannerHint,
   messageAttachmentsMap,
   conversationAttachmentsSelector,
+  latestWebSearchAction,
   queriesEnabled,
   isEditingBadges,
   chatBadges,

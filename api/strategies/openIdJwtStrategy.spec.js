@@ -19,6 +19,7 @@ jest.mock('https-proxy-agent', () => ({
 }));
 jest.mock('@librechat/data-schemas', () => ({
   logger: { info: jest.fn(), warn: jest.fn(), debug: jest.fn(), error: jest.fn() },
+  createModels: jest.fn(() => ({})),
 }));
 jest.mock('@librechat/api', () => ({
   isEnabled: jest.fn(() => false),
@@ -40,7 +41,6 @@ jest.mock('~/server/services/Config', () => ({
 jest.mock('~/cache/getLogStores', () =>
   jest.fn().mockReturnValue({ get: jest.fn(), set: jest.fn() }),
 );
-
 const { findOpenIDUser } = require('@librechat/api');
 const openIdJwtLogin = require('./openIdJwtStrategy');
 const { findUser, updateUser } = require('~/models');

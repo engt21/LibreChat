@@ -89,6 +89,7 @@ export default function useResumableSSE(
   const [streamId, setStreamId] = useState<string | null>(null);
   const setAbortScroll = useSetRecoilState(store.abortScrollFamily(runIndex));
   const setShowStopButton = useSetRecoilState(store.showStopButtonByIndex(runIndex));
+  const setSubmission = useSetRecoilState(store.submissionByIndex(runIndex));
   const setLatestWebSearchAction = useSetRecoilState(store.latestWebSearchAction);
 
   const sseRef = useRef<SSE | null>(null);
@@ -172,7 +173,7 @@ export default function useResumableSSE(
               conversationId: data.conversation?.conversationId,
               hasResponseMessage: !!data.responseMessage,
             });
-            clearDraft(currentSubmission.conversation?.conversationId);
+            clearAllDrafts(currentSubmission.conversation?.conversationId);
             try {
               finalHandler(data, currentSubmission as EventSubmission);
             } catch (error) {
@@ -188,6 +189,7 @@ export default function useResumableSSE(
             (startupConfig?.balance?.enabled ?? false) && balanceQuery.refetch();
             sse.close();
             setStreamId(null);
+            setSubmission(null);
             return;
           }
 
@@ -334,6 +336,20 @@ export default function useResumableSSE(
           }
         } catch (error) {
           console.error('[ResumableSSE] Error processing message:', error);
+          // Safety net: if processing a final event threw, ensure UI state is cleaned up
+          try {
+            const parsed = JSON.parse(e.data);
+            if (parsed?.final != null) {
+              console.error('[ResumableSSE] Final event processing failed - forcing cleanup');
+              setIsSubmitting(false);
+              setShowStopButton(false);
+              sse.close();
+              setStreamId(null);
+              setSubmission(null);
+            }
+          } catch {
+            // parse failed - not a final event, nothing to recover
+          }
         }
       });
 
@@ -536,6 +552,7 @@ export default function useResumableSSE(
       token,
       setAbortScroll,
       setActiveRunId,
+      setSubmission,
       setShowStopButton,
       finalHandler,
       createdHandler,

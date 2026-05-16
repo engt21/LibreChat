@@ -7,6 +7,7 @@ const {
   GenerationJobManager,
   decrementPendingRequest,
   sanitizeMessageForTransmit,
+  filterMalformedContentParts,
   checkAndIncrementPendingRequest,
 } = require('@librechat/api');
 const { disposeClient, clientRegistry, requestDataMap } = require('~/server/cleanup');
@@ -150,12 +151,13 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       const responseConversationId = resumeState.conversationId || conversationId;
 
       try {
+        const filteredContent = filterMalformedContentParts(aggregatedContent);
         const partialMessage = {
           messageId: resumeState.responseMessageId || `${resumeState.userMessage.messageId}_`,
           conversationId: responseConversationId,
           parentMessageId: resumeState.userMessage.messageId,
           sender: client?.sender ?? 'AI',
-          content: aggregatedContent,
+          content: filteredContent,
           unfinished: true,
           error: false,
           isCreatedByUser: false,

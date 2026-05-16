@@ -1,4 +1,4 @@
-import { EModelEndpoint, getEndpointField } from 'librechat-data-provider';
+import { EModelEndpoint, KnownEndpoints, getEndpointField } from 'librechat-data-provider';
 import type { TEndpointsConfig, TConfig } from 'librechat-data-provider';
 import {
   getAvailableEndpoints,
@@ -112,13 +112,23 @@ describe('getNativeToolEndpointSupport', () => {
     });
   });
 
-  it('disables native tool routing for unsupported endpoints', () => {
+  it('enables native web search and code interpreter for Anthropic endpoints', () => {
     expect(getNativeToolEndpointSupport(EModelEndpoint.anthropic)).toEqual({
-      supportsNativeWebSearch: false,
+      supportsNativeWebSearch: true,
+      supportsNativeCodeInterpreter: true,
+      supportsNativeFileSearch: false,
+    });
+  });
+
+  it('enables native web search for xAI endpoints', () => {
+    expect(getNativeToolEndpointSupport(KnownEndpoints.xai)).toEqual({
+      supportsNativeWebSearch: true,
       supportsNativeCodeInterpreter: false,
       supportsNativeFileSearch: false,
     });
+  });
 
+  it('disables native tool routing for unsupported endpoints', () => {
     expect(getNativeToolEndpointSupport(EModelEndpoint.custom)).toEqual({
       supportsNativeWebSearch: false,
       supportsNativeCodeInterpreter: false,

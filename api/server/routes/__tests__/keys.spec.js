@@ -2,9 +2,11 @@ const express = require('express');
 const request = require('supertest');
 
 jest.mock('~/models', () => ({
+  getUserKey: jest.fn(),
   updateUserKey: jest.fn(),
   deleteUserKey: jest.fn(),
   getUserKeyExpiry: jest.fn(),
+  getUserKeyValues: jest.fn(),
 }));
 
 jest.mock('~/server/middleware/requireJwtAuth', () => (req, res, next) => next());
@@ -13,9 +15,20 @@ jest.mock('~/server/middleware', () => ({
   requireJwtAuth: (req, res, next) => next(),
 }));
 
+jest.mock('~/server/services/Models/refreshModels', () => ({
+  invalidateModelDiscoveryCaches: jest.fn(),
+}));
+
 describe('Keys Routes', () => {
   let app;
-  const { updateUserKey, deleteUserKey, getUserKeyExpiry } = require('~/models');
+  const {
+    getUserKey,
+    updateUserKey,
+    deleteUserKey,
+    getUserKeyExpiry,
+    getUserKeyValues,
+  } = require('~/models');
+  const { invalidateModelDiscoveryCaches } = require('~/server/services/Models/refreshModels');
 
   beforeAll(() => {
     const keysRouter = require('../keys');
@@ -51,6 +64,7 @@ describe('Keys Routes', () => {
         expiresAt: '2026-12-31',
       });
       expect(updateUserKey).toHaveBeenCalledTimes(1);
+      expect(invalidateModelDiscoveryCaches).toHaveBeenCalledTimes(1);
     });
 
     it('should not allow userId override via request body (IDOR prevention)', async () => {
@@ -108,6 +122,60 @@ describe('Keys Routes', () => {
       });
     });
 
+    it('should merge partial JSON key updates with existing stored values', async () => {
+      getUserKeyValues.mockResolvedValue({
+        apiKey: 'saved-key',
+        baseURL: 'https://example.openai.azure.com/openai/v1',
+        models: 'gpt-4.1',
+      });
+      updateUserKey.mockResolvedValue({});
+
+      const response = await request(app)
+        .put('/api/keys')
+        .send({
+          name: 'azureOpenAI',
+          value: JSON.stringify({ models: 'gpt-4.1,gpt-4o-mini' }),
+          merge: true,
+        });
+
+      expect(response.status).toBe(201);
+      expect(getUserKeyValues).toHaveBeenCalledWith({
+        userId: 'test-user-123',
+        name: 'azureOpenAI',
+      });
+      expect(updateUserKey).toHaveBeenCalledWith({
+        userId: 'test-user-123',
+        name: 'azureOpenAI',
+        value: JSON.stringify({
+          apiKey: 'saved-key',
+          baseURL: 'https://example.openai.azure.com/openai/v1',
+          models: 'gpt-4.1,gpt-4o-mini',
+        }),
+        expiresAt: undefined,
+      });
+    });
+
+    it('should keep partial JSON payloads when no existing key is stored', async () => {
+      getUserKeyValues.mockRejectedValue(new Error('missing key'));
+      updateUserKey.mockResolvedValue({});
+
+      const response = await request(app)
+        .put('/api/keys')
+        .send({
+          name: 'azureOpenAI',
+          value: JSON.stringify({ models: 'gpt-4.1,gpt-4o-mini' }),
+          merge: true,
+        });
+
+      expect(response.status).toBe(201);
+      expect(updateUserKey).toHaveBeenCalledWith({
+        userId: 'test-user-123',
+        name: 'azureOpenAI',
+        value: JSON.stringify({ models: 'gpt-4.1,gpt-4o-mini' }),
+        expiresAt: undefined,
+      });
+    });
+
     it('should return 400 when request body is null', async () => {
       const response = await request(app)
         .put('/api/keys')
@@ -131,6 +199,7 @@ describe('Keys Routes', () => {
         name: 'openAI',
       });
       expect(deleteUserKey).toHaveBeenCalledTimes(1);
+      expect(invalidateModelDiscoveryCaches).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -145,6 +214,7 @@ describe('Keys Routes', () => {
         userId: 'test-user-123',
         all: true,
       });
+      expect(invalidateModelDiscoveryCaches).toHaveBeenCalledTimes(1);
     });
 
     it('should return 400 when all query param is not true', async () => {
@@ -153,6 +223,7 @@ describe('Keys Routes', () => {
       expect(response.status).toBe(400);
       expect(response.body).toEqual({ error: 'Specify either all=true to delete.' });
       expect(deleteUserKey).not.toHaveBeenCalled();
+      expect(invalidateModelDiscoveryCaches).not.toHaveBeenCalled();
     });
   });
 
@@ -169,6 +240,33 @@ describe('Keys Routes', () => {
         userId: 'test-user-123',
         name: 'openAI',
       });
+    });
+
+    it('should include the decrypted key value when explicitly requested', async () => {
+      getUserKeyExpiry.mockResolvedValue({ expiresAt: 'never' });
+      getUserKey.mockResolvedValue('{"apiKey":"saved-key"}');
+
+      const response = await request(app).get('/api/keys?name=openAI&includeValue=true');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        expiresAt: 'never',
+        value: '{"apiKey":"saved-key"}',
+      });
+      expect(getUserKey).toHaveBeenCalledWith({
+        userId: 'test-user-123',
+        name: 'openAI',
+      });
+    });
+
+    it('should not fetch the decrypted key when no key exists', async () => {
+      getUserKeyExpiry.mockResolvedValue({ expiresAt: null });
+
+      const response = await request(app).get('/api/keys?name=openAI&includeValue=true');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ expiresAt: null });
+      expect(getUserKey).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { WebSearchModes } from './config';
+import { CodeInterpreterModes, WebSearchModes } from './config';
 
 export const scheduledJobNotificationChannelsSchema = z.object({
   email: z.boolean().default(false),
@@ -24,8 +24,10 @@ export const scheduledJobTargetSchema = z.object({
       web_search_mode: z.nativeEnum(WebSearchModes).optional(),
       file_search: z.boolean().optional(),
       execute_code: z.boolean().optional(),
+      execute_code_mode: z.nativeEnum(CodeInterpreterModes).optional(),
       artifacts: z.string().optional(),
       mcp: z.array(z.string()).optional(),
+      image_generation: z.boolean().optional(),
     })
     .optional(),
 });

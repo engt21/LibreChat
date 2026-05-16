@@ -7,7 +7,12 @@ import { useBadgeRowContext } from '~/Providers';
 
 function WebSearch() {
   const localize = useLocalize();
-  const { webSearch: webSearchData, searchApiKeyForm } = useBadgeRowContext();
+  const {
+    webSearch: webSearchData,
+    searchApiKeyForm,
+    usesNativeWebSearch,
+    supportsStructuredToolCalling,
+  } = useBadgeRowContext();
   const { toggleState: webSearch, debouncedChange, isPinned, isAuthenticated } = webSearchData;
   const { badgeTriggerRef } = searchApiKeyForm;
 
@@ -16,7 +21,7 @@ function WebSearch() {
     permission: Permissions.USE,
   });
 
-  if (!canUseWebSearch) {
+  if (!canUseWebSearch || (!usesNativeWebSearch && !supportsStructuredToolCalling)) {
     return null;
   }
 

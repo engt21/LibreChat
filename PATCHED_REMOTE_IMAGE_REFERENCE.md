@@ -4,7 +4,7 @@
 
 This file defines the optional patched-remote Docker workflow for validating the admin RBAC feature while staying as close as possible to upstream LibreChat.
 
-It is no longer the default local startup path. The default runtime now uses the full local build from `Dockerfile` through `docker-compose.override.yml` so agent restarts include the latest local LibreChat changes.
+It is no longer the default local startup path. The default runtime now uses the full local build from `Dockerfile` through `docker-compose.local.override.yml` so agent restarts include the latest local LibreChat changes.
 
 The goal is:
 
@@ -34,20 +34,22 @@ Starts from the published upstream image and overlays only the admin RBAC runtim
 Use this flow only when you explicitly want the narrow admin-only patched image instead of the default full local build.
 
 ```bash
-cd /pool/home/timeng/LibreChat
-docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.remote-patched.override.yml up -d --build api
+cd /pool/home/timeng/LibreChat-custom
+docker compose -f docker-compose.yml -f docker-compose.local.override.yml -f docker-compose.remote-patched.override.yml up -d --build --force-recreate api
 ```
 
 To start the full local stack around the patched app image:
 
 ```bash
-cd /pool/home/timeng/LibreChat
-docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.remote-patched.override.yml up -d --build
+cd /pool/home/timeng/LibreChat-custom
+docker compose -f docker-compose.yml -f docker-compose.local.override.yml -f docker-compose.remote-patched.override.yml up -d --build --force-recreate
 docker compose -f "/pool/home/timeng/librechat_exporter/prometheus-dev/docker-compose.yml" up -d
-docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
+LIBRECHAT_LOG_DIR=/pool/home/timeng/LibreChat-custom/logs docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
 ```
 
 All of these are detached Docker services, so they continue running after the shell closes.
+
+For the customization worktree, Grafana/Loki should tail `/pool/home/timeng/LibreChat-custom/logs` so the dashboard reflects the current patched-runtime logs.
 
 When the admin console is opened from a non-localhost host/IP, its observability links should resolve against that same host instead of `localhost`.
 

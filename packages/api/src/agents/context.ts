@@ -83,24 +83,29 @@ export async function getMCPInstructionsForServers(
 
 /**
  * Builds final instructions for an agent by combining shared run context and agent-specific context.
- * Order: sharedRunContext -> baseInstructions -> mcpInstructions
+ * Order: platformPrompt -> sharedRunContext -> baseInstructions -> mcpInstructions
  *
  * @param {Object} params
+ * @param {string} [params.platformPrompt] - Admin-managed platform instructions applied to every run
  * @param {string} [params.sharedRunContext] - Run-level context shared by all agents (file context, RAG, memory)
  * @param {string} [params.baseInstructions] - Agent's base instructions
  * @param {string} [params.mcpInstructions] - Agent's MCP server instructions
  * @returns {string | undefined} Combined instructions, or undefined if empty
  */
 export function buildAgentInstructions({
+  platformPrompt,
   sharedRunContext,
   baseInstructions,
   mcpInstructions,
 }: {
+  platformPrompt?: string;
   sharedRunContext?: string;
   baseInstructions?: string;
   mcpInstructions?: string;
 }): string | undefined {
-  const parts = [sharedRunContext, baseInstructions, mcpInstructions].filter(Boolean);
+  const parts = [platformPrompt, sharedRunContext, baseInstructions, mcpInstructions].filter(
+    Boolean,
+  );
   const combined = parts.join('\n\n').trim();
   return combined || undefined;
 }
@@ -111,6 +116,7 @@ export function buildAgentInstructions({
  *
  * @param {Object} params
  * @param {Agent} params.agent - The agent to update
+ * @param {string} [params.platformPrompt] - Admin-managed platform instructions
  * @param {string} params.sharedRunContext - Run-level shared context
  * @param {MCPManager} params.mcpManager - MCP manager instance
  * @param {Object} [params.ephemeralAgent] - Ephemeral agent config (for MCP override)
@@ -120,6 +126,7 @@ export function buildAgentInstructions({
  */
 export async function applyContextToAgent({
   agent,
+  platformPrompt,
   sharedRunContext,
   mcpManager,
   ephemeralAgent,
@@ -127,6 +134,7 @@ export async function applyContextToAgent({
   logger,
 }: {
   agent: AgentWithTools;
+  platformPrompt?: string;
   sharedRunContext: string;
   mcpManager: MCPManager;
   ephemeralAgent?: TEphemeralAgent;
@@ -140,6 +148,7 @@ export async function applyContextToAgent({
     const mcpInstructions = await getMCPInstructionsForServers(mcpServers, mcpManager, logger);
 
     agent.instructions = buildAgentInstructions({
+      platformPrompt,
       sharedRunContext,
       baseInstructions,
       mcpInstructions,
@@ -150,6 +159,7 @@ export async function applyContextToAgent({
     }
   } catch (error) {
     agent.instructions = buildAgentInstructions({
+      platformPrompt,
       sharedRunContext,
       baseInstructions,
       mcpInstructions: '',

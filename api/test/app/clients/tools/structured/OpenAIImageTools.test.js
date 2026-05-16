@@ -127,6 +127,38 @@ describe('OpenAIImageTools - IMAGE_GEN_OAI_MODEL environment variable', () => {
     );
   });
 
+  it('should fall back to OPENAI_API_KEY when IMAGE_GEN_OAI_API_KEY is not set', async () => {
+    delete process.env.IMAGE_GEN_OAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'test-openai-api-key';
+
+    const mockGenerate = jest.fn().mockResolvedValue({
+      data: [
+        {
+          b64_json: 'base64-encoded-image-data',
+        },
+      ],
+    });
+
+    OpenAI.mockImplementation((config) => {
+      expect(config.apiKey).toBe('test-openai-api-key');
+      return {
+        images: {
+          generate: mockGenerate,
+        },
+      };
+    });
+
+    const [imageGenTool] = createOpenAIImageTools({
+      isAgent: true,
+      override: false,
+      req: { user: { id: 'test-user' } },
+    });
+
+    await imageGenTool.func({ prompt: 'test prompt' });
+
+    expect(mockGenerate).toHaveBeenCalled();
+  });
+
   it('should use custom model name from IMAGE_GEN_OAI_MODEL environment variable', async () => {
     process.env.IMAGE_GEN_OAI_MODEL = 'custom-image-model';
 

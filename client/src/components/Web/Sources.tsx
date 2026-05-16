@@ -165,6 +165,7 @@ type AgentFileSource = {
   filename: string;
   bytes?: number;
   type?: string;
+  snippet?: string;
   pages?: number[];
   relevance?: number;
   pageRelevance?: Record<number, number>;
@@ -304,6 +305,11 @@ const FileItem = React.memo(function FileItem({
           <span className="line-clamp-2 break-all text-left text-sm font-medium text-text-primary md:line-clamp-3">
             {file.filename}
           </span>
+          {file.snippet && (
+            <span className="mt-1 line-clamp-4 whitespace-pre-wrap break-words text-left text-xs text-text-secondary">
+              {file.snippet}
+            </span>
+          )}
           {file.pages && file.pages.length > 0 && (
             <span className="mt-1 line-clamp-1 text-left text-xs text-text-secondary">
               {localize('com_sources_pages')}:{' '}
@@ -601,11 +607,19 @@ function SourcesComponent({ messageId, conversationId }: SourcesProps = {}) {
           const uniqueKey = `${fileId}_${fileName}`;
 
           if (agentFilesMap.has(uniqueKey)) {
-            // Merge pages for the same file
+            // Merge pages and snippet for the same file
             const existing = agentFilesMap.get(uniqueKey)!;
             const existingPages = existing.pages || [];
             const newPages = (source as any).pages || [];
             const uniquePages = [...new Set([...existingPages, ...newPages])].sort((a, b) => a - b);
+
+            // Append snippet content from additional chunks
+            const newSnippet = 'snippet' in source ? (source as any).snippet : undefined;
+            if (newSnippet && existing.snippet && !existing.snippet.includes(newSnippet)) {
+              existing.snippet = `${existing.snippet}\n...\n${newSnippet}`;
+            } else if (newSnippet && !existing.snippet) {
+              existing.snippet = newSnippet;
+            }
 
             existing.pages = uniquePages;
             existing.relevance = Math.max(existing.relevance || 0, (source as any).relevance || 0);
@@ -619,6 +633,7 @@ function SourcesComponent({ messageId, conversationId }: SourcesProps = {}) {
               file_id: fileId,
               filename: fileName,
               bytes: undefined,
+              snippet: 'snippet' in source ? (source as any).snippet : undefined,
               metadata: (source as any).metadata,
               pages: (source as any).pages,
               relevance: (source as any).relevance,

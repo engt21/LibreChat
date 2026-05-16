@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Shield, Users, Activity, Settings2, ExternalLink, BarChart3, Plus, X } from 'lucide-react';
+import {
+  Shield,
+  Users,
+  Activity,
+  Settings2,
+  ExternalLink,
+  BarChart3,
+  Plus,
+  X,
+  RefreshCcw,
+} from 'lucide-react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import {
   Button,
@@ -37,11 +47,13 @@ import {
   useDeleteAdminUserMutation,
   useUpdateAdminUserMutation,
   useUpdateAdminSettingsMutation,
+  useRefreshAdminModelsMutation,
 } from '~/data-provider';
 
 const DEFAULT_SETTINGS: TAdminSettings = {
   settingsId: 'global',
   registrationEnabled: false,
+  platformPrompt: null,
   observability: {
     langfuseUrl: '',
     grafanaUrl: '',
@@ -146,6 +158,8 @@ export default function AdminConsole() {
     useState<TAdminModelPermissions>(DEFAULT_MODEL_PERMISSIONS);
   const [settingsForm, setSettingsForm] = useState<TAdminSettings>(DEFAULT_SETTINGS);
   const [newMcpDomain, setNewMcpDomain] = useState('');
+  const [activeRefreshProvider, setActiveRefreshProvider] = useState<string | null>(null);
+  const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
 
   useDocumentTitle(`${localize('com_nav_admin_console')} | LibreChat`);
 
@@ -252,6 +266,48 @@ export default function AdminConsole() {
         message: error?.message || localize('com_admin_user_delete_error'),
         status: 'error',
       });
+    },
+  });
+
+  const refreshModelsMutation = useRefreshAdminModelsMutation({
+    onSuccess: (data, variables) => {
+      const providerNames = Object.keys(data?.providers ?? {});
+      const totalModels = providerNames.reduce(
+        (sum, name) => sum + (data?.providers?.[name]?.count ?? 0),
+        0,
+      );
+      const requestedProvider = variables?.provider ?? '';
+
+      if (requestedProvider) {
+        const providerData = data?.providers?.[requestedProvider];
+        const displayName =
+          alternateName[requestedProvider as keyof typeof alternateName] || requestedProvider;
+        showToast({
+          message: localize('com_admin_models_refreshed', {
+            0: displayName,
+            1: String(providerData?.count ?? 0),
+          }),
+          status: 'success',
+        });
+      } else {
+        showToast({
+          message: localize('com_admin_models_refreshed_all', {
+            0: String(providerNames.length),
+            1: String(totalModels),
+          }),
+          status: 'success',
+        });
+      }
+
+      setLastRefreshAt(data?.refreshedAt ?? new Date().toISOString());
+      setActiveRefreshProvider(null);
+    },
+    onError: (error) => {
+      showToast({
+        message: error?.message || localize('com_admin_models_refresh_error'),
+        status: 'error',
+      });
+      setActiveRefreshProvider(null);
     },
   });
 
@@ -385,10 +441,21 @@ export default function AdminConsole() {
   const handleSaveSettings = async () => {
     await updateSettingsMutation.mutateAsync({
       registrationEnabled: settingsForm.registrationEnabled,
+      platformPrompt: settingsForm.platformPrompt?.trim() ? settingsForm.platformPrompt : null,
       observability: settingsForm.observability,
       mcpDomainFilterMode: settingsForm.mcpDomainFilterMode ?? 'denylist',
       mcpAllowedDomains: settingsForm.mcpAllowedDomains ?? [],
     });
+  };
+
+  const handleRefreshAllProviders = () => {
+    setActiveRefreshProvider('__all__');
+    refreshModelsMutation.mutate(undefined);
+  };
+
+  const handleRefreshProvider = (provider: string) => {
+    setActiveRefreshProvider(provider);
+    refreshModelsMutation.mutate({ provider });
   };
 
   let modelAccessOptionsContent: ReactNode;
@@ -900,6 +967,51 @@ export default function AdminConsole() {
                 />
               </div>
 
+              <div className="rounded-xl border border-border-light bg-surface-primary p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <Label htmlFor="platform-prompt">{localize('com_admin_platform_prompt')}</Label>
+                    <div className="mt-1 text-sm text-text-secondary">
+                      {localize('com_admin_platform_prompt_desc')}
+                    </div>
+                  </div>
+                  <div className="text-xs text-text-secondary">
+                    {(settingsForm.platformPrompt ?? '').length}/20000
+                  </div>
+                </div>
+                <textarea
+                  id="platform-prompt"
+                  value={settingsForm.platformPrompt ?? ''}
+                  maxLength={20000}
+                  rows={8}
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      platformPrompt: event.target.value,
+                    }))
+                  }
+                  disabled={!canWriteSettings}
+                  className="mt-3 min-h-[180px] w-full rounded-md border border-border-light bg-transparent px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-ring-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder={localize('com_admin_platform_prompt_placeholder')}
+                />
+                {canWriteSettings && settingsForm.platformPrompt ? (
+                  <div className="mt-3 flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          platformPrompt: null,
+                        }))
+                      }
+                    >
+                      {localize('com_ui_clear')}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <Label htmlFor="langfuse-url">{localize('com_admin_langfuse_url')}</Label>
@@ -999,8 +1111,12 @@ export default function AdminConsole() {
                       }))
                     }
                   >
-                    <option value="denylist">{localize('com_admin_mcp_filter_mode_denylist')}</option>
-                    <option value="allowlist">{localize('com_admin_mcp_filter_mode_allowlist')}</option>
+                    <option value="denylist">
+                      {localize('com_admin_mcp_filter_mode_denylist')}
+                    </option>
+                    <option value="allowlist">
+                      {localize('com_admin_mcp_filter_mode_allowlist')}
+                    </option>
                   </select>
                 </div>
 
@@ -1101,6 +1217,85 @@ export default function AdminConsole() {
                   </Button>
                 </div>
               ) : null}
+            </div>
+          </SectionCard>
+        ) : null}
+
+        {canWriteSettings ? (
+          <SectionCard
+            title={localize('com_admin_model_discovery')}
+            description={localize('com_admin_model_discovery_desc')}
+            icon={<RefreshCcw className="h-5 w-5" />}
+          >
+            <div className="space-y-4 rounded-2xl border border-border-light bg-surface-secondary p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-sm text-text-secondary">
+                  {lastRefreshAt
+                    ? localize('com_admin_models_last_refresh', {
+                        0: new Date(lastRefreshAt).toLocaleString(),
+                      })
+                    : null}
+                </div>
+                <Button
+                  type="button"
+                  variant="submit"
+                  disabled={refreshModelsMutation.isLoading}
+                  onClick={handleRefreshAllProviders}
+                >
+                  <span className="flex items-center gap-2">
+                    {refreshModelsMutation.isLoading && activeRefreshProvider === '__all__' ? (
+                      <Spinner className="text-text-primary" />
+                    ) : (
+                      <RefreshCcw className="h-4 w-4" />
+                    )}
+                    {localize('com_admin_refresh_all_models')}
+                  </span>
+                </Button>
+              </div>
+
+              {availableModelEntries.length === 0 ? (
+                <div className="rounded-xl border border-border-light bg-surface-primary p-3 text-sm text-text-secondary">
+                  {localize('com_admin_models_no_providers')}
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  {availableModelEntries.map(([endpoint, models]) => {
+                    const displayName =
+                      alternateName[endpoint as keyof typeof alternateName] || endpoint;
+                    const isThisProviderRefreshing =
+                      refreshModelsMutation.isLoading && activeRefreshProvider === endpoint;
+
+                    return (
+                      <div
+                        key={`refresh-${endpoint}`}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-light bg-surface-primary p-3"
+                      >
+                        <div>
+                          <div className="font-medium text-text-primary">{displayName}</div>
+                          <div className="text-xs text-text-secondary">
+                            {localize('com_admin_models_count', { 0: String(models.length) })}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={refreshModelsMutation.isLoading}
+                          onClick={() => handleRefreshProvider(endpoint)}
+                        >
+                          <span className="flex items-center gap-2">
+                            {isThisProviderRefreshing ? (
+                              <Spinner className="text-text-primary" />
+                            ) : (
+                              <RefreshCcw className="h-4 w-4" />
+                            )}
+                            {localize('com_admin_refresh_provider')}
+                          </span>
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </SectionCard>
         ) : null}

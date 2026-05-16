@@ -1,0 +1,131 @@
+- generic [ref=e2]:
+  - generic [ref=e37]:
+    - navigation "Chat History" [ref=e41]:
+      - generic [ref=e42]:
+        - generic [ref=e43]:
+          - button "Close sidebar" [expanded] [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+          - generic [ref=e47]:
+            - button "Bookmarks" [ref=e48] [cursor=pointer]:
+              - img [ref=e49]
+            - link "New chat" [ref=e51] [cursor=pointer]:
+              - /url: /c/new
+              - img [ref=e52]
+        - generic [ref=e54] [cursor=pointer]:
+          - img [ref=e55]
+          - textbox "Search messages" [ref=e58]
+          - button "Clear search" [disabled] [ref=e59]:
+            - img [ref=e60]
+        - grid "Conversations" [ref=e66]:
+          - rowgroup [ref=e67]:
+            - button "Chats" [ref=e69] [cursor=pointer]:
+              - generic [ref=e70]: Chats
+              - img [ref=e71]
+      - button "Account Settings" [ref=e73] [cursor=pointer]:
+        - img "Validation User's avatar" [ref=e77]
+        - generic [ref=e78]: Validation User
+    - generic [ref=e80]:
+      - generic [ref=e81]:
+        - main [ref=e83]:
+          - generic [ref=e84]:
+            - generic [ref=e86]:
+              - generic [ref=e88]:
+                - button "Select a model" [active] [ref=e90] [cursor=pointer]:
+                  - img [ref=e400]
+                  - generic [ref=e94]: claude-sonnet-4-6
+                - button "Presets" [ref=e95] [cursor=pointer]:
+                  - img [ref=e96]
+                - button "Add multi-conversation" [ref=e100] [cursor=pointer]:
+                  - img [ref=e101]
+              - button "Temporary Chat" [ref=e105] [cursor=pointer]:
+                - img [ref=e106]
+            - generic [ref=e115]:
+              - generic [ref=e118]:
+                - img [ref=e405]
+                - generic [ref=e123]: Happy late night, Validation User
+                - paragraph [ref=e124]:
+                  - generic [ref=e125]:
+                    - generic [ref=e126]: H
+                    - generic [ref=e127]: a
+                    - generic [ref=e128]: p
+                    - generic [ref=e129]: p
+                    - generic [ref=e130]: "y"
+                  - generic [ref=e132]:
+                    - generic [ref=e133]: l
+                    - generic [ref=e134]: a
+                    - generic [ref=e135]: t
+                    - generic [ref=e136]: e
+                  - generic [ref=e138]:
+                    - generic [ref=e139]: "n"
+                    - generic [ref=e140]: i
+                    - generic [ref=e141]: g
+                    - generic [ref=e142]: h
+                    - generic [ref=e143]: t
+                    - generic [ref=e144]: ","
+                  - generic [ref=e146]:
+                    - generic [ref=e147]: V
+                    - generic [ref=e148]: a
+                    - generic [ref=e149]: l
+                    - generic [ref=e150]: i
+                    - generic [ref=e151]: d
+                    - generic [ref=e152]: a
+                    - generic [ref=e153]: t
+                    - generic [ref=e154]: i
+                    - generic [ref=e155]: o
+                    - generic [ref=e156]: "n"
+                  - generic [ref=e158]:
+                    - generic [ref=e159]: U
+                    - generic [ref=e160]: s
+                    - generic [ref=e161]: e
+                    - generic [ref=e162]: r
+              - generic [ref=e167]:
+                - textbox "Message input" [ref=e170]:
+                  - /placeholder: Message Claude
+                - generic [ref=e172]:
+                  - button "Attach File Options" [ref=e410] [cursor=pointer]:
+                    - img [ref=e412]
+                  - button "Tools Options" [ref=e179] [cursor=pointer]:
+                    - img [ref=e181]
+                  - button "Use microphone" [ref=e184] [cursor=pointer]:
+                    - img [ref=e185]
+                  - button "Open realtime voice dialog" [ref=e188] [cursor=pointer]:
+                    - img [ref=e189]
+                  - button "Send message" [disabled] [ref=e196]:
+                    - img [ref=e198]
+            - contentinfo [ref=e200]:
+              - generic [ref=e201]:
+                - link "LibreChat v0.8.3" [ref=e202] [cursor=pointer]:
+                  - /url: https://librechat.ai
+                - text: "- Every AI for Everyone."
+        - button "Open Control Panel" [ref=e205] [cursor=pointer]
+        - separator [ref=e211]
+        - navigation "Controls" [ref=e212]:
+          - generic [ref=e218]:
+            - button "Agent Builder" [ref=e219] [cursor=pointer]:
+              - img [ref=e220]
+              - generic [ref=e223]: Agent Builder
+            - button "Prompts" [ref=e224] [cursor=pointer]:
+              - img [ref=e225]
+              - generic [ref=e229]: Prompts
+            - button "Memories" [ref=e230] [cursor=pointer]:
+              - img [ref=e231]
+              - generic [ref=e235]: Memories
+            - button "Attach Files" [ref=e414] [cursor=pointer]:
+              - img [ref=e415]
+              - generic [ref=e240]: Attach Files
+            - button "Bookmarks" [ref=e417] [cursor=pointer]:
+              - img [ref=e418]
+              - generic [ref=e244]: Bookmarks
+            - button "MCP Settings" [ref=e420] [cursor=pointer]:
+              - img [ref=e421]
+              - generic [ref=e248]: MCP Settings
+            - button "Hide Panel" [ref=e425] [cursor=pointer]:
+              - img [ref=e426]
+              - generic [ref=e254]: Hide Panel
+      - button "Close right side panel"
+  - complementary "React Query Devtools":
+    - button "Open React Query Devtools" [ref=e27] [cursor=pointer]:
+      - img [ref=e28]
+      - generic [ref=e34]: Open React Query Devtools
+  - region "Notifications (F8)":
+    - list

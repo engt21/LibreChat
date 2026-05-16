@@ -8,39 +8,60 @@ const {
 const ALL_MODELS = '*';
 
 const DEFAULT_NON_ADMIN_MODEL_PERMISSIONS = Object.freeze({
-  enabled: true,
-  rules: [
-    { endpoint: EModelEndpoint.azureOpenAI, models: [ALL_MODELS] },
-    { endpoint: KnownEndpoints.ollama, models: [ALL_MODELS] },
-    {
-      endpoint: EModelEndpoint.openAI,
-      models: ['gpt-5.3-chat-latest', 'gpt-5.4-mini', 'gpt-5.4-nano'],
-    },
-    {
-      endpoint: EModelEndpoint.anthropic,
-      models: [
-        'claude-sonnet-4-5',
-        'claude-sonnet-4-5-20250929',
-        'claude-sonnet-4-6',
-        'claude-haiku-4-5',
-        'claude-haiku-4-5-20251001',
-        'claude-haiku-4',
-        'claude-3-5-haiku-20241022',
-        'claude-3-7-sonnet-latest',
-        'claude-3-7-sonnet-20250219',
-        'claude-3-5-sonnet-20241022',
-        'claude-3-5-sonnet-20240620',
-        'claude-3-5-sonnet-latest',
-        'claude-3',
-      ],
-    },
-    { endpoint: KnownEndpoints.xai, models: ['grok-4-1-fast'] },
-  ],
+  enabled: false,
+  rules: [],
 });
+
+const LEGACY_DEFAULT_MODEL_PERMISSION_ENDPOINTS = Object.freeze([
+  EModelEndpoint.azureOpenAI,
+  KnownEndpoints.ollama,
+  EModelEndpoint.openAI,
+  EModelEndpoint.anthropic,
+  KnownEndpoints.xai,
+]);
+
+const LEGACY_DEFAULT_WILDCARD_ENDPOINTS = new Set([
+  EModelEndpoint.azureOpenAI,
+  KnownEndpoints.ollama,
+]);
 
 const defaultModelPermissions = () => ({ enabled: false, rules: [] });
 
 const allowsAllModels = (models = []) => Array.isArray(models) && models.includes(ALL_MODELS);
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function matchesModelPattern(pattern, model) {
+  if (
+    typeof pattern !== 'string' ||
+    typeof model !== 'string' ||
+    pattern.length === 0 ||
+    model.length === 0
+  ) {
+    return false;
+  }
+
+  if (!pattern.includes('*')) {
+    return pattern === model;
+  }
+
+  const regex = new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`);
+  return regex.test(model);
+}
+
+function isModelAllowedBySet(allowedModels, model) {
+  if (!allowedModels || !model) {
+    return false;
+  }
+
+  if (allowedModels.has(ALL_MODELS) || allowedModels.has(model)) {
+    return true;
+  }
+
+  return Array.from(allowedModels).some((pattern) => matchesModelPattern(pattern, model));
+}
 
 function sortRules(rules = []) {
   return [...rules].sort((a, b) => a.endpoint.localeCompare(b.endpoint));
@@ -120,12 +141,53 @@ function hasModelRestrictions(user) {
     return false;
   }
 
-  return normalizeModelPermissions(user.modelPermissions).enabled;
+  const normalized = normalizeModelPermissions(user.modelPermissions);
+  if (!normalized.enabled) {
+    return false;
+  }
+
+  return !isLegacyDefaultModelPermissions(normalized);
 }
 
 function getAllowedModelsMap(user) {
   const { rules } = normalizeModelPermissions(user?.modelPermissions);
   return new Map(rules.map((rule) => [rule.endpoint, new Set(rule.models)]));
+}
+
+function isLegacyDefaultModelPermissions(modelPermissions = defaultModelPermissions()) {
+  const normalized = normalizeModelPermissions(modelPermissions);
+  if (
+    !normalized.enabled ||
+    normalized.rules.length !== LEGACY_DEFAULT_MODEL_PERMISSION_ENDPOINTS.length
+  ) {
+    return false;
+  }
+
+  const endpointMap = new Map(normalized.rules.map((rule) => [rule.endpoint, rule.models]));
+  if (!LEGACY_DEFAULT_MODEL_PERMISSION_ENDPOINTS.every((endpoint) => endpointMap.has(endpoint))) {
+    return false;
+  }
+
+  for (const endpoint of LEGACY_DEFAULT_WILDCARD_ENDPOINTS) {
+    if (!allowsAllModels(endpointMap.get(endpoint))) {
+      return false;
+    }
+  }
+
+  const openAIModels = endpointMap.get(EModelEndpoint.openAI);
+  const anthropicModels = endpointMap.get(EModelEndpoint.anthropic);
+  const xaiModels = endpointMap.get(KnownEndpoints.xai);
+
+  return (
+    Array.isArray(openAIModels) &&
+    openAIModels.length > 0 &&
+    Array.isArray(anthropicModels) &&
+    anthropicModels.length > 0 &&
+    !allowsAllModels(anthropicModels) &&
+    Array.isArray(xaiModels) &&
+    xaiModels.length > 0 &&
+    !allowsAllModels(xaiModels)
+  );
 }
 
 function filterModelsConfigForUser(modelsConfig = {}, user) {
@@ -152,7 +214,7 @@ function filterModelsConfigForUser(modelsConfig = {}, user) {
       return acc;
     }
 
-    acc[endpoint] = models.filter((model) => allowedModels.has(model));
+    acc[endpoint] = models.filter((model) => isModelAllowedBySet(allowedModels, model));
     return acc;
   }, {});
 }
@@ -209,9 +271,13 @@ function validateModelPermissions(modelPermissions, modelsConfig = {}) {
       };
     }
 
-    const invalidModels = rule.models.filter(
-      (model) => model !== ALL_MODELS && !availableModels.includes(model),
-    );
+    const invalidModels = rule.models.filter((model) => {
+      if (model === ALL_MODELS || model.includes('*')) {
+        return false;
+      }
+
+      return !availableModels.includes(model);
+    });
     if (invalidModels.length > 0) {
       return {
         isValid: false,

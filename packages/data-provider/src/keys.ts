@@ -10,6 +10,7 @@ export enum QueryKeys {
   user = 'user',
   name = 'name', // user key name
   models = 'models',
+  realtimeModels = 'realtimeModels',
   balance = 'balance',
   endpoints = 'endpoints',
   presets = 'presets',
@@ -73,6 +74,9 @@ export enum QueryKeys {
   agentApiKeys = 'agentApiKeys',
   scheduledJobs = 'scheduledJobs',
   scheduledJobNotifications = 'scheduledJobNotifications',
+  /* Image generation */
+  imageGenerationModels = 'imageGenerationModels',
+  imageGenerationPrefs = 'imageGenerationPrefs',
 }
 
 // Dynamic query keys that require parameters
@@ -90,6 +94,7 @@ export enum MutationKeys {
   loginUser = 'loginUser',
   logoutUser = 'logoutUser',
   refreshToken = 'refreshToken',
+  saveRealtimeConversation = 'saveRealtimeConversation',
   avatarUpload = 'avatarUpload',
   speechToText = 'speechToText',
   textToSpeech = 'textToSpeech',
@@ -101,10 +106,13 @@ export enum MutationKeys {
   deleteAgentAction = 'deleteAgentAction',
   revertAgentVersion = 'revertAgentVersion',
   deleteUser = 'deleteUser',
+  deleteAdminUser = 'deleteAdminUser',
   updateAdminUser = 'updateAdminUser',
   updateAdminSettings = 'updateAdminSettings',
+  refreshAdminModels = 'refreshAdminModels',
   updateRole = 'updateRole',
   enableTwoFactor = 'enableTwoFactor',
   verifyTwoFactor = 'verifyTwoFactor',
   updateMemoryPreferences = 'updateMemoryPreferences',
+  updateImageGenerationPrefs = 'updateImageGenerationPrefs',
 }

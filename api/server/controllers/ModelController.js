@@ -7,6 +7,7 @@ const {
   isXAIEndpointCandidate,
 } = require('librechat-data-provider');
 const {
+  getAnthropicModels,
   getGoogleModels,
   getOpenAIModels,
   resolveAzureOpenAIDirectConfig,
@@ -15,7 +16,7 @@ const {
 const { loadDefaultModels, loadConfigModels } = require('~/server/services/Config');
 const { getAppConfig } = require('~/server/services/Config/app');
 const { filterModelsConfigForUser } = require('~/server/services/ModelAccess');
-const { getUserKeyValues } = require('~/models');
+const { getUserKey, getUserKeyValues } = require('~/models');
 const { getLogStores } = require('~/cache');
 
 let hasCompletedStartupModelRefresh = false;
@@ -155,8 +156,7 @@ const getAzureModelLoadState = async ({ req, appConfig, fallbackModels = [] }) =
   });
 
   const azureApiVersion =
-    directAzureConfig.azureOptions?.azureOpenAIApiVersion ||
-    process.env.AZURE_OPENAI_API_VERSION;
+    directAzureConfig.azureOptions?.azureOpenAIApiVersion || process.env.AZURE_OPENAI_API_VERSION;
 
   const cacheKey =
     userProvidesKey || userProvidesURL
@@ -188,6 +188,95 @@ const getAzureModelLoadState = async ({ req, appConfig, fallbackModels = [] }) =
   };
 };
 
+const getOpenAIModelLoadState = async ({ req, fallbackModels = [], forceRefresh = false }) => {
+  const openAIApiKey = process.env.OPENAI_API_KEY;
+  const openAIBaseURL = process.env.OPENAI_REVERSE_PROXY;
+  const userProvidesKey = isUserProvided(openAIApiKey);
+  const userProvidesURL = isUserProvided(openAIBaseURL);
+
+  let userValues = null;
+  if ((userProvidesKey || userProvidesURL) && req.user?.id) {
+    userValues = await getUserKeyValues({
+      userId: req.user.id,
+      name: EModelEndpoint.openAI,
+    }).catch(() => null);
+  }
+
+  const apiKey = userProvidesKey ? userValues?.apiKey : openAIApiKey;
+  const baseURL = userProvidesURL ? userValues?.baseURL : openAIBaseURL;
+  const cacheKey =
+    userProvidesKey || userProvidesURL
+      ? `${EModelEndpoint.openAI}:${req.user?.id ?? 'anonymous'}:${baseURL ?? 'default'}`
+      : undefined;
+
+  const models = await getOpenAIModels({
+    user: req.user?.id,
+    openAIApiKey: apiKey,
+    baseURL,
+    cacheKey,
+    forceRefresh,
+    userProvidedOpenAI: (userProvidesKey && !apiKey) || (userProvidesURL && !baseURL),
+  }).catch(() => fallbackModels);
+
+  const cacheableModels =
+    userProvidesKey || userProvidesURL
+      ? await getOpenAIModels({ userProvidedOpenAI: true }).catch(() => fallbackModels)
+      : models;
+
+  return {
+    models,
+    cacheableModels,
+    isUserProvided: userProvidesKey || userProvidesURL,
+  };
+};
+
+const getAnthropicModelLoadState = async ({
+  req,
+  appConfig,
+  fallbackModels = [],
+  forceRefresh = false,
+}) => {
+  const vertexModels = appConfig?.endpoints?.[EModelEndpoint.anthropic]?.vertexConfig?.modelNames;
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+  const userProvidesKey = isUserProvided(anthropicApiKey);
+
+  let userApiKey = null;
+  if (userProvidesKey && req.user?.id) {
+    userApiKey = await getUserKey({
+      userId: req.user.id,
+      name: EModelEndpoint.anthropic,
+    }).catch(() => null);
+  }
+
+  const apiKey = userProvidesKey ? userApiKey : anthropicApiKey;
+  const baseURL = process.env.ANTHROPIC_REVERSE_PROXY;
+  const cacheKey = userProvidesKey
+    ? `${EModelEndpoint.anthropic}:${req.user?.id ?? 'anonymous'}:${baseURL ?? 'default'}`
+    : undefined;
+
+  const models = await getAnthropicModels({
+    user: req.user?.id,
+    vertexModels,
+    anthropicApiKey: apiKey,
+    baseURL,
+    cacheKey,
+    forceRefresh,
+    userProvidedAnthropic: userProvidesKey && !apiKey,
+  }).catch(() => fallbackModels);
+
+  const cacheableModels = userProvidesKey
+    ? await getAnthropicModels({ vertexModels, userProvidedAnthropic: true }).catch(
+        () => fallbackModels,
+      )
+    : models;
+
+  return {
+    models,
+    cacheableModels,
+    isUserProvided: userProvidesKey,
+  };
+};
+
 /**
  * Loads the models from the config.
  * @param {ServerRequest} req - The Express request object.
@@ -215,14 +304,28 @@ async function loadModels(req) {
     );
     const dynamicEndpointNames = customEndpointRefreshState.names;
     const cacheableDynamicEndpointNames = customEndpointRefreshState.cacheableNames;
+    const openAIModelLoadState = await getOpenAIModelLoadState({
+      req,
+      fallbackModels: cachedModelsConfig[EModelEndpoint.openAI] ?? [],
+      forceRefresh: shouldForceStartupModelRefresh,
+    }).catch(() => ({
+      models: cachedModelsConfig[EModelEndpoint.openAI] ?? [],
+      cacheableModels: cachedModelsConfig[EModelEndpoint.openAI] ?? [],
+      isUserProvided: false,
+    }));
+    const anthropicModelLoadState = await getAnthropicModelLoadState({
+      req,
+      appConfig,
+      fallbackModels: cachedModelsConfig[EModelEndpoint.anthropic] ?? [],
+      forceRefresh: shouldForceStartupModelRefresh,
+    }).catch(() => ({
+      models: cachedModelsConfig[EModelEndpoint.anthropic] ?? [],
+      cacheableModels: cachedModelsConfig[EModelEndpoint.anthropic] ?? [],
+      isUserProvided: false,
+    }));
     const googleModels = await getGoogleModels().catch(
       () => cachedModelsConfig[EModelEndpoint.google],
     );
-    const openAIModels = shouldForceStartupModelRefresh
-      ? await getOpenAIModels({ user: req.user?.id, forceRefresh: true }).catch(
-          () => cachedModelsConfig[EModelEndpoint.openAI] ?? [],
-        )
-      : (cachedModelsConfig[EModelEndpoint.openAI] ?? []);
     const assistantModels = shouldForceStartupModelRefresh
       ? await getOpenAIModels({ assistants: true, forceRefresh: true }).catch(
           () => cachedModelsConfig[EModelEndpoint.assistants] ?? [],
@@ -261,7 +364,18 @@ async function loadModels(req) {
     );
     const hasOpenAIModelChanges =
       JSON.stringify(cachedModelsConfig[EModelEndpoint.openAI] ?? []) !==
-      JSON.stringify(openAIModels ?? []);
+      JSON.stringify(openAIModelLoadState.cacheableModels ?? []);
+    const hasUserSpecificOpenAIChanges =
+      openAIModelLoadState.isUserProvided &&
+      JSON.stringify(cachedModelsConfig[EModelEndpoint.openAI] ?? []) !==
+        JSON.stringify(openAIModelLoadState.models ?? []);
+    const hasAnthropicModelChanges =
+      JSON.stringify(cachedModelsConfig[EModelEndpoint.anthropic] ?? []) !==
+      JSON.stringify(anthropicModelLoadState.cacheableModels ?? []);
+    const hasUserSpecificAnthropicChanges =
+      anthropicModelLoadState.isUserProvided &&
+      JSON.stringify(cachedModelsConfig[EModelEndpoint.anthropic] ?? []) !==
+        JSON.stringify(anthropicModelLoadState.models ?? []);
     const hasAssistantModelChanges =
       JSON.stringify(cachedModelsConfig[EModelEndpoint.assistants] ?? []) !==
       JSON.stringify(assistantModels ?? []);
@@ -275,7 +389,8 @@ async function loadModels(req) {
 
     const responseModelsConfig = {
       ...cachedModelsConfig,
-      [EModelEndpoint.openAI]: openAIModels ?? [],
+      [EModelEndpoint.openAI]: openAIModelLoadState.models ?? [],
+      [EModelEndpoint.anthropic]: anthropicModelLoadState.models ?? [],
       [EModelEndpoint.assistants]: assistantModels ?? [],
       [EModelEndpoint.google]: googleModels ?? [],
       [EModelEndpoint.azureOpenAI]: azureModelLoadState.models ?? [],
@@ -284,6 +399,7 @@ async function loadModels(req) {
 
     if (
       hasOpenAIModelChanges ||
+      hasAnthropicModelChanges ||
       hasAssistantModelChanges ||
       JSON.stringify(cachedModelsConfig[EModelEndpoint.google] ?? []) !==
         JSON.stringify(googleModels ?? []) ||
@@ -292,7 +408,8 @@ async function loadModels(req) {
     ) {
       const refreshedModelsConfig = {
         ...cachedModelsConfig,
-        [EModelEndpoint.openAI]: openAIModels ?? [],
+        [EModelEndpoint.openAI]: openAIModelLoadState.cacheableModels ?? [],
+        [EModelEndpoint.anthropic]: anthropicModelLoadState.cacheableModels ?? [],
         [EModelEndpoint.assistants]: assistantModels ?? [],
         [EModelEndpoint.google]: googleModels ?? [],
         [EModelEndpoint.azureOpenAI]: azureModelLoadState.cacheableModels ?? [],
@@ -304,14 +421,24 @@ async function loadModels(req) {
       };
 
       await cache.set(CacheKeys.MODELS_CONFIG, refreshedModelsConfig);
-      if (hasUserSpecificDynamicChanges || hasUserSpecificAzureChanges) {
+      if (
+        hasUserSpecificDynamicChanges ||
+        hasUserSpecificAzureChanges ||
+        hasUserSpecificOpenAIChanges ||
+        hasUserSpecificAnthropicChanges
+      ) {
         return completeStartupModelRefresh(responseModelsConfig);
       }
 
       return completeStartupModelRefresh(refreshedModelsConfig);
     }
 
-    if (hasUserSpecificDynamicChanges || hasUserSpecificAzureChanges) {
+    if (
+      hasUserSpecificDynamicChanges ||
+      hasUserSpecificAzureChanges ||
+      hasUserSpecificOpenAIChanges ||
+      hasUserSpecificAnthropicChanges
+    ) {
       return completeStartupModelRefresh(responseModelsConfig);
     }
 
@@ -319,6 +446,7 @@ async function loadModels(req) {
   }
   const defaultModelsConfig = await loadDefaultModels(req, {
     forceOpenAIRefresh: shouldForceStartupModelRefresh,
+    forceAnthropicRefresh: shouldForceStartupModelRefresh,
   });
   const appConfig = await getAppConfig({ role: req.user?.role }).catch((error) => {
     logger.error('Error loading app config for initial model load:', error);
@@ -334,7 +462,28 @@ async function loadModels(req) {
     cacheableModels: defaultModelsConfig[EModelEndpoint.azureOpenAI] ?? [],
     isUserProvided: false,
   }));
+  const openAIModelLoadState = await getOpenAIModelLoadState({
+    req,
+    fallbackModels: defaultModelsConfig[EModelEndpoint.openAI] ?? [],
+    forceRefresh: shouldForceStartupModelRefresh,
+  }).catch(() => ({
+    models: defaultModelsConfig[EModelEndpoint.openAI] ?? [],
+    cacheableModels: defaultModelsConfig[EModelEndpoint.openAI] ?? [],
+    isUserProvided: false,
+  }));
+  const anthropicModelLoadState = await getAnthropicModelLoadState({
+    req,
+    appConfig,
+    fallbackModels: defaultModelsConfig[EModelEndpoint.anthropic] ?? [],
+    forceRefresh: shouldForceStartupModelRefresh,
+  }).catch(() => ({
+    models: defaultModelsConfig[EModelEndpoint.anthropic] ?? [],
+    cacheableModels: defaultModelsConfig[EModelEndpoint.anthropic] ?? [],
+    isUserProvided: false,
+  }));
 
+  defaultModelsConfig[EModelEndpoint.openAI] = openAIModelLoadState.cacheableModels ?? [];
+  defaultModelsConfig[EModelEndpoint.anthropic] = anthropicModelLoadState.cacheableModels ?? [];
   defaultModelsConfig[EModelEndpoint.azureOpenAI] = azureModelLoadState.cacheableModels ?? [];
 
   const modelConfig = { ...defaultModelsConfig, ...customModelsConfig };
@@ -354,12 +503,16 @@ async function loadModels(req) {
 
     responseConfig = {
       ...modelConfig,
+      [EModelEndpoint.openAI]: openAIModelLoadState.models ?? [],
+      [EModelEndpoint.anthropic]: anthropicModelLoadState.models ?? [],
       [EModelEndpoint.azureOpenAI]: azureModelLoadState.models ?? [],
       ...mergeEndpointModels(modelConfig, dynamicEndpointNames, dynamicConfigModels),
     };
   } else {
     responseConfig = {
       ...modelConfig,
+      [EModelEndpoint.openAI]: openAIModelLoadState.models ?? [],
+      [EModelEndpoint.anthropic]: anthropicModelLoadState.models ?? [],
       [EModelEndpoint.azureOpenAI]: azureModelLoadState.models ?? [],
     };
   }
@@ -378,4 +531,13 @@ async function modelController(req, res) {
   }
 }
 
-module.exports = { modelController, loadModels, getModelsConfig };
+/**
+ * Resets the in-process startup-refresh latch so the next call to {@link loadModels}
+ * forces a live re-fetch from every provider. Used by the admin "refresh models"
+ * action to bypass the once-per-process cache shortcut.
+ */
+function resetStartupModelRefresh() {
+  hasCompletedStartupModelRefresh = false;
+}
+
+module.exports = { modelController, loadModels, getModelsConfig, resetStartupModelRefresh };

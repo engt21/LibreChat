@@ -50,6 +50,7 @@ export default function useSSE(
   const [completed, setCompleted] = useState(new Set());
   const setAbortScroll = useSetRecoilState(store.abortScrollFamily(runIndex));
   const setShowStopButton = useSetRecoilState(store.showStopButtonByIndex(runIndex));
+  const setLatestWebSearchAction = useSetRecoilState(store.latestWebSearchAction);
 
   const {
     setMessages,
@@ -128,6 +129,7 @@ export default function useSSE(
           setIsSubmitting(false);
           setShowStopButton(false);
         }
+        setLatestWebSearchAction(null);
         (startupConfig?.balance?.enabled ?? false) && balanceQuery.refetch();
         console.log('final', data);
         return;
@@ -141,6 +143,8 @@ export default function useSSE(
         };
 
         createdHandler(data, { ...submission, userMessage } as EventSubmission);
+      } else if (data.event === 'web_search_action') {
+        setLatestWebSearchAction(data.data ?? null);
       } else if (data.event != null) {
         stepHandler(data, { ...submission, userMessage } as EventSubmission);
       } else if (data.sync != null) {

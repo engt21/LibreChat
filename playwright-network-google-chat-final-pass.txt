@@ -1,0 +1,6 @@
+[GET] http://127.0.0.1:3081/api/agents/chat/active => [200] OK
+[POST] http://127.0.0.1:3081/api/agents/chat/google => [200] OK
+  Request body: {"text":"Reply with exactly: ok","sender":"User","clientTimestamp":"2026-04-11T21:39:19","isCreatedByUser":true,"parentMessageId":"00000000-0000-0000-0000-000000000000","messageId":"d556c53c-c0a6-48ea-b368-82005ac18e0c","error":false,"endpoint":"google","model":"gemini-2.5-flash-lite","key":"never","isTemporary":false,"isRegenerate":false,"isContinued":false}
+[GET] http://127.0.0.1:3081/api/agents/chat/stream/44e8c823-c4b7-42fb-89ea-6086584ca676 => [200] OK
+[GET] http://127.0.0.1:3081/api/agents/chat/active => [200] OK
+[GET] http://127.0.0.1:3081/api/convos/gen_title/44e8c823-c4b7-42fb-89ea-6086584ca676 => [200] OK

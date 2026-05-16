@@ -144,5 +144,10 @@ describe('xAI model helpers', () => {
       supported: false,
       reason: 'This xAI model does not support provider-native web search.',
     });
+    expect(getXAISettingCapabilityState('useResponsesApi', codeCapabilities)).toEqual({
+      supported: false,
+      reason:
+        'xAI automatically uses the Responses API when needed (e.g., for web search). This toggle is not applicable.',
+    });
   });
 });

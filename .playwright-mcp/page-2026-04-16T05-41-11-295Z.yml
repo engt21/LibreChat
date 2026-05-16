@@ -1,0 +1,35 @@
+- generic [ref=e2]:
+  - generic [ref=e12]:
+    - img "LibreChat Logo" [ref=e37]
+    - generic:
+      - generic:
+        - button "Toggle theme" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - alert [ref=e19]
+    - main [ref=e20]:
+      - generic [ref=e21]:
+        - heading "Welcome back" [level=1] [ref=e38]
+        - alert [ref=e39]: Unable to login with the information provided. Please check your credentials and try again.
+        - form "Login form" [ref=e23]:
+          - generic [ref=e25]:
+            - textbox "Email" [ref=e26]:
+              - /placeholder: " "
+              - text: val-user@dev.local
+            - generic [ref=e27]: Email address
+          - generic [ref=e29]:
+            - textbox "Password" [ref=e30]:
+              - /placeholder: " "
+              - text: Val!dation_User_2025
+            - generic [ref=e31]: Password
+          - button "Continue" [ref=e33] [cursor=pointer]
+        - paragraph [ref=e34]:
+          - text: Don't have an account?
+          - link "Sign up" [ref=e35] [cursor=pointer]:
+            - /url: /register
+    - contentinfo
+  - complementary "React Query Devtools":
+    - button "Open React Query Devtools" [ref=e3] [cursor=pointer]:
+      - img [ref=e4]
+      - generic [ref=e10]: Open React Query Devtools
+  - region "Notifications (F8)":
+    - list

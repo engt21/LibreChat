@@ -3,6 +3,10 @@ jest.mock('@librechat/data-schemas', () => ({
 }));
 
 jest.mock('librechat-data-provider', () => ({
+  CodeInterpreterModes: {
+    librechat: 'librechat',
+    provider_native: 'provider_native',
+  },
   WebSearchModes: { DEFAULT: 'default', MCP: 'mcp' },
   isAgentsEndpoint: jest.fn((ep) => ep === 'agents'),
 }));

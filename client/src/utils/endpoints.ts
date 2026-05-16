@@ -1,6 +1,7 @@
 import {
   Constants,
   EModelEndpoint,
+  KnownEndpoints,
   defaultEndpoints,
   modularEndpoints,
   LocalStorageKeys,
@@ -92,11 +93,15 @@ export function mapEndpoints(endpointsConfig: t.TEndpointsConfig) {
 export function getNativeToolEndpointSupport(endpoint?: EModelEndpoint | string | null) {
   const isOpenAICompatibleEndpoint =
     endpoint === EModelEndpoint.openAI || endpoint === EModelEndpoint.azureOpenAI;
+  const isAnthropicEndpoint = endpoint === EModelEndpoint.anthropic;
   const isGoogleEndpoint = endpoint === EModelEndpoint.google;
+  const isXAIEndpoint = endpoint === KnownEndpoints.xai;
 
   return {
-    supportsNativeWebSearch: isOpenAICompatibleEndpoint || isGoogleEndpoint,
-    supportsNativeCodeInterpreter: isOpenAICompatibleEndpoint || isGoogleEndpoint,
+    supportsNativeWebSearch:
+      isOpenAICompatibleEndpoint || isAnthropicEndpoint || isGoogleEndpoint || isXAIEndpoint,
+    supportsNativeCodeInterpreter:
+      isOpenAICompatibleEndpoint || isAnthropicEndpoint || isGoogleEndpoint,
     supportsNativeFileSearch: isOpenAICompatibleEndpoint,
   };
 }
@@ -247,6 +252,7 @@ export function applyModelSpecEphemeralAgent({
   if (key !== Constants.NEW_CONVO) {
     const toolStorageMap: Array<[keyof t.TEphemeralAgent, string]> = [
       ['execute_code', LocalStorageKeys.LAST_CODE_TOGGLE_],
+      ['execute_code_mode', LocalStorageKeys.LAST_CODE_MODE_],
       ['web_search', LocalStorageKeys.LAST_WEB_SEARCH_TOGGLE_],
       ['web_search_mode', LocalStorageKeys.LAST_WEB_SEARCH_MODE_],
       ['file_search', LocalStorageKeys.LAST_FILE_SEARCH_TOGGLE_],

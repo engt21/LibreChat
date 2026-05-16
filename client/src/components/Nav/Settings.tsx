@@ -1,7 +1,11 @@
 import React, { useState, useRef } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
-import { SettingsTabValues } from 'librechat-data-provider';
-import { MessageSquare, Command, DollarSign } from 'lucide-react';
+import {
+  SettingsTabValues,
+  Permissions,
+  PermissionTypes,
+} from 'librechat-data-provider';
+import { MessageSquare, Command, DollarSign, Image as ImageIcon } from 'lucide-react';
 import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react';
 import {
   GearIcon,
@@ -21,9 +25,10 @@ import {
   Data,
   Balance,
   Account,
+  ImageGeneration,
 } from './SettingsTabs';
 import usePersonalizationAccess from '~/hooks/usePersonalizationAccess';
-import { useLocalize, TranslationKeys } from '~/hooks';
+import { useLocalize, useHasAccess, TranslationKeys } from '~/hooks';
 import { useGetStartupConfig } from '~/data-provider';
 import { cn } from '~/utils';
 
@@ -34,6 +39,10 @@ export default function Settings({ open, onOpenChange }: TDialogProps) {
   const [activeTab, setActiveTab] = useState(SettingsTabValues.GENERAL);
   const tabRefs = useRef({});
   const { hasAnyPersonalizationFeature, hasMemoryOptOut } = usePersonalizationAccess();
+  const hasImageGenAccess = useHasAccess({
+    permissionType: PermissionTypes.IMAGE_GEN,
+    permission: Permissions.USE,
+  });
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     const tabs: SettingsTabValues[] = [
@@ -41,6 +50,7 @@ export default function Settings({ open, onOpenChange }: TDialogProps) {
       SettingsTabValues.CHAT,
       SettingsTabValues.COMMANDS,
       SettingsTabValues.SPEECH,
+      ...(hasImageGenAccess ? [SettingsTabValues.IMAGE_GENERATION] : []),
       ...(hasAnyPersonalizationFeature ? [SettingsTabValues.PERSONALIZATION] : []),
       SettingsTabValues.DATA,
       ...(startupConfig?.balance?.enabled ? [SettingsTabValues.BALANCE] : []),
@@ -93,6 +103,15 @@ export default function Settings({ open, onOpenChange }: TDialogProps) {
       icon: <SpeechIcon className="icon-sm" aria-hidden="true" />,
       label: 'com_nav_setting_speech',
     },
+    ...(hasImageGenAccess
+      ? [
+          {
+            value: SettingsTabValues.IMAGE_GENERATION,
+            icon: <ImageIcon className="icon-sm" aria-hidden="true" />,
+            label: 'com_nav_setting_image_generation' as TranslationKeys,
+          },
+        ]
+      : ([] as { value: SettingsTabValues; icon: React.JSX.Element; label: TranslationKeys }[])),
     ...(hasAnyPersonalizationFeature
       ? [
           {
@@ -232,6 +251,11 @@ export default function Settings({ open, onOpenChange }: TDialogProps) {
                     <Tabs.Content value={SettingsTabValues.SPEECH} tabIndex={-1}>
                       <Speech />
                     </Tabs.Content>
+                    {hasImageGenAccess && (
+                      <Tabs.Content value={SettingsTabValues.IMAGE_GENERATION} tabIndex={-1}>
+                        <ImageGeneration />
+                      </Tabs.Content>
+                    )}
                     {hasAnyPersonalizationFeature && (
                       <Tabs.Content value={SettingsTabValues.PERSONALIZATION} tabIndex={-1}>
                         <Personalization

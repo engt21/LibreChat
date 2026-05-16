@@ -2,6 +2,7 @@
 export * from './azure';
 export * from './bedrock';
 export * from './admin';
+export * from './anthropic';
 export * from './config';
 export * from './file-config';
 /* messages  */
@@ -13,6 +14,7 @@ export * from './parsers';
 /* custom/dynamic configurations  */
 export * from './generate';
 export * from './google';
+export * from './imageGeneration';
 export * from './models';
 export * from './openai';
 export * from './schedules';

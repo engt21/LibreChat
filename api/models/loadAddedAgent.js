@@ -9,7 +9,9 @@ const {
   encodeEphemeralAgentId,
 } = require('librechat-data-provider');
 const { applyOllamaWebSearchMode } = require('~/server/services/Tools/ollama');
-const { getMCPServerTools } = require('~/server/services/Config');
+const { getMCPServerTools, cacheMCPServerTools } = require('~/server/services/Config');
+const { reinitMCPServer } = require('~/server/services/Tools/mcp');
+const { getMCPServersRegistry } = require('~/config');
 
 const { mcp_all, mcp_delimiter } = Constants;
 
@@ -153,7 +155,41 @@ const loadAddedAgent = async ({ req, conversation, primaryAgent }) => {
       if (addedServers.has(mcpServer)) {
         continue;
       }
-      const serverTools = await getMCPServerTools(userId, mcpServer);
+      let serverTools = await getMCPServerTools(userId, mcpServer);
+      if (!serverTools) {
+        try {
+          const serverConfig = await getMCPServersRegistry().getServerConfig(mcpServer, userId);
+          if (serverConfig?.toolFunctions && Object.keys(serverConfig.toolFunctions).length > 0) {
+            serverTools = serverConfig.toolFunctions;
+          }
+        } catch (error) {
+          logger.debug?.(
+            `[loadAddedAgent] Failed to load registry toolFunctions for ${mcpServer}`,
+            error,
+          );
+        }
+      }
+      // Last resort: connect to the MCP server to discover and cache tools.
+      // Mirrors the loadEphemeralAgent fix for VAL-MCP-001.
+      if (!serverTools) {
+        try {
+          const reinitResult = await reinitMCPServer({
+            user: req.user,
+            serverName: mcpServer,
+          });
+          if (reinitResult?.availableTools && Object.keys(reinitResult.availableTools).length > 0) {
+            serverTools = reinitResult.availableTools;
+            cacheMCPServerTools({ userId, serverName: mcpServer, serverTools }).catch((err) =>
+              logger.debug?.(`[loadAddedAgent] Cache write failed for ${mcpServer}`, err),
+            );
+          }
+        } catch (reinitError) {
+          logger.debug?.(
+            `[loadAddedAgent] reinitMCPServer fallback failed for ${mcpServer}`,
+            reinitError,
+          );
+        }
+      }
       if (!serverTools) {
         tools.push(`${mcp_all}${mcp_delimiter}${mcpServer}`);
         addedServers.add(mcpServer);

@@ -7,13 +7,18 @@ import {
   EModelEndpoint,
   defaultModels,
   buildGoogleModelCapabilitiesMap,
+  buildStaticAnthropicModelCapabilities,
   buildXAIModelCapabilitiesMap,
   getXAITextCompatibleModelNames,
   isXAIEndpointCandidate,
   extractEnvVariable,
 } from 'librechat-data-provider';
 import type { AppConfig, IUser } from '@librechat/data-schemas';
-import type { TGoogleModelCapabilities, TXAIModelCapabilities } from 'librechat-data-provider';
+import type {
+  TAnthropicModelCapabilities,
+  TGoogleModelCapabilities,
+  TXAIModelCapabilities,
+} from 'librechat-data-provider';
 import {
   processModelData,
   extractBaseURL,
@@ -284,9 +289,233 @@ export function filterOpenAITextCompatibleModels(models: string[]): string[] {
   return models.filter((model) => isOpenAITextCompatibleModel(model));
 }
 
+/**
+ * Resolve the `*_MODELS_MODE` env knob for a given `*_MODELS` env var.
+ *
+ * Default is `'override'` (backwards-compatible: env list replaces live discovery).
+ * When set to `'merge'`, the env list is unioned with the live-discovered list
+ * so newly released provider models (e.g. `gpt-5.5-pro`) automatically appear
+ * alongside any curated env-pinned models.
+ */
+export function resolveModelsListMode(envKey: string): 'override' | 'merge' {
+  const raw = (process.env[`${envKey}_MODE`] ?? '').trim().toLowerCase();
+  return raw === 'merge' ? 'merge' : 'override';
+}
+
+/**
+ * Combine env-pinned models with live-discovery results. The env list is
+ * preserved in order at the front and live additions are appended; duplicates
+ * are removed (case-sensitive, exact-match) while preserving first-seen order.
+ *
+ * If the live fetcher throws or returns an empty list, we fall back to the env
+ * list verbatim — the merge mode must never *lose* curated models because of a
+ * transient discovery failure.
+ *
+ * Optional `filter` runs on the merged list (used for OpenAI/Azure to drop
+ * audio/embedding/etc. models the live API surfaces but the chat path rejects).
+ */
+export async function unionWithLiveDiscovery({
+  envModels,
+  liveFetcher,
+  filter,
+}: {
+  envModels: string[];
+  liveFetcher: () => Promise<string[]>;
+  filter?: (models: string[]) => string[];
+}): Promise<string[]> {
+  let liveModels: string[] = [];
+  try {
+    liveModels = await liveFetcher();
+  } catch (error) {
+    logger.error('[unionWithLiveDiscovery] live fetch failed; returning env list verbatim', error);
+    return [...envModels];
+  }
+
+  if (!Array.isArray(liveModels) || liveModels.length === 0) {
+    return [...envModels];
+  }
+
+  const combined = [...envModels, ...liveModels];
+  const filtered = filter ? filter(combined) : combined;
+  return Array.from(new Set(filtered));
+}
+
+/**
+ * Numeric sort key for an OpenAI model id. Higher = newer/frontier so callers
+ * sort DESCENDING by this score to put the latest gpt-5.X / o-series models at
+ * the top of the chat picker.
+ *
+ *   gpt-5.5-pro              → 505 (5*100 + 5)
+ *   gpt-5                    → 500
+ *   gpt-4.1-mini             → 401
+ *   gpt-4o / gpt-4-turbo     → 400
+ *   o4-mini                  → 400 (o-series treated as gpt-N for ordering)
+ *   gpt-3.5-turbo            → 305
+ *   chatgpt-4o-latest        → 400
+ *   unknown / non-OpenAI ids → -1 (sorts to the end before instruct)
+ *
+ * NOTE: This is intentionally regex-based (not a full semver parser) so it
+ * keeps working as OpenAI ships new families (e.g., `gpt-5.5`, `gpt-5.6`,
+ * `o5`, future variants) without having to update an explicit allow-list.
+ */
+export function getOpenAIModelVersionScore(model: string): number {
+  if (!model || typeof model !== 'string') {
+    return -1;
+  }
+  const m = model.toLowerCase();
+
+  let match = m.match(/^gpt-(\d+)(?:\.(\d+))?/);
+  if (match) {
+    return parseInt(match[1], 10) * 100 + (match[2] ? parseInt(match[2], 10) : 0);
+  }
+
+  match = m.match(/^chatgpt-(\d+)(?:\.(\d+))?/);
+  if (match) {
+    return parseInt(match[1], 10) * 100 + (match[2] ? parseInt(match[2], 10) : 0);
+  }
+
+  match = m.match(/^o(\d+)/);
+  if (match) {
+    return parseInt(match[1], 10) * 100;
+  }
+
+  return -1;
+}
+
+/**
+ * Stable sort that puts higher-version OpenAI models first. Within the same
+ * numeric score, original order is preserved (so curated env-list ordering
+ * survives) and `*-instruct` always sinks to the very bottom.
+ *
+ * Applied to the live `/v1/models` response AND to the union of env+live in
+ * merge mode, so newly-released models (e.g. `gpt-5.5-pro-2026-04-23`)
+ * automatically rank near the top of the picker rather than appended below
+ * legacy gpt-3.5/gpt-4 entries the live API happens to return earlier.
+ */
+export function sortOpenAIModelsByVersion(models: string[]): string[] {
+  const indexMap = new Map<string, number>();
+  models.forEach((m, i) => {
+    if (!indexMap.has(m)) indexMap.set(m, i);
+  });
+
+  return models.slice().sort((a, b) => {
+    const aInstruct = a.toLowerCase().includes('instruct') ? 1 : 0;
+    const bInstruct = b.toLowerCase().includes('instruct') ? 1 : 0;
+    if (aInstruct !== bInstruct) return aInstruct - bInstruct;
+
+    const va = getOpenAIModelVersionScore(a);
+    const vb = getOpenAIModelVersionScore(b);
+    if (va !== vb) return vb - va;
+
+    return (indexMap.get(a) ?? 0) - (indexMap.get(b) ?? 0);
+  });
+}
+
+/**
+ * Numeric sort key for an Anthropic model id. Higher = newer.
+ *   claude-4-6 / claude-opus-4-6 → 406
+ *   claude-sonnet-4-5            → 405
+ *   claude-3-7-sonnet            → 307
+ *   claude-3-5-sonnet            → 305
+ *   claude-3-haiku               → 300
+ *   anything else                → -1
+ */
+export function getAnthropicModelVersionScore(model: string): number {
+  if (!model || typeof model !== 'string') {
+    return -1;
+  }
+  const m = model.toLowerCase();
+  // Match `claude-<major>-<minor>` regardless of intervening words like
+  // `opus`/`sonnet`/`haiku`. Examples: claude-3-5-sonnet, claude-opus-4-6,
+  // claude-sonnet-4-5-20250929.
+  const match = m.match(/^claude(?:-[a-z]+)*-(\d+)(?:-(\d+))?/);
+  if (!match) return -1;
+  const major = parseInt(match[1], 10);
+  const minor = match[2] ? parseInt(match[2], 10) : 0;
+  return major * 100 + minor;
+}
+
+export function sortAnthropicModelsByVersion(models: string[]): string[] {
+  const indexMap = new Map<string, number>();
+  models.forEach((m, i) => {
+    if (!indexMap.has(m)) indexMap.set(m, i);
+  });
+  return models.slice().sort((a, b) => {
+    const va = getAnthropicModelVersionScore(a);
+    const vb = getAnthropicModelVersionScore(b);
+    if (va !== vb) return vb - va;
+    return (indexMap.get(a) ?? 0) - (indexMap.get(b) ?? 0);
+  });
+}
+
+/**
+ * Numeric sort key for a Google Gemini model id. Higher = newer.
+ *   gemini-3.1-pro    → 301
+ *   gemini-2.5-flash  → 205
+ *   gemini-2.0-flash  → 200
+ *   anything else     → -1
+ */
+export function getGoogleModelVersionScore(model: string): number {
+  if (!model || typeof model !== 'string') {
+    return -1;
+  }
+  const m = model.toLowerCase();
+  const match = m.match(/^gemini-(\d+)(?:\.(\d+))?/);
+  if (!match) return -1;
+  const major = parseInt(match[1], 10);
+  const minor = match[2] ? parseInt(match[2], 10) : 0;
+  return major * 100 + minor;
+}
+
+export function sortGoogleModelsByVersion(models: string[]): string[] {
+  const indexMap = new Map<string, number>();
+  models.forEach((m, i) => {
+    if (!indexMap.has(m)) indexMap.set(m, i);
+  });
+  return models.slice().sort((a, b) => {
+    const va = getGoogleModelVersionScore(a);
+    const vb = getGoogleModelVersionScore(b);
+    if (va !== vb) return vb - va;
+    return (indexMap.get(a) ?? 0) - (indexMap.get(b) ?? 0);
+  });
+}
+
 function getXAIModelCapabilitiesCacheKey(tokenKey: string, userId?: string): string {
   const userSuffix = userId ? `:user:${userId}` : '';
   return `${XAI_MODEL_CAPABILITIES_CACHE_KEY_PREFIX}${tokenKey}${userSuffix}`;
+}
+
+function buildXAIRequestOptions(
+  apiKey: string,
+  headers: Record<string, string> | null | undefined,
+  userObject?: Partial<IUser>,
+): {
+  headers: Record<string, string>;
+  timeout: number;
+  httpsAgent?: HttpsProxyAgent<string>;
+} {
+  const resolvedHeaders = resolveHeaders({
+    headers: headers ?? undefined,
+    user: userObject,
+  });
+
+  const options: {
+    headers: Record<string, string>;
+    timeout: number;
+    httpsAgent?: HttpsProxyAgent<string>;
+  } = {
+    headers: {
+      ...(resolvedHeaders ?? {}),
+      Authorization: `Bearer ${apiKey}`,
+    },
+    timeout: 5000,
+  };
+
+  if (process.env.PROXY) {
+    options.httpsAgent = new HttpsProxyAgent(process.env.PROXY);
+  }
+
+  return options;
 }
 
 async function fetchXAIModelCapabilities({
@@ -317,43 +546,54 @@ async function fetchXAIModelCapabilities({
     return cachedCapabilities as Record<string, TXAIModelCapabilities>;
   }
 
+  const options = buildXAIRequestOptions(apiKey, headers, userObject);
+  const trimmedBaseURL = baseURL.replace(/\/+$/, '');
+  let xaiModelCapabilities: Record<string, TXAIModelCapabilities> | undefined;
+
   try {
-    const resolvedHeaders = resolveHeaders({
-      headers: headers ?? undefined,
-      user: userObject,
-    });
-
-    const options: {
-      headers: Record<string, string>;
-      timeout: number;
-      httpsAgent?: HttpsProxyAgent<string>;
-    } = {
-      headers: {
-        ...(resolvedHeaders ?? {}),
-        Authorization: `Bearer ${apiKey}`,
-      },
-      timeout: 5000,
-    };
-
-    if (process.env.PROXY) {
-      options.httpsAgent = new HttpsProxyAgent(process.env.PROXY);
-    }
-
-    const url = new URL(`${baseURL.replace(/\/+$/, '')}/language-models`);
+    const url = new URL(`${trimmedBaseURL}/language-models`);
     const response = await axios.get<XAIModelsResponse>(url.toString(), options);
-    const xaiModelCapabilities = buildXAIModelCapabilitiesMap(response.data.models ?? []);
-
-    await modelsCache.set(cacheKey, xaiModelCapabilities);
-
-    return xaiModelCapabilities;
+    xaiModelCapabilities = buildXAIModelCapabilitiesMap(response.data.models ?? []);
   } catch (error) {
     logAxiosError({
-      message: 'Failed to fetch models from xAI API',
+      message: 'Failed to fetch language-models from xAI API; falling back to /models discovery',
       error: error as Error,
+      level: 'warn',
     });
+  }
 
+  /**
+   * xAI's `/v1/language-models` endpoint returns 403 for some key tiers/scopes.
+   * Fall back to the standard OpenAI-compatible `/v1/models` listing and
+   * synthesize id-only capability entries so downstream code still has a
+   * canonical map to work with. Text-incompatible families (image/video/tts)
+   * are filtered out via `buildXAIModelCapabilitiesMap`.
+   */
+  if (!xaiModelCapabilities || Object.keys(xaiModelCapabilities).length === 0) {
+    try {
+      const url = new URL(`${trimmedBaseURL}/models`);
+      const response = await axios.get<{ data?: Array<{ id?: string }> }>(url.toString(), options);
+      const idOnlyCapabilities: TXAIModelCapabilities[] = (response.data?.data ?? [])
+        .map((item) => (typeof item?.id === 'string' ? { id: item.id } : null))
+        .filter((item): item is TXAIModelCapabilities => item != null);
+      if (idOnlyCapabilities.length > 0) {
+        xaiModelCapabilities = buildXAIModelCapabilitiesMap(idOnlyCapabilities);
+      }
+    } catch (error) {
+      logAxiosError({
+        message: 'Failed to fetch models from xAI /models fallback',
+        error: error as Error,
+        level: 'warn',
+      });
+    }
+  }
+
+  if (!xaiModelCapabilities || Object.keys(xaiModelCapabilities).length === 0) {
     return undefined;
   }
+
+  await modelsCache.set(cacheKey, xaiModelCapabilities);
+  return xaiModelCapabilities;
 }
 
 export async function getXAIModelCapabilities({
@@ -620,7 +860,7 @@ export async function fetchModels({
     models = input.data.map((item: { id: string }) => item.id);
   } catch (error) {
     const logMessage = `Failed to fetch models from ${azure ? 'Azure ' : ''}${name} API`;
-    logAxiosError({ message: logMessage, error: error as Error });
+    logAxiosError({ message: logMessage, error: error as Error, level: 'warn' });
   }
 
   return models;
@@ -708,10 +948,13 @@ export async function fetchOpenAIModels(
   }
 
   if (!opts.azure && baseURL === openaiBaseURL) {
-    models = filterOpenAITextCompatibleModels(models);
-    const instructModels = models.filter((model) => model.includes('instruct'));
-    const otherModels = models.filter((model) => !model.includes('instruct'));
-    models = otherModels.concat(instructModels);
+    /**
+     * Version-descending sort puts the highest gpt-X.Y / oN models at the top
+     * of the picker (e.g. gpt-5.5 before gpt-4). The live API returns models
+     * in roughly chronological-by-creation order, so without this sort newly
+     * released frontier models appear far below older 3.5/4 entries.
+     */
+    models = sortOpenAIModelsByVersion(models);
   }
 
   await modelsCache.set(cacheKey, models);
@@ -725,6 +968,8 @@ export async function fetchOpenAIModels(
  */
 export async function getOpenAIModels(opts: GetOpenAIModelsOptions = {}): Promise<string[]> {
   let models = defaultModels[EModelEndpoint.openAI];
+  const usesUserProvidedOpenAISentinel =
+    !opts.azure && isUserProvided(process.env.OPENAI_API_KEY) && !opts.openAIApiKey;
 
   if (opts.assistants) {
     models = defaultModels[EModelEndpoint.assistants];
@@ -746,10 +991,39 @@ export async function getOpenAIModels(opts: GetOpenAIModelsOptions = {}): Promis
   }
 
   if (process.env[key] && !(opts.azure && opts.manualModels && opts.manualModels.length > 0)) {
-    return splitAndTrim(process.env[key]);
+    const envModels = splitAndTrim(process.env[key]);
+    if (resolveModelsListMode(key) === 'merge') {
+      // Skip live fetch when the user only supplies their own credentials
+      // upstream; fetchOpenAIModels would just hit the shared key anyway and
+      // leak admin-curated discovery into a user-provided context.
+      if (
+        (opts.userProvidedOpenAI || usesUserProvidedOpenAISentinel) &&
+        (!opts.openAIApiKey || (opts.azure && !opts.baseURL))
+      ) {
+        return envModels;
+      }
+
+      const merged = await unionWithLiveDiscovery({
+        envModels,
+        // Pass an empty seed so a discovery failure surfaces as `[]` (which
+        // unionWithLiveDiscovery treats as fallback) instead of leaking the
+        // built-in defaults into the merged list.
+        liveFetcher: () => fetchOpenAIModels(opts, []),
+      });
+      // Re-sort the merged list so newly-discovered frontier models (gpt-5.5,
+      // gpt-5.5-pro-2026-04-23, ...) bubble above older live entries instead
+      // of being appended after legacy gpt-4/3.5 ids the env list never
+      // referenced. Skipped for Azure so admin-curated deployment ordering is
+      // preserved.
+      return opts.azure ? merged : sortOpenAIModelsByVersion(merged);
+    }
+    return envModels;
   }
 
-  if (opts.userProvidedOpenAI && (!opts.openAIApiKey || (opts.azure && !opts.baseURL))) {
+  if (
+    (opts.userProvidedOpenAI || usesUserProvidedOpenAISentinel) &&
+    (!opts.openAIApiKey || (opts.azure && !opts.baseURL))
+  ) {
     return models;
   }
 
@@ -763,26 +1037,33 @@ export async function getOpenAIModels(opts: GetOpenAIModelsOptions = {}): Promis
  * @returns Promise resolving to array of model IDs
  */
 export async function fetchAnthropicModels(
-  opts: { user?: string } = {},
+  opts: {
+    user?: string;
+    anthropicApiKey?: string;
+    baseURL?: string;
+    cacheKey?: string;
+    forceRefresh?: boolean;
+  } = {},
   _models: string[] = [],
 ): Promise<string[]> {
   let models = _models.slice() ?? [];
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = opts.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY;
   const anthropicBaseURL = 'https://api.anthropic.com/v1';
-  let baseURL = anthropicBaseURL;
+  let baseURL = opts.baseURL ?? anthropicBaseURL;
   const reverseProxyUrl = process.env.ANTHROPIC_REVERSE_PROXY;
 
-  if (reverseProxyUrl) {
+  if (!opts.baseURL && reverseProxyUrl) {
     baseURL = extractBaseURL(reverseProxyUrl) ?? anthropicBaseURL;
   }
 
-  if (!apiKey) {
+  if (!apiKey || isUserProvided(apiKey)) {
     return models;
   }
 
   const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);
+  const cacheKey = opts.cacheKey ?? baseURL;
 
-  const cachedModels = await modelsCache.get(baseURL);
+  const cachedModels = opts.forceRefresh ? null : await modelsCache.get(cacheKey);
   if (cachedModels) {
     return cachedModels as string[];
   }
@@ -793,7 +1074,7 @@ export async function fetchAnthropicModels(
       baseURL,
       user: opts.user,
       name: EModelEndpoint.anthropic,
-      tokenKey: EModelEndpoint.anthropic,
+      tokenKey: cacheKey,
     });
   }
 
@@ -801,7 +1082,8 @@ export async function fetchAnthropicModels(
     return _models;
   }
 
-  await modelsCache.set(baseURL, models);
+  models = sortAnthropicModelsByVersion(models);
+  await modelsCache.set(cacheKey, models);
   return models;
 }
 
@@ -811,7 +1093,15 @@ export async function fetchAnthropicModels(
  * @returns Promise resolving to array of model IDs
  */
 export async function getAnthropicModels(
-  opts: { user?: string; vertexModels?: string[] } = {},
+  opts: {
+    user?: string;
+    vertexModels?: string[];
+    anthropicApiKey?: string;
+    baseURL?: string;
+    cacheKey?: string;
+    forceRefresh?: boolean;
+    userProvidedAnthropic?: boolean;
+  } = {},
 ): Promise<string[]> {
   const models = defaultModels[EModelEndpoint.anthropic];
 
@@ -821,10 +1111,23 @@ export async function getAnthropicModels(
   }
 
   if (process.env.ANTHROPIC_MODELS) {
-    return splitAndTrim(process.env.ANTHROPIC_MODELS);
+    const envModels = splitAndTrim(process.env.ANTHROPIC_MODELS);
+    if (resolveModelsListMode('ANTHROPIC_MODELS') === 'merge') {
+      if (opts.userProvidedAnthropic && !opts.anthropicApiKey) {
+        return envModels;
+      }
+      const merged = await unionWithLiveDiscovery({
+        envModels,
+        // Pass empty seed so a failed live fetch surfaces as `[]` (which the
+        // helper treats as fallback) instead of leaking the static defaults.
+        liveFetcher: () => fetchAnthropicModels(opts, []),
+      });
+      return sortAnthropicModelsByVersion(merged);
+    }
+    return envModels;
   }
 
-  if (isUserProvided(process.env.ANTHROPIC_API_KEY)) {
+  if (opts.userProvidedAnthropic && !opts.anthropicApiKey) {
     return models;
   }
 
@@ -842,6 +1145,104 @@ export async function getGoogleModelCapabilities(): Promise<
   return fetchGoogleModelCapabilities();
 }
 
+const ANTHROPIC_MODEL_CAPABILITIES_CACHE_KEY_PREFIX = `${EModelEndpoint.anthropic}:capabilities:`;
+
+function getAnthropicCapabilitiesCacheKey(userId?: string, baseURL?: string): string {
+  const u = userId ? `:user:${userId}` : ':global';
+  const b = baseURL ? `:${baseURL}` : '';
+  return `${ANTHROPIC_MODEL_CAPABILITIES_CACHE_KEY_PREFIX}${u}${b}`;
+}
+
+/**
+ * Server-side capability map for Anthropic models. The startup config caches
+ * the resulting Record so the chat-bar / model dropdown UI can decide which
+ * controls to render (thinking, web search, code execution, etc.).
+ *
+ * Discovery order:
+ *   1. cached map (unless `forceRefresh`)
+ *   2. user/admin-supplied vertex model names (no remote call required)
+ *   3. environment-defined `ANTHROPIC_MODELS`
+ *   4. live `/v1/models` lookup via `getAnthropicModels`
+ *   5. defaults from `librechat-data-provider`
+ *
+ * The returned shape is the same as the data-provider client-side helper
+ * (id → metadata) so client utils (`getAnthropicModelCapabilities`) can resolve
+ * per-model capabilities without re-running discovery.
+ */
+export async function getAnthropicModelCapabilities({
+  user,
+  vertexModels,
+  forceRefresh = false,
+}: {
+  user?: string;
+  vertexModels?: string[];
+  forceRefresh?: boolean;
+} = {}): Promise<Record<string, TAnthropicModelCapabilities> | undefined> {
+  const baseURL = process.env.ANTHROPIC_REVERSE_PROXY
+    ? (extractBaseURL(process.env.ANTHROPIC_REVERSE_PROXY) ?? 'https://api.anthropic.com/v1')
+    : 'https://api.anthropic.com/v1';
+
+  const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);
+  const cacheKey = getAnthropicCapabilitiesCacheKey(user, baseURL);
+
+  if (!forceRefresh) {
+    try {
+      const cached = (await modelsCache.get(cacheKey)) as
+        | Record<string, TAnthropicModelCapabilities>
+        | undefined;
+      if (cached) {
+        return cached;
+      }
+    } catch (err) {
+      logger.debug?.('[anthropic-capabilities] cache read failed', err);
+    }
+  }
+
+  let modelNames: string[] = [];
+  try {
+    modelNames = await getAnthropicModels({ user, vertexModels, forceRefresh });
+  } catch (err) {
+    logger.error?.('[anthropic-capabilities] failed to load Anthropic models list', err);
+    modelNames = defaultModels[EModelEndpoint.anthropic] ?? [];
+  }
+
+  const capabilities = buildStaticAnthropicModelCapabilities(modelNames);
+  if (!capabilities || Object.keys(capabilities).length === 0) {
+    return undefined;
+  }
+
+  try {
+    await modelsCache.set(cacheKey, capabilities);
+  } catch (err) {
+    logger.debug?.('[anthropic-capabilities] cache write failed', err);
+  }
+
+  return capabilities;
+}
+
+/**
+ * Looks up the capabilities for a specific Google/Vertex model id.
+ * Accepts a googleAuth argument for API compatibility; Vertex-specific
+ * routing is handled by the caller once capabilities are returned.
+ *
+ * @param params.model - The canonical model id, e.g. `gemini-2.5-pro`.
+ */
+export async function getGoogleModelCapability({
+  model,
+}: {
+  model?: string | null;
+  googleAuth?: unknown;
+} = {}): Promise<TGoogleModelCapabilities | undefined> {
+  if (!model) {
+    return undefined;
+  }
+  const capabilities = await fetchGoogleModelCapabilities();
+  if (!capabilities) {
+    return undefined;
+  }
+  return capabilities[model] ?? capabilities[`models/${model}`] ?? undefined;
+}
+
 /**
  * Gets Google models from environment, API, or defaults.
  * @returns Array of model IDs
@@ -850,7 +1251,18 @@ export async function getGoogleModels(): Promise<string[]> {
   let models = defaultModels[EModelEndpoint.google];
 
   if (process.env.GOOGLE_MODELS) {
-    return splitAndTrim(process.env.GOOGLE_MODELS);
+    const envModels = splitAndTrim(process.env.GOOGLE_MODELS);
+    if (resolveModelsListMode('GOOGLE_MODELS') === 'merge') {
+      const merged = await unionWithLiveDiscovery({
+        envModels,
+        liveFetcher: async () => {
+          const capabilities = await fetchGoogleModelCapabilities();
+          return capabilities ? Object.keys(capabilities) : [];
+        },
+      });
+      return sortGoogleModelsByVersion(merged);
+    }
+    return envModels;
   }
 
   const googleModelCapabilities = await fetchGoogleModelCapabilities();

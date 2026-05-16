@@ -1,18 +1,20 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import * as Ariakit from '@ariakit/react';
-import { Globe, Settings, Settings2, TerminalSquareIcon } from 'lucide-react';
+import { Globe, Image as ImageIcon, Settings, Settings2, TerminalSquareIcon } from 'lucide-react';
 import { TooltipAnchor, DropdownPopup, PinIcon, VectorIcon } from '@librechat/client';
 import type { MenuItemProps } from '~/common';
 import {
   AuthType,
   Permissions,
   ArtifactModes,
+  CodeInterpreterModes,
   WebSearchModes,
   PermissionTypes,
   defaultAgentCapabilities,
 } from 'librechat-data-provider';
 import { useLocalize, useHasAccess, useAgentCapabilities } from '~/hooks';
 import ArtifactsSubMenu from '~/components/Chat/Input/ArtifactsSubMenu';
+import CodeInterpreterSubMenu from '~/components/Chat/Input/CodeInterpreterSubMenu';
 import MCPSubMenu from '~/components/Chat/Input/MCPSubMenu';
 import WebSearchSubMenu from '~/components/Chat/Input/WebSearchSubMenu';
 import { useGetStartupConfig } from '~/data-provider';
@@ -30,15 +32,19 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
   const {
     webSearch,
     webSearchMode,
+    codeInterpreterMode,
     artifacts,
     fileSearch,
+    isAnthropicEndpoint,
     isOllamaEndpoint,
     usesNativeWebSearch,
     usesNativeCodeInterpreter,
+    supportsStructuredToolCalling,
     agentsConfig,
     mcpServerManager,
     codeApiKeyForm,
     codeInterpreter,
+    imageGeneration,
     searchApiKeyForm,
   } = useBadgeRowContext();
   const { data: startupConfig } = useGetStartupConfig();
@@ -63,6 +69,8 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
   } = codeInterpreter;
   const { isPinned: isFileSearchPinned, setIsPinned: setIsFileSearchPinned } = fileSearch;
   const { isPinned: isArtifactsPinned, setIsPinned: setIsArtifactsPinned } = artifacts;
+  const { isPinned: isImageGenerationPinned, setIsPinned: setIsImageGenerationPinned } =
+    imageGeneration;
 
   const canUseWebSearch = useHasAccess({
     permissionType: PermissionTypes.WEB_SEARCH,
@@ -81,6 +89,11 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
 
   const canUseMcp = useHasAccess({
     permissionType: PermissionTypes.MCP_SERVERS,
+    permission: Permissions.USE,
+  });
+
+  const canGenerateImages = useHasAccess({
+    permissionType: PermissionTypes.IMAGE_GEN,
     permission: Permissions.USE,
   });
 
@@ -103,6 +116,16 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
       WebSearchModes.ollama_native
     );
   }, [isOllamaEndpoint, webSearchMode.toolValue]);
+  const currentCodeInterpreterMode = useMemo(() => {
+    if (!isAnthropicEndpoint) {
+      return CodeInterpreterModes.provider_native;
+    }
+
+    return (
+      (codeInterpreterMode.toolValue as CodeInterpreterModes | false | undefined) ||
+      CodeInterpreterModes.librechat
+    );
+  }, [codeInterpreterMode.toolValue, isAnthropicEndpoint]);
 
   const showCodeSettings = useMemo(
     () => !usesNativeCodeInterpreter && codeAuthData?.message !== AuthType.SYSTEM_DEFINED,
@@ -133,10 +156,29 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
     codeInterpreter.debouncedChange({ value: newValue });
   }, [codeInterpreter]);
 
+  const handleCodeInterpreterModeChange = useCallback(
+    (mode: CodeInterpreterModes) => {
+      codeInterpreterMode.handleChange({ value: mode });
+
+      if (mode === CodeInterpreterModes.librechat && !codeInterpreter.authData?.authenticated) {
+        if (codeInterpreter.toggleState) {
+          codeInterpreter.handleChange({ value: false });
+        }
+        setIsCodeDialogOpen(true);
+      }
+    },
+    [codeInterpreter, codeInterpreterMode, setIsCodeDialogOpen],
+  );
+
   const handleFileSearchToggle = useCallback(() => {
     const newValue = !fileSearch.toggleState;
     fileSearch.debouncedChange({ value: newValue });
   }, [fileSearch]);
+
+  const handleImageGenerationToggle = useCallback(() => {
+    const newValue = !imageGeneration.toggleState;
+    imageGeneration.debouncedChange({ value: newValue });
+  }, [imageGeneration]);
 
   const handleArtifactsToggle = useCallback(() => {
     const currentState = artifacts.toggleState;
@@ -169,7 +211,7 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
 
   const dropdownItems: MenuItemProps[] = [];
 
-  if (fileSearchEnabled && canUseFileSearch) {
+  if (fileSearchEnabled && canUseFileSearch && supportsStructuredToolCalling) {
     dropdownItems.push({
       onClick: handleFileSearchToggle,
       hideOnClick: false,
@@ -201,7 +243,43 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
     });
   }
 
-  if (canUseWebSearch && webSearchEnabled) {
+  if (canGenerateImages) {
+    dropdownItems.push({
+      onClick: handleImageGenerationToggle,
+      hideOnClick: false,
+      render: (props) => (
+        <div {...props}>
+          <div className="flex items-center gap-2">
+            <ImageIcon className="icon-md" aria-hidden="true" />
+            <span>{localize('com_ui_image_generation') || 'Image generation'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsImageGenerationPinned(!isImageGenerationPinned);
+            }}
+            className={cn(
+              'rounded p-1 transition-all duration-200',
+              'hover:bg-surface-secondary hover:shadow-sm',
+              !isImageGenerationPinned && 'text-text-secondary hover:text-text-primary',
+            )}
+            aria-label={isImageGenerationPinned ? 'Unpin' : 'Pin'}
+          >
+            <div className="h-4 w-4">
+              <PinIcon unpin={isImageGenerationPinned} />
+            </div>
+          </button>
+        </div>
+      ),
+    });
+  }
+
+  if (
+    canUseWebSearch &&
+    webSearchEnabled &&
+    (usesNativeWebSearch || supportsStructuredToolCalling)
+  ) {
     dropdownItems.push({
       hideOnClick: false,
       render: (props) =>
@@ -268,57 +346,71 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
     });
   }
 
-  if (canRunCode && codeEnabled) {
+  if (canRunCode && codeEnabled && (usesNativeCodeInterpreter || supportsStructuredToolCalling)) {
     dropdownItems.push({
-      onClick: handleCodeInterpreterToggle,
       hideOnClick: false,
-      render: (props) => (
-        <div {...props}>
-          <div className="flex items-center gap-2">
-            <TerminalSquareIcon className="icon-md" aria-hidden="true" />
-            <span>{localize('com_assistants_code_interpreter')}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            {showCodeSettings && (
+      onClick: isAnthropicEndpoint ? undefined : handleCodeInterpreterToggle,
+      render: (props) =>
+        isAnthropicEndpoint ? (
+          <CodeInterpreterSubMenu
+            {...props}
+            currentMode={currentCodeInterpreterMode}
+            enabled={!!codeInterpreter.toggleState}
+            isPinned={isCodePinned}
+            setIsPinned={setIsCodePinned}
+            showSettings={showCodeSettings}
+            menuTriggerRef={codeMenuTriggerRef}
+            onToggle={handleCodeInterpreterToggle}
+            onOpenSettings={() => setIsCodeDialogOpen(true)}
+            onSelectMode={handleCodeInterpreterModeChange}
+          />
+        ) : (
+          <div {...props}>
+            <div className="flex items-center gap-2">
+              <TerminalSquareIcon className="icon-md" aria-hidden="true" />
+              <span>{localize('com_assistants_code_interpreter')}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              {showCodeSettings && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsCodeDialogOpen(true);
+                  }}
+                  ref={codeMenuTriggerRef}
+                  className={cn(
+                    'rounded p-1 transition-all duration-200',
+                    'hover:bg-surface-secondary hover:shadow-sm',
+                    'text-text-secondary hover:text-text-primary',
+                  )}
+                  aria-label="Configure code interpreter"
+                >
+                  <div className="h-4 w-4">
+                    <Settings className="h-4 w-4" aria-hidden="true" />
+                  </div>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setIsCodeDialogOpen(true);
+                  setIsCodePinned(!isCodePinned);
                 }}
-                ref={codeMenuTriggerRef}
                 className={cn(
                   'rounded p-1 transition-all duration-200',
                   'hover:bg-surface-secondary hover:shadow-sm',
-                  'text-text-secondary hover:text-text-primary',
+                  !isCodePinned && 'text-text-primary hover:text-text-primary',
                 )}
-                aria-label="Configure code interpreter"
+                aria-label={isCodePinned ? 'Unpin' : 'Pin'}
               >
                 <div className="h-4 w-4">
-                  <Settings className="h-4 w-4" aria-hidden="true" />
+                  <PinIcon unpin={isCodePinned} />
                 </div>
               </button>
-            )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsCodePinned(!isCodePinned);
-              }}
-              className={cn(
-                'rounded p-1 transition-all duration-200',
-                'hover:bg-surface-secondary hover:shadow-sm',
-                !isCodePinned && 'text-text-primary hover:text-text-primary',
-              )}
-              aria-label={isCodePinned ? 'Unpin' : 'Pin'}
-            >
-              <div className="h-4 w-4">
-                <PinIcon unpin={isCodePinned} />
-              </div>
-            </button>
+            </div>
           </div>
-        </div>
-      ),
+        ),
     });
   }
 
@@ -340,7 +432,12 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
   }
 
   const { availableMCPServers } = mcpServerManager;
-  if (canUseMcp && availableMCPServers && availableMCPServers.length > 0) {
+  if (
+    canUseMcp &&
+    supportsStructuredToolCalling &&
+    availableMCPServers &&
+    availableMCPServers.length > 0
+  ) {
     dropdownItems.push({
       hideOnClick: false,
       render: (props) => <MCPSubMenu {...props} placeholder={mcpPlaceholder} />,

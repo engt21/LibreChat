@@ -2120,6 +2120,32 @@ describe('normalizeJsonSchema', () => {
     expect(result.additionalProperties).toEqual({ type: 'string', enum: ['val'] });
   });
 
+  it('should add empty properties to bare object schemas for tool compatibility', () => {
+    const schema = {
+      type: 'object',
+      description: 'No-input tool schema',
+    } as any;
+
+    const result = normalizeJsonSchema(schema);
+
+    expect(result).toEqual({
+      type: 'object',
+      description: 'No-input tool schema',
+      properties: {},
+    });
+  });
+
+  it('should preserve open object schemas without forcing empty properties', () => {
+    const schema = {
+      type: 'object',
+      additionalProperties: true,
+    } as any;
+
+    const result = normalizeJsonSchema(schema);
+
+    expect(result).toEqual(schema);
+  });
+
   it('should handle null, undefined, and primitive inputs safely', () => {
     expect(normalizeJsonSchema(null as any)).toBeNull();
     expect(normalizeJsonSchema(undefined as any)).toBeUndefined();

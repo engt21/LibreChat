@@ -9,6 +9,7 @@ import {
 import { memo } from 'react';
 import type { TMessageContentParts, TAttachment } from 'librechat-data-provider';
 import { OpenAIImageGen, EmptyText, Reasoning, ExecuteCode, AgentUpdate, Text } from './Parts';
+import WebSearchStatus from './Parts/WebSearchStatus';
 import { ErrorMessage } from './MessageContent';
 import { injectGroundingCitations } from '~/utils/googleGrounding';
 import RetrievalCall from './RetrievalCall';
@@ -109,6 +110,12 @@ const Part = memo(function Part({
       return null;
     }
     return <Reasoning reasoning={reasoning} isLast={isLast ?? false} />;
+  } else if (part.type === ContentTypes.WEB_SEARCH_STATUS) {
+    const status =
+      typeof (part as Record<string, unknown>).web_search_status === 'string'
+        ? ((part as Record<string, unknown>).web_search_status as string)
+        : 'searching';
+    return <WebSearchStatus status={status} isLast={isLast ?? false} />;
   } else if (part.type === ContentTypes.TOOL_CALL) {
     const toolCall = part[ContentTypes.TOOL_CALL];
 

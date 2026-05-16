@@ -7,7 +7,12 @@ import { useBadgeRowContext } from '~/Providers';
 
 function CodeInterpreter() {
   const localize = useLocalize();
-  const { codeInterpreter, codeApiKeyForm } = useBadgeRowContext();
+  const {
+    codeInterpreter,
+    codeApiKeyForm,
+    usesNativeCodeInterpreter,
+    supportsStructuredToolCalling,
+  } = useBadgeRowContext();
   const { toggleState: runCode, debouncedChange, isPinned } = codeInterpreter;
   const { badgeTriggerRef } = codeApiKeyForm;
 
@@ -16,7 +21,7 @@ function CodeInterpreter() {
     permission: Permissions.USE,
   });
 
-  if (!canRunCode) {
+  if (!canRunCode || (!usesNativeCodeInterpreter && !supportsStructuredToolCalling)) {
     return null;
   }
 

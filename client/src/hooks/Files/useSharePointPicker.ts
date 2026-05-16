@@ -28,7 +28,7 @@ export default function useSharePointPicker({
   onFilesSelected,
   onClose,
   disabled = false,
-  maxSelectionCount = 10,
+  maxSelectionCount,
 }: UseSharePointPickerProps): UseSharePointPickerReturn {
   const [langcode] = useRecoilState(store.lang);
   const { user } = useAuthContext();
@@ -285,7 +285,7 @@ export default function useSharePointPicker({
         },
         selection: {
           mode: 'multiple',
-          maximumCount: maxSelectionCount,
+          ...(typeof maxSelectionCount === 'number' ? { maximumCount: maxSelectionCount } : {}),
         },
         title: localize('com_files_sharepoint_picker_title'),
         commands: {

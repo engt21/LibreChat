@@ -3,11 +3,15 @@ import { useRecoilValue, useSetRecoilState } from 'recoil';
 import {
   Tools,
   Constants,
+  EModelEndpoint,
   KnownEndpoints,
+  CodeInterpreterModes,
   WebSearchModes,
   LocalStorageKeys,
   AgentCapabilities,
   getDefaultParamsEndpoint,
+  normalizeAnthropicModelName,
+  getAnthropicModelCapabilities as resolveAnthropicModelCapabilities,
   isXAIEndpointCandidate,
   normalizeXAIModelName,
   getXAIModelCapabilities as resolveXAIModelCapabilities,
@@ -29,6 +33,7 @@ interface BadgeRowContextType {
   conversationId?: string | null;
   endpoint?: string | null;
   isOllamaEndpoint: boolean;
+  isAnthropicEndpoint: boolean;
   usesNativeWebSearch: boolean;
   usesNativeCodeInterpreter: boolean;
   supportsStructuredToolCalling: boolean;
@@ -36,9 +41,11 @@ interface BadgeRowContextType {
   agentsConfig?: TAgentsEndpoint | null;
   webSearch: ReturnType<typeof useToolToggle>;
   webSearchMode: ReturnType<typeof useToolToggle>;
+  codeInterpreterMode: ReturnType<typeof useToolToggle>;
   artifacts: ReturnType<typeof useToolToggle>;
   fileSearch: ReturnType<typeof useToolToggle>;
   codeInterpreter: ReturnType<typeof useToolToggle>;
+  imageGeneration: ReturnType<typeof useToolToggle>;
   codeApiKeyForm: ReturnType<typeof useCodeApiKeyForm>;
   searchApiKeyForm: ReturnType<typeof useSearchApiKeyForm>;
   mcpServerManager: ReturnType<typeof useMCPServerManager>;
@@ -107,6 +114,19 @@ export default function BadgeRowProvider({
     () => getDefaultParamsEndpoint(endpointsConfig, endpoint ?? '') ?? endpoint,
     [endpointsConfig, endpoint],
   );
+  const isAnthropicEndpoint = nativeToolEndpoint === EModelEndpoint.anthropic;
+  const anthropicModelCapabilities = useMemo(() => {
+    if (!isAnthropicEndpoint) {
+      return null;
+    }
+
+    const normalizedModel = normalizeAnthropicModelName(currentModel ?? '');
+
+    return resolveAnthropicModelCapabilities(
+      normalizedModel,
+      startupConfig?.anthropicModelCapabilities?.[normalizedModel] ?? null,
+    );
+  }, [currentModel, isAnthropicEndpoint, startupConfig?.anthropicModelCapabilities]);
   const xaiModelCapabilities = useMemo(() => {
     if (!isXAIEndpointCandidate({ endpoint, defaultParamsEndpoint: nativeToolEndpoint })) {
       return null;
@@ -126,6 +146,17 @@ export default function BadgeRowProvider({
   const { supportsNativeWebSearch, supportsNativeCodeInterpreter } = useMemo(() => {
     const nativeSupport = getNativeToolEndpointSupport(nativeToolEndpoint);
 
+    if (anthropicModelCapabilities) {
+      return {
+        ...nativeSupport,
+        supportsNativeWebSearch:
+          nativeSupport.supportsNativeWebSearch && anthropicModelCapabilities.supportsWebSearch,
+        supportsNativeCodeInterpreter:
+          nativeSupport.supportsNativeCodeInterpreter &&
+          anthropicModelCapabilities.supportsCodeExecution,
+      };
+    }
+
     if (!xaiModelCapabilities) {
       return nativeSupport;
     }
@@ -135,7 +166,7 @@ export default function BadgeRowProvider({
       supportsNativeWebSearch:
         nativeSupport.supportsNativeWebSearch && xaiModelCapabilities.supportsWebSearch,
     };
-  }, [nativeToolEndpoint, xaiModelCapabilities]);
+  }, [anthropicModelCapabilities, nativeToolEndpoint, xaiModelCapabilities]);
   const supportsStructuredToolCalling = xaiModelCapabilities?.supportsFunctionCalling ?? true;
   const defaultWebSearchMode = isOllamaEndpoint
     ? WebSearchModes.ollama_native
@@ -164,12 +195,14 @@ export default function BadgeRowProvider({
       lastContextKeyRef.current = initContextKey;
 
       const codeToggleKey = `${LocalStorageKeys.LAST_CODE_TOGGLE_}${storageSuffix}`;
+      const codeModeKey = `${LocalStorageKeys.LAST_CODE_MODE_}${storageSuffix}`;
       const webSearchToggleKey = `${LocalStorageKeys.LAST_WEB_SEARCH_TOGGLE_}${storageSuffix}`;
       const webSearchModeKey = `${LocalStorageKeys.LAST_WEB_SEARCH_MODE_}${storageSuffix}`;
       const fileSearchToggleKey = `${LocalStorageKeys.LAST_FILE_SEARCH_TOGGLE_}${storageSuffix}`;
       const artifactsToggleKey = `${LocalStorageKeys.LAST_ARTIFACTS_TOGGLE_}${storageSuffix}`;
 
       const codeToggleValue = getTimestampedValue(codeToggleKey);
+      const codeModeValue = getTimestampedValue(codeModeKey);
       const webSearchToggleValue = getTimestampedValue(webSearchToggleKey);
       const webSearchModeValue = getTimestampedValue(webSearchModeKey);
       const fileSearchToggleValue = getTimestampedValue(fileSearchToggleKey);
@@ -183,6 +216,16 @@ export default function BadgeRowProvider({
         } catch (e) {
           console.error('Failed to parse code toggle value:', e);
         }
+      }
+
+      if (codeModeValue !== null) {
+        try {
+          initialValues.execute_code_mode = JSON.parse(codeModeValue);
+        } catch (e) {
+          console.error('Failed to parse code mode value:', e);
+        }
+      } else if (isAnthropicEndpoint) {
+        initialValues.execute_code_mode = CodeInterpreterModes.librechat;
       }
 
       if (webSearchToggleValue !== null) {
@@ -268,6 +311,7 @@ export default function BadgeRowProvider({
   }, [
     defaultWebSearchMode,
     initContextKey,
+    isAnthropicEndpoint,
     isOllamaEndpoint,
     storageSuffix,
     specName,
@@ -278,6 +322,21 @@ export default function BadgeRowProvider({
   /** CodeInterpreter hooks */
   const codeApiKeyForm = useCodeApiKeyForm({});
   const { setIsDialogOpen: setCodeDialogOpen } = codeApiKeyForm;
+  const codeInterpreterMode = useToolToggle({
+    conversationId,
+    storageContextKey,
+    toolKey: 'execute_code_mode',
+    localStorageKey: LocalStorageKeys.LAST_CODE_MODE_,
+    isAuthenticated: true,
+  });
+  const resolvedCodeInterpreterMode = isAnthropicEndpoint
+    ? ((codeInterpreterMode.toolValue as CodeInterpreterModes | false | undefined) ??
+      CodeInterpreterModes.librechat)
+    : CodeInterpreterModes.provider_native;
+  const usesNativeCodeInterpreter = isAnthropicEndpoint
+    ? supportsNativeCodeInterpreter &&
+      resolvedCodeInterpreterMode === CodeInterpreterModes.provider_native
+    : supportsNativeCodeInterpreter;
 
   const codeInterpreter = useToolToggle({
     conversationId,
@@ -285,8 +344,8 @@ export default function BadgeRowProvider({
     setIsDialogOpen: setCodeDialogOpen,
     toolKey: Tools.execute_code,
     localStorageKey: LocalStorageKeys.LAST_CODE_TOGGLE_,
-    isAuthenticated: supportsNativeCodeInterpreter ? true : undefined,
-    authConfig: supportsNativeCodeInterpreter
+    isAuthenticated: usesNativeCodeInterpreter ? true : undefined,
+    authConfig: usesNativeCodeInterpreter
       ? undefined
       : {
           toolId: Tools.execute_code,
@@ -347,16 +406,27 @@ export default function BadgeRowProvider({
     isAuthenticated: true,
   });
 
+  /** Image generation toggle (custom tool: ephemeralAgent.image_generation). */
+  const imageGeneration = useToolToggle({
+    conversationId,
+    storageContextKey,
+    toolKey: Tools.image_generation,
+    localStorageKey: LocalStorageKeys.LAST_IMAGE_GENERATION_TOGGLE_,
+    isAuthenticated: true,
+  });
+
   const mcpServerManager = useMCPServerManager({ conversationId, storageContextKey });
 
   const value: BadgeRowContextType = {
     endpoint,
     isOllamaEndpoint,
+    isAnthropicEndpoint,
     usesNativeWebSearch: supportsNativeWebSearch,
-    usesNativeCodeInterpreter: supportsNativeCodeInterpreter,
+    usesNativeCodeInterpreter,
     supportsStructuredToolCalling,
     webSearch,
     webSearchMode,
+    codeInterpreterMode,
     artifacts,
     fileSearch,
     agentsConfig,
@@ -364,6 +434,7 @@ export default function BadgeRowProvider({
     storageContextKey,
     codeApiKeyForm,
     codeInterpreter,
+    imageGeneration,
     searchApiKeyForm,
     mcpServerManager,
   };

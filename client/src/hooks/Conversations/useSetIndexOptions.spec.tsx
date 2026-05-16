@@ -53,7 +53,7 @@ describe('useSetIndexOptions', () => {
     });
   });
 
-  it('does not touch the ephemeral agent for non-Ollama endpoints', () => {
+  it('syncs non-Ollama sidebar web search with the ephemeral agent toggle (without Ollama mode)', () => {
     (useChatContext as jest.Mock).mockReturnValue({
       conversation: {
         conversationId: 'convo-2',
@@ -69,6 +69,11 @@ describe('useSetIndexOptions', () => {
     });
 
     expect(mockSetConversation).toHaveBeenCalledWith(expect.any(Function));
-    expect(mockSetEphemeralAgent).not.toHaveBeenCalled();
+    expect(mockSetEphemeralAgent).toHaveBeenCalledWith(expect.any(Function));
+
+    const updater = mockSetEphemeralAgent.mock.calls[0][0];
+    const updated = updater(null);
+    expect(updated).toEqual({ web_search: true });
+    expect(updated).not.toHaveProperty('web_search_mode');
   });
 });

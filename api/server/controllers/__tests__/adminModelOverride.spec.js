@@ -23,7 +23,11 @@ jest.mock('~/models', () => ({
 jest.mock('~/db/models', () => ({
   User: { find: jest.fn(), findById: (...args) => mockUserFindById(...args) },
   Balance: { find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) },
-  AdminRole: { find: jest.fn().mockReturnValue({ sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) },
+  AdminRole: {
+    find: jest.fn().mockReturnValue({
+      sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+    }),
+  },
   Message: { aggregate: jest.fn().mockResolvedValue([]) },
   Transaction: { aggregate: jest.fn().mockResolvedValue([]) },
   Conversation: { aggregate: jest.fn().mockResolvedValue([]) },
@@ -113,10 +117,9 @@ describe('updateAdminUserController – model permission overrides (VAL-MODEL-00
 
     await updateAdminUserController(req, res);
 
-    expect(validateModelPermissions).toHaveBeenCalledWith(
-      modelPermissions,
-      { openAI: ['gpt-4o', 'gpt-5'] },
-    );
+    expect(validateModelPermissions).toHaveBeenCalledWith(modelPermissions, {
+      openAI: ['gpt-4o', 'gpt-5'],
+    });
     expect(mockUpdateUser).toHaveBeenCalledWith(
       'target-user-id',
       expect.objectContaining({

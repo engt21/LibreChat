@@ -7,6 +7,39 @@ const { filterFilesByAgentAccess } = require('~/server/services/Files/permission
 const { getRagRequestConfig } = require('~/server/services/Files/VectorDB/auth');
 const { getFiles } = require('~/models');
 
+const QUERY_TIMEOUT_MS = 30000;
+const QUERY_MAX_RETRIES = 2;
+
+/**
+ * Executes a RAG query with retry on transient failures.
+ * @param {Function} fn
+ * @param {string} fileId - for logging
+ * @returns {Promise<*>}
+ */
+async function queryWithRetry(fn, fileId) {
+  let lastError;
+  for (let attempt = 0; attempt <= QUERY_MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const status = error?.response?.status;
+      const retryable = !status || status === 429 || status === 502 || status === 503 || status === 504;
+      if (attempt < QUERY_MAX_RETRIES && retryable) {
+        const backoff = 1000 * Math.pow(2, attempt);
+        logger.warn(
+          `[file_search] Query for file ${fileId} failed (attempt ${attempt + 1}/${QUERY_MAX_RETRIES + 1}), retrying in ${backoff}ms: ${error.message}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+      } else {
+        break;
+      }
+    }
+  }
+  logger.error(`[file_search] Query for file ${fileId} failed after ${QUERY_MAX_RETRIES + 1} attempts:`, lastError);
+  return null;
+}
+
 const fileSearchJsonSchema = {
   type: 'object',
   properties: {
@@ -131,18 +164,18 @@ const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = 
             return null;
           }
 
-          const response = await axios
-            .post(`${ragApiUrl}/query`, createQueryBody(file), {
-              headers: {
-                Authorization: `Bearer ${jwtToken}`,
-                'Content-Type': 'application/json',
-                ...ragHeaders,
-              },
-            })
-            .catch((error) => {
-              logger.error('Error encountered in `file_search` while querying file:', error);
-              return null;
-            });
+          const response = await queryWithRetry(
+            () =>
+              axios.post(`${ragApiUrl}/query`, createQueryBody(file), {
+                headers: {
+                  Authorization: `Bearer ${jwtToken}`,
+                  'Content-Type': 'application/json',
+                  ...ragHeaders,
+                },
+                timeout: QUERY_TIMEOUT_MS,
+              }),
+            file.file_id,
+          );
 
           if (!response) {
             return null;

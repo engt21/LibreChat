@@ -56,6 +56,7 @@ const BaseClient = require('~/app/clients/BaseClient');
 const { getRoleByName } = require('~/models/Role');
 const { loadAgent } = require('~/models/Agent');
 const { getMCPManager } = require('~/config');
+const { maybeRefreshGoogleVertexModelAccess } = require('./googleVertexRefresh');
 const db = require('~/models');
 
 class AgentClient extends BaseClient {
@@ -250,6 +251,11 @@ class AgentClient extends BaseClient {
     }
 
     const formattedMessages = orderedMessages.map((message, i) => {
+      if (Array.isArray(message.content)) {
+        message = { ...message, content: filterMalformedContentParts(message.content) };
+        orderedMessages[i] = message;
+      }
+
       const formattedMessage = formatMessage({
         message,
         userName: this.options?.name,
@@ -364,6 +370,7 @@ class AgentClient extends BaseClient {
      */
     const ephemeralAgent = this.options.req.body.ephemeralAgent;
     const mcpManager = getMCPManager();
+    const platformPrompt = this.options.req.appSettings?.platformPrompt;
     await Promise.all(
       allAgents.map(({ agent, agentId }) =>
         applyContextToAgent({
@@ -371,6 +378,7 @@ class AgentClient extends BaseClient {
           agentId,
           logger,
           mcpManager,
+          platformPrompt,
           sharedRunContext,
           ephemeralAgent: agentId === this.options.agent.id ? ephemeralAgent : undefined,
         }),
@@ -861,6 +869,12 @@ class AgentClient extends BaseClient {
         });
       }
     } catch (err) {
+      void maybeRefreshGoogleVertexModelAccess({
+        error: err,
+        provider: this.options.agent?.provider,
+        clientOptions: this.options.agent?.model_parameters,
+        model: this.options.agent?.model_parameters?.model ?? this.model,
+      });
       logger.error(
         '[api/server/controllers/agents/client.js #sendCompletion] Operation aborted',
         err,
@@ -1111,6 +1125,12 @@ class AgentClient extends BaseClient {
 
       return sanitizeTitle(titleResult.title);
     } catch (err) {
+      void maybeRefreshGoogleVertexModelAccess({
+        error: err,
+        provider,
+        clientOptions,
+        model: clientOptions?.model,
+      });
       logger.error('[api/server/controllers/agents/client.js #titleConvo] Error', err);
       return;
     }

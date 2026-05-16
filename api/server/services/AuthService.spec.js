@@ -6,6 +6,9 @@ jest.mock('@librechat/data-schemas', () => ({
 jest.mock('librechat-data-provider', () => ({
   ErrorTypes: {},
   SystemRoles: { USER: 'USER', ADMIN: 'ADMIN' },
+  EModelEndpoint: { openAI: 'openAI', google: 'google' },
+  KnownEndpoints: { ollama: 'ollama' },
+  ViolationTypes: { ILLEGAL_MODEL_REQUEST: 'ILLEGAL_MODEL_REQUEST' },
   errorsToString: jest.fn(),
 }));
 jest.mock('@librechat/api', () => ({

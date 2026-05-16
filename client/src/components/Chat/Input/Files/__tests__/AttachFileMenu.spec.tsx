@@ -22,15 +22,31 @@ jest.mock('~/data-provider', () => ({
   useGetStartupConfig: jest.fn(),
 }));
 
+const mockSharePointPickerDialog = jest.fn(() => null);
+
 jest.mock('~/components/SharePoint', () => ({
-  SharePointPickerDialog: () => null,
+  SharePointPickerDialog: (props: unknown) => mockSharePointPickerDialog(props),
 }));
 
 jest.mock('@librechat/client', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const R = require('react');
   return {
-    FileUpload: (props) => R.createElement('div', { 'data-testid': 'file-upload' }, props.children),
+    FileUpload: R.forwardRef((props, ref) =>
+      R.createElement(
+        R.Fragment,
+        null,
+        props.children,
+        R.createElement('input', {
+          ref,
+          multiple: true,
+          type: 'file',
+          style: { display: 'none' },
+          onChange: props.handleFileChange,
+          'data-testid': 'file-upload-input',
+        }),
+      ),
+    ),
     TooltipAnchor: (props) => props.render,
     DropdownPopup: (props) =>
       R.createElement(
@@ -124,6 +140,37 @@ describe('AttachFileMenu', () => {
   beforeEach(jest.clearAllMocks);
 
   describe('Upload to Provider vs Upload Image', () => {
+    it('allows audio and video uploads for OpenAI provider uploads', () => {
+      setupMocks({ provider: EModelEndpoint.openAI });
+      const clickSpy = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function () {
+        expect(this.accept).toContain('audio/*');
+        expect(this.accept).toContain('video/*');
+      });
+
+      renderMenu({ endpointType: EModelEndpoint.openAI });
+      openMenu();
+      fireEvent.click(screen.getByText('Upload to Provider'));
+
+      expect(clickSpy).toHaveBeenCalled();
+      clickSpy.mockRestore();
+    });
+
+    it('preserves Bedrock extended documents while allowing audio and video uploads', () => {
+      setupMocks({ provider: Providers.BEDROCK });
+      const clickSpy = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function () {
+        expect(this.accept).toContain('audio/*');
+        expect(this.accept).toContain('video/*');
+        expect(this.accept).toContain('.doc');
+      });
+
+      renderMenu({ endpointType: EModelEndpoint.bedrock });
+      openMenu();
+      fireEvent.click(screen.getByText('Upload to Provider'));
+
+      expect(clickSpy).toHaveBeenCalled();
+      clickSpy.mockRestore();
+    });
+
     it('shows "Upload to Provider" when endpointType is custom (resolved from agent provider)', () => {
       setupMocks({ provider: 'Moonshot' });
       renderMenu({ endpointType: EModelEndpoint.custom });
@@ -321,6 +368,20 @@ describe('AttachFileMenu', () => {
       renderMenu({ endpointType: EModelEndpoint.openAI });
       openMenu();
       expect(screen.queryByText('Upload from SharePoint')).not.toBeInTheDocument();
+    });
+
+    it('does not pass an upload-count cap to the SharePoint picker', () => {
+      setupMocks();
+      renderMenu({
+        endpointType: EModelEndpoint.openAI,
+        endpointFileConfig: { fileLimit: 1 },
+      });
+
+      expect(mockSharePointPickerDialog).toHaveBeenCalled();
+      const props = mockSharePointPickerDialog.mock.calls.at(-1)?.[0] as {
+        maxSelectionCount?: number;
+      };
+      expect(props.maxSelectionCount).toBeUndefined();
     });
   });
 

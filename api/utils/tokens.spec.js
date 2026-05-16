@@ -1083,6 +1083,14 @@ describe('Grok Model Tests - Tokens', () => {
       expect(getModelMaxTokens('grok-4-1-fast-non-reasoning')).toBe(grok41FastTokens);
     });
 
+    test('should return correct tokens for Grok 4.20 models', () => {
+      const grok420Tokens = maxTokensMap[EModelEndpoint.openAI]['grok-4.20-beta'];
+      const grok420MultiAgentTokens = maxTokensMap[EModelEndpoint.openAI]['grok-4.20-multi-agent'];
+      expect(getModelMaxTokens('grok-4.20-beta-latest-non-reasoning')).toBe(grok420Tokens);
+      expect(getModelMaxTokens('grok-4.20-beta-latest-reasoning')).toBe(grok420Tokens);
+      expect(getModelMaxTokens('grok-4.20-multi-agent-beta-0309')).toBe(grok420MultiAgentTokens);
+    });
+
     test('should return correct tokens for Grok Code Fast model', () => {
       expect(getModelMaxTokens('grok-code-fast-1')).toBe(
         maxTokensMap[EModelEndpoint.openAI]['grok-code-fast'],
@@ -1096,6 +1104,8 @@ describe('Grok Model Tests - Tokens', () => {
       const grok2Tokens = maxTokensMap[EModelEndpoint.openAI]['grok-2'];
       const grok3Tokens = maxTokensMap[EModelEndpoint.openAI]['grok-3'];
       const grok4Tokens = maxTokensMap[EModelEndpoint.openAI]['grok-4'];
+      const grok420Tokens = maxTokensMap[EModelEndpoint.openAI]['grok-4.20-beta'];
+      const grok420MultiAgentTokens = maxTokensMap[EModelEndpoint.openAI]['grok-4.20-multi-agent'];
       const grok4FastTokens = maxTokensMap[EModelEndpoint.openAI]['grok-4-fast'];
       const grok41FastTokens = maxTokensMap[EModelEndpoint.openAI]['grok-4-1-fast'];
       const grokCodeFastTokens = maxTokensMap[EModelEndpoint.openAI]['grok-code-fast'];
@@ -1118,6 +1128,10 @@ describe('Grok Model Tests - Tokens', () => {
         maxTokensMap[EModelEndpoint.openAI]['grok-3-mini-fast'],
       );
       expect(getModelMaxTokens('xai/grok-4-0709')).toBe(grok4Tokens);
+      expect(getModelMaxTokens('xai/grok-4.20-beta-latest-non-reasoning')).toBe(grok420Tokens);
+      expect(getModelMaxTokens('xai/grok-4.20-multi-agent-beta-0309')).toBe(
+        grok420MultiAgentTokens,
+      );
       expect(getModelMaxTokens('xai/grok-4-fast')).toBe(grok4FastTokens);
       expect(getModelMaxTokens('xai/grok-4-1-fast-reasoning')).toBe(grok41FastTokens);
       expect(getModelMaxTokens('xai/grok-4-1-fast-non-reasoning')).toBe(grok41FastTokens);
@@ -1145,6 +1159,8 @@ describe('Grok Model Tests - Tokens', () => {
       expect(matchModelName('grok-3-mini-fast')).toBe('grok-3-mini-fast');
       // Grok 4 model
       expect(matchModelName('grok-4-0709')).toBe('grok-4');
+      expect(matchModelName('grok-4.20-beta-latest-non-reasoning')).toBe('grok-4.20-beta');
+      expect(matchModelName('grok-4.20-multi-agent-beta-0309')).toBe('grok-4.20-multi-agent');
       // Grok 4 Fast and 4.1 Fast models
       expect(matchModelName('grok-4-fast')).toBe('grok-4-fast');
       expect(matchModelName('grok-4-1-fast-reasoning')).toBe('grok-4-1-fast');
@@ -1172,6 +1188,8 @@ describe('Grok Model Tests - Tokens', () => {
       expect(matchModelName('xai/grok-3-mini-fast')).toBe('grok-3-mini-fast');
       // Grok 4 model
       expect(matchModelName('xai/grok-4-0709')).toBe('grok-4');
+      expect(matchModelName('xai/grok-4.20-beta-latest-non-reasoning')).toBe('grok-4.20-beta');
+      expect(matchModelName('xai/grok-4.20-multi-agent-beta-0309')).toBe('grok-4.20-multi-agent');
       // Grok 4 Fast and 4.1 Fast models
       expect(matchModelName('xai/grok-4-fast')).toBe('grok-4-fast');
       expect(matchModelName('xai/grok-4-1-fast-reasoning')).toBe('grok-4-1-fast');

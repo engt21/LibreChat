@@ -9,6 +9,13 @@ import {
 } from 'librechat-data-provider';
 import { matchModelName } from '~/utils/tokens';
 
+export const ANTHROPIC_CODE_EXECUTION_BETA = 'code-execution-2025-08-25';
+export const ANTHROPIC_CODE_EXECUTION_TOOL = 'code_execution_20250825';
+export const ANTHROPIC_CONTEXT_MANAGEMENT_BETA = 'context-management-2025-06-27';
+export const ANTHROPIC_MCP_CLIENT_BETA = 'mcp-client-2025-11-20';
+export const ANTHROPIC_WEB_SEARCH_TOOL = 'web_search_20260209';
+export const ANTHROPIC_VERTEX_WEB_SEARCH_TOOL = 'web_search_20250305';
+
 /**
  * @param {string} modelName
  * @returns {boolean}
@@ -61,6 +68,99 @@ function getClaudeHeaders(
   }
 
   return undefined;
+}
+
+function isHeadersInstance(headers: unknown): headers is Headers {
+  return (
+    typeof Headers !== 'undefined' &&
+    headers !== null &&
+    typeof headers === 'object' &&
+    Object.prototype.toString.call(headers) === '[object Headers]'
+  );
+}
+
+function normalizeAnthropicHeaders(headers: unknown): Record<string, string> | undefined {
+  if (headers == null) {
+    return undefined;
+  }
+
+  if (isHeadersInstance(headers)) {
+    return Object.fromEntries(headers.entries());
+  }
+
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(
+      headers.flatMap((entry) =>
+        Array.isArray(entry) &&
+        typeof entry[0] === 'string' &&
+        typeof entry[1] === 'string'
+          ? [[entry[0], entry[1]] as [string, string]]
+          : [],
+      ),
+    );
+  }
+
+  if (
+    typeof headers === 'object' &&
+    headers !== null &&
+    'values' in headers &&
+    isHeadersInstance((headers as { values?: unknown }).values)
+  ) {
+    return Object.fromEntries((headers as { values: Headers }).values.entries());
+  }
+
+  if (typeof headers !== 'object') {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(headers as Record<string, unknown>).flatMap(([key, value]) => {
+      if (typeof value === 'string') {
+        return [[key, value] as [string, string]];
+      }
+
+      if (!Array.isArray(value)) {
+        return [];
+      }
+
+      const flattenedValue = value.filter((entry): entry is string => typeof entry === 'string');
+      if (flattenedValue.length === 0) {
+        return [];
+      }
+
+      return [[key, flattenedValue.join(',')] as [string, string]];
+    }),
+  );
+}
+
+function mergeAnthropicBetaHeaders(
+  headers: unknown,
+  ...values: Array<string | null | undefined>
+): Record<string, string> | undefined {
+  const normalizedHeaders = normalizeAnthropicHeaders(headers);
+  const betaHeaders = [
+    ...(normalizedHeaders?.['anthropic-beta']
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean) ?? []),
+    ...values.flatMap((value) =>
+      typeof value === 'string'
+        ? value
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        : [],
+    ),
+  ];
+
+  if (betaHeaders.length === 0) {
+    return normalizedHeaders;
+  }
+
+  return {
+    ...(normalizedHeaders ?? {}),
+    'anthropic-beta': Array.from(new Set(betaHeaders)).join(','),
+  };
 }
 
 /**
@@ -142,4 +242,10 @@ function configureReasoning(
   return updatedOptions;
 }
 
-export { checkPromptCacheSupport, getClaudeHeaders, configureReasoning, supportsAdaptiveThinking };
+export {
+  checkPromptCacheSupport,
+  getClaudeHeaders,
+  mergeAnthropicBetaHeaders,
+  configureReasoning,
+  supportsAdaptiveThinking,
+};

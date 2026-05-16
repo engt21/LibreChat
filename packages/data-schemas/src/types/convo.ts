@@ -29,6 +29,7 @@ export interface IConversation extends Document {
   thinking?: boolean;
   thinkingBudget?: number;
   effort?: string;
+  service_tier?: string;
   system?: string;
   resendFiles?: boolean;
   imageDetail?: string;
@@ -51,6 +52,20 @@ export interface IConversation extends Document {
   web_search?: boolean;
   disableStreaming?: boolean;
   fileTokenLimit?: number;
+  transcriptionModel?: string;
+  transcriptionPrompt?: string;
+  transcriptionSpeakerReferences?: {
+    id?: string;
+    name: string;
+    file_id: string;
+    filename?: string;
+    filepath?: string;
+    type?: string;
+    bytes?: number;
+    durationSeconds?: number | null;
+    embedded?: boolean;
+    source?: string;
+  }[];
   // Additional fields
   files?: string[];
   expiredAt?: Date;

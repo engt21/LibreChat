@@ -12,6 +12,14 @@ import {
   getXAIModelCapabilities,
   getBedrockModels,
   getAnthropicModels,
+  resolveModelsListMode,
+  unionWithLiveDiscovery,
+  getOpenAIModelVersionScore,
+  sortOpenAIModelsByVersion,
+  getAnthropicModelVersionScore,
+  sortAnthropicModelsByVersion,
+  getGoogleModelVersionScore,
+  sortGoogleModelsByVersion,
 } from './models';
 
 jest.mock('axios');
@@ -178,6 +186,24 @@ describe('fetchModels', () => {
     );
   });
 
+  it('logs Azure model-discovery failures as warnings because manual deployments can still be used', async () => {
+    mockedAxios.get.mockRejectedValueOnce(new Error('Request failed with status code 404'));
+
+    const models = await fetchModels({
+      apiKey: 'azure-key',
+      baseURL: 'https://example-resource.openai.azure.com/openai/v1',
+      azure: true,
+      name: EModelEndpoint.azureOpenAI,
+    });
+
+    expect(models).toEqual([]);
+    expect(logAxiosError).toHaveBeenCalledWith({
+      message: 'Failed to fetch models from Azure azureOpenAI API',
+      error: expect.any(Error),
+      level: 'warn',
+    });
+  });
+
   it('returns empty models for a bare Azure resource root without azureApiVersion', async () => {
     const models = await fetchModels({
       apiKey: 'azure-key',
@@ -299,6 +325,93 @@ describe('fetchModels', () => {
 describe('xAI model discovery', () => {
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('falls back to xAI /models when /language-models returns 403 and filters non-chat families', async () => {
+    mockedAxios.get.mockImplementationOnce(async () => {
+      const error: Error & { response?: { status: number } } = new Error(
+        'Request failed with status code 403',
+      );
+      error.response = { status: 403 };
+      throw error;
+    });
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [
+          { id: 'grok-4-0709' },
+          { id: 'grok-3-mini' },
+          { id: 'grok-2-image-1212' },
+          { id: 'grok-code-fast-1' },
+        ],
+      },
+    });
+
+    const models = await fetchModels({
+      apiKey: 'xai-key',
+      baseURL: 'https://api.x.ai/v1',
+      name: 'xai',
+      tokenKey: 'xai:403-fallback',
+    });
+
+    expect(models).toEqual(
+      expect.arrayContaining(['grok-4-0709', 'grok-3-mini', 'grok-code-fast-1']),
+    );
+    expect(models).not.toContain('grok-2-image-1212');
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(
+      1,
+      'https://api.x.ai/v1/language-models',
+      expect.any(Object),
+    );
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(
+      2,
+      'https://api.x.ai/v1/models',
+      expect.any(Object),
+    );
+    expect(logAxiosError).toHaveBeenCalledWith({
+      message: 'Failed to fetch language-models from xAI API; falling back to /models discovery',
+      error: expect.any(Error),
+      level: 'warn',
+    });
+  });
+
+  it('logs xAI /models fallback failures as warnings when discovery remains unavailable', async () => {
+    mockedAxios.get.mockImplementation(async () => {
+      const error: Error & { response?: { status: number } } = new Error(
+        'Request failed with status code 403',
+      );
+      error.response = { status: 403 };
+      throw error;
+    });
+
+    const models = await fetchModels({
+      apiKey: 'xai-key',
+      baseURL: 'https://api.x.ai/v1',
+      name: 'xai',
+      tokenKey: 'xai:403-both-fail',
+    });
+
+    expect(models).toEqual([]);
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(
+      1,
+      'https://api.x.ai/v1/language-models',
+      expect.any(Object),
+    );
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(
+      2,
+      'https://api.x.ai/v1/models',
+      expect.any(Object),
+    );
+    expect(logAxiosError).toHaveBeenCalledWith({
+      message: 'Failed to fetch language-models from xAI API; falling back to /models discovery',
+      error: expect.any(Error),
+      level: 'warn',
+    });
+    expect(logAxiosError).toHaveBeenCalledWith({
+      message: 'Failed to fetch models from xAI /models fallback',
+      error: expect.any(Error),
+      level: 'warn',
+    });
   });
 
   it('fetches xAI language models from /language-models and preserves aliases', async () => {
@@ -644,7 +757,7 @@ describe('getOpenAIModels', () => {
     expect(models).toEqual(expect.arrayContaining(['openai-model', 'openai-model-2']));
   });
 
-  it('filters non-chat OpenAI models while keeping newly discovered GPT-5 variants', async () => {
+  it('returns all OpenAI-discovered models while keeping newly discovered GPT-5 variants first', async () => {
     process.env.OPENAI_API_KEY = 'mockedApiKey';
     mockedAxios.get.mockResolvedValueOnce({
       data: {
@@ -659,7 +772,7 @@ describe('getOpenAIModels', () => {
 
     const models = await getOpenAIModels({ user: 'user456', forceRefresh: true });
 
-    expect(models).toEqual(['gpt-5-mini', 'gpt-5-nano']);
+    expect(models).toEqual(['gpt-5-mini', 'gpt-5-nano', 'gpt-4o-realtime-preview', 'gpt-image-1']);
   });
 
   it('bypasses cached OpenAI discovery when forceRefresh is enabled', async () => {
@@ -675,6 +788,15 @@ describe('getOpenAIModels', () => {
 
     expect(models).toEqual(['gpt-5-mini', 'gpt-5-nano']);
     expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call OpenAI discovery with the user_provided sentinel when no user key is supplied', async () => {
+    process.env.OPENAI_API_KEY = 'user_provided';
+
+    const models = await getOpenAIModels({ user: 'user456', forceRefresh: true });
+
+    expect(models).toEqual(defaultModels[EModelEndpoint.openAI]);
+    expect(mockedAxios.get).not.toHaveBeenCalled();
   });
 
   it('utilizes proxy configuration when PROXY is set', async () => {
@@ -734,28 +856,21 @@ describe('getOpenAIModels sorting behavior', () => {
     jest.clearAllMocks();
   });
 
-  it('ensures instruct models are listed last', async () => {
+  it('puts higher-version models first and sinks instruct to the bottom', async () => {
     const models = await getOpenAIModels({ user: 'user456' });
 
-    expect(models[models.length - 1]).toMatch(/instruct/);
-
-    const instructIndexes = models
-      .map((model, index) => (model.includes('instruct') ? index : -1))
-      .filter((index) => index !== -1);
-    const nonInstructIndexes = models
-      .map((model, index) => (!model.includes('instruct') ? index : -1))
-      .filter((index) => index !== -1);
-
-    expect(Math.max(...nonInstructIndexes)).toBeLessThan(Math.min(...instructIndexes));
-
+    // Highest score first (gpt-4 > gpt-3.5), instruct always last regardless
+    // of its score.
     const expectedOrder = [
-      'gpt-3.5-turbo',
       'gpt-4-0314',
       'gpt-4-turbo-preview',
+      'gpt-3.5-turbo',
       'gpt-3.5-turbo-instruct-0914',
       'gpt-3.5-turbo-instruct',
     ];
     expect(models).toEqual(expectedOrder);
+
+    expect(models[models.length - 1]).toMatch(/instruct/);
   });
 });
 
@@ -1117,6 +1232,50 @@ describe('getAnthropicModels', () => {
       }),
     );
   });
+
+  it('uses a supplied Anthropic user key for live discovery instead of the user_provided sentinel', async () => {
+    delete process.env.ANTHROPIC_MODELS;
+    process.env.ANTHROPIC_API_KEY = 'user_provided';
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [{ id: 'claude-opus-4-7' }, { id: 'claude-sonnet-4-6' }],
+      },
+    });
+
+    const models = await getAnthropicModels({
+      user: 'user123',
+      anthropicApiKey: 'sk-ant-user-key',
+      cacheKey: 'anthropic:user123',
+      forceRefresh: true,
+      userProvidedAnthropic: false,
+    });
+
+    expect(models).toEqual(['claude-opus-4-7', 'claude-sonnet-4-6']);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'x-api-key': 'sk-ant-user-key',
+        }),
+      }),
+    );
+  });
+
+  it('bypasses cached Anthropic discovery when forceRefresh is enabled', async () => {
+    delete process.env.ANTHROPIC_MODELS;
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+    mockCacheData.set('https://api.anthropic.com/v1', ['claude-sonnet-4-5']);
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [{ id: 'claude-opus-4-7' }],
+      },
+    });
+
+    const models = await getAnthropicModels({ user: 'user123', forceRefresh: true });
+
+    expect(models).toEqual(['claude-opus-4-7']);
+    expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('getGoogleModels', () => {
@@ -1249,5 +1408,480 @@ describe('getBedrockModels', () => {
     process.env.BEDROCK_AWS_MODELS = 'anthropic.claude-v2, ai21.j2-ultra ';
     const models = getBedrockModels();
     expect(models).toEqual(['anthropic.claude-v2', 'ai21.j2-ultra']);
+  });
+});
+
+describe('resolveModelsListMode', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('defaults to override when no env knob is set', () => {
+    delete process.env.OPENAI_MODELS_MODE;
+    expect(resolveModelsListMode('OPENAI_MODELS')).toBe('override');
+  });
+
+  it('returns merge when *_MODE is "merge" (case-insensitive, whitespace-tolerant)', () => {
+    process.env.OPENAI_MODELS_MODE = ' Merge ';
+    expect(resolveModelsListMode('OPENAI_MODELS')).toBe('merge');
+  });
+
+  it('treats unknown values as override', () => {
+    process.env.OPENAI_MODELS_MODE = 'replace';
+    expect(resolveModelsListMode('OPENAI_MODELS')).toBe('override');
+  });
+
+  it('isolates per-provider knobs (ANTHROPIC vs OPENAI vs GOOGLE)', () => {
+    process.env.ANTHROPIC_MODELS_MODE = 'merge';
+    delete process.env.OPENAI_MODELS_MODE;
+    delete process.env.GOOGLE_MODELS_MODE;
+    expect(resolveModelsListMode('ANTHROPIC_MODELS')).toBe('merge');
+    expect(resolveModelsListMode('OPENAI_MODELS')).toBe('override');
+    expect(resolveModelsListMode('GOOGLE_MODELS')).toBe('override');
+  });
+});
+
+describe('unionWithLiveDiscovery', () => {
+  it('preserves env order at the front and appends new live additions', async () => {
+    const merged = await unionWithLiveDiscovery({
+      envModels: ['gpt-4o', 'gpt-5'],
+      liveFetcher: async () => ['gpt-5-mini', 'gpt-5.5', 'gpt-5.5-pro'],
+    });
+    expect(merged).toEqual(['gpt-4o', 'gpt-5', 'gpt-5-mini', 'gpt-5.5', 'gpt-5.5-pro']);
+  });
+
+  it('deduplicates exact matches while preserving first-seen order', async () => {
+    const merged = await unionWithLiveDiscovery({
+      envModels: ['gpt-4o', 'gpt-5'],
+      liveFetcher: async () => ['gpt-5', 'gpt-5-mini', 'gpt-4o'],
+    });
+    expect(merged).toEqual(['gpt-4o', 'gpt-5', 'gpt-5-mini']);
+  });
+
+  it('falls back to env list when live fetcher throws', async () => {
+    const merged = await unionWithLiveDiscovery({
+      envModels: ['gpt-4o', 'gpt-5'],
+      liveFetcher: async () => {
+        throw new Error('boom');
+      },
+    });
+    expect(merged).toEqual(['gpt-4o', 'gpt-5']);
+  });
+
+  it('falls back to env list when live fetcher returns empty', async () => {
+    const merged = await unionWithLiveDiscovery({
+      envModels: ['gpt-4o'],
+      liveFetcher: async () => [],
+    });
+    expect(merged).toEqual(['gpt-4o']);
+  });
+
+  it('runs the optional filter on the merged list', async () => {
+    const merged = await unionWithLiveDiscovery({
+      envModels: ['gpt-4o', 'gpt-image-1'],
+      liveFetcher: async () => ['gpt-5.5', 'text-embedding-3-small'],
+      filter: filterOpenAITextCompatibleModels,
+    });
+    expect(merged).toEqual(['gpt-4o', 'gpt-5.5']);
+  });
+});
+
+describe('getOpenAIModels merge mode', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    mockedAxios.get.mockReset();
+    jest.clearAllMocks();
+  });
+
+  it('unions OPENAI_MODELS with all live discovery ids and sorts version-descending', async () => {
+    process.env.OPENAI_MODELS = 'gpt-4o,gpt-5';
+    process.env.OPENAI_MODELS_MODE = 'merge';
+    process.env.OPENAI_API_KEY = 'mockedApiKey';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [
+          { id: 'gpt-5' },
+          { id: 'gpt-5.5' },
+          { id: 'gpt-5.5-pro' },
+          { id: 'gpt-image-1' },
+          { id: 'text-embedding-3-small' },
+        ],
+      },
+    });
+
+    const models = await getOpenAIModels({ user: 'user-merge', forceRefresh: true });
+
+    // Sorted by version descending: gpt-5.5* (505) > gpt-5 (500) > gpt-4o (400).
+    // Provider-returned non-chat ids remain visible instead of being filtered.
+    expect(models).toEqual([
+      'gpt-5.5',
+      'gpt-5.5-pro',
+      'gpt-5',
+      'gpt-4o',
+      'gpt-image-1',
+      'text-embedding-3-small',
+    ]);
+  });
+
+  it('falls back to OPENAI_MODELS (still version-sorted) when live discovery throws', async () => {
+    process.env.OPENAI_MODELS = 'gpt-4o,gpt-5';
+    process.env.OPENAI_MODELS_MODE = 'merge';
+    process.env.OPENAI_API_KEY = 'mockedApiKey';
+
+    mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
+
+    const models = await getOpenAIModels({ user: 'user-merge', forceRefresh: true });
+    // Even on fallback, the merged-mode path runs the sort so gpt-5 (500)
+    // beats gpt-4o (400) regardless of env-list ordering.
+    expect(models).toEqual(['gpt-5', 'gpt-4o']);
+  });
+
+  it('returns OPENAI_MODELS verbatim in override mode (default)', async () => {
+    process.env.OPENAI_MODELS = 'gpt-4o,gpt-5';
+    delete process.env.OPENAI_MODELS_MODE;
+    process.env.OPENAI_API_KEY = 'mockedApiKey';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { data: [{ id: 'gpt-5.5' }, { id: 'gpt-5.5-pro' }] },
+    });
+
+    const models = await getOpenAIModels({ user: 'user-override', forceRefresh: true });
+    expect(models).toEqual(['gpt-4o', 'gpt-5']);
+  });
+
+  it('skips live discovery in user-provided context even when merge mode is on', async () => {
+    process.env.OPENAI_MODELS = 'gpt-4o,gpt-5';
+    process.env.OPENAI_MODELS_MODE = 'merge';
+    delete process.env.OPENAI_API_KEY;
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { data: [{ id: 'gpt-5.5' }] },
+    });
+
+    const models = await getOpenAIModels({
+      user: 'user-byok',
+      userProvidedOpenAI: true,
+    });
+    expect(models).toEqual(['gpt-4o', 'gpt-5']);
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
+  it('skips the OpenAI text-compat filter and version-sort for Azure deployments in merge mode', async () => {
+    process.env.AZURE_OPENAI_MODELS = 'gpt5-prod,gpt-image-prod';
+    process.env.AZURE_OPENAI_MODELS_MODE = 'merge';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { data: [{ id: 'gpt5-staging' }, { id: 'gpt-realtime-prod' }] },
+    });
+
+    const models = await getOpenAIModels({
+      azure: true,
+      openAIApiKey: 'azure-key',
+      baseURL: 'https://example-resource.openai.azure.com/openai/v1',
+      forceRefresh: true,
+    });
+
+    // Azure deployment names are admin-controlled, so we preserve original
+    // order (no version sort) so the operator's intended ranking survives.
+    expect(models).toEqual(['gpt5-prod', 'gpt-image-prod', 'gpt5-staging', 'gpt-realtime-prod']);
+  });
+
+  it('places newly-discovered gpt-5.5 variants ABOVE legacy gpt-4 / gpt-3.5 ids', async () => {
+    process.env.OPENAI_MODELS = 'gpt-5.4,gpt-5.4-pro,gpt-5.5,gpt-5.5-pro';
+    process.env.OPENAI_MODELS_MODE = 'merge';
+    process.env.OPENAI_API_KEY = 'mockedApiKey';
+
+    // OpenAI API often returns models in chronological-by-creation order;
+    // legacy 3.5/4 ids may appear before the freshly-released 5.5 variants.
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [
+          { id: 'gpt-3.5-turbo' },
+          { id: 'gpt-4' },
+          { id: 'gpt-4-0613' },
+          { id: 'gpt-5.5-pro-2026-04-23' },
+          { id: 'gpt-5.5-2026-04-23' },
+          { id: 'gpt-4o' },
+        ],
+      },
+    });
+
+    const models = await getOpenAIModels({ user: 'user-order', forceRefresh: true });
+
+    const indexOf = (id: string) => models.indexOf(id);
+
+    // Every gpt-5.X model must come BEFORE every gpt-4* and gpt-3.5* model.
+    expect(indexOf('gpt-5.5')).toBeLessThan(indexOf('gpt-4'));
+    expect(indexOf('gpt-5.5-pro-2026-04-23')).toBeLessThan(indexOf('gpt-4'));
+    expect(indexOf('gpt-5.5-2026-04-23')).toBeLessThan(indexOf('gpt-4-0613'));
+    expect(indexOf('gpt-5.4')).toBeLessThan(indexOf('gpt-4o'));
+    expect(indexOf('gpt-5.4')).toBeLessThan(indexOf('gpt-3.5-turbo'));
+
+    // gpt-5.5 group (score 505) sits above gpt-5.4 group (504).
+    expect(indexOf('gpt-5.5')).toBeLessThan(indexOf('gpt-5.4'));
+  });
+});
+
+describe('getAnthropicModels merge mode', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    mockedAxios.get.mockReset();
+    jest.clearAllMocks();
+  });
+
+  it('unions ANTHROPIC_MODELS with live discovery and sorts version-descending', async () => {
+    process.env.ANTHROPIC_MODELS = 'claude-3-5-sonnet,claude-3-opus';
+    process.env.ANTHROPIC_MODELS_MODE = 'merge';
+    process.env.ANTHROPIC_API_KEY = 'mockedAnthropicKey';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { data: [{ id: 'claude-3-opus' }, { id: 'claude-4-sonnet' }] },
+    });
+
+    const models = await getAnthropicModels({ user: 'user-merge' });
+    // claude-4-sonnet (score 400) > claude-3-5-sonnet (305) > claude-3-opus (300)
+    expect(models).toEqual(['claude-4-sonnet', 'claude-3-5-sonnet', 'claude-3-opus']);
+  });
+
+  it('returns ANTHROPIC_MODELS verbatim in override mode', async () => {
+    process.env.ANTHROPIC_MODELS = 'claude-3-5-sonnet,claude-3-opus';
+    delete process.env.ANTHROPIC_MODELS_MODE;
+    process.env.ANTHROPIC_API_KEY = 'mockedAnthropicKey';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { data: [{ id: 'claude-4-sonnet' }] },
+    });
+
+    const models = await getAnthropicModels({ user: 'user-override' });
+    expect(models).toEqual(['claude-3-5-sonnet', 'claude-3-opus']);
+  });
+
+  it('falls back to ANTHROPIC_MODELS verbatim in merge mode when live fetch throws', async () => {
+    process.env.ANTHROPIC_MODELS = 'claude-3-5-sonnet';
+    process.env.ANTHROPIC_MODELS_MODE = 'merge';
+    process.env.ANTHROPIC_API_KEY = 'mockedAnthropicKey';
+
+    mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
+
+    const models = await getAnthropicModels({ user: 'user-merge' });
+    expect(models).toEqual(['claude-3-5-sonnet']);
+  });
+});
+
+describe('getGoogleModels merge mode', () => {
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    mockedAxios.get.mockReset();
+    jest.clearAllMocks();
+  });
+
+  it('unions GOOGLE_MODELS with live discovery results', async () => {
+    process.env.GOOGLE_MODELS = 'gemini-2.5-flash,gemini-2.5-pro';
+    process.env.GOOGLE_MODELS_MODE = 'merge';
+    process.env.GOOGLE_KEY = 'mockedGoogleKey';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            name: 'models/gemini-2.5-pro',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+          },
+          {
+            name: 'models/gemini-3.1-pro',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+          },
+        ],
+      },
+    });
+
+    const models = await getGoogleModels();
+    // gemini-3.1-pro (301) > gemini-2.5-* (205, stable order)
+    expect(models).toEqual(['gemini-3.1-pro', 'gemini-2.5-flash', 'gemini-2.5-pro']);
+  });
+
+  it('returns GOOGLE_MODELS verbatim in override mode', async () => {
+    process.env.GOOGLE_MODELS = 'gemini-2.5-flash';
+    delete process.env.GOOGLE_MODELS_MODE;
+    process.env.GOOGLE_KEY = 'mockedGoogleKey';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            name: 'models/gemini-3.1-pro',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+          },
+        ],
+      },
+    });
+
+    const models = await getGoogleModels();
+    expect(models).toEqual(['gemini-2.5-flash']);
+  });
+});
+
+describe('getOpenAIModelVersionScore', () => {
+  it.each([
+    ['gpt-5.5-pro', 505],
+    ['gpt-5.5', 505],
+    ['gpt-5.4-mini', 504],
+    ['gpt-5', 500],
+    ['gpt-4.1', 401],
+    ['gpt-4o', 400],
+    ['gpt-4', 400],
+    ['gpt-4-turbo-preview', 400],
+    ['gpt-3.5-turbo', 305],
+    ['gpt-3.5-turbo-instruct', 305],
+    ['chatgpt-4o-latest', 400],
+    ['o4-mini', 400],
+    ['o3-pro', 300],
+    ['o1', 100],
+    ['davinci-002', -1],
+    ['unknown-model', -1],
+    ['', -1],
+  ])('scores %s as %i', (model, score) => {
+    expect(getOpenAIModelVersionScore(model)).toBe(score);
+  });
+});
+
+describe('sortOpenAIModelsByVersion', () => {
+  it('places higher gpt-X.Y versions first and sinks instruct to the end', () => {
+    const sorted = sortOpenAIModelsByVersion([
+      'gpt-3.5-turbo',
+      'gpt-3.5-turbo-instruct',
+      'gpt-4',
+      'gpt-4-turbo-preview',
+      'gpt-5',
+      'gpt-5.5-pro-2026-04-23',
+      'gpt-5.5',
+    ]);
+    expect(sorted).toEqual([
+      'gpt-5.5-pro-2026-04-23',
+      'gpt-5.5',
+      'gpt-5',
+      'gpt-4',
+      'gpt-4-turbo-preview',
+      'gpt-3.5-turbo',
+      'gpt-3.5-turbo-instruct',
+    ]);
+  });
+
+  it('keeps the curated env-list order stable within a single version', () => {
+    const sorted = sortOpenAIModelsByVersion([
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.4-nano',
+      'gpt-5.4-pro',
+    ]);
+    expect(sorted).toEqual(['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.4-pro']);
+  });
+
+  it('mixes o-series with gpt by score (o4-mini ≈ gpt-4)', () => {
+    const sorted = sortOpenAIModelsByVersion(['gpt-3.5-turbo', 'o4-mini', 'gpt-5', 'o1', 'gpt-4o']);
+    // gpt-5 (500) → [o4-mini, gpt-4o] (both 400) → o1 (100) → gpt-3.5-turbo (305)
+    expect(sorted[0]).toBe('gpt-5');
+    expect(sorted.indexOf('o4-mini')).toBeLessThan(sorted.indexOf('gpt-3.5-turbo'));
+    expect(sorted.indexOf('gpt-4o')).toBeLessThan(sorted.indexOf('o1'));
+  });
+
+  it('puts unknown models above instruct but below known versions', () => {
+    const sorted = sortOpenAIModelsByVersion([
+      'gpt-3.5-turbo',
+      'gpt-3.5-turbo-instruct',
+      'davinci-002',
+      'gpt-5',
+    ]);
+    expect(sorted).toEqual(['gpt-5', 'gpt-3.5-turbo', 'davinci-002', 'gpt-3.5-turbo-instruct']);
+  });
+});
+
+describe('getAnthropicModelVersionScore', () => {
+  it.each([
+    ['claude-opus-4-6', 406],
+    ['claude-sonnet-4-5', 405],
+    ['claude-haiku-4-5-20251001', 405],
+    ['claude-3-7-sonnet', 307],
+    ['claude-3-5-sonnet', 305],
+    ['claude-3-opus', 300],
+    ['claude-3-haiku-20240307', 300],
+    ['gpt-4', -1],
+  ])('scores %s as %i', (model, score) => {
+    expect(getAnthropicModelVersionScore(model)).toBe(score);
+  });
+});
+
+describe('sortAnthropicModelsByVersion', () => {
+  it('places newer Claude versions first', () => {
+    const sorted = sortAnthropicModelsByVersion([
+      'claude-3-5-sonnet',
+      'claude-3-opus',
+      'claude-opus-4-6',
+      'claude-sonnet-4-5',
+      'claude-3-7-sonnet',
+    ]);
+    expect(sorted).toEqual([
+      'claude-opus-4-6',
+      'claude-sonnet-4-5',
+      'claude-3-7-sonnet',
+      'claude-3-5-sonnet',
+      'claude-3-opus',
+    ]);
+  });
+});
+
+describe('getGoogleModelVersionScore', () => {
+  it.each([
+    ['gemini-3.1-pro-preview', 301],
+    ['gemini-3.1-flash-lite-preview', 301],
+    ['gemini-2.5-flash', 205],
+    ['gemini-2.0-flash', 200],
+    ['gemma-3-27b-it', -1],
+  ])('scores %s as %i', (model, score) => {
+    expect(getGoogleModelVersionScore(model)).toBe(score);
+  });
+});
+
+describe('sortGoogleModelsByVersion', () => {
+  it('places newer Gemini versions first and falls through unknowns', () => {
+    const sorted = sortGoogleModelsByVersion([
+      'gemini-2.0-flash',
+      'gemini-2.5-flash',
+      'gemini-3.1-pro',
+      'gemini-2.5-pro',
+      'gemma-3-27b-it',
+    ]);
+    expect(sorted).toEqual([
+      'gemini-3.1-pro',
+      'gemini-2.5-flash',
+      'gemini-2.5-pro',
+      'gemini-2.0-flash',
+      'gemma-3-27b-it',
+    ]);
   });
 });

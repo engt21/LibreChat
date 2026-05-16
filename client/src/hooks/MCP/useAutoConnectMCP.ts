@@ -16,7 +16,11 @@ export function useAutoConnectMCP({
   servers: MCPServerDefinition[];
   connectionStatus: MCPConnectionStatusResponse['connectionStatus'] | undefined;
   isLoading: boolean;
-  initializeServer: (serverName: string, autoOpenOAuth?: boolean, autoSelect?: boolean) => Promise<unknown>;
+  initializeServer: (
+    serverName: string,
+    autoOpenOAuth?: boolean,
+    autoSelect?: boolean,
+  ) => Promise<unknown>;
   isInitializing: (serverName: string) => boolean;
 }) {
   const hasRun = useRef(false);

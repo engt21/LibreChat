@@ -1,4 +1,42 @@
-jest.mock('~/cache/getLogStores');
+jest.mock('~/cache', () => ({
+  getLogStores: jest.fn(() => ({
+    get: jest.fn(() => Promise.resolve(null)),
+    set: jest.fn(() => Promise.resolve(true)),
+  })),
+}));
+jest.mock('@librechat/api', () => ({
+  isEnabled: jest.fn((value) => value === 'true' || value === true),
+  getBalanceConfig: jest.fn(() => undefined),
+  getAnthropicModelCapabilities: jest.fn(() => Promise.resolve(undefined)),
+  getGoogleModelCapabilities: jest.fn(() => Promise.resolve(undefined)),
+  getXAIModelCapabilities: jest.fn(() => Promise.resolve(undefined)),
+}), { virtual: true });
+jest.mock('@librechat/data-schemas', () => ({
+  logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() },
+}));
+jest.mock('~/server/middleware/optionalJwtAuth', () => (_req, _res, next) => next());
+jest.mock('~/server/services/Config/app', () => ({
+  getAppConfig: jest.fn(() => Promise.resolve({})),
+}));
+jest.mock('~/server/services/Admin/appSettings', () => ({
+  getEffectiveAppSettings: jest.fn(() =>
+    Promise.resolve({ registrationEnabled: true }),
+  ),
+}));
+jest.mock('~/server/services/Config/ldap', () => ({
+  getLdapConfig: jest.fn(() => null),
+}));
+jest.mock('~/server/controllers/ModelController', () => ({
+  getModelsConfig: jest.fn(() => Promise.resolve({})),
+}));
+jest.mock('~/server/services/ModelAccess', () => ({
+  filterModelSpecsConfig: jest.fn((modelSpecs) => modelSpecs),
+}));
+jest.mock('~/models/Project', () => ({
+  getProjectByName: jest.fn(() =>
+    Promise.resolve({ _id: { toString: () => 'mock-project-id' } }),
+  ),
+}));
 const request = require('supertest');
 const express = require('express');
 const configRoute = require('../config');

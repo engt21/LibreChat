@@ -21,6 +21,8 @@ const googleThinkingLevelAliases = new Set([
   'gemini-flash-lite-latest',
 ]);
 
+const googleThinkingUnsupportedPatterns = [/^gemini-2\.5-flash-lite(?:$|[-.])/i];
+
 const googleWebSearchSupportedPatterns = [
   /^gemini-3\.1-pro-preview(?:$|[-.])/i,
   /^gemini-3-flash-preview(?:$|[-.])/i,
@@ -42,6 +44,8 @@ export type TGoogleModelCapabilities = {
   topK?: number;
   maxTemperature?: number;
   thinking?: boolean;
+  vertexLocation?: string;
+  vertexLocations?: string[];
 };
 
 export type TResolvedGoogleModelCapabilities = {
@@ -71,7 +75,18 @@ export type TGoogleSettingCapabilityState = {
 };
 
 export function normalizeGoogleModelName(model?: string | null): string {
-  return (model ?? '').replace(/^models\//, '').trim();
+  const trimmedModel = (model ?? '').trim();
+
+  if (!trimmedModel) {
+    return '';
+  }
+
+  const modelPathMatch = trimmedModel.match(/(?:^|\/)models\/([^/?#]+)/);
+  if (modelPathMatch?.[1]) {
+    return modelPathMatch[1].trim();
+  }
+
+  return trimmedModel.replace(/^google\//, '').trim();
 }
 
 const isGoogleTextIncompatibleModelName = (model: string): boolean => {
@@ -177,11 +192,19 @@ export function getGoogleModelCapabilities(
   const normalizedModel = normalizeGoogleModelName(model);
   const normalizedLower = normalizedModel.toLowerCase();
   const isTextCompatible = isGoogleTextCompatibleModel(metadata ?? normalizedModel);
+  const isThinkingOptOutModel = googleThinkingUnsupportedPatterns.some((pattern) =>
+    pattern.test(normalizedLower),
+  );
   const supportsThinkingByFamily =
-    isGoogleThinkingLevelModel(normalizedModel) ||
-    /^gemini-2\.5(?:\.|$|-)/.test(normalizedLower) ||
-    /thinking/.test(normalizedLower);
-  const supportsThinking = Boolean(metadata?.thinking) || supportsThinkingByFamily;
+    !isThinkingOptOutModel &&
+    (isGoogleThinkingLevelModel(normalizedModel) ||
+      /^gemini-2\.(?:[5-9]|\d{2,})(?:\.|$|-)/.test(normalizedLower) ||
+      /thinking/.test(normalizedLower));
+  const hasExplicitThinkingMetadata =
+    metadata != null && Object.prototype.hasOwnProperty.call(metadata, 'thinking');
+  const supportsThinking = hasExplicitThinkingMetadata
+    ? Boolean(metadata?.thinking)
+    : supportsThinkingByFamily;
   const supportsThinkingLevel = supportsThinking && isGoogleThinkingLevelModel(normalizedModel);
   const supportsThinkingBudget = supportsThinking && !supportsThinkingLevel;
   const supportsTemperature =

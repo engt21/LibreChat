@@ -117,6 +117,9 @@ export const conversationPreset = {
   effort: {
     type: String,
   },
+  service_tier: {
+    type: String,
+  },
   system: {
     type: String,
   },

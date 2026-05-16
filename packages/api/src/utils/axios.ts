@@ -12,12 +12,15 @@ import type { AxiosInstance, AxiosProxyConfig, AxiosError } from 'axios';
 export const logAxiosError = ({
   message,
   error,
+  level = 'error',
 }: {
   message: string;
   error: AxiosError | Error | unknown;
+  level?: 'error' | 'warn' | 'debug';
 }) => {
   let logMessage = message;
   try {
+    const log = logger[level] ?? logger.error;
     const stack =
       error != null
         ? (error as Error | AxiosError)?.stack || 'No stack trace available'
@@ -30,7 +33,7 @@ export const logAxiosError = ({
     if (axios.isAxiosError(error) && error.response && error.response?.status) {
       const { status, headers, data } = error.response;
       logMessage = `${message} The server responded with status ${status}: ${error.message}`;
-      logger.error(logMessage, {
+      log.call(logger, logMessage, {
         status,
         headers,
         data,
@@ -39,16 +42,16 @@ export const logAxiosError = ({
     } else if (axios.isAxiosError(error) && error.request) {
       const { method, url } = error.config || {};
       logMessage = `${message} No response received for ${method ? method.toUpperCase() : ''} ${url || ''}: ${error.message}`;
-      logger.error(logMessage, {
+      log.call(logger, logMessage, {
         requestInfo: { method, url },
         stack,
       });
     } else if (errorMessage?.includes("Cannot read properties of undefined (reading 'status')")) {
       logMessage = `${message} It appears the request timed out or was unsuccessful: ${errorMessage}`;
-      logger.error(logMessage, { stack });
+      log.call(logger, logMessage, { stack });
     } else {
       logMessage = `${message} An error occurred while setting up the request: ${errorMessage}`;
-      logger.error(logMessage, { stack });
+      log.call(logger, logMessage, { stack });
     }
   } catch (err: unknown) {
     logMessage = `Error in logAxiosError: ${(err as Error).message}`;

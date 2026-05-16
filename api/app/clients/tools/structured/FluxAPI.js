@@ -121,6 +121,10 @@ class FluxAPI extends Tool {
     }
 
     this.apiKey = fields.FLUX_API_KEY || this.getApiKey();
+    this.defaultEndpoint =
+      typeof fields.model === 'string' && fields.model.trim()
+        ? `/v1/${fields.model.trim()}`
+        : '/v1/flux-pro';
 
     this.name = 'flux';
     this.description =
@@ -227,7 +231,7 @@ class FluxAPI extends Tool {
       payload.raw = imageData.raw;
     }
 
-    const generateUrl = `${this.baseUrl}${imageData.endpoint || '/v1/flux-pro'}`;
+    const generateUrl = `${this.baseUrl}${imageData.endpoint || this.defaultEndpoint || '/v1/flux-pro'}`;
     const resultUrl = `${this.baseUrl}/v1/get_result`;
 
     logger.debug('[FluxAPI] Generating image with payload:', payload);

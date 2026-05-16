@@ -13,6 +13,10 @@ const appSettingsSchema = new Schema<IAppSettings>(
       type: Boolean,
       default: undefined,
     },
+    platformPrompt: {
+      type: String,
+      default: undefined,
+    },
     observability: {
       type: {
         langfuseUrl: {

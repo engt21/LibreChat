@@ -1,0 +1,251 @@
+- generic [ref=e2]:
+  - generic [ref=e40]:
+    - navigation "Chat History" [ref=e44]:
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - button "Close sidebar" [expanded] [ref=e47] [cursor=pointer]:
+            - img [ref=e48]
+          - generic [ref=e50]:
+            - button "Bookmarks" [ref=e51] [cursor=pointer]:
+              - img [ref=e52]
+            - link "New chat" [ref=e54] [cursor=pointer]:
+              - /url: /c/new
+              - img [ref=e55]
+        - generic [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - textbox "Search messages" [ref=e61]
+          - button "Clear search" [disabled] [ref=e62]:
+            - img [ref=e63]
+        - grid "Conversations" [ref=e69]:
+          - rowgroup [ref=e70]:
+            - button "Agent Marketplace" [ref=e74] [cursor=pointer]:
+              - generic [ref=e75]:
+                - img [ref=e77]
+                - generic [ref=e82]: Agent Marketplace
+            - button "Chats" [ref=e84] [cursor=pointer]:
+              - generic [ref=e85]: Chats
+              - img [ref=e86]
+      - button "Account Settings" [ref=e88] [cursor=pointer]:
+        - img "Validation SuperAdmin's avatar" [ref=e92]
+        - generic [ref=e93]: Validation SuperAdmin
+    - generic [ref=e95]:
+      - generic [ref=e96]:
+        - main [ref=e98]:
+          - generic [ref=e99]:
+            - generic [ref=e101]:
+              - generic [ref=e103]:
+                - generic [ref=e104]:
+                  - button "Select a model" [expanded] [ref=e105] [cursor=pointer]:
+                    - img [ref=e447]
+                    - generic [ref=e109]: Claude Sonnet 4.5
+                  - dialog "Select a model" [ref=e521]:
+                    - generic [ref=e523]:
+                      - combobox [expanded] [active] [ref=e524]
+                      - generic: Search models...
+                    - listbox [ref=e525]:
+                      - option "GPT-5.4 Mini Fast, affordable OpenAI model" [ref=e526] [cursor=pointer]:
+                        - generic [ref=e527]:
+                          - img [ref=e529]
+                          - generic [ref=e531]:
+                            - generic [ref=e532]: GPT-5.4 Mini
+                            - generic [ref=e533]: Fast, affordable OpenAI model
+                      - option "GPT-5 Flagship OpenAI reasoning model" [ref=e534] [cursor=pointer]:
+                        - generic [ref=e535]:
+                          - img [ref=e537]
+                          - generic [ref=e539]:
+                            - generic [ref=e540]: GPT-5
+                            - generic [ref=e541]: Flagship OpenAI reasoning model
+                      - option "Claude Sonnet 4.5 Anthropic balanced model selected" [selected] [ref=e542] [cursor=pointer]:
+                        - generic [ref=e543]:
+                          - img [ref=e545]
+                          - generic [ref=e550]:
+                            - generic [ref=e551]: Claude Sonnet 4.5
+                            - generic [ref=e552]: Anthropic balanced model
+                        - img [ref=e553]
+                        - generic [ref=e556]: selected
+                      - option "Gemini 2.5 Pro Google flagship model" [ref=e557] [cursor=pointer]:
+                        - generic [ref=e558]:
+                          - img [ref=e560]
+                          - generic [ref=e562]:
+                            - generic [ref=e563]: Gemini 2.5 Pro
+                            - generic [ref=e564]: Google flagship model
+                      - option "ollama Icon Ollama Local Local Ollama model" [ref=e565] [cursor=pointer]:
+                        - generic [ref=e566]:
+                          - img "ollama Icon" [ref=e568]
+                          - generic [ref=e569]:
+                            - generic [ref=e570]: Ollama Local
+                            - generic [ref=e571]: Local Ollama model
+                      - option "OpenAI Set API Key OpenAI" [ref=e572]:
+                        - generic [ref=e574]:
+                          - generic [ref=e575]:
+                            - img [ref=e577]
+                            - generic [ref=e579]: OpenAI
+                          - button "Set API Key OpenAI" [ref=e581] [cursor=pointer]:
+                            - img [ref=e582]
+                            - generic [ref=e586]: Set API Key
+                        - generic:
+                          - img
+                      - option "My Agents" [ref=e587] [cursor=pointer]:
+                        - generic [ref=e588]:
+                          - img [ref=e590]
+                          - generic [ref=e593]: My Agents
+                      - option "Azure OpenAI Set API Key Azure OpenAI" [ref=e594]:
+                        - generic [ref=e596]:
+                          - generic [ref=e597]:
+                            - img [ref=e599]
+                            - generic [ref=e603]: Azure OpenAI
+                          - button "Set API Key Azure OpenAI" [ref=e605] [cursor=pointer]:
+                            - img [ref=e606]
+                            - generic [ref=e610]: Set API Key
+                        - generic:
+                          - img
+                      - option "Google Set API Key Google" [ref=e611]:
+                        - generic [ref=e613]:
+                          - generic [ref=e614]:
+                            - img [ref=e616]
+                            - generic [ref=e618]: Google
+                          - button "Set API Key Google" [ref=e620] [cursor=pointer]:
+                            - img [ref=e621]
+                            - generic [ref=e625]: Set API Key
+                        - generic:
+                          - img
+                      - option "Anthropic Set API Key Anthropic" [ref=e626]:
+                        - generic [ref=e628]:
+                          - generic [ref=e629]:
+                            - img [ref=e631]
+                            - generic [ref=e636]: Anthropic
+                          - button "Set API Key Anthropic" [ref=e638] [cursor=pointer]:
+                            - img [ref=e639]
+                            - generic [ref=e643]: Set API Key
+                        - generic:
+                          - img
+                      - option "Ollama Set API Key Ollama" [ref=e644]:
+                        - generic [ref=e646]:
+                          - generic [ref=e647]:
+                            - img [ref=e649]
+                            - generic [ref=e650]: Ollama
+                          - button "Set API Key Ollama" [ref=e652] [cursor=pointer]:
+                            - img [ref=e653]
+                            - generic [ref=e657]: Set API Key
+                        - generic:
+                          - img
+                      - option "Ollama Cloud Set API Key Ollama Cloud" [ref=e658]:
+                        - generic [ref=e660]:
+                          - generic [ref=e661]:
+                            - img [ref=e663]
+                            - generic [ref=e666]: Ollama Cloud
+                          - button "Set API Key Ollama Cloud" [ref=e668] [cursor=pointer]:
+                            - img [ref=e669]
+                            - generic [ref=e673]: Set API Key
+                        - generic:
+                          - img
+                      - option "xAI Set API Key xAI" [ref=e674]:
+                        - generic [ref=e676]:
+                          - generic [ref=e677]:
+                            - img [ref=e679]
+                            - generic [ref=e681]: xAI
+                          - button "Set API Key xAI" [ref=e683] [cursor=pointer]:
+                            - img [ref=e684]
+                            - generic [ref=e688]: Set API Key
+                        - generic:
+                          - img
+                - button "Presets" [ref=e110] [cursor=pointer]:
+                  - img [ref=e111]
+                - button "Add multi-conversation" [ref=e115] [cursor=pointer]:
+                  - img [ref=e116]
+              - button "Temporary Chat" [ref=e120] [cursor=pointer]:
+                - img [ref=e121]
+            - generic [ref=e130]:
+              - generic [ref=e133]:
+                - img [ref=e452]
+                - generic [ref=e138]: Happy late night, Validation SuperAdmin
+                - paragraph [ref=e139]:
+                  - generic [ref=e140]:
+                    - generic [ref=e141]: H
+                    - generic [ref=e142]: a
+                    - generic [ref=e143]: p
+                    - generic [ref=e144]: p
+                    - generic [ref=e145]: "y"
+                  - generic [ref=e147]:
+                    - generic [ref=e148]: l
+                    - generic [ref=e149]: a
+                    - generic [ref=e150]: t
+                    - generic [ref=e151]: e
+                  - generic [ref=e153]:
+                    - generic [ref=e154]: "n"
+                    - generic [ref=e155]: i
+                    - generic [ref=e156]: g
+                    - generic [ref=e157]: h
+                    - generic [ref=e158]: t
+                    - generic [ref=e159]: ","
+                  - generic [ref=e161]:
+                    - generic [ref=e162]: V
+                    - generic [ref=e163]: a
+                    - generic [ref=e164]: l
+                    - generic [ref=e165]: i
+                    - generic [ref=e166]: d
+                    - generic [ref=e167]: a
+                    - generic [ref=e168]: t
+                    - generic [ref=e169]: i
+                    - generic [ref=e170]: o
+                    - generic [ref=e171]: "n"
+                  - generic [ref=e173]:
+                    - generic [ref=e174]: S
+                    - generic [ref=e175]: u
+                    - generic [ref=e176]: p
+                    - generic [ref=e177]: e
+                    - generic [ref=e178]: r
+                    - generic [ref=e179]: A
+                    - generic [ref=e180]: d
+                    - generic [ref=e181]: m
+                    - generic [ref=e182]: i
+                    - generic [ref=e183]: "n"
+              - generic [ref=e188]:
+                - textbox "Message input" [ref=e191]:
+                  - /placeholder: Message Claude
+                - generic [ref=e193]:
+                  - button "Attach File Options" [ref=e457] [cursor=pointer]:
+                    - img [ref=e459]
+                  - button "Use microphone" [ref=e199] [cursor=pointer]:
+                    - img [ref=e200]
+                  - button "Open realtime voice dialog" [ref=e203] [cursor=pointer]:
+                    - img [ref=e204]
+                  - button "Send message" [disabled] [ref=e211]:
+                    - img [ref=e213]
+            - contentinfo [ref=e215]:
+              - generic [ref=e216]:
+                - link "LibreChat v0.8.3" [ref=e217] [cursor=pointer]:
+                  - /url: https://librechat.ai
+                - text: "- Every AI for Everyone."
+        - button "Close Control Panel" [expanded] [ref=e475] [cursor=pointer]
+        - separator [ref=e226]
+        - navigation "Controls" [ref=e227]:
+          - generic [ref=e233]:
+            - button "Agent Builder" [ref=e478] [cursor=pointer]:
+              - img [ref=e479]
+              - text: Agent Builder
+            - button "Prompts" [ref=e484] [cursor=pointer]:
+              - img [ref=e485]
+              - text: Prompts
+            - button "Memories" [ref=e491] [cursor=pointer]:
+              - img [ref=e492]
+              - text: Memories
+            - button "Attach Files" [ref=e498] [cursor=pointer]:
+              - img [ref=e499]
+              - text: Attach Files
+            - button "Bookmarks" [ref=e503] [cursor=pointer]:
+              - img [ref=e504]
+              - text: Bookmarks
+            - button "MCP Settings" [ref=e508] [cursor=pointer]:
+              - img [ref=e509]
+              - text: MCP Settings
+            - button "Hide Panel" [ref=e515] [cursor=pointer]:
+              - img [ref=e516]
+              - text: Hide Panel
+      - button "Close right side panel"
+  - complementary "React Query Devtools":
+    - button "Open React Query Devtools" [ref=e14] [cursor=pointer]:
+      - img [ref=e15]
+      - generic [ref=e21]: Open React Query Devtools
+  - region "Notifications (F8)":
+    - list

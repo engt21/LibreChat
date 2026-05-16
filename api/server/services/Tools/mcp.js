@@ -105,6 +105,8 @@ async function reinitMCPServer({
       const isOAuthError =
         err.message?.includes('OAuth') ||
         err.message?.includes('authentication') ||
+        err.message?.includes('Authorization') ||
+        err.message?.includes('authorization') ||
         err.message?.includes('401');
 
       const isOAuthFlowInitiated = err.message === 'OAuth flow initiated - return early';
@@ -144,6 +146,7 @@ async function reinitMCPServer({
             `[MCP Reinitialize] Tool discovery failed for ${serverName}: ${discoveryErr?.message ?? String(discoveryErr)}`,
           );
         }
+
       } else {
         logger.error(
           `[MCP Reinitialize] Error initializing MCP server ${serverName} for user:`,

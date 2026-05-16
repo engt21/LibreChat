@@ -5,11 +5,7 @@ import { FileText, LogOut, Shield } from 'lucide-react';
 import { SystemRoles } from 'librechat-data-provider';
 import { LinkIcon, GearIcon, DropdownMenuSeparator, Avatar } from '@librechat/client';
 import { MyFilesModal } from '~/components/Chat/Input/Files/MyFilesModal';
-import {
-  useAdminPermissionsQuery,
-  useGetStartupConfig,
-  useGetUserBalance,
-} from '~/data-provider';
+import { useAdminPermissionsQuery, useGetStartupConfig, useGetUserBalance } from '~/data-provider';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { useLocalize } from '~/hooks';
 import Settings from './Settings';

@@ -37,7 +37,9 @@ export function shouldUseSecureCookie(): boolean {
     hostname === '::1' ||
     hostname.endsWith('.localhost');
 
-  return isProduction && !isLocalhost;
+  const isPlainHttp = /^http:\/\//i.test(domainServer);
+
+  return isProduction && !isLocalhost && !isPlainHttp;
 }
 
 /** Generates an HMAC-based token for OAuth CSRF protection */

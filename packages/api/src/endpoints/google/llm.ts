@@ -133,14 +133,27 @@ export function getGoogleConfig(
   const apiKey = authConfig.apiKey ?? null;
   const reverseProxyUrl = options.reverseProxyUrl;
   const authHeader = options.authHeader;
+  const requestedModelOptions = options.modelOptions || {};
+  const modelName = (requestedModelOptions.model ?? '') as string;
+  const modelCapabilities = resolveGoogleModelCapabilities(modelName);
 
   const {
     web_search,
-    thinkingLevel,
-    thinking = googleSettings.thinking.default,
-    thinkingBudget = googleSettings.thinkingBudget.default,
+    thinkingLevel: requestedThinkingLevel,
+    thinking: requestedThinking,
+    thinkingBudget: requestedThinkingBudget,
     ...modelOptions
-  } = options.modelOptions || {};
+  } = requestedModelOptions;
+
+  const thinking = modelCapabilities.supportsThinking
+    ? requestedThinking ?? googleSettings.thinking.default
+    : false;
+  const thinkingBudget = modelCapabilities.supportsThinkingBudget
+    ? requestedThinkingBudget ?? googleSettings.thinkingBudget.default
+    : undefined;
+  const thinkingLevel = modelCapabilities.supportsThinkingLevel
+    ? requestedThinkingLevel
+    : undefined;
 
   let enableWebSearch = web_search;
 
@@ -175,7 +188,7 @@ export function getGoogleConfig(
       (llmConfig as VertexAIClientOptions).authOptions = vertexAuthOptions;
     }
 
-    (llmConfig as VertexAIClientOptions).location = authConfig.location;
+    (llmConfig as VertexAIClientOptions).location = options.vertexLocation ?? authConfig.location;
   } else if (apiKey && provider === Providers.GOOGLE) {
     llmConfig.apiKey = apiKey;
   } else {
@@ -184,20 +197,17 @@ export function getGoogleConfig(
     );
   }
 
-  const modelName = (modelOptions?.model ?? '') as string;
-  const modelCapabilities = resolveGoogleModelCapabilities(modelName);
-
   /**
    * Gemini 3+ uses a qualitative `thinkingLevel` ('minimal'|'low'|'medium'|'high')
    * instead of the numeric `thinkingBudget` used by Gemini 2.5 and earlier.
-   * When `thinking` is enabled (default: true), we always send `thinkingConfig`
+   * When thinking is supported and enabled, we send `thinkingConfig`
    * with `includeThoughts: true`. The `thinkingBudget` param is ignored for Gemini 3+.
    *
    * For Vertex AI, top-level `includeThoughts` is still required because
    * `@langchain/google-common`'s `formatGenerationConfig` reads it separately
    * from `thinkingConfig` — they serve different purposes in the request pipeline.
    */
-  const isGemini3Plus = isGoogleThinkingLevelModel(modelName);
+  const isGemini3Plus = modelCapabilities.supportsThinkingLevel;
 
   if (isGemini3Plus && thinking) {
     const thinkingConfig: { includeThoughts: boolean; thinkingLevel?: string } = {
@@ -214,17 +224,18 @@ export function getGoogleConfig(
     }
   } else if (!isGemini3Plus) {
     const shouldEnableThinking =
-      thinking && thinkingBudget != null && (thinkingBudget > 0 || thinkingBudget === -1);
+      modelCapabilities.supportsThinkingBudget &&
+      thinking &&
+      thinkingBudget != null &&
+      (thinkingBudget > 0 || thinkingBudget === -1);
 
     if (shouldEnableThinking && provider === Providers.GOOGLE) {
       (llmConfig as GoogleClientOptions).thinkingConfig = {
-        thinkingBudget: thinking ? thinkingBudget : googleSettings.thinkingBudget.default,
+        thinkingBudget,
         includeThoughts: Boolean(thinking),
       };
     } else if (shouldEnableThinking && provider === Providers.VERTEXAI) {
-      (llmConfig as VertexAIClientOptions).thinkingBudget = thinking
-        ? thinkingBudget
-        : googleSettings.thinkingBudget.default;
+      (llmConfig as VertexAIClientOptions).thinkingBudget = thinkingBudget;
       (llmConfig as VertexAIClientOptions).includeThoughts = Boolean(thinking);
     }
   }

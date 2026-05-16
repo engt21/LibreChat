@@ -575,10 +575,46 @@ describe('getLLMConfig', () => {
         });
         expect(result.tools).toEqual([
           {
-            type: 'web_search_20250305',
+            type: 'web_search_20260209',
             name: 'web_search',
           },
         ]);
+      });
+
+      it('adds the current context management beta header when context_management is present', () => {
+        const result = getLLMConfig('sk-ant-context-key', {
+          modelOptions: {
+            model: 'claude-sonnet-4-6',
+            user: 'context-user-404',
+            context_management: {
+              edits: [{ type: 'clear_tool_uses_20250919' }],
+            },
+          },
+        });
+
+        expect(result.llmConfig.clientOptions?.defaultHeaders).toMatchObject({
+          'anthropic-beta': expect.stringContaining('context-management-2025-06-27'),
+        });
+      });
+
+      it('adds the current MCP beta header when mcp_servers are present', () => {
+        const result = getLLMConfig('sk-ant-mcp-key', {
+          modelOptions: {
+            model: 'claude-opus-4-6',
+            user: 'mcp-user-505',
+            mcp_servers: [
+              {
+                type: 'url',
+                url: 'https://example.com/mcp',
+                name: 'example-mcp',
+              },
+            ],
+          },
+        });
+
+        expect(result.llmConfig.clientOptions?.defaultHeaders).toMatchObject({
+          'anthropic-beta': expect.stringContaining('mcp-client-2025-11-20'),
+        });
       });
     });
 
@@ -1531,7 +1567,7 @@ describe('getLLMConfig', () => {
           if (key === 'stream') {
             expect(result.llmConfig.stream).toBe(expected);
           } else if (key === 'web_search' && expected) {
-            expect(result.tools).toEqual([{ type: 'web_search_20250305', name: 'web_search' }]);
+            expect(result.tools).toEqual([{ type: 'web_search_20260209', name: 'web_search' }]);
           }
         });
       });

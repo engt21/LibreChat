@@ -124,8 +124,12 @@ const tokenValues = Object.assign(
     gemini: { prompt: 0.5, completion: 1.5 },
     'gpt-oss': { prompt: 0.05, completion: 0.2 },
     // Specific model variants (check FIRST - more specific patterns at end)
+    'gpt-3.5-turbo': { prompt: 0.5, completion: 1.5 },
+    'gpt-3.5-turbo-instruct': { prompt: 1.5, completion: 2 },
     'gpt-3.5-turbo-1106': { prompt: 1, completion: 2 },
     'gpt-3.5-turbo-0125': { prompt: 0.5, completion: 1.5 },
+    'davinci-002': { prompt: 2, completion: 2 },
+    'babbage-002': { prompt: 0.4, completion: 0.4 },
     'gpt-4-1106': { prompt: 10, completion: 30 },
     'gpt-4.1': { prompt: 2, completion: 8 },
     'gpt-4.1-nano': { prompt: 0.1, completion: 0.4 },
@@ -194,6 +198,9 @@ const tokenValues = Object.assign(
     'gemini-3-pro-image': { prompt: 2, completion: 120 },
     'gemini-3.1': { prompt: 2, completion: 12 },
     'gemini-3.1-flash-lite': { prompt: 0.25, completion: 1.5 },
+    'gemini-pro-latest': { prompt: 2, completion: 12 },
+    'gemini-flash-latest': { prompt: 0.5, completion: 3 },
+    'gemini-flash-lite-latest': { prompt: 0.25, completion: 1.5 },
     'gemini-pro-vision': { prompt: 0.5, completion: 1.5 },
     grok: { prompt: 2.0, completion: 10.0 }, // Base pattern defaults to grok-2
     'grok-beta': { prompt: 5.0, completion: 15.0 },
@@ -208,6 +215,8 @@ const tokenValues = Object.assign(
     'grok-3-fast': { prompt: 5.0, completion: 25.0 },
     'grok-3-mini': { prompt: 0.3, completion: 0.5 },
     'grok-3-mini-fast': { prompt: 0.6, completion: 4 },
+    'grok-4.20-multi-agent': { prompt: 2.0, completion: 6.0 },
+    'grok-4.20-beta': { prompt: 2.0, completion: 6.0 },
     'grok-4': { prompt: 3.0, completion: 15.0 },
     'grok-4-fast': { prompt: 0.2, completion: 0.5 },
     'grok-4-1-fast': { prompt: 0.2, completion: 0.5 }, // covers reasoning & non-reasoning variants
@@ -351,6 +360,8 @@ const cacheTokenValues = {
   'gemini-3.1': { write: 2, read: 0.2 },
   // Gemini 3.1 Flash-Lite - cache write: $0.25/1M, cache read: $0.025/1M
   'gemini-3.1-flash-lite': { write: 0.25, read: 0.025 },
+  'gemini-pro-latest': { write: 2, read: 0.2 },
+  'gemini-flash-lite-latest': { write: 0.25, read: 0.025 },
 };
 
 /**
@@ -362,6 +373,7 @@ const premiumTokenValues = {
   'claude-opus-4-6': { threshold: 200000, prompt: 10, completion: 37.5 },
   'claude-sonnet-4-6': { threshold: 200000, prompt: 6, completion: 22.5 },
   'gemini-3.1': { threshold: 200000, prompt: 4, completion: 18 },
+  'gemini-pro-latest': { threshold: 200000, prompt: 4, completion: 18 },
 };
 
 /**
@@ -374,6 +386,10 @@ const premiumTokenValues = {
 const getValueKey = (model, endpoint) => {
   if (!model || typeof model !== 'string') {
     return undefined;
+  }
+
+  if (model.includes('gpt-3.5-turbo-16k')) {
+    return '16k';
   }
 
   // Use findMatchingPattern directly against tokenValues for efficient lookup

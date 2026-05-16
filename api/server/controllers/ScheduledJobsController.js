@@ -1,5 +1,9 @@
 const crypto = require('node:crypto');
-const { WebSearchModes, isAgentsEndpoint } = require('librechat-data-provider');
+const {
+  CodeInterpreterModes,
+  WebSearchModes,
+  isAgentsEndpoint,
+} = require('librechat-data-provider');
 const {
   createScheduledJob,
   getScheduledJob,
@@ -24,6 +28,7 @@ const MAX_NAME_LENGTH = 120;
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_PROMPT_PREFIX_LENGTH = 4000;
 const VALID_WEB_SEARCH_MODES = new Set(Object.values(WebSearchModes));
+const VALID_CODE_INTERPRETER_MODES = new Set(Object.values(CodeInterpreterModes));
 
 function isScheduleRunning(schedule) {
   return (
@@ -58,6 +63,10 @@ function normalizeTarget(target = {}) {
     typeof target.ephemeralAgent?.web_search_mode === 'string'
       ? target.ephemeralAgent.web_search_mode.trim()
       : undefined;
+  const rawCodeInterpreterMode =
+    typeof target.ephemeralAgent?.execute_code_mode === 'string'
+      ? target.ephemeralAgent.execute_code_mode.trim()
+      : undefined;
 
   const normalized = {
     endpoint: target.endpoint?.trim(),
@@ -87,6 +96,10 @@ function normalizeTarget(target = {}) {
           : undefined,
       file_search: target.ephemeralAgent.file_search === true,
       execute_code: target.ephemeralAgent.execute_code === true,
+      execute_code_mode:
+        rawCodeInterpreterMode && VALID_CODE_INTERPRETER_MODES.has(rawCodeInterpreterMode)
+          ? rawCodeInterpreterMode
+          : undefined,
       artifacts:
         typeof target.ephemeralAgent.artifacts === 'string'
           ? target.ephemeralAgent.artifacts.trim()
@@ -110,6 +123,13 @@ function validateTarget(target) {
     !VALID_WEB_SEARCH_MODES.has(target.ephemeralAgent.web_search_mode)
   ) {
     throw new Error('Invalid web search mode');
+  }
+
+  if (
+    target?.ephemeralAgent?.execute_code_mode &&
+    !VALID_CODE_INTERPRETER_MODES.has(target.ephemeralAgent.execute_code_mode)
+  ) {
+    throw new Error('Invalid code interpreter mode');
   }
 
   if (isAgentsEndpoint(target.endpoint)) {

@@ -1,0 +1,111 @@
+- generic [ref=e2]:
+  - generic [ref=e32]:
+    - navigation "Chat History" [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - button "Close sidebar" [expanded] [ref=e39] [cursor=pointer]:
+            - img [ref=e40]
+          - generic [ref=e42]:
+            - button "Bookmarks" [ref=e43] [cursor=pointer]:
+              - img [ref=e44]
+            - link "New chat" [ref=e46] [cursor=pointer]:
+              - /url: /c/new
+              - img [ref=e47]
+        - grid "Conversations" [ref=e52]:
+          - rowgroup [ref=e53]:
+            - button "Chats" [ref=e55] [cursor=pointer]:
+              - generic [ref=e56]: Chats
+              - img [ref=e57]
+      - button "Account Settings" [ref=e59] [cursor=pointer]:
+        - img "Playwright Bot's avatar" [ref=e63]
+        - generic [ref=e64]: Playwright Bot
+    - generic [ref=e66]:
+      - generic [ref=e67]:
+        - main [ref=e69]:
+          - generic [ref=e70]:
+            - generic [ref=e72]:
+              - generic [ref=e74]:
+                - button "Select a model" [ref=e76] [cursor=pointer]:
+                  - img [ref=e340]
+                  - generic [ref=e80]: gemini-2.5-flash-lite
+                - button "Presets" [ref=e81] [cursor=pointer]:
+                  - img [ref=e82]
+                - button "Add multi-conversation" [ref=e86] [cursor=pointer]:
+                  - img [ref=e87]
+              - button "Temporary Chat" [ref=e363] [cursor=pointer]:
+                - img [ref=e364]
+            - generic [ref=e101]:
+              - generic [ref=e377]:
+                - generic "Message 1" [ref=e380]:
+                  - generic "Playwright Bot" [ref=e383]:
+                    - img "avatar" [ref=e384]
+                  - generic [ref=e385]:
+                    - heading "Playwright Bot" [level=2] [ref=e386]
+                    - generic [ref=e387]:
+                      - paragraph [ref=e391]: "Reply with exactly: ok"
+                      - generic [ref=e393]:
+                        - button "Read aloud" [ref=e394] [cursor=pointer]:
+                          - img [ref=e395]
+                        - button "Copy to clipboard" [ref=e397] [cursor=pointer]:
+                          - img [ref=e398]
+                        - button "Edit" [ref=e400] [cursor=pointer]:
+                          - img [ref=e401]
+                        - button "Open Fork Menu" [ref=e403] [cursor=pointer]:
+                          - img [ref=e404]
+                - generic "Message 2" [ref=e411]:
+                  - generic "Gemini" [ref=e414]:
+                    - img [ref=e415]
+                  - generic [ref=e417]:
+                    - heading "Gemini" [level=2] [ref=e418]
+                    - generic [ref=e419]:
+                      - alert [ref=e422]: No key found. Please provide a key and try again.
+                      - button "Regenerate" [ref=e425] [cursor=pointer]:
+                        - img [ref=e426]
+              - generic [ref=e143]:
+                - generic [ref=e147]:
+                  - textbox "Message input" [active] [ref=e150]:
+                    - /placeholder: Message Gemini
+                  - generic [ref=e152]:
+                    - button "Attach File Options" [ref=e344] [cursor=pointer]:
+                      - img [ref=e346]
+                    - button "Tools Options" [ref=e159] [cursor=pointer]:
+                      - img [ref=e161]
+                    - button "Use microphone" [ref=e164] [cursor=pointer]:
+                      - img [ref=e165]
+                    - button "Open realtime voice dialog" [ref=e168] [cursor=pointer]:
+                      - img [ref=e169]
+                    - button "Send message" [disabled] [ref=e428]:
+                      - img [ref=e430]
+                - contentinfo [ref=e432]:
+                  - generic [ref=e433]:
+                    - link "LibreChat v0.8.3" [ref=e434] [cursor=pointer]:
+                      - /url: https://librechat.ai
+                    - text: "- Every AI for Everyone."
+        - button "Open Control Panel" [ref=e185] [cursor=pointer]
+        - separator [ref=e191]
+        - navigation "Controls" [ref=e192]:
+          - generic [ref=e198]:
+            - button "Agent Builder" [ref=e199] [cursor=pointer]:
+              - img [ref=e200]
+              - generic [ref=e203]: Agent Builder
+            - button "Prompts" [ref=e204] [cursor=pointer]:
+              - img [ref=e205]
+              - generic [ref=e209]: Prompts
+            - button "Memories" [ref=e210] [cursor=pointer]:
+              - img [ref=e211]
+              - generic [ref=e215]: Memories
+            - button "Attach Files" [ref=e348] [cursor=pointer]:
+              - img [ref=e349]
+              - generic [ref=e220]: Attach Files
+            - button "Bookmarks" [ref=e351] [cursor=pointer]:
+              - img [ref=e352]
+              - generic [ref=e224]: Bookmarks
+            - button "MCP Settings" [ref=e354] [cursor=pointer]:
+              - img [ref=e355]
+              - generic [ref=e228]: MCP Settings
+            - button "Hide Panel" [ref=e359] [cursor=pointer]:
+              - img [ref=e360]
+              - generic [ref=e234]: Hide Panel
+      - button "Close right side panel"
+  - region "Notifications (F8)":
+    - list

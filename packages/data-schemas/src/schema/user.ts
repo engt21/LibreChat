@@ -51,6 +51,24 @@ const ModelPermissionsSchema = new Schema(
   { _id: false },
 );
 
+const ImageGenerationPrefsSchema = new Schema(
+  {
+    enabledByDefault: {
+      type: Boolean,
+      default: true,
+    },
+    preferredProvider: {
+      type: String,
+      default: null,
+    },
+    models: {
+      type: Schema.Types.Mixed,
+      default: () => ({}),
+    },
+  },
+  { _id: false },
+);
+
 const PushSubscriptionKeysSchema = new Schema(
   {
     p256dh: {
@@ -287,6 +305,10 @@ const userSchema = new Schema<IUser>(
     modelPermissions: {
       type: ModelPermissionsSchema,
       default: () => ({ enabled: false, rules: [] }),
+    },
+    imageGenerationPrefs: {
+      type: ImageGenerationPrefsSchema,
+      default: () => ({ enabledByDefault: true, preferredProvider: null, models: {} }),
     },
     favorites: {
       type: [

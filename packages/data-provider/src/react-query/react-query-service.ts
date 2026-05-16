@@ -124,6 +124,9 @@ export const useUpdateUserKeysMutation = (): UseMutationResult<
   return useMutation((payload: t.TUpdateUserKeyRequest) => dataService.updateUserKey(payload), {
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries([QueryKeys.name, variables.name]);
+      queryClient.invalidateQueries([QueryKeys.models]);
+      queryClient.invalidateQueries([QueryKeys.endpoints]);
+      queryClient.invalidateQueries([QueryKeys.startupConfig]);
     },
   });
 };
@@ -142,6 +145,9 @@ export const useRevokeUserKeyMutation = (name: string): UseMutationResult<unknow
   return useMutation(() => dataService.revokeUserKey(name), {
     onSuccess: () => {
       queryClient.invalidateQueries([QueryKeys.name, name]);
+      queryClient.invalidateQueries([QueryKeys.models]);
+      queryClient.invalidateQueries([QueryKeys.endpoints]);
+      queryClient.invalidateQueries([QueryKeys.startupConfig]);
       if (s.isAssistantsEndpoint(name)) {
         queryClient.invalidateQueries([QueryKeys.assistants, name, defaultOrderQuery]);
         queryClient.invalidateQueries([QueryKeys.assistantDocs]);
@@ -160,6 +166,9 @@ export const useRevokeAllUserKeysMutation = (): UseMutationResult<unknown> => {
   return useMutation(() => dataService.revokeAllUserKeys(), {
     onSuccess: () => {
       queryClient.invalidateQueries([QueryKeys.name]);
+      queryClient.invalidateQueries([QueryKeys.models]);
+      queryClient.invalidateQueries([QueryKeys.endpoints]);
+      queryClient.invalidateQueries([QueryKeys.startupConfig]);
       queryClient.invalidateQueries([
         QueryKeys.assistants,
         s.EModelEndpoint.assistants,
@@ -256,14 +265,19 @@ export const useRegisterUserMutation = (
 export const useUserKeyQuery = (
   name: string,
   config?: UseQueryOptions<t.TCheckUserKeyResponse>,
+  options?: {
+    includeValue?: boolean;
+  },
 ): QueryObserverResult<t.TCheckUserKeyResponse> => {
+  const includeValue = options?.includeValue === true;
+
   return useQuery<t.TCheckUserKeyResponse>(
-    [QueryKeys.name, name],
+    [QueryKeys.name, name, includeValue ? 'withValue' : 'expiryOnly'],
     () => {
       if (!name) {
-        return Promise.resolve({ expiresAt: '' });
+        return Promise.resolve({ expiresAt: '', ...(includeValue ? { value: '' } : {}) });
       }
-      return dataService.userKeyQuery(name);
+      return dataService.userKeyQuery(name, includeValue);
     },
     {
       refetchOnWindowFocus: false,

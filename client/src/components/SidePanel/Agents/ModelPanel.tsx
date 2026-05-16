@@ -13,11 +13,14 @@ import {
   LocalStorageKeys,
   SettingDefinition,
   agentParamSettings,
+  normalizeAnthropicModelName,
   normalizeGoogleModelName,
   normalizeOpenAIModelName,
   isXAIEndpointCandidate,
+  getAnthropicModelCapabilities as resolveAnthropicModelCapabilities,
   getOpenAIModelCapabilities as resolveOpenAIModelCapabilities,
   resolveOpenAIResponsesApiEnabled,
+  getAnthropicSettingCapabilityState,
   getGoogleModelCapabilities as resolveGoogleModelCapabilities,
   getOpenAISettingCapabilityState,
   getGoogleSettingCapabilityState,
@@ -120,8 +123,25 @@ export default function ModelPanel({
     );
   }, [model, settingsEndpoint, startupConfig?.googleModelCapabilities]);
 
+  const anthropicModelCapabilities = useMemo(() => {
+    if (settingsEndpoint !== EModelEndpoint.anthropic) {
+      return null;
+    }
+
+    const normalizedModel = normalizeAnthropicModelName(model ?? '');
+
+    return resolveAnthropicModelCapabilities(
+      normalizedModel,
+      startupConfig?.anthropicModelCapabilities?.[normalizedModel],
+    );
+  }, [model, settingsEndpoint, startupConfig?.anthropicModelCapabilities]);
+
   const openAIModelCapabilities = useMemo(() => {
-    if (xaiModelCapabilities != null || settingsEndpoint === EModelEndpoint.google) {
+    if (
+      xaiModelCapabilities != null ||
+      settingsEndpoint === EModelEndpoint.google ||
+      settingsEndpoint === EModelEndpoint.anthropic
+    ) {
       return null;
     }
 
@@ -147,6 +167,11 @@ export default function ModelPanel({
       .filter((param) => param != null)
       .map((param) => (overriddenParamsMap[param.key] as SettingDefinition) ?? param);
   }, [endpointType, endpointsConfig, model, provider]);
+
+  const anthropicThinkingDefault = useMemo(() => {
+    const thinkingSetting = parameters.find((setting) => setting?.key === 'thinking');
+    return typeof thinkingSetting?.default === 'boolean' ? thinkingSetting.default : undefined;
+  }, [parameters]);
 
   const setOption = (optionKey: keyof t.AgentModelParameters) => (value: t.AgentParameterValue) => {
     setValue(`model_parameters.${optionKey}`, value);
@@ -322,11 +347,41 @@ export default function ModelPanel({
                 rest.options = bedrockRegions;
               }
 
+              if (anthropicModelCapabilities && key === 'maxOutputTokens' && rest.range) {
+                rest.range = {
+                  ...rest.range,
+                  max: anthropicModelCapabilities.maxOutputTokensMax,
+                };
+              }
+
+              if (anthropicModelCapabilities && key === 'effort') {
+                rest.options = anthropicModelCapabilities.effortOptions;
+
+                if (rest.enumMappings) {
+                  rest.enumMappings = anthropicModelCapabilities.effortOptions.reduce<
+                    Record<string, string | number | boolean>
+                  >((acc, option) => {
+                    const mapping = rest.enumMappings?.[option];
+
+                    if (mapping != null) {
+                      acc[option] = mapping;
+                    }
+
+                    return acc;
+                  }, {});
+                }
+              }
+
               let capabilityState: { supported: boolean; reason?: string } = {
                 supported: true,
               };
 
-              if (xaiModelCapabilities) {
+              if (anthropicModelCapabilities) {
+                capabilityState = getAnthropicSettingCapabilityState(key, anthropicModelCapabilities, {
+                  thinking: (modelParameters as Partial<t.TConversation>)?.thinking,
+                  defaultThinking: anthropicThinkingDefault,
+                });
+              } else if (xaiModelCapabilities) {
                 capabilityState = getXAISettingCapabilityState(key, xaiModelCapabilities);
               } else if (googleModelCapabilities) {
                 capabilityState = getGoogleSettingCapabilityState(key, googleModelCapabilities);

@@ -233,6 +233,15 @@ describe('MCPUIResource', () => {
       expect(screen.getByText('UI resource resource-1 not found')).toBeInTheDocument();
     });
 
+    it('should return null when markdown node properties are missing', () => {
+      currentTestMessages = [];
+
+      const { container } = renderWithRecoil(<MCPUIResource node={{} as any} />);
+
+      expect(container.firstChild).toBeNull();
+      expect(screen.queryByTestId('ui-resource-renderer')).not.toBeInTheDocument();
+    });
+
     it('should handle multiple attachments of ui_resources type', () => {
       currentTestMessages = [
         {

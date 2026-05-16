@@ -1,0 +1,183 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e37]:
+      - navigation "Chat History" [ref=e41]:
+        - generic [ref=e42]:
+          - generic [ref=e43]:
+            - button "Close sidebar" [expanded] [ref=e44] [cursor=pointer]:
+              - img [ref=e45]
+            - generic [ref=e47]:
+              - button "Bookmarks" [ref=e48] [cursor=pointer]:
+                - img [ref=e49]
+              - link "New chat" [ref=e51] [cursor=pointer]:
+                - /url: /c/new
+                - img [ref=e52]
+          - generic [ref=e54] [cursor=pointer]:
+            - img [ref=e55]
+            - textbox "Search messages" [ref=e58]
+            - button "Clear search" [disabled] [ref=e59]:
+              - img [ref=e60]
+          - grid "Conversations" [ref=e66]:
+            - rowgroup [ref=e67]:
+              - button "Chats" [ref=e69] [cursor=pointer]:
+                - generic [ref=e70]: Chats
+                - img [ref=e71]
+        - button "Account Settings" [ref=e73] [cursor=pointer]:
+          - img "Validation User's avatar" [ref=e77]
+          - generic [ref=e78]: Validation User
+      - generic [ref=e80]:
+        - generic [ref=e81]:
+          - main [ref=e83]:
+            - generic [ref=e84]:
+              - generic [ref=e86]:
+                - generic [ref=e88]:
+                  - button "Select a model" [ref=e90] [cursor=pointer]:
+                    - img [ref=e400]
+                    - generic [ref=e94]: claude-sonnet-4-6
+                  - button "Presets" [ref=e95] [cursor=pointer]:
+                    - img [ref=e96]
+                  - button "Add multi-conversation" [ref=e100] [cursor=pointer]:
+                    - img [ref=e101]
+                - button "Temporary Chat" [ref=e619] [cursor=pointer]:
+                  - img [ref=e620]
+              - generic [ref=e115]:
+                - generic [ref=e516]:
+                  - generic "Message 1" [ref=e631]:
+                    - generic "Validation User" [ref=e634]:
+                      - img "avatar" [ref=e635]
+                    - generic [ref=e636]:
+                      - heading "Validation User" [level=2] [ref=e637]
+                      - generic [ref=e638]:
+                        - generic [ref=e640]:
+                          - button "anthropic_upload_test.py" [ref=e642] [cursor=pointer]:
+                            - generic [ref=e644]:
+                              - generic [ref=e645]:
+                                - img [ref=e646]
+                                - img [ref=e652]
+                              - generic [ref=e654]:
+                                - generic "anthropic_upload_test.py" [ref=e655]
+                                - generic "Code" [ref=e656]
+                          - paragraph [ref=e658]: file upload execute_code request
+                        - generic [ref=e660]:
+                          - button "Read aloud" [ref=e661] [cursor=pointer]:
+                            - img [ref=e662]
+                          - button "Copy to clipboard" [ref=e664] [cursor=pointer]:
+                            - img [ref=e665]
+                          - button "Edit" [ref=e667] [cursor=pointer]:
+                            - img [ref=e668]
+                          - button "Open Fork Menu" [ref=e670] [cursor=pointer]:
+                            - img [ref=e671]
+                  - generic "Message 2" [ref=e678]:
+                    - generic "Claude" [ref=e681]:
+                      - img [ref=e682]
+                    - generic [ref=e687]:
+                      - heading "Claude" [level=2] [ref=e688]
+                      - generic [ref=e689]:
+                        - alert [ref=e692]: No key found. Please provide a key and try again.
+                        - button "Regenerate" [ref=e695] [cursor=pointer]:
+                          - img [ref=e696]
+                - generic [ref=e163]:
+                  - generic [ref=e167]:
+                    - generic [ref=e701]:
+                      - button "anthropic_upload_test.py" [ref=e702] [cursor=pointer]:
+                        - generic [ref=e704]:
+                          - generic [ref=e705]:
+                            - img [ref=e706]
+                            - img [ref=e712]
+                          - generic [ref=e714]:
+                            - generic "anthropic_upload_test.py" [ref=e715]
+                            - generic "Code" [ref=e716]
+                      - button "Remove file" [ref=e717] [cursor=pointer]:
+                        - img [ref=e719]
+                    - textbox "Message input" [ref=e170]:
+                      - /placeholder: Message Claude
+                      - text: file upload execute_code request
+                    - generic [ref=e172]:
+                      - button "Attach File Options" [ref=e410] [cursor=pointer]:
+                        - img [ref=e412]
+                      - button "Tools Options" [ref=e179] [cursor=pointer]:
+                        - img [ref=e181]
+                      - button "Use microphone" [ref=e184] [cursor=pointer]:
+                        - img [ref=e185]
+                      - button "Open realtime voice dialog" [ref=e188] [cursor=pointer]:
+                        - img [ref=e189]
+                      - button "Send message" [ref=e722] [cursor=pointer]:
+                        - img [ref=e724]
+                  - contentinfo [ref=e574]:
+                    - generic [ref=e575]:
+                      - link "LibreChat v0.8.3" [ref=e576] [cursor=pointer]:
+                        - /url: https://librechat.ai
+                      - text: "- Every AI for Everyone."
+          - button "Open Control Panel" [ref=e205] [cursor=pointer]
+          - separator [ref=e211]
+          - navigation "Controls" [ref=e212]:
+            - generic [ref=e218]:
+              - button "Agent Builder" [ref=e219] [cursor=pointer]:
+                - img [ref=e220]
+                - generic [ref=e223]: Agent Builder
+              - button "Prompts" [ref=e224] [cursor=pointer]:
+                - img [ref=e225]
+                - generic [ref=e229]: Prompts
+              - button "Memories" [ref=e230] [cursor=pointer]:
+                - img [ref=e231]
+                - generic [ref=e235]: Memories
+              - button "Attach Files" [ref=e414] [cursor=pointer]:
+                - img [ref=e415]
+                - generic [ref=e240]: Attach Files
+              - button "Bookmarks" [ref=e417] [cursor=pointer]:
+                - img [ref=e418]
+                - generic [ref=e244]: Bookmarks
+              - button "MCP Settings" [ref=e420] [cursor=pointer]:
+                - img [ref=e421]
+                - generic [ref=e248]: MCP Settings
+              - button "Hide Panel" [ref=e425] [cursor=pointer]:
+                - img [ref=e426]
+                - generic [ref=e254]: Hide Panel
+        - button "Close right side panel"
+    - complementary "React Query Devtools":
+      - button "Open React Query Devtools" [ref=e27] [cursor=pointer]:
+        - img [ref=e28]
+        - generic [ref=e34]: Open React Query Devtools
+    - region "Notifications (F8)":
+      - list
+  - menu "file upload execute_code request" [ref=e727]:
+    - button "Dismiss popup" [ref=e728] [cursor=pointer]
+    - menuitem "File Search Pin" [ref=e729] [cursor=pointer]:
+      - generic [ref=e730]:
+        - img [ref=e731]
+        - generic [ref=e733]: File Search
+      - button "Pin" [ref=e734]:
+        - img [ref=e736]
+    - menuitem "Web Search Pin" [ref=e738] [cursor=pointer]:
+      - generic [ref=e739]:
+        - img [ref=e740]
+        - generic [ref=e743]: Web Search
+      - button "Pin" [ref=e745]:
+        - img [ref=e747]
+    - generic [ref=e749]:
+      - menuitem "Code Interpreter Pin" [expanded] [ref=e750] [cursor=pointer]:
+        - generic [ref=e751]:
+          - img [ref=e752]
+          - generic [ref=e755]: Code Interpreter
+          - img [ref=e756]
+        - button "Pin" [ref=e759]:
+          - img [ref=e761]
+      - menu "Code Interpreter Pin" [ref=e779]:
+        - generic [ref=e780]: Pick the Anthropic code mode, then enable code interpreter.
+        - menuitem "LibreChat Use the local LibreChat code interpreter and local file handling." [active] [ref=e781] [cursor=pointer]:
+          - generic [ref=e782]:
+            - generic [ref=e783]: LibreChat
+            - generic [ref=e784]: Use the local LibreChat code interpreter and local file handling.
+          - generic:
+            - img
+        - menuitem "Anthropic native Send execute_code directly to Anthropic when no local code files are attached." [ref=e785] [cursor=pointer]:
+          - generic [ref=e786]:
+            - generic [ref=e787]: Anthropic native
+            - generic [ref=e788]: Send execute_code directly to Anthropic when no local code files are attached.
+    - menuitem "Artifacts Pin" [ref=e764] [cursor=pointer]:
+      - generic [ref=e765]:
+        - img [ref=e766]
+        - generic [ref=e769]: Artifacts
+        - img [ref=e770]
+      - button "Pin" [ref=e772]:
+        - img [ref=e774]

@@ -7,6 +7,53 @@ const { logAxiosError, generateShortLivedToken } = require('@librechat/api');
 const { getRagApiUrl } = require('./routing');
 const { getRagRequestConfig } = require('./auth');
 
+const RAG_REQUEST_TIMEOUT_MS = 120000;
+const RAG_MAX_RETRIES = 3;
+const RAG_INITIAL_BACKOFF_MS = 1000;
+
+/**
+ * Determines whether an axios error is retryable (server/network errors, not client errors).
+ * @param {Error} error
+ * @returns {boolean}
+ */
+function isRetryableError(error) {
+  if (!error.response) {
+    return true; // network error, timeout, ECONNREFUSED, etc.
+  }
+  const status = error.response.status;
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+/**
+ * Executes an async function with exponential backoff retry.
+ * @param {Function} fn - Async function to execute.
+ * @param {Object} options
+ * @param {number} [options.maxRetries=3]
+ * @param {number} [options.initialBackoffMs=1000]
+ * @param {string} [options.operationName='operation']
+ * @returns {Promise<*>}
+ */
+async function withRetry(fn, { maxRetries = RAG_MAX_RETRIES, initialBackoffMs = RAG_INITIAL_BACKOFF_MS, operationName = 'operation' } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries && isRetryableError(error)) {
+        const backoff = initialBackoffMs * Math.pow(2, attempt);
+        logger.warn(
+          `[VectorDB] ${operationName} failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${backoff}ms: ${error.message}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+      } else {
+        break;
+      }
+    }
+  }
+  throw lastError;
+}
+
 /**
  * Deletes a file from the vector database. This function takes a file object, constructs the full path, and
  * verifies the path's validity before deleting the file. If the path is invalid, an error is thrown.
@@ -29,14 +76,19 @@ const deleteVectors = async (req, file) => {
   try {
     const jwtToken = generateShortLivedToken(req.user.id);
 
-    return await axios.delete(`${ragApiUrl}/documents`, {
-      headers: {
-        Authorization: `Bearer ${jwtToken}`,
-        'Content-Type': 'application/json',
-        accept: 'application/json',
-      },
-      data: [file.file_id],
-    });
+    return await withRetry(
+      () =>
+        axios.delete(`${ragApiUrl}/documents`, {
+          headers: {
+            Authorization: `Bearer ${jwtToken}`,
+            'Content-Type': 'application/json',
+            accept: 'application/json',
+          },
+          data: [file.file_id],
+          timeout: RAG_REQUEST_TIMEOUT_MS,
+        }),
+      { operationName: 'deleteVectors' },
+    );
   } catch (error) {
     logAxiosError({
       error,
@@ -96,14 +148,19 @@ async function uploadVectors({ req, file, file_id, entity_id, endpointType, stor
 
     const formHeaders = formData.getHeaders();
 
-    const response = await axios.post(`${ragApiUrl}/embed`, formData, {
-      headers: {
-        Authorization: `Bearer ${jwtToken}`,
-        accept: 'application/json',
-        ...ragHeaders,
-        ...formHeaders,
-      },
-    });
+    const response = await withRetry(
+      () =>
+        axios.post(`${ragApiUrl}/embed`, formData, {
+          headers: {
+            Authorization: `Bearer ${jwtToken}`,
+            accept: 'application/json',
+            ...ragHeaders,
+            ...formHeaders,
+          },
+          timeout: RAG_REQUEST_TIMEOUT_MS,
+        }),
+      { operationName: 'uploadVectors' },
+    );
 
     const responseData = response.data;
     logger.debug('Response from embedding file', responseData);

@@ -1,0 +1,15 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - img "LibreChat Logo" [ref=e6]
+    - generic:
+      - generic:
+        - button "Toggle theme" [ref=e8] [cursor=pointer]:
+          - img [ref=e9]
+        - alert [ref=e11]
+    - main [ref=e12]
+  - complementary "React Query Devtools":
+    - button "Open React Query Devtools" [ref=e14] [cursor=pointer]:
+      - img [ref=e15]
+      - generic [ref=e21]: Open React Query Devtools
+  - region "Notifications (F8)":
+    - list

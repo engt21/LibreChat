@@ -168,6 +168,7 @@ const startServer = async () => {
   app.use('/api/realtime', routes.realtime);
   app.use('/api/tags', routes.tags);
   app.use('/api/mcp', routes.mcp);
+  app.use('/api/image-generation', routes.imageGeneration);
 
   /** 404 for unmatched API routes */
   app.use('/api', apiNotFound);

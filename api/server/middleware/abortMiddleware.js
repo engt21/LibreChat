@@ -6,6 +6,7 @@ const {
   GenerationJobManager,
   recordCollectedUsage,
   sanitizeMessageForTransmit,
+  filterMalformedContentParts,
 } = require('@librechat/api');
 const { isAssistantsEndpoint, ErrorTypes } = require('librechat-data-provider');
 const { saveMessage, getConvo, updateBalance, bulkInsertTransactions } = require('~/models');
@@ -91,6 +92,7 @@ async function abortMessage(req, res) {
   }
 
   const { jobData, content, text, collectedUsage } = abortResult;
+  const filteredContent = filterMalformedContentParts(content);
 
   const completionTokens = await countTokens(text);
   const promptTokens = jobData?.promptTokens ?? 0;
@@ -99,7 +101,7 @@ async function abortMessage(req, res) {
     messageId: jobData?.responseMessageId,
     parentMessageId: jobData?.userMessage?.messageId,
     conversationId: jobData?.conversationId,
-    content,
+    content: filteredContent,
     text,
     sender: jobData?.sender ?? 'AI',
     finish_reason: 'incomplete',

@@ -45,6 +45,57 @@ describe('filterMalformedContentParts', () => {
       expect(result).toEqual(parts);
     });
 
+    it('should drop Anthropic server web search tool uses without matching tool results', () => {
+      const parts = [
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_123',
+          name: 'web_search',
+          input: { query: 'latest news' },
+        },
+        { type: ContentTypes.TEXT, text: 'Final answer' },
+      ] as unknown as TMessageContentParts[];
+
+      const result = filterMalformedContentParts(parts);
+
+      expect(result).toEqual([{ type: ContentTypes.TEXT, text: 'Final answer' }]);
+    });
+
+    it('should keep paired Anthropic server web search tool use and result blocks', () => {
+      const parts = [
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_123',
+          name: 'web_search',
+          input: { query: 'latest news' },
+        },
+        {
+          type: 'web_search_tool_result',
+          tool_use_id: 'srvtoolu_123',
+          content: [{ type: 'web_search_result', title: 'Example', url: 'https://example.com' }],
+        },
+      ] as unknown as TMessageContentParts[];
+
+      const result = filterMalformedContentParts(parts);
+
+      expect(result).toEqual(parts);
+    });
+
+    it('should drop malformed Anthropic thinking blocks before history replay', () => {
+      const parts = [
+        { type: 'thinking' },
+        { type: 'thinking', thinking: 'valid thought', signature: 'sig_123' },
+        { type: ContentTypes.TEXT, text: 'Final answer' },
+      ] as unknown as TMessageContentParts[];
+
+      const result = filterMalformedContentParts(parts);
+
+      expect(result).toEqual([
+        { type: 'thinking', thinking: 'valid thought', signature: 'sig_123' },
+        { type: ContentTypes.TEXT, text: 'Final answer' },
+      ]);
+    });
+
     it('should filter out null or undefined parts', () => {
       const parts = [
         { type: ContentTypes.TEXT, text: 'Valid' },

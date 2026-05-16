@@ -10,6 +10,8 @@ const {
   isAgentsEndpoint,
   isEphemeralAgentId,
   encodeEphemeralAgentId,
+  ImageGenProvider,
+  imageGenProviderToolKey,
 } = require('librechat-data-provider');
 const { mcp_all, mcp_delimiter } = require('librechat-data-provider').Constants;
 const {
@@ -18,9 +20,11 @@ const {
   addAgentIdsToProject,
 } = require('./Project');
 const { removeAllPermissions } = require('~/server/services/PermissionService');
-const { getMCPServerTools } = require('~/server/services/Config');
+const { getMCPServerTools, cacheMCPServerTools } = require('~/server/services/Config');
 const { applyOllamaWebSearchMode } = require('~/server/services/Tools/ollama');
+const { reinitMCPServer } = require('~/server/services/Tools/mcp');
 const { Agent, AclEntry, User } = require('~/db/models');
+const { getMCPServersRegistry } = require('~/config');
 const { getActions } = require('./Action');
 
 /**
@@ -90,6 +94,64 @@ const getAgent = async (searchParameter) => await Agent.findOne(searchParameter)
 const getAgents = async (searchParameter) => await Agent.find(searchParameter).lean();
 
 /**
+ * Determines whether image generation should be wired into an ephemeral agent
+ * run and, if so, appends the correct tool key (based on user prefs and the
+ * current endpoint) to the tools array.
+ *
+ * @param {object} params
+ * @param {string} params.endpoint - Current request endpoint.
+ * @param {TEphemeralAgent | null | undefined} params.ephemeralAgent
+ * @param {TModelSpec | null} params.modelSpec
+ * @param {IUser | undefined} params.user - Authenticated request user.
+ * @param {string[]} params.tools - Mutable tools array that receives the selection.
+ */
+const applyImageGenerationTool = ({ endpoint, ephemeralAgent, modelSpec, user, tools }) => {
+  const prefs = user?.imageGenerationPrefs;
+  const toggledOn = ephemeralAgent?.image_generation === true;
+  const alwaysOn = prefs?.enabledByDefault === true;
+  const specOn = modelSpec?.imageGeneration === true;
+  if (!toggledOn && !alwaysOn && !specOn) {
+    return;
+  }
+
+  const normalizedEndpoint = (endpoint ?? '').toString().toLowerCase();
+  const preferredFromPrefs = prefs?.preferredProvider;
+
+  const candidates = [];
+  if (preferredFromPrefs) {
+    candidates.push(preferredFromPrefs);
+  }
+
+  if (normalizedEndpoint.includes('openai')) {
+    candidates.push(ImageGenProvider.openai);
+  } else if (normalizedEndpoint.includes('azure')) {
+    candidates.push(ImageGenProvider.azureOpenAI);
+  } else if (normalizedEndpoint.includes('xai')) {
+    candidates.push(ImageGenProvider.xai);
+  } else if (
+    normalizedEndpoint.includes('google') ||
+    normalizedEndpoint.includes('gemini') ||
+    normalizedEndpoint.includes('vertex')
+  ) {
+    candidates.push(ImageGenProvider.google);
+  }
+  candidates.push(ImageGenProvider.openai, ImageGenProvider.google, ImageGenProvider.flux);
+
+  const seenKeys = new Set();
+  for (const provider of candidates) {
+    const toolKey = imageGenProviderToolKey[provider];
+    if (!toolKey || seenKeys.has(toolKey)) {
+      continue;
+    }
+    seenKeys.add(toolKey);
+    if (!tools.includes(toolKey)) {
+      tools.push(toolKey);
+    }
+    return;
+  }
+};
+
+/**
  * Load an agent based on the provided ID
  *
  * @param {Object} params
@@ -125,6 +187,13 @@ const loadEphemeralAgent = async ({ req, spec, endpoint, model_parameters: _m })
   if (ephemeralAgent?.file_search === true || modelSpec?.fileSearch === true) {
     tools.push(Tools.file_search);
   }
+  applyImageGenerationTool({
+    endpoint,
+    ephemeralAgent,
+    modelSpec,
+    user: req.user,
+    tools,
+  });
   applyOllamaWebSearchMode({
     endpoint,
     ephemeralAgent,
@@ -141,7 +210,44 @@ const loadEphemeralAgent = async ({ req, spec, endpoint, model_parameters: _m })
       if (addedServers.has(mcpServer)) {
         continue;
       }
-      const serverTools = await getMCPServerTools(userId, mcpServer);
+      let serverTools = await getMCPServerTools(userId, mcpServer);
+      if (!serverTools) {
+        try {
+          const serverConfig = await getMCPServersRegistry().getServerConfig(mcpServer, userId);
+          if (serverConfig?.toolFunctions && Object.keys(serverConfig.toolFunctions).length > 0) {
+            serverTools = serverConfig.toolFunctions;
+          }
+        } catch (error) {
+          logger.debug?.(
+            `[loadEphemeralAgent] Failed to load registry toolFunctions for ${mcpServer}`,
+            error,
+          );
+        }
+      }
+      // Last resort: connect to the MCP server to discover and cache tools.
+      // This ensures scheduled runs and other non-interactive contexts resolve
+      // actual tool names instead of falling back to the mcp_all placeholder,
+      // which can cause tool-not-found errors during execution (VAL-MCP-001).
+      if (!serverTools) {
+        try {
+          const reinitResult = await reinitMCPServer({
+            user: req.user,
+            serverName: mcpServer,
+          });
+          if (reinitResult?.availableTools && Object.keys(reinitResult.availableTools).length > 0) {
+            serverTools = reinitResult.availableTools;
+            // Cache so subsequent lookups in the same request find the tools
+            cacheMCPServerTools({ userId, serverName: mcpServer, serverTools }).catch((err) =>
+              logger.debug?.(`[loadEphemeralAgent] Cache write failed for ${mcpServer}`, err),
+            );
+          }
+        } catch (reinitError) {
+          logger.debug?.(
+            `[loadEphemeralAgent] reinitMCPServer fallback failed for ${mcpServer}`,
+            reinitError,
+          );
+        }
+      }
       if (!serverTools) {
         tools.push(`${mcp_all}${mcp_delimiter}${mcpServer}`);
         addedServers.add(mcpServer);
@@ -935,4 +1041,5 @@ module.exports = {
   getListAgentsByAccess,
   removeAgentResourceFiles,
   generateActionMetadataHash,
+  applyImageGenerationTool,
 };

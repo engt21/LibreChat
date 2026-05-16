@@ -89,7 +89,8 @@ const keysEndpoint = `${BASE_URL}/api/keys`;
 
 export const keys = () => keysEndpoint;
 
-export const userKeyQuery = (name: string) => `${keysEndpoint}?name=${name}`;
+export const userKeyQuery = (name: string, includeValue = false) =>
+  `${keysEndpoint}?name=${name}${includeValue ? '&includeValue=true' : ''}`;
 
 export const revokeUserKey = (name: string) => `${keysEndpoint}/${name}`;
 
@@ -151,6 +152,14 @@ export const deletePreset = () => `${BASE_URL}/api/presets/delete`;
 export const aiEndpoints = () => `${BASE_URL}/api/endpoints`;
 
 export const models = () => `${BASE_URL}/api/models`;
+
+export const realtimeModels = () => `${BASE_URL}/api/realtime/models`;
+
+export const imageGenerationModels = () => `${BASE_URL}/api/image-generation/models`;
+
+export const imageGenerationPrefs = () => `${BASE_URL}/api/image-generation/prefs`;
+
+export const realtimeConversation = () => `${BASE_URL}/api/realtime/conversation`;
 
 export const tokenizer = () => `${BASE_URL}/api/tokenizer`;
 
@@ -295,6 +304,8 @@ export const revertAgentVersion = (agent_id: string) => `${agents({ path: `${age
 export const files = () => `${BASE_URL}/api/files`;
 export const fileUpload = () => `${BASE_URL}/api/files`;
 export const fileDelete = () => `${BASE_URL}/api/files`;
+export const fileTranscribe = () => `${BASE_URL}/api/files/transcribe`;
+export const fileTranscriptionReference = () => `${BASE_URL}/api/files/transcription-reference`;
 export const fileDownload = (userId: string, fileId: string) =>
   `${BASE_URL}/api/files/download/${userId}/${fileId}`;
 export const fileConfig = () => `${BASE_URL}/api/files/config`;
@@ -396,6 +407,7 @@ export const adminUsage = (params?: { q?: string; limit?: number }) =>
 export const adminSettings = () => `${admin()}/settings`;
 export const adminObservability = () => `${admin()}/observability`;
 export const adminRoles = () => `${admin()}/rbac/roles`;
+export const adminRefreshModels = () => `${admin()}/models/refresh`;
 
 /* Conversation Tags */
 export const conversationTags = (tag?: string) =>

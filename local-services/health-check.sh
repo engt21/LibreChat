@@ -191,63 +191,64 @@ docker stats --no-stream --format "{{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>/de
 
 echo
 
-# --- 5. Langfuse health per running rail ---
+# --- 5. Langfuse health ---
 echo -e "${BOLD}== Langfuse health ==${NC}"
 
-langfuse_checked=false
-for project in librechat-stable librechat-dev; do
-  rail="${project#librechat-}"
+stable_running=false
+if docker ps --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | grep -q '^librechat-stable$'; then
+  stable_running=true
+fi
 
-  # Determine whether this rail is running by checking if ANY container belongs
-  # to its compose project.  Using 'docker ps' (not 'docker ps -a') so that
-  # intentionally stopped rails are skipped — stopped containers still appear
-  # in 'docker ps -a'.  When the rail IS running, every Langfuse component is
-  # checked; a missing or stopped component on a running rail is reported as
-  # unhealthy instead of being silently skipped.
-  rail_running=false
-  if docker ps --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | grep -q "^${project}$"; then
-    rail_running=true
-  fi
-  if ! $rail_running; then
-    continue
-  fi
-  langfuse_checked=true
-
-  langfuse_ok=true
+if $stable_running; then
+  stable_ok=true
   for svc in langfuse-clickhouse-1 langfuse-postgres-1 langfuse-redis-1 langfuse-minio-1 langfuse-web-1 langfuse-worker-1; do
-    cname="${project}-${svc}"
+    cname="librechat-stable-${svc}"
     status="$(docker inspect "$cname" --format '{{.State.Status}}' 2>/dev/null || echo "missing")"
     health="$(docker inspect "$cname" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' 2>/dev/null || echo "unknown")"
     restarts="$(docker inspect "$cname" --format '{{.RestartCount}}' 2>/dev/null || echo "?")"
 
-    label="$svc"
     if [[ "$status" != "running" ]]; then
-      echo -e "  ${RED}[$rail] $label: status=$status (restarts=$restarts)${NC}"
-      langfuse_ok=false
+      echo -e "  ${RED}[stable] $svc: status=$status (restarts=$restarts)${NC}"
+      stable_ok=false
     elif [[ "$health" == "unhealthy" ]]; then
-      echo -e "  ${RED}[$rail] $label: unhealthy (restarts=$restarts)${NC}"
-      langfuse_ok=false
+      echo -e "  ${RED}[stable] $svc: unhealthy (restarts=$restarts)${NC}"
+      stable_ok=false
     elif [[ "$restarts" =~ ^[0-9]+$ ]] && [[ "$restarts" -gt 2 ]]; then
-      echo -e "  ${YELLOW}[$rail] $label: running but restart count=$restarts${NC}"
-      langfuse_ok=false
+      echo -e "  ${YELLOW}[stable] $svc: running but restart count=$restarts${NC}"
+      stable_ok=false
     elif [[ "$health" == "healthy" || "$health" == "no-healthcheck" ]]; then
-      echo -e "  ${GREEN}[$rail] $label: $health (restarts=$restarts)${NC}"
+      echo -e "  ${GREEN}[stable] $svc: $health (restarts=$restarts)${NC}"
     else
-      echo -e "  ${YELLOW}[$rail] $label: status=$status health=$health (restarts=$restarts)${NC}"
+      echo -e "  ${YELLOW}[stable] $svc: status=$status health=$health (restarts=$restarts)${NC}"
     fi
   done
 
-  if ! $langfuse_ok; then
-    echo -e "  ${RED}[$rail] Langfuse is NOT healthy — dev validation evidence cannot be trusted until resolved.${NC}"
+  if ! $stable_ok; then
+    echo -e "  ${RED}[stable] Shared Langfuse is NOT healthy — traceability evidence cannot be trusted until resolved.${NC}"
     exit_code=1
   else
-    echo -e "  ${GREEN}[$rail] Langfuse components all healthy.${NC}"
+    echo -e "  ${GREEN}[stable] Shared Langfuse components all healthy.${NC}"
   fi
-  echo
-done
+else
+  echo -e "  ${YELLOW}[stable] Shared Langfuse is not running.${NC}"
+fi
 
-if ! $langfuse_checked; then
-  echo -e "  ${YELLOW}No Langfuse containers detected on any rail.${NC}"
+echo
+
+if docker ps --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | grep -q '^librechat-dev$'; then
+  dev_langfuse="$(docker ps --format '{{.Names}}' 2>/dev/null | grep '^librechat-dev-langfuse-' || true)"
+  if [[ -n "$dev_langfuse" ]]; then
+    echo -e "  ${RED}[dev] Local Langfuse containers are still running, but dev should reuse stable telemetry:${NC}"
+    while IFS= read -r name; do
+      [[ -n "$name" ]] && echo "    - $name"
+    done <<< "$dev_langfuse"
+    exit_code=1
+  elif $stable_running; then
+    echo -e "  ${GREEN}[dev] Local Langfuse is intentionally disabled; dev reuses stable Langfuse on host port 3000.${NC}"
+  else
+    echo -e "  ${YELLOW}[dev] Local Langfuse is intentionally disabled, but stable Langfuse is down; dev traces will fail until stable is started.${NC}"
+    exit_code=1
+  fi
   echo
 fi
 

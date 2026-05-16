@@ -34,6 +34,7 @@ const {
   createResponsesToolEndCallback,
   createToolEndCallback,
 } = require('~/server/controllers/agents/callbacks');
+const { maybeRefreshGoogleVertexModelAccess } = require('~/server/controllers/agents/googleVertexRefresh');
 const { loadAgentTools, loadToolsForExecution } = require('~/server/services/ToolService');
 const { findAccessibleResources } = require('~/server/services/PermissionService');
 const { getConvoFiles, saveConvo, getConvo } = require('~/models/Conversation');
@@ -328,6 +329,7 @@ const createResponse = async (req, res) => {
     }
   });
 
+  let primaryConfig;
   try {
     if (request.previous_response_id != null) {
       if (typeof request.previous_response_id !== 'string') {
@@ -365,7 +367,7 @@ const createResponse = async (req, res) => {
     /** @type {Array<import('@librechat/data-schemas').IMongoFile>} */
     const requestFiles = req.body.files ?? [];
 
-    const primaryConfig = await initializeAgent(
+    primaryConfig = await initializeAgent(
       {
         req,
         res,
@@ -778,6 +780,15 @@ const createResponse = async (req, res) => {
       );
     }
   } catch (error) {
+    void maybeRefreshGoogleVertexModelAccess({
+      error,
+      provider: primaryConfig?.provider ?? agent.provider,
+      clientOptions: primaryConfig?.model_parameters ?? agent.model_parameters,
+      model:
+        primaryConfig?.model ??
+        primaryConfig?.model_parameters?.model ??
+        agent.model_parameters?.model,
+    });
     const errorMessage = error instanceof Error ? error.message : 'An error occurred';
     logger.error('[Responses API] Error:', error);
 

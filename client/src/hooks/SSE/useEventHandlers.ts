@@ -19,6 +19,7 @@ import type {
   TConversation,
   EventSubmission,
   TStartupConfig,
+  TMessageContentParts,
 } from 'librechat-data-provider';
 import type { TResData, TFinalResData, ConvoGenerator } from '~/common';
 import type { InfiniteData } from '@tanstack/react-query';
@@ -363,7 +364,7 @@ export default function useEventHandlers({
           {
             type: ContentTypes.WEB_SEARCH_STATUS,
             web_search_status: 'searching',
-          } as (typeof initialResponse.content)[0],
+          } as TMessageContentParts,
         ];
       }
 

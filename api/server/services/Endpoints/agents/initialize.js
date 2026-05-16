@@ -194,6 +194,12 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
   /** @type {string | undefined} */
   const parentMessageId = req.body.parentMessageId;
 
+  // Preserve original provider before initializeAgent, which may override
+  // agent.provider to an API-compatible value (e.g. 'ollama' -> 'openAI').
+  // The ON_TOOL_EXECUTE callback needs the original provider to correctly
+  // detect endpoint-specific tool modes such as Ollama native web search.
+  const originalProvider = primaryAgent.provider;
+
   const primaryConfig = await initializeAgent(
     {
       req,
@@ -221,6 +227,10 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
       getCodeGeneratedFiles: db.getCodeGeneratedFiles,
     },
   );
+
+  // Restore original provider so endpoint-specific tool routing works
+  // during ON_TOOL_EXECUTE callbacks (e.g. Ollama native web search).
+  primaryAgent.provider = originalProvider;
 
   logger.debug(
     `[initializeClient] Storing tool context for ${primaryConfig.id}: ${primaryConfig.toolDefinitions?.length ?? 0} tools, registry size: ${primaryConfig.toolRegistry?.size ?? '0'}`,
@@ -260,6 +270,8 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
       throw new Error(validationResult.error?.message);
     }
 
+    const handoffOriginalProvider = agent.provider;
+
     const config = await initializeAgent(
       {
         req,
@@ -286,6 +298,9 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
         getCodeGeneratedFiles: db.getCodeGeneratedFiles,
       },
     );
+
+    // Restore original provider (same reason as primary agent above)
+    agent.provider = handoffOriginalProvider;
 
     if (userMCPAuthMap != null) {
       Object.assign(userMCPAuthMap, config.userMCPAuthMap ?? {});

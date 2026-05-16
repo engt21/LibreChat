@@ -319,6 +319,14 @@ export function normalizeJsonSchema<T extends Record<string, unknown>>(schema: T
     }
   }
 
+  if (
+    result.type === 'object' &&
+    result.properties == null &&
+    result.additionalProperties == null
+  ) {
+    result.properties = {};
+  }
+
   return result as T;
 }
 

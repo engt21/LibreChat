@@ -52,7 +52,7 @@ The custom work in this branch falls into these main buckets:
 1. Admin console, RBAC, superadmin sync, and live app settings
 2. Scheduled runs and notifications
 3. Default per-user model access restrictions plus admin overrides
-4. Provider-native tools for OpenAI/Azure/Gemini
+4. Provider-native tools plus Anthropic live model discovery and capability-aware settings
 5. OpenAI/Azure plus Google Gemini model-family capability-aware settings
 6. xAI custom-endpoint live model discovery and capability-aware settings
 7. Ollama multi-source model discovery, hosted web search, and reasoning controls
@@ -65,6 +65,10 @@ The custom work in this branch falls into these main buckets:
 14. Background audio/video transcription with persistent conversations
 15. Google auth mode support (API key, Vertex service account, Vertex ADC)
 16. Math and computation tools (Scientific Calculator + Code Interpreter Math)
+17. Runtime librechat.yaml interface, modelSpecs quick-selector, and endpoint configuration
+18. Auth cookie and session hardening for plain-HTTP LAN deployments
+19. UX bug fixes: stop button persistence, badge row visibility, pinned model reset
+20. User-managed image generation: per-provider model discovery, settings tab, chat-bar toggle, and ephemeral-agent auto-injection
 
 ---
 
@@ -81,17 +85,28 @@ The custom work in this branch falls into these main buckets:
 - syncing allowlisted `SUPERADMIN_EMAILS` into admin role membership on startup/login/auth flows
 - a super-admin-only API-key settings cog in the chat model picker so super admins can always unset/update key expiry at the provider level, excluding `My Agents`
 - reopening that provider settings cog now reloads saved provider values so super admins can edit only the field that changed instead of re-entering the whole config
+- user API-key updates/revokes invalidate server-side model discovery caches (`MODEL_QUERIES`, `MODELS_CONFIG`, startup refresh latch) and client-side `models`/`endpoints`/`startupConfig` queries so BYOK OpenAI/Anthropic model lists refresh immediately after key rotation
+- an admin-managed platform system prompt, stored in `AppSettings.platformPrompt`, that super admins edit from Workspace settings and the server prepends ahead of preset/user/agent instructions for Assistants and Agents
+- a "Model discovery" section in the admin console with a "Refresh all providers" button plus per-provider refresh buttons; this drops the `MODEL_QUERIES` and `MODELS_CONFIG` caches, resets the in-process startup-refresh latch, and re-runs `loadModels` so freshly released models (e.g., `gpt-5.5`, `gpt-5.5-pro`) appear in the picker without restarting the server. Backed by `POST /api/admin/models/refresh` (gated by `AdminPermissions.SETTINGS_WRITE`)
+- merge-mode resolution for env-pinned model lists (`OPENAI_MODELS`, `ANTHROPIC_MODELS`, `GOOGLE_MODELS`, `AZURE_OPENAI_MODELS`, etc.). Each `*_MODELS` env var is paired with a `*_MODELS_MODE` knob (`override` (default) or `merge`). In merge mode, the env list is preserved at the front and unioned (deduped, optionally filtered for OpenAI text-compatibility) with anything live discovery returns, so newly released provider models surface after the admin refresh button without dropping curated env-pinned ids. Discovery failures fall back to the env list verbatim. BYOK OpenAI/Anthropic discovery uses the resolved per-user key/base URL with user-scoped cache keys and never tries to use the `user_provided` sentinel as a live API key. Custom YAML endpoints (xAI/Ollama/etc.) get an analogous resolution: `endpoint.models.mode` (YAML) → `CUSTOM_MODELS_MODE` env → xAI defaults to `merge`, others default to `override`
+- version-descending sort for the merged OpenAI/Anthropic/Google model lists. Each provider has a `getXxxModelVersionScore` + `sortXxxModelsByVersion` helper in `packages/api/src/endpoints/models.ts` that ranks model ids by extracted `<major>.<minor>` so that newer frontier ids (e.g., `gpt-5.5-pro-2026-04-23`) sit at the top of the chat picker rather than appended after legacy `gpt-3.5/gpt-4` entries the live API returns earlier. `*-instruct` always sinks to the very bottom and Azure deployments preserve admin-curated order (no auto-sort) since deployment names are operator-controlled.
 
 #### Key files
 
 Backend:
 
 - `api/server/controllers/AdminController.js`
+- `api/server/controllers/ModelController.js`
+- `api/server/services/Models/refreshModels.js`
+- `api/server/routes/keys.js`
+- `api/server/services/Models/refreshModels.spec.js`
 - `api/server/routes/admin/index.js`
 - `api/server/middleware/adminAccess.js`
+- `api/server/middleware/buildEndpointOption.js`
 - `api/server/services/Admin/appSettings.js`
 - `api/server/services/Admin/permissions.js`
 - `api/server/services/Admin/superadmin.js`
+- `api/server/controllers/agents/client.js`
 - `api/server/middleware/validateRegistration.js`
 - `api/models/index.js`
 - `config/sync-superadmins.js`
@@ -106,7 +121,9 @@ Frontend/shared:
 - `client/src/data-provider/Admin/index.ts`
 - `client/src/data-provider/Admin/mutations.ts`
 - `client/src/data-provider/Admin/queries.ts`
+- `packages/api/src/agents/context.ts`
 - `packages/data-provider/src/admin.ts`
+- `packages/data-provider/src/react-query/react-query-service.ts`
 - `packages/data-schemas/src/schema/adminRole.ts`
 - `packages/data-schemas/src/schema/appSettings.ts`
 - `packages/data-schemas/src/types/adminRole.ts`
@@ -117,9 +134,28 @@ Frontend/shared:
 - `/api/admin` route mounting and middleware
 - `SUPERADMIN_EMAILS` sync behavior
 - DB-backed app settings and registration gating
+- `AppSettings.platformPrompt` normalization, admin UI wiring, and prompt-prepend behavior in `buildEndpointOption` plus `packages/api/src/agents/context.ts`
 - host-aware admin observability links
 - admin console UI and its data-provider wiring
 - super-admin-only model-picker API-key settings access
+- `POST /api/admin/models/refresh` route, the `refreshModels` service, the lazy-required call site inside `AdminController.refreshAdminModelsController`, and the exported `resetStartupModelRefresh` helper from `ModelController.js`
+- `PUT`/`DELETE /api/keys` cache invalidation for model discovery and client query invalidation after user-key mutations
+- the "Model discovery" section in `AdminConsole.tsx` plus the `useRefreshAdminModelsMutation` hook and its `adminRefreshModels` endpoint helper
+- the `resolveModelsListMode` and `unionWithLiveDiscovery` helpers in `packages/api/src/endpoints/models.ts` and the `*_MODELS_MODE` env conventions documented in `.env`
+- the `resolveCustomEndpointModelsMode` helper inside `api/server/services/Config/loadConfigModels.js` (xAI default-merge cascade, YAML/env override surface)
+- the `getOpenAIModelVersionScore` / `sortOpenAIModelsByVersion` (and Anthropic/Google equivalents) helpers in `packages/api/src/endpoints/models.ts` AND every call-site that uses them (currently `fetchOpenAIModels`, the `getOpenAIModels` merge branch, the `getAnthropicModels` merge branch, and the `getGoogleModels` merge branch). Removing any of those sort calls reverts the picker to chronological order from the live API, which is what triggered the original "gpt-5.5 below gpt-4" bug.
+
+#### Lessons learned
+
+- The admin "Refresh models" flow lazy-requires `~/server/services/Models/refreshModels` from inside `refreshAdminModelsController` so the existing `AdminController` spec suites (which mock only a minimal `librechat-data-provider` and a thin `ModelController`) keep loading without having to also mock the cache layer. Keep this require lazy on future merges.
+- A successful refresh must invalidate `[QueryKeys.models]`, `[QueryKeys.endpoints]`, and `[QueryKeys.startupConfig]` on the client so the chat picker, endpoint list, and startup config all pick up the new models.
+- User-key updates must invalidate the same model/startup caches as the admin refresh flow. Otherwise a rotated Anthropic/OpenAI BYOK key can be saved successfully while stale server `MODEL_QUERIES`/`MODELS_CONFIG` results continue hiding newly released models until process restart.
+- The platform prompt must be prepended, not appended: Assistants merge it before `promptPrefix`, and Agents pass it into `buildAgentInstructions` before shared run context, agent/user instructions, and MCP instructions.
+- `OPENAI_MODELS` / `ANTHROPIC_MODELS` / `GOOGLE_MODELS` short-circuit live discovery in `getOpenAIModels`/`getAnthropicModels`/`getGoogleModels` whenever they are set. Without `*_MODELS_MODE=merge`, even the admin refresh button cannot surface newer models (e.g., `gpt-5.5`) because the env list strictly overrides discovery. The dev/stable `.env` ships with `OPENAI_MODELS_MODE=merge` and `GOOGLE_MODELS_MODE=merge`. `ANTHROPIC_MODELS_MODE=merge` is supported but disabled by default (no `ANTHROPIC_MODELS` is currently set).
+- In merge mode we explicitly pass `[]` as the seed to `fetchOpenAIModels`/`fetchAnthropicModels` so a discovery failure returns `[]` (which `unionWithLiveDiscovery` treats as fallback). Passing the static defaults as the seed would cause failed discoveries to leak the upstream default list into the merged result.
+- For OpenAI (non-Azure), the merged list runs through `filterOpenAITextCompatibleModels` to drop audio/realtime/embedding/image variants the chat path cannot use. Azure deployments skip the filter because deployment names are admin-controlled and may not match the OpenAI-id heuristic.
+- **Model picker ordering must be version-descending, not API-creation order.** The OpenAI `/v1/models` endpoint returns ids in a roughly chronological-by-creation order (often `gpt-3.5-turbo` → `gpt-4*` → `gpt-4o*` → newer ids). When merge mode appended live results to a curated env list, freshly-released models like `gpt-5.5-pro-2026-04-23` ended up far below `gpt-4` and `gpt-3.5-turbo` in the picker. The fix is the `sortOpenAIModelsByVersion` helper, applied in BOTH `fetchOpenAIModels` (live-only path) AND `getOpenAIModels` merge-mode (post-union). If you ever add a new code path that surfaces model ids to the client, run it through the corresponding `sortXxxModelsByVersion` helper before returning. Equivalent helpers exist for Anthropic and Google. Azure deployments are intentionally NOT auto-sorted because deployment names (e.g. `gpt5-prod`) are operator-controlled and the configured order is meaningful.
+- The version sort is intentionally regex-based, not an explicit allow-list, so it keeps working as OpenAI ships new families (`gpt-5.5`, `gpt-5.6`, `o5`, ...). The score is `major*100 + minor` for `gpt-X.Y` / `chatgpt-X.Y` and `N*100` for `oN` reasoning models, so `o4-mini` ≈ `gpt-4` and both rank below `gpt-5*`. Unknown ids return `-1` and sort to the end (above instruct).
 
 ---
 
@@ -208,8 +244,8 @@ Frontend/shared:
 
 - `azureOpenAI`: all models
 - `ollama`: all discovered Ollama models (local + cloud)
-- `openAI`: `gpt-5.3-chat-latest`, `gpt-5.4-mini`, `gpt-5.4-nano`
-- `anthropic`: sonnet 4.5/4.6, all haiku, all claude 3.x (no opus)
+- `openAI`: `gpt-5*`
+- `anthropic`: `claude-opus-4-*`, `claude-sonnet-4-*`, `claude-haiku-4-*`, plus explicit current 4.x entries and legacy Claude 3.x/Haiku defaults
 - `xai`: `grok-4-1-fast`
 
 #### Key files
@@ -236,16 +272,26 @@ Frontend/shared:
 - default-permission assignment on all user-creation paths
 - model filtering for returned config/model lists
 - server-side model validation enforcement in message/agent/assistant flows
+- per-model wildcard matching for both filtering and validation so new frontier model IDs are not hidden from non-admin users solely because the static allowlist predates the provider release
 
 ---
 
-### 3.4 Provider-native tools for OpenAI/Azure/Gemini
+### 3.4 Provider-native tools plus Anthropic live discovery and capability-aware settings
 
 #### What it adds
 
 - routes chat-bar tool toggles to provider-native capabilities when supported
 - native handling for OpenAI/Azure web search, code interpreter, and file search
 - native handling for Gemini search/code execution where safe
+- live Anthropic model discovery from Anthropic's models endpoint, with normalized capability metadata exposed to startup config
+- Anthropic model picker quick-select ordering driven by the live model list so newest/highest-tier Claude models float to the top automatically
+- capability-aware Anthropic sidebar and agent-builder parameter rendering for thinking, fixed thinking budgets vs adaptive effort, sampling controls, prompt caching, service tier, web search, and file token limits
+- native Anthropic web search and native Anthropic code execution when the selected Claude model supports them
+- server-side model capability gating for OpenAI/Anthropic native tools so unsupported model/tool combinations remain on the structured/local fallback path instead of being sent as invalid provider-native requests
+- Anthropic web-search history sanitization drops orphaned `server_tool_use` web-search blocks that no longer have a matching `web_search_tool_result`, preventing invalid replay errors on subsequent Claude turns
+- Anthropic thinking-block sanitization drops incomplete `thinking` blocks before DB save and runtime request replay, preventing Claude history requests from failing with `messages.*.content.*.thinking.thinking: Field required` after interrupted native-tool streams
+- dual Anthropic code-interpreter routing: users can keep using the local LibreChat code interpreter or switch to Anthropic-native code execution on a per-chat basis
+- local file uploads remain on LibreChat storage for Anthropic chats, and provider-native code execution automatically falls back to the local code interpreter when local code files are attached
 - file metadata tagging for native-tool flows
 - OpenAI-native file/vector-store mirror behavior
 - patches OpenAI/Azure Responses reasoning-summary handling to use completed summary parts and avoids fragmented thought boxes
@@ -258,16 +304,39 @@ Frontend/shared:
 
 - `packages/api/src/agents/nativeTools.ts`
 - `packages/api/src/agents/initialize.ts`
+- `packages/api/src/endpoints/models.ts`
+- `packages/api/src/endpoints/anthropic/helpers.ts`
+- `packages/api/src/endpoints/anthropic/llm.ts`
 - `packages/api/src/agents/resources.ts`
+- `packages/api/src/utils/content.ts`
 - `api/server/controllers/agents/client.js`
+- `api/server/controllers/ModelController.js`
+- `api/server/routes/config.js`
 - `api/server/services/Endpoints/agents/initialize.js`
 - `api/server/services/Endpoints/agents/addedConvo.js`
 - `api/server/services/Files/process.js`
 - `api/app/clients/BaseClient.js`
 - `client/src/Providers/BadgeRowContext.tsx`
+- `client/src/components/Chat/Input/CodeInterpreterSubMenu.tsx`
 - `client/src/components/Chat/Input/ToolsDropdown.tsx`
+- `client/src/components/Chat/Menus/Endpoints/components/EndpointItem.tsx`
+- `client/src/components/SidePanel/Parameters/Panel.tsx`
+- `client/src/components/SidePanel/Agents/ModelPanel.tsx`
 - `client/src/hooks/Files/useFileHandling.ts`
 - `client/src/utils/endpoints.ts`
+- `client/src/utils/localStorage.ts`
+- `client/src/utils/timestamps.ts`
+- `packages/data-provider/src/anthropic.ts`
+- `packages/data-provider/src/parameterSettings.ts`
+- `packages/data-provider/src/config.ts`
+- `packages/data-provider/src/types.ts`
+- `packages/data-provider/src/schedules.ts`
+- `packages/data-provider/src/schemas.ts`
+- `packages/data-schemas/src/schema/defaults.ts`
+- `packages/data-schemas/src/schema/preset.ts`
+- `packages/data-schemas/src/types/convo.ts`
+- `packages/data-schemas/src/types/scheduledJob.ts`
+- `api/server/controllers/ScheduledJobsController.js`
 - `packages/data-schemas/src/schema/file.ts`
 - `packages/data-schemas/src/types/file.ts`
 - `packages/data-schemas/src/methods/file.ts`
@@ -296,6 +365,13 @@ Frontend/shared:
 - `config/apply-runtime-patches.js` must keep the stream-target validation guard that rejects any web-search status patch referencing `stepKey` before the local `stepKey` declaration
 - the install/build pipeline must continue patching `@librechat/agents` during `npm install`, because host-side `node_modules` edits are excluded from the Docker build context
 - Gemini fallback logic when native + structured tools would conflict
+- OpenAI and Anthropic native-tool selection must remain model-aware, not just provider-aware; provider-native tools should only be selected when the selected model capability metadata explicitly allows the requested tool
+- Anthropic server-tool history filtering must preserve paired `server_tool_use`/`web_search_tool_result` blocks but drop orphaned web-search server-tool blocks before replaying conversation history
+- Anthropic thinking-block history filtering must continue to drop partial `type: 'thinking'` blocks that lack non-empty `thinking` or `signature` fields; valid signed thinking blocks must be preserved exactly
+- Anthropic live-model discovery, quick-select sorting, and startup capability metadata
+- Anthropic code-execution mode persistence (`librechat` vs `provider_native`) for chat and scheduled-run flows
+- Anthropic provider-native code execution must continue to fall back to the local LibreChat interpreter when local code files are attached
+- Anthropic parameter gating must continue to treat the model's default thinking state as authoritative when the conversation has not yet persisted an explicit `thinking` value
 - client capability detection and UI routing
 
 #### Lessons learned
@@ -307,6 +383,8 @@ Frontend/shared:
 - 2026-04-06 Langfuse Azure model naming: The `@langfuse/langchain` `CallbackHandler.extractModelNameFromMetadata()` reads `response_metadata.model_name` from the API response at generation END, overwriting the correct `azure-openai/gpt-5.4-mini` model name set at generation START via `invocationParams`. Azure API responses return bare model names without the `azure-openai/` prefix. Fix: disable `extractModelNameFromMetadata` (return `undefined`) in `@langfuse/langchain` so the START event model name from `invocationParams` is preserved. Patch added to `config/apply-runtime-patches.js` under `langfusePatchTargets`. Root cause chain: `AzureChatOpenAI.invocationParams()` → sets `params.model = 'azure-openai/X'` ✓ → Langfuse START uses it ✓ → Azure API responds with `model: 'X'` → Langfuse END overwrites with bare `'X'` ✗.
 - 2026-04-06 Ollama Cloud 401 unauthorized: Single `apiKey: '${OLLAMA_API_KEY}'` was shared across local and cloud `baseURLs`. Cloud (`ollama.com/v1/`) requires user-provided auth keys, while local Ollama needs none. Fix: split into two separate custom endpoints in `librechat.yaml` — "Ollama" (local, server key `${OLLAMA_MULTI_API_KEY}`, `baseURL` + `baseURLs` for local instances only, `models.default` listing actually-running local models) and "Ollama Cloud" (`apiKey: 'user_provided'`, `baseURL: 'https://ollama.com/v1/'`, `models.default` with available cloud models from API key). Notes: (1) `models.default` array is required by Zod validation — omitting it crashes startup. (2) After splitting endpoints, the `☁` cloud tagging in `loadConfigModels.js` becomes inert for the local endpoint (no cloud URL → `hasCloudURL` is false) but users may see stale `☁`-tagged models from browser cache until they hard-refresh. (3) Local model names include the tag suffix (e.g. `qwen3:14b`) — these must match exactly what `ollama list` reports on `192.168.50.201`. (4) Set `fetch: false` for local Ollama — `fetch: true` pulls ALL 14 models from `/v1/models` API regardless of the `default` list, showing models like `gemini-3-flash-preview:latest` which are cloud-only stubs and fail locally with "unauthorized". (5) For Ollama Cloud, `fetch: true` is inert because `apiKey: 'user_provided'` is detected and fetch is skipped; only the `default` list is shown.
 - 2026-04-06 Ollama agents "empty_messages" context window error: Agents endpoint uses `@librechat/api` `initializeAgent()` to calculate `maxContextTokens`. For Ollama/custom endpoints, `providerEndpointMap` has no entry, so `getModelMaxTokens()` returns `undefined` and the fallback was only 18000 tokens. With system instructions, tool schemas, and MCP tool definitions all counted against this budget, even a simple "hi" message could be pruned. Fix: increased the fallback from 18000 to 128000 in `packages/api/dist/index.js` (both `optionalChainWithEmptyCheck` fallback and `agentMaxContextNum` fallback). Patch added to `config/apply-runtime-patches.js` under `librechatApiPatchTargets`.
+- 2026-04-16 Anthropic default-thinking mismatch: the UI can render Claude's default `thinking` state before the conversation or agent model parameters store an explicit `thinking` boolean. Capability gating must therefore resolve Anthropic thinking from the parameter definition default when `thinking` is still `undefined`; otherwise the panel can show `Thinking` as checked while dependent controls still behave as if thinking were off.
+- 2026-05-13 Anthropic interrupted-tool replay failure: cancelling or interrupting a Claude native-tool/web-search stream can leave an incomplete `type: 'thinking'` block in message history. Replaying that history without `thinking` and `signature` fields causes Anthropic to reject the next request with `messages.*.content.*.thinking.thinking: Field required`. Fix: `packages/api/src/utils/content.ts` filters malformed thinking blocks before storage, and `config/apply-runtime-patches.js` patches `@librechat/agents` Anthropic `message_inputs` (src/ESM/CJS) to skip malformed thinking blocks at request-build time. Keep both layers; the runtime patch protects already-saved broken chats and the storage filter prevents new malformed history from persisting.
 
 ---
 
@@ -316,21 +394,30 @@ Frontend/shared:
 
 - model-family capability resolution for OpenAI/Azure settings, side-panel parameters, and agent model parameters
 - GPT-5/o-series/search-preview-aware parameter gating for reasoning effort, sampling controls, stop sequences, verbosity, Responses API behavior, and provider-native web search
-- live Gemini model discovery when `GOOGLE_MODELS` is not explicitly set
+- live Gemini discovery for API-key mode
+- lazy Vertex callable discovery: normal selector/config loads stay cheap and use configured/default Google models until a real Vertex access failure occurs, then the server probes callable publisher models and caches the callable union
+- multi-location Vertex callable discovery across the configured preferred location plus official Google model locations, with per-model `vertexLocation` / `vertexLocations` metadata
+- selector-cache invalidation after a successful Vertex refresh so the next `/api/config` load swaps stale fallback models for the refreshed callable union without a process restart
+- Vertex callable-model filtering so inaccessible publisher models never remain in the selector after refresh
 - capability metadata for Google models exposed into startup config
 - capability-aware Google settings UI
 - Gemini grounding metadata mapped into the existing citations / sources UX
-- per-model reasoning setting behavior for Gemini model families
+- per-model reasoning setting behavior for Gemini model families, including stripping default thinking controls from models like `gemini-2.5-flash-lite` that do not support them
 - stricter Gemini Search grounding allowlisting so older or unsupported Gemini/Gemma families do not expose unsupported `web_search` toggles
 
 #### Key files
 
 - `packages/data-provider/src/openai.ts`
 - `packages/api/src/endpoints/models.ts`
+- `packages/api/src/endpoints/google/initialize.ts`
 - `packages/api/src/endpoints/google/llm.ts`
 - `packages/api/src/endpoints/openai/llm.ts`
 - `packages/data-provider/src/google.ts`
 - `api/server/routes/config.js`
+- `api/server/controllers/agents/googleVertexRefresh.js`
+- `api/server/controllers/agents/client.js`
+- `api/server/controllers/agents/openai.js`
+- `api/server/controllers/agents/responses.js`
 - `client/src/components/Endpoints/Settings/OpenAI.tsx`
 - `client/src/components/Endpoints/Settings/Google.tsx`
 - `client/src/components/SidePanel/Parameters/Panel.tsx`
@@ -343,9 +430,13 @@ Frontend/shared:
 - OpenAI model-family capability heuristics for GPT-5/o-series/search-preview variants
 - OpenAI settings/sidebar/agent-panel parameter disablement reasons and reasoning-effort option narrowing
 - OpenAI request sanitization for unsupported sampling, stop, reasoning summary, verbosity, and Responses API requirements
-- dynamic discovery behavior when `GOOGLE_MODELS` is unset
+- API-key live discovery plus lazy failure-triggered Vertex discovery; do not regress back to eager all-location probing on every selector/config load
+- multi-location Vertex probing with per-model `vertexLocation` / `vertexLocations` metadata and stable ordering
+- selector cache invalidation after refresh so stale fallback lists are replaced on the next config fetch
+- lightweight `countTokens` Vertex probe filtering so inaccessible models are never surfaced in the picker after refresh
 - `googleModelCapabilities` startup-config surface
 - capability-aware settings behavior and disablement reasons
+- per-model thinking sanitization for unsupported Gemini families
 - stricter Gemini Search grounding allowlist in both UI and request builder
 - grounding-to-citation translation pipeline
 
@@ -358,11 +449,14 @@ Frontend/shared:
 - auto-detects xAI custom endpoints from endpoint name, `*.x.ai` base URLs, or explicit `defaultParamsEndpoint: 'xai'`
 - the local `librechat.yaml` now includes a dedicated `xai` custom endpoint with a user-provided-key flow, bootstrap default models, and live discovery refresh after a user key is saved
 - fetches live xAI model metadata from `/v1/language-models`
+- **resilient xAI model discovery**: when `/v1/language-models` returns 403 (observed for some key tiers), `fetchXAIModelCapabilities` falls back to the standard OpenAI-compatible `/v1/models` listing, builds id-only capability entries, and still applies the text-compat filter
+- **defaults-union for xAI**: `loadConfigModels` unions the endpoint's `models.default` list with live discovery output so the operator-curated Grok models are always visible in the picker, even if the live API returns a partial set
 - filters the picker to text-compatible xAI chat models while preserving aliases
 - publishes per-endpoint xAI capability metadata into startup config as `xaiModelCapabilities`
 - adds a dedicated xAI settings panel instead of reusing the generic OpenAI custom-endpoint surface
 - applies capability-aware setting disablement in the endpoint modal, the main parameter side panel, and the agent model panel
 - normalizes outgoing xAI requests for Responses API behavior and strips unsupported parameters per model family
+- **xAI web_search routing fix**: `getOpenAILLMConfig` now has a dedicated xAI branch that forces `useResponsesApi = true` before pushing `{ type: 'web_search' }`, plus a post-processing guard that re-asserts `useResponsesApi = true` if a `web_search` tool is still in the tools array. Prevents the `422 ... unknown variant 'web_search', expected 'function' or 'live_search'` regression when xAI's Chat Completions path is ever reached.
 - adds local token/pricing coverage for Grok 4.20 variants
 
 #### Key files
@@ -386,6 +480,9 @@ Frontend/shared:
 
 - xAI custom-endpoint auto-detection from name/baseURL/defaultParamsEndpoint
 - `/language-models` discovery and alias-preserving text-model filtering
+- **`/language-models` 403 fallback to `/v1/models`** in `fetchXAIModelCapabilities` (so new xAI key tiers never strand the picker empty)
+- **defaults-union for xAI in `loadConfigModels`** (curated `models.default` list always merged into the picker output)
+- **xAI-specific web_search branch + post-processing guard** in `getOpenAILLMConfig` (forces Responses API when web_search is on, prevents the 422 regression)
 - `xaiModelCapabilities` startup-config surface and refresh behavior
 - dedicated xAI settings routing plus capability-aware disablement reasons
 - xAI runtime sanitization in the OpenAI-compatible request builder
@@ -446,11 +543,16 @@ Frontend/shared:
 - preserves explicitly open schemas that rely on `additionalProperties`, instead of forcing empty properties into them
 - refreshes OAuth tokens for Arcade-style protected resources by discovering the token endpoint from stored `oauthMetadata.authorization_servers` instead of guessing from the MCP server URL path
 - resolves MCP OAuth callback URLs with explicit `DOMAIN_SERVER` precedence, then forwarded-host headers, then request host/protocol fallback
-- sets the local Docker override to `DOMAIN_SERVER=http://localhost:${PORT:-3080}` so Arcade Microsoft OAuth can use the loopback redirect exemption during local runs
+- sets the local Docker override to `DOMAIN_SERVER=${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}` so the `.env` value takes precedence and Arcade/OAuth callbacks use the correct LAN address; falls back to localhost loopback for development
 - distinguishes LibreChat MCP initialization from downstream provider consent: a tool returning `authorization_url` / `llm_instructions` means the MCP server is connected and the remaining step is provider-side authorization
+- keeps the MCP chat-bar selector visible whenever the user has `MCP_SERVERS.USE`, the active model supports structured tool calling, and selectable MCP servers exist, even when no MCP server is pinned or selected yet
+- detects OAuth-requiring errors from transport layer messages containing `"Authorization"` / `"authorization"` (e.g. arcade.dev's `"Missing Authorization header"`) in addition to `"OAuth"`, `"authentication"`, and `"401"` patterns — only enters the OAuth path when the server config has `requiresOAuth` or `oauthMetadata` set, so local non-OAuth servers are never affected
+- when `reinitMCPServer` detects `oauthRequired=true` but has no `oauthUrl` (common for newly created OAuth servers with no stored tokens), the reinitialize route handler initiates a proper OAuth flow via `MCPOAuthHandler.initiateOAuthFlow` to generate a full authorization URL with client_id/state/redirect_uri — without this, the UI would spin indefinitely waiting for an auth URL that never arrives
 
 #### Key files
 
+- `client/src/components/Chat/Input/MCPSelect.tsx`
+- `client/src/components/Chat/Input/MCPSelect.guards.spec.ts`
 - `packages/api/src/mcp/zod.ts`
 - `packages/api/src/mcp/__tests__/zod.spec.ts`
 - `packages/api/src/mcp/oauth/handler.ts`
@@ -458,6 +560,7 @@ Frontend/shared:
 - `packages/api/src/mcp/__tests__/handler.test.ts`
 - `api/server/routes/mcp.js`
 - `api/server/routes/__tests__/mcp.spec.js`
+- `api/server/services/Tools/mcp.js`
 - `docker-compose.local.override.yml`
 
 #### Preserve during merges
@@ -466,19 +569,25 @@ Frontend/shared:
 - explicitly open object schemas with `additionalProperties` must remain untouched by that fix
 - OAuth refresh must continue to prefer stored protected-resource `authorization_servers` metadata before attempting discovery from the MCP server URL
 - callback URL precedence must remain: valid `DOMAIN_SERVER` -> `X-Forwarded-*` headers -> request host/protocol
-- the local default `DOMAIN_SERVER=http://localhost:${PORT:-3080}` should remain in the local Docker override unless intentionally replacing it with a public HTTPS URL
+- `DOMAIN_SERVER` in `docker-compose.local.override.yml` must use `${DOMAIN_SERVER:-...}` syntax so the `.env` value takes precedence; hardcoding `http://localhost:...` breaks OAuth callbacks for LAN-accessed instances
 - provider authorization prompts returned from Arcade Microsoft tools should not be treated as LibreChat MCP initialization failures
+- do not reintroduce a `!isPinned && mcpValues?.length === 0` render guard in `MCPSelect.tsx`; empty `mcpValues` means "nothing selected yet", not "hide the selector"
+- `isOAuthError` in `reinitMCPServer` must include `'Authorization'`/`'authorization'` patterns to match arcade.dev transport errors; the check is always guarded by `serverNeedsOAuth` so local servers are safe
+- the reinitialize route must initiate `MCPOAuthHandler.initiateOAuthFlow` when `oauthRequired=true` but `oauthUrl=null` — this is the only path that produces a full auth URL for newly created OAuth servers
 
 #### Validation notes
 
+- `client/src/components/Chat/Input/MCPSelect.guards.spec.ts` asserts that the MCP selector is not hidden solely because no server is pinned or selected
 - `packages/api/src/mcp/__tests__/zod.spec.ts` covers the bare-object schema normalization behavior
 - `packages/api/src/mcp/__tests__/handler.test.ts` covers resource-metadata-based OAuth refresh behavior
 - `api/server/routes/__tests__/mcp.spec.js` includes callback URL precedence coverage, although the suite is still blocked locally by the existing Alpine `mongodb-memory-server` limitation
 - live validation on this branch connected to `https://api.arcade.dev/mcp/microsoft-tools`, listed 24 tools, and advanced `MicrosoftOnedrive_WhoAmI` plus `MicrosoftOnedrive_GetMyDrive` to provider authorization prompts instead of failing MCP initialization
+- 2026-04-11 live validation: added `arcade-write-microsoft-tools` (`https://api.arcade.dev/mcp/microsoft-write`) via UI, OAuth flow initiated correctly with full authorization URL, callback completed via `curl` from the Linux host; `microsoft-tools` (read) also re-authed successfully after reinitialize; IMSLP DB record corrected from `arcade.dev/mcp/imslp` to local `http://192.168.50.4:8765/mcp`
 
 #### MCP domain filter mode (allow list vs deny list)
 
 **What it adds:**
+
 - adds `mcpDomainFilterMode` field (`'allowlist'` | `'denylist'`) to `AppSettings` schema, defaulting to `'denylist'`
 - admin UI now shows a filter mode dropdown (deny list / allow list) and dynamically relabels the domain list as "Blocked domains" or "Allowed domains"
 - in deny list mode: all domains are allowed except those explicitly listed (SSRF protection always active)
@@ -486,6 +595,7 @@ Frontend/shared:
 - the mode is threaded through the full stack: Mongoose schema, data-provider zod types, `isDomainAllowedCore()`, `isMCPDomainAllowed()`, `MCPServerInspector.inspect()`, `MCPServersRegistry`, `initializeMCPs.js`, and runtime domain checks in `MCP.js`
 
 **Key files:**
+
 - `packages/data-schemas/src/types/appSettings.ts` — `MCPDomainFilterMode` type
 - `packages/data-schemas/src/schema/appSettings.ts` — Mongoose field
 - `packages/data-provider/src/admin.ts` — zod schemas for admin settings
@@ -499,6 +609,7 @@ Frontend/shared:
 - `client/src/locales/en/translation.json` — new i18n keys
 
 **Preserve during merges:**
+
 - `mcpDomainFilterMode` default must remain `'denylist'` to avoid breaking existing deployments
 - the deny list logic in `isDomainAllowedCore` must keep SSRF protection active regardless of mode
 - `getMergedMCPDomainConfig()` replaces the old `getMergedMCPAllowedDomains()` function
@@ -506,17 +617,20 @@ Frontend/shared:
 #### MCP auto-connect on tab open
 
 **What it adds:**
+
 - new `useAutoConnectMCP` hook auto-initializes disconnected non-OAuth MCP servers when a browser tab opens
 - uses `autoSelect=false` on `initializeServer()` so servers connect but are NOT added to the chat conversation
 - `initializeServer()` in `useMCPServerManager` now accepts a third `autoSelect` parameter (default `true`)
 - integrated into `useAppStartup.ts` after server list and connection status load
 
 **Key files:**
+
 - `client/src/hooks/MCP/useAutoConnectMCP.ts` — new hook
 - `client/src/hooks/MCP/useMCPServerManager.ts` — `autoSelect` parameter on `initializeServer()`
 - `client/src/hooks/Config/useAppStartup.ts` — integrates auto-connect
 
 **Preserve during merges:**
+
 - the `autoSelect` parameter must default to `true` for backward compatibility with manual initialization
 - the auto-connect hook must skip OAuth-required servers (user must manually auth those)
 
@@ -537,7 +651,7 @@ Frontend/shared:
 - devcontainer persistence behavior
 - secret/runtime ignore patterns in `.gitignore`
 - MCP OAuth callback URLs with `DOMAIN_SERVER`-first resolution plus forwarded/request-host fallback
-- local loopback `DOMAIN_SERVER` default in the Docker override for Arcade Microsoft OAuth
+- `DOMAIN_SERVER` in `docker-compose.local.override.yml` uses `${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}` so the `.env` value (typically `http://192.168.50.4:3080`) takes precedence for LAN access; falls back to localhost for pure-local development
 
 #### Key files
 
@@ -576,7 +690,7 @@ Frontend/shared:
 - devcontainer persistence settings
 - LiteLLM file-path expectations if LiteLLM is re-enabled
 - MCP OAuth callback redirect URIs should prefer a valid `DOMAIN_SERVER`, then forwarded headers, then request host/protocol
-- the local default `DOMAIN_SERVER=http://localhost:${PORT:-3080}` should remain documented because local Arcade Microsoft OAuth depends on the loopback exception
+- `DOMAIN_SERVER` in `docker-compose.local.override.yml` must use `${DOMAIN_SERVER:-...}` so `.env` can override it; hardcoding `http://localhost:...` will break OAuth callbacks when accessing LibreChat from other machines on the LAN
 
 #### Runtime files linked into the custom worktree
 
@@ -588,6 +702,21 @@ Frontend/shared:
 - `images`
 - `uploads`
 - `logs`
+
+#### Mission safety: dev-rail-only execution policy
+
+All agent missions (upstream merges, version bumps, feature migrations, validation harnesses) MUST operate exclusively on the dev rail (r2, port 3081). The stable/production rail (r1, port 3080) must remain running and fully usable throughout any mission.
+
+**Hard rules:**
+
+- Never rebuild, restart, stop, or reconfigure the stable rail during any mission step
+- Never run `./local-services/start-all.sh stable` as part of a mission
+- Never direct Docker commands at `librechat-stable-*` containers during mission work
+- All code changes, builds, tests, and validation happen on dev only
+- Promotion to stable happens ONLY at the very end of the mission, after all validation passes and the user gives explicit approval
+- If something goes wrong, only the dev rail gets fixed or restarted; stable remains untouched as fallback
+
+This policy exists because the user depends on the stable rail for daily use. Disrupting stable during a mission leaves the user without a working instance.
 
 ---
 
@@ -825,6 +954,8 @@ Frontend/shared:
 - `AuthKeys` enum extended with `GOOGLE_AUTH_MODE`, `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION`
 - new `GoogleAuthMode` enum in `packages/data-provider/src/config.ts`
 - the Google endpoint is now marked available when any valid auth mode is configured, not just when `GOOGLE_KEY` is set
+- chat initialization now falls back to server Vertex credentials when `GOOGLE_KEY=user_provided` is set, the user has not saved a Google key, and server-side Vertex auth is configured
+- chat initialization also consumes discovered per-model Vertex routing metadata, overriding the default location and injecting fallback locations when a callable model lives outside the preferred Vertex region
 - Gemini Live realtime sessions support all three auth modes via `resolveGoogleRealtimeAuth()` in `modelService.js`
 - Gemini image generation (`GeminiImageGen.js`) supports all three auth modes with API-key-first priority
 
@@ -852,15 +983,22 @@ Frontend/shared:
 
 - API key mode: `GOOGLE_KEY` or a user-saved key
 - Service account mode: a Google Cloud service account JSON file (uploaded via UI or set via `GOOGLE_SERVICE_KEY_FILE`)
+- in Docker/local rails, `GOOGLE_SERVICE_KEY_FILE` must point to a file that actually exists inside the running container (for example `/app/data/google-service-account.json`)
 - ADC mode: `GOOGLE_APPLICATION_CREDENTIALS` pointing to a credentials file, or `gcloud auth application-default login` run on the host
 - Vertex modes also require a Google Cloud project ID (auto-detected from service account JSON, or set via `GOOGLE_VERTEX_PROJECT` / `GOOGLE_CLOUD_PROJECT`)
 - Location defaults to `us-central1` if not set
+- treat `GOOGLE_VERTEX_LOCATION` as the preferred/home region, not as proof that every callable Gemini/Gemma model is hosted there; after a refresh, per-model discovery may route specific models to `global` or another official location
+- lazy multi-location discovery intentionally does not run during every selector load; the expected trigger is a real Vertex "not found / no access" model failure, after which the callable union is cached
 
 #### Lessons learned
 
 - `parseGoogleCredentials` must use strict JSON parsing for string credentials; a broad raw-string fallback breaks existing contracts where raw API keys require explicit `acceptRawApiKey` opt-in
 - when `GOOGLE_KEY` is server-configured (not `user_provided`), realtime/image-gen helpers must skip the `getUserValues()` database lookup to avoid unnecessary DB hits and prevent saved user credentials from overriding server auth config
 - bare `GOOGLE_CLOUD_PROJECT` without an explicit `GOOGLE_AUTH_MODE` or `GOOGLE_APPLICATION_CREDENTIALS` must not trigger ADC detection, or projects that only use API keys with a project env var will incorrectly attempt ADC auth
+- when `GOOGLE_KEY=user_provided` is used alongside server Vertex auth, chat initialization must fall back to the server credentials if the user has no saved Google key; otherwise the UI can expose Google while chats fail with `no_user_key`
+- for Vertex service-account mode in Docker, matching env vars are not enough; the JSON must really exist at `GOOGLE_SERVICE_KEY_FILE` inside each running container or discovery/auth silently fall back away from the intended Vertex path
+- `GOOGLE_VERTEX_LOCATION` is a preferred default, not a complete availability map; some callable models can be `global`-only while others remain region-only, so chat init needs model-specific route overrides/fallbacks after discovery
+- after a successful Vertex refresh, invalidate the selector/startup config caches as well as the model-capability cache; otherwise `/api/config` can keep serving stale `gemini-2.0-*` entries even though the backend has already discovered the corrected callable union
 
 ### 3.16 Math and computation tools (Scientific Calculator + Code Interpreter Math)
 
@@ -895,7 +1033,147 @@ Frontend/shared:
 
 ---
 
-### 3.17 Cross-cutting lessons learned and repeat patterns
+### 3.17 Runtime librechat.yaml interface, modelSpecs quick-selector, and endpoint configuration
+
+#### What it adds
+
+The runtime `librechat.yaml` (gitignored, bind-mounted into containers from the LibreChat-custom worktree root) carries several customization-critical sections beyond what upstream ships by default.
+
+##### Interface settings
+
+```yaml
+interface:
+  endpointsMenu: true
+  modelSelect: true
+  parameters: true
+  sidePanel: true
+  presets: true
+```
+
+These must be explicitly set to `true`. Without an `interface` section, LibreChat hides the parameters side panel, presets, and free-form model selection. Upstream does not ship a default `interface` block in `librechat.yaml`.
+
+##### modelSpecs quick-selector
+
+```yaml
+modelSpecs:
+  enforce: false
+  prioritize: true
+```
+
+- `enforce: false` -- users can still pick any model from any endpoint; the specs are convenience shortcuts, not restrictions
+- `prioritize: true` -- specs appear prominently in the model picker with provider icons
+
+The quick-selector list mirrors the models available to default non-admin users (from `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` in `api/server/services/ModelAccess.js`):
+
+| Spec name         | Endpoint  | Model               | Group     |
+| ----------------- | --------- | ------------------- | --------- |
+| GPT-5.4 Mini      | openAI    | gpt-5.4-mini        | openAI    |
+| GPT-5.4 Nano      | openAI    | gpt-5.4-nano        | openAI    |
+| GPT-5.3 Chat      | openAI    | gpt-5.3-chat-latest | openAI    |
+| Claude Sonnet 4.6 | anthropic | claude-sonnet-4-6   | anthropic |
+| Claude Sonnet 4.5 | anthropic | claude-sonnet-4-5   | anthropic |
+| Claude Haiku 4.5  | anthropic | claude-haiku-4-5    | anthropic |
+| Grok 4-1 Fast     | xai       | grok-4-1-fast       | xai       |
+| Ollama Local      | Ollama    | qwen2.5:latest      | Ollama    |
+
+Each spec uses the `group` field to nest under the matching provider icon in the picker. xAI and Ollama also set `groupIcon` explicitly since they are custom endpoints.
+
+When updating `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`, the modelSpecs list should also be updated to stay aligned.
+
+##### Custom endpoints
+
+Three custom endpoints are defined:
+
+1. **Ollama (local)** -- `apiKey: ${OLLAMA_MULTI_API_KEY}`, `baseURL: http://192.168.50.201:11434/v1/` with `baseURLs` for `http://192.168.50.4:8080/v1/`. Uses `fetch: false` with an explicit `models.default` list of actually-running local models. `fetch: true` would pull all models from `/v1/models` including cloud-only stubs that fail locally.
+
+2. **Ollama Cloud** -- `apiKey: user_provided`, `baseURL: https://ollama.com/v1/`. Uses `fetch: true` (inert since `user_provided` keys skip fetch). Default model list includes cloud-available models.
+
+3. **xAI** -- `apiKey: user_provided`, `baseURL: https://api.x.ai/v1`. Uses `fetch: true` for live model discovery. Default models include Grok 4.x variants.
+
+##### Other runtime sections
+
+- `mcpSettings.allowedDomains` -- MCP domain allowlist for local MCP servers (`192.168.50.4:8765`, `192.168.50.4:8766`)
+- `memory.agent` -- memory agent using `gpt-4.1-mini` via `openAI` provider (casing matters -- must be `openAI` not `openai`)
+- `speech.stt.openai` -- Whisper-1 STT with `${OPENAI_API_KEY}`
+- `version: 1.3.5` -- config schema version
+
+#### Key files
+
+- `librechat.yaml` (runtime, gitignored, bind-mounted via `docker-compose.local.override.yml`)
+- `librechat.example.yaml` (reference)
+- `api/server/services/ModelAccess.js` (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` -- source of truth for which models default users get)
+- `local-services/dev-seed-validation-personas.js` (validation script that can inject modelSpecs -- see lessons learned)
+
+#### Preserve during merges
+
+- the `interface` section must remain with all five fields set to `true`; removing it hides the parameters panel, presets, and free model selection
+- `modelSpecs.enforce` must remain `false` so the quick-selector never blocks free model access
+- `modelSpecs` list should stay aligned with `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`
+- custom endpoint split (Ollama local with `fetch: false` vs Ollama Cloud with `user_provided` key) must not be re-merged into a single endpoint
+- `memory.agent.provider` must use camelCase `openAI` (not lowercase `openai`)
+- `mcpSettings.allowedDomains` must be updated if local MCP server addresses change
+
+#### Lessons learned
+
+- 2026-04-11: the `local-services/dev-seed-validation-personas.js` validation script was designed to inject deterministic `modelSpecs` into `librechat.yaml` for automated testing (VAL-MODEL-003). It checks if `modelSpecs` already exists before overwriting, but if run against a yaml that has no `modelSpecs`, it adds a restrictive set of 5 models with `prioritize: true`. This effectively locked the model picker to those 5 models for real users. Fix: the script should only be used on the dev rail's validation runs, never on the shared runtime `librechat.yaml`. The runtime yaml must always have its own intentional `modelSpecs` (or none) and `interface` settings independent of validation tooling.
+- 2026-04-11: removing the `interface` section entirely (or never adding it) silently disables the parameters side panel, presets UI, and free model selection. LibreChat defaults these to hidden when no `interface` block is present. This is not obvious because the UI still loads -- it just lacks controls. Always verify `interface` settings are present after any yaml modification.
+
+---
+
+### 3.18 Local RAG integration, provider-aware file search, and citation content display
+
+#### What it adds
+
+- three locally-built `rag_api` containers (OpenAI, Azure, Google) from an external `rag_api` git clone, sharing a local pgvector database
+- provider-aware RAG URL routing: file uploads and queries route to the correct provider-specific RAG service based on the active chat provider
+- dual storage pattern: file search uploads go to both persistent storage (local/S3) and the local vector DB for embeddings
+- citation content passthrough: the actual text chunk/quote from the RAG query is now displayed in the frontend citation hovercard and source panel, not just the filename and page numbers
+- retry with exponential backoff for all RAG API calls (embed, query, delete) with configurable timeouts
+- container resource tuning: vectordb at 512m with postgres tuning (shared_buffers, work_mem, effective_cache_size), RAG containers at 384m with CPU bounds
+
+#### Key files
+
+- `api/server/services/Files/VectorDB/crud.js` -- embed/delete with retry and timeout
+- `api/server/services/Files/VectorDB/routing.js` -- provider-to-URL resolution
+- `api/server/services/Files/VectorDB/auth.js` -- provider credential resolution and header construction
+- `api/app/clients/tools/util/fileSearch.js` -- semantic query with retry and timeout, citation source construction
+- `api/server/services/Files/Citations/index.js` -- citation processing, relevance filtering, metadata enrichment
+- `client/src/hooks/Messages/useSearchResultsByTurn.ts` -- maps chunk content to citation snippet
+- `client/src/components/Web/SourceHovercard.tsx` -- displays chunk text in file citation hovercard
+- `client/src/components/Web/Sources.tsx` -- displays chunk snippet in file source panel
+- `docker-compose.local.override.yml` -- container resource bounds and postgres tuning
+
+#### Data flow
+
+1. User uploads file with `file_search` tool resource
+2. File saved to local storage, then sent to local `rag_api` container (`/embed`)
+3. `rag_api` calls the embedding provider API (OpenAI/Azure/Google) with text chunks only -- the raw file never leaves the local network
+4. Embeddings stored in local pgvector
+5. At query time, `file_search` tool calls local `rag_api` (`/query`) which returns `page_content` chunks with distance scores
+6. Chunks flow through: `fileSearch.js` sources -> `Citations/index.js` -> SSE attachment -> `useSearchResultsByTurn.ts` -> `SourceHovercard`/`Sources.tsx` display
+
+#### Privacy guarantee
+
+- Raw files are stored locally (never sent to OpenAI/Azure/Google)
+- Only extracted text chunks are sent to the embedding provider for vectorization
+- All vector storage is in the local pgvector container
+- Queries go to the local `rag_api` which calls the embedding provider for query embedding only
+
+#### Preserve during merges
+
+- provider-aware routing logic in `VectorDB/routing.js` and `VectorDB/auth.js`
+- retry and timeout wrappers in `VectorDB/crud.js` and `fileSearch.js`
+- `content` field passthrough in citation pipeline (`fileSearch.js` sources -> `useSearchResultsByTurn.ts` snippet mapping)
+- container resource settings in `docker-compose.local.override.yml` (vectordb 512m, RAG 384m, postgres tuning)
+- `metadata.ragProvider` and `metadata.ragModel` on file records
+
+#### Supporting docs
+
+- `LOCAL_RAG_INTEGRATION.md`
+
+---
+
+### 3.19 Cross-cutting lessons learned and repeat patterns
 
 These are recurring lessons from the focused docs plus past Droid sessions for this repo.
 
@@ -919,6 +1197,146 @@ These are recurring lessons from the focused docs plus past Droid sessions for t
 - Langfuse v3 services (ClickHouse, web, worker) need higher container memory limits than the compose defaults; ClickHouse merge operations and the Next.js 15 web frontend both OOM at their defaults (768m and 600m respectively); a container that Docker reports as "Up" but refuses connections is likely restart-looping from OOM — always check `docker logs` before assuming a networking problem
 - when the `@librechat/agents` SDK normalizes provider content to internal types (e.g., all reasoning → `ContentTypes.THINK`), downstream handlers that only check for the provider-original type (e.g., `type === 'text'`) will silently drop content; always handle the SDK-normalized type as the primary check
 - provider-native tool events (e.g., OpenAI `response.web_search_call.*`) that aren't handled in the SDK's conversion function are silently dropped — they produce empty `AIMessageChunk`s that the stream handler discards; to surface them, patch both the conversion function (to capture the data) and the stream handler (to dispatch before the empty-content guard)
+- 2026-04-11 MCP OAuth reinit bug: arcade.dev transport errors use `"Missing Authorization header"` which didn't match the existing `isOAuthError` patterns (`"OAuth"`, `"authentication"`, `"401"`) in `reinitMCPServer`. This caused newly added arcade.dev servers to fail silently — `oauthRequired` was set to `false` even though the server clearly needed OAuth. Fix: added `'Authorization'`/`'authorization'` patterns, always guarded by `serverNeedsOAuth` so local servers are unaffected. Additionally, new OAuth servers with no stored tokens never get their `oauthStart` callback fired during `getConnection` (no tokens = no OAuth flow triggered), leaving `oauthUrl=null` — the UI then spins indefinitely. Fix: the reinitialize route handler now initiates `MCPOAuthHandler.initiateOAuthFlow` when `oauthRequired=true && oauthUrl=null` to produce a complete authorization URL.
+- 2026-04-11 DOMAIN_SERVER hardcoded in compose override: `docker-compose.local.override.yml` had `DOMAIN_SERVER: http://localhost:${LIBRECHAT_HOST_PORT:-3080}` which always overrode the `.env` value `http://192.168.50.4:3080`. This meant OAuth callback URLs registered with arcade.dev as `localhost` callbacks, which browsers on other LAN machines couldn't reach. Fix: changed to `${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}` so `.env` takes precedence. Note: Docker compose `environment:` overrides `env_file`; variables not in `environment:` (like `OLLAMA_API_KEY`) are loaded by `dotenv` at runtime from the mounted `.env` file.
+- 2026-04-11 Ollama web_search crash (`Cannot read properties of undefined (reading 'key')`): the Ollama web search mode detection in `ollama.js` calls `isOllamaHostedSearchReady()` which checks `process.env.OLLAMA_API_KEY`. When the env var is missing from the Docker process env (due to the compose env precedence issue above), the code falls back to the built-in `web_search` tool (SerperAPI), which then fails because `SERPER_API_KEY` is also not set. The client-side crash is the unhandled error response. Root cause: the `OLLAMA_API_KEY` was present in the mounted `.env` file and loaded by `dotenv`, but `isOllamaHostedSearchReady()` ran before `dotenv.config()` or checked the process env directly at module load time. After fixing DOMAIN_SERVER and recreating the container, `dotenv` loads `OLLAMA_API_KEY` correctly and the Ollama MCP search path is used instead.
+- 2026-04-11 IMSLP MCP server wrong URL: the IMSLP MCP server DB record pointed at `https://api.arcade.dev/mcp/imslp` (with `requiresOAuth: true`) instead of the local instance at `http://192.168.50.4:8765/mcp`. This caused repeated OAuth failures for a server that should have no auth. Fix: corrected the DB record URL and cleared `requiresOAuth`/`oauthMetadata`. Lesson: when adding MCP servers via the UI, double-check the URL before saving — the form auto-generates a title from the URL but doesn't validate that the URL matches the intended server.
+- 2026-04-11 Auth cookies rejected on LAN (forced re-login on every refresh/new tab):
+  - **Symptom:** Every page refresh or new tab forced re-login. Server logs showed `[refreshController] No refresh token cookie found for non-OpenID user` on every refresh attempt, immediately followed by a new login.
+  - **Root cause:** The `backend` npm script (`package.json`) runs with `cross-env NODE_ENV=production`. This makes `shouldUseSecureCookie()` in `packages/api/src/oauth/csrf.ts` return `true`, because the function only exempted `localhost`/`127.0.0.1`/`::1` from the production secure-cookie requirement -- not private LAN IPs or plain `http://` URLs. With `secure: true`, the `Set-Cookie` response header included the `Secure` flag. **Browsers silently reject `Secure` cookies on plain `http://` connections** (like `http://192.168.50.4:3080`). The cookie was never stored, so every refresh had no token to send.
+  - **Why it was hard to find:** (1) `shouldUseSecureCookie()` returned `false` when tested via `docker exec node -e "..."` because that spawns a new process without `cross-env NODE_ENV=production` -- the function behaved differently at runtime vs. ad-hoc testing. (2) The browser gives no error or warning when it rejects a `Secure` cookie on HTTP -- it silently discards it. (3) The server-side logs only showed "no cookie found", giving no indication that the cookie was being set but rejected. The breakthrough came from using Playwright to intercept the raw `Set-Cookie` response header, which clearly showed `Secure` on a plain HTTP connection.
+  - **Fix (two parts):**
+    1. `packages/api/src/oauth/csrf.ts`: Added `isPlainHttp` check -- if `DOMAIN_SERVER` starts with `http://`, `shouldUseSecureCookie()` returns `false` regardless of `NODE_ENV`. This is safe because `Secure` cookies are meaningless over plain HTTP.
+    2. `api/server/services/AuthService.js`: Changed `sameSite` from `'strict'` to `'lax'` for `refreshToken` and `token_provider` cookies. `lax` is the standard recommendation for auth cookies (sent on top-level GET navigations like new tabs and refreshes, blocked on cross-site POST).
+  - **Deployment note:** The TypeScript source (`csrf.ts`) was edited, but the compiled output (`packages/api/dist/index.js`) is what the server runs. The fix was hot-patched into the compiled JS inside both running containers via `docker exec`. **If containers are recreated** (e.g., `docker compose up`, image rebuild), the `packages/api` module must be rebuilt (`npm run build` in `packages/api`) for the fix to persist, OR the compiled `dist/index.js` must be re-patched after container creation.
+  - **Also applied:** Increased `SESSION_EXPIRY` to 90 days and `REFRESH_TOKEN_EXPIRY` to 365 days in `.env` for home-server use.
+  - **Merge note:** `shouldUseSecureCookie()` is in `packages/api/` (compiled to `packages/api/dist/index.js`). Upstream merges that touch `packages/api/src/oauth/csrf.ts` need the `isPlainHttp` check re-applied.
+  - **Diagnostic lesson:** When debugging cookie issues, always inspect the raw `Set-Cookie` response header (via Playwright, curl `-v`, or DevTools Network tab) -- don't rely on checking `document.cookie` or server-side logs alone. Also, always test runtime behavior inside the actual server process (add `logger.warn` calls), not via `docker exec node -e` which runs in a different environment.
+- 2026-04-11 Stop button persists after stream finishes (first fix): after `finalHandler` navigates from `/c/new` to `/c/<uuid>`, the stale submission atom could trigger `useResumeOnLoad` to re-enable the stop button. Fix: in `useResumableSSE.ts`, clear the submission atom (`setSubmission(null)`) after processing the final event, preventing stale state from being misinterpreted as an active stream.
+- 2026-04-20 Stop button persists after stream finishes (regression — **critical**):
+  - **Symptom:** After any model finished streaming, the stop button stayed visible permanently. Affected all non-assistants models (everything routed through `useResumableSSE`).
+  - **Root cause:** In `client/src/hooks/SSE/useResumableSSE.ts` line 176, the earlier customization changed `clearAllDrafts(...)` to `clearDraft(...)`. But `clearDraft` is a local function defined only in `useSSE.ts` — it was never imported or defined in `useResumableSSE.ts`. Every time the server sent the `final` SSE event, `clearDraft(...)` threw a `ReferenceError`. The outer `try-catch` in the message handler silently swallowed the error (`catch (error) { console.error(...) }`), which prevented `finalHandler`, `sse.close()`, `setIsSubmitting(false)`, `setShowStopButton(false)`, and `setSubmission(null)` from ever executing.
+  - **Why TypeScript didn't catch it:** Vite uses esbuild/SWC for transpilation, which strips types without validating them. `tsc --noEmit` is not run as part of the build or pre-commit hooks. TypeScript's `strict: true` mode would have flagged the undefined reference at compile time.
+  - **Why it wasn't obvious at runtime:** The `ReferenceError` was logged to the browser console (`[ResumableSSE] Error processing message: ReferenceError: clearDraft is not defined`) but the catch block had no recovery logic for critical events like `final`, so the UI was left in a permanently stuck state with no visible error.
+  - **Fix (two parts):**
+    1. Changed `clearDraft` → `clearAllDrafts` on line 176 (the function that is actually imported).
+    2. Added a safety-net in the outer catch block: if processing a `final` event throws for any reason, the catch now detects it by re-parsing `e.data`, and forces cleanup (`setIsSubmitting(false)`, `setShowStopButton(false)`, `sse.close()`, `setSubmission(null)`). This prevents any future bug in that code path from causing a permanently stuck UI.
+  - **Prevention lessons:**
+    1. **Add `tsc --noEmit` to CI or pre-commit** — this single change would have caught this exact bug before it shipped.
+    2. **Never use broad silent catch blocks around critical state transitions** — the original `catch (error) { console.error(...) }` pattern is dangerous when the try block contains state cleanup that must execute. Always add recovery logic for critical events.
+    3. **Don't delete upstream test files** — the spec for `useResumableSSE` was removed in the custom branch; keeping and extending it would have covered the completion flow.
+  - **Collateral damage — forced full rebuild (operational postmortem):**
+    - While deploying the one-line fix, an attempt was made to run `npx vite build` inside the stable container to rebuild the client bundle. The container's memory limit caused the Vite process to OOM (exit code 137). The critical failure mode: Vite's build pipeline runs `npm run clean` (which deletes `dist/` directories) **before** the actual compilation step. The OOM killed the process mid-compilation, leaving the container with deleted `packages/api/dist/`, `packages/data-schemas/dist/`, and `client/dist/` — and nothing to replace them. The server then crash-looped on `Cannot find module '@librechat/api/dist/index.js'`.
+    - Recovery required: (a) building `@librechat/api` locally with `NODE_OPTIONS="--max-old-space-size=8192"` (took ~5 min, default heap was insufficient), (b) copying all three package dists into the container, (c) extracting the original `client/dist` from the Docker image layer via `docker create` + `docker cp`, and finally (d) a full `start-all.sh stable` rebuild (~45 min) to get a clean image with the fix baked in.
+    - **Hard rule: never run package or client builds inside the running API containers.** The containers are memory-constrained and the build toolchain's clean-then-build pattern means an OOM mid-build destroys artifacts without producing replacements. For client-side fixes, always do a full image rebuild via `start-all.sh`. For backend-only fixes (`.js` files under `api/`), `docker cp` + `docker restart` remains safe since no build step is needed.
+- 2026-04-11 Badge row hidden for super admin: ~~the model quick-selector `BadgeRow` in `ChatForm.tsx` is now conditionally hidden when `isSuperAdmin === true`, using the same detection pattern as `ModelSelectorContext.tsx` (`useAdminPermissionsQuery`). Super admins use the pinned/default model instead of the quick-selector badges.~~ **Superseded 2026-04-26 (see below).** This entry was technically incorrect: `BadgeRow` is the _tool-toggle_ row (Web Search, Code Interpreter, File Search, Artifacts, MCP Servers, and as of 2026-04-26 the Image generation badge plus the ToolsDropdown menu), not a model selector. Hiding it from super admins removed legitimate per-conversation tool controls. The `{!isSuperAdmin && (<BadgeRow .../>)}` gate has been removed; super admins now see all badges and the ToolsDropdown like every other user, gated only by per-tool permissions on their role.
+- 2026-04-11 Pinned model reset on new chat: `useNewConvo.ts` unconditionally applied the admin `defaultPreset` when `endpoint` was null (new chat), overriding the user's manually selected model stored in `lastConversationSetup`. Fix: added a `userHasManualModelSelection` check that bypasses the admin default when the user has an explicit non-spec model selection in localStorage.
+- 2026-04-11 Gemini/Vertex AI callable discovery: in Vertex mode, do not trust `GOOGLE_MODELS` or `models.list()` metadata alone. Normal selector loads should stay cheap and use the configured/default list first. When a real Vertex "not found / no access" failure happens, list candidate publisher models, probe them (currently via `countTokens`), cache the callable union across the preferred location plus official Google model locations, and only then replace the selector contents. This prevents stale or unauthorized models (for example older Gemini 2.0 entries) from lingering while also avoiding expensive all-location discovery on every startup/config request.
+- 2026-04-11 Google user-key fallback with server Vertex auth: when `GOOGLE_KEY=user_provided` is kept for per-user flows, chat initialization must still fall back to server Vertex service-account/ADC credentials if the user has no saved Google key. Otherwise users can select Google successfully and then fail at runtime with `no_user_key` despite valid server-side Vertex config.
+- 2026-04-11 Gemini 2.5 Flash-Lite thinking sanitization: do not inherit default thinking / `includeThoughts` settings from broader Gemini family heuristics. Vertex rejects requests when `includeThoughts` is sent while thinking is disabled, so capability metadata and request builders must strip thinking controls for unsupported models such as `gemini-2.5-flash-lite`.
+- 2026-04-12 Vertex selector refresh invalidation: refreshing the callable-model cache is not enough by itself. LibreChat's config/model selector caches must also be invalidated on a successful refresh, or the browser will keep showing the stale fallback list until the process restarts.
+- 2026-04-12 Per-model Vertex routing: once multi-location discovery is cached, chat initialization must honor each model's discovered `vertexLocation` and optional fallback list. Otherwise global-only models such as `gemini-3.1-pro-preview` still fail under a `us-central1` default even though discovery already proved they are callable elsewhere.
+- 2026-04-12 Local rail deployment under memory limits: the dev/stable API containers are memory-limited enough to kill `packages/api` Rollup builds in-container (`exit 137`). For code-only package hotfixes, build the safe `dist` on the host against a rail-equivalent source snapshot, then `docker cp` the bundle into the target rail instead of trying to rebuild the whole package inside the constrained container.
+- 2026-04-11 Playwright automation test account: created `playwright@test.local` / `PlaywrightBot123!` (name: "Playwright Bot") for automated E2E testing via Playwright. `ALLOW_UNVERIFIED_EMAIL_LOGIN=true` in `.env` so email verification is not required. Use this account for all automated browser testing -- never use real user credentials in automation. This account was used to validate the Google selector contents and live Gemini chat flow on both dev and stable rails after the Vertex fixes.
+- 2026-04-11 Auth cookie diagnostic logging in AuthController.js: added `logger.debug` calls in `refreshController` to log cookie presence (`hasRefreshToken`, `hasTokenProvider`, `cookieHeader`), and `logger.warn` before the "No refresh token cookie found" return. These are diagnostic additions that will conflict with upstream during merges; preserve them if auth debugging is still needed, or remove once the auth cookie fix is confirmed stable long-term.
+- 2026-04-11 Gemini/Vertex AI service-account runtime mount: `docker-compose.local.override.yml` mounts `./data/google-service-account.json` → `/app/data/google-service-account.json` (read-only), and the `.gitignore` includes `/data/google-service-account.json` to prevent credential leakage. The operational lesson is stricter than the env/config lesson: every rail/container must actually have that file present at runtime. Dev and stable can diverge if one rail has the JSON copied/mounted and the other does not, which causes stable to fall back away from Vertex discovery/auth and quietly repopulate stale env-listed models.
+- 2026-04-26 `getAnthropicModelCapabilities` must exist on the **server side** in `packages/api/src/endpoints/models.ts`, not only in `librechat-data-provider`. `api/server/routes/config.js` imports `{ getAnthropicModelCapabilities, getGoogleModelCapabilities, getXAIModelCapabilities }` from `@librechat/api`. When this server-side helper is missing, `/api/config` throws on every request with `getAnthropicModelCapabilities is not a function`, `useGetStartupConfig` errors out on the client, and the entire chat-bar tool selector (Web Search, Code Interpreter, File Search, Image, Artifacts, MCP) plus permission-gated Settings tabs (including the new Image Generation tab) silently fail to render. The function must accept `{ user, vertexModels, forceRefresh }`, cache its result in `CacheKeys.MODEL_QUERIES`, call `getAnthropicModels({ user, vertexModels })` to discover model ids (env list, vertex models, or live `/v1/models`), and run `buildStaticAnthropicModelCapabilities(...)` to produce `Record<string, TAnthropicModelCapabilities>`. This is the same shape the client-side `getAnthropicModelCapabilities(model, metadata)` consumer in `client/src/Providers/BadgeRowContext.tsx` reads through `cachedStartupConfig.anthropicModelCapabilities`. The fix is mirror-symmetric to the existing `getGoogleModelCapabilities` and `getXAIModelCapabilities` exports in the same file.
+- 2026-04-26 Adding a new RBAC permission type requires updating **two** schema layers, not one. The mistake during the initial Image Generation rollout was adding `IMAGE_GEN` to `librechat-data-provider`'s `permissionsSchema`, `roleDefaults` (ADMIN: `{USE: true}`, USER: `{}`), and `imageGenPermissionsSchema` — but forgetting to declare `[PermissionTypes.IMAGE_GEN]: { [Permissions.USE]: { type: Boolean } }` in the **Mongoose** `rolePermissionsSchema` at `packages/data-schemas/src/schema/role.ts`. Result: Mongoose strict-mode silently stripped the field on save, so even after `initializeRoles` tried to backfill the default permissions on existing role docs (`role.permissions.IMAGE_GEN = {USE: true}`), the field never persisted to MongoDB. The client's `useHasAccess({permissionType: IMAGE_GEN, permission: USE})` then returned false for everyone (including super admins, since super-admin = `user.role === ADMIN` and reads the same role doc), hiding the Settings → Image Generation tab from the entire UI. Lesson: every new entry in `data-provider/permissions.ts` `PermissionTypes` must also be added to (a) `data-schemas/src/schema/role.ts` `rolePermissionsSchema`, and (b) the corresponding TypeScript type in `data-schemas/src/types/role.ts`. Verify by booting a fresh container and running `Role.find({}, "name permissions.<NEW_PERM>").lean()` — if the field is undefined, Mongoose stripped it. Recovery for already-deployed environments: directly `db.roles.updateOne(...)` with `strict:false` to inject the field, then redeploy with the schema fix so future startups round-trip correctly.
+- 2026-04-26 `BadgeRow` super-admin gate removed in `client/src/components/Chat/Input/ChatForm.tsx`. The 2026-04-11 lesson described `BadgeRow` as a "model quick-selector" — that description was wrong. `BadgeRow` actually contains the per-conversation tool toggles (Web Search, Code Interpreter, File Search, Artifacts, MCP Servers, Image generation) plus the `ToolsDropdown` menu. Wrapping it in `{!isSuperAdmin && (...)}` removed legitimate functionality from super admins, and as of section 3.20 it would have permanently locked super admins out of the Image generation badge. The gate is gone; tool-row visibility is now controlled exclusively by the per-tool permission checks inside `BadgeRow` (each toggle reads `useHasAccess(<TOOL_PERM>, USE)` against the user's role). When merging future upstream `ChatForm.tsx` changes, do **not** reintroduce a super-admin gate around `<BadgeRow ...>`; if super admins ever need their own view of badges, the right hook is the per-permission `useHasAccess` chain inside `BadgeRow.tsx` itself.
+- 2026-05-15 MCP selector hidden before first selection: `client/src/components/Chat/Input/MCPSelect.tsx` must render from the positive availability gates (`MCP_SERVERS.USE`, structured-tool support, and non-empty selectable MCP servers), not from `mcpValues`. Empty `mcpValues` is the normal pre-selection state that lets users choose their first MCP server; hiding the selector there makes MCP appear missing even though backend config, permissions, and tool discovery are healthy. Guarded by `client/src/components/Chat/Input/MCPSelect.guards.spec.ts`.
+- 2026-04-26 **Regression-guard test suites pinned to keep these three bug classes from re-landing.** Each guard is small, fast (≤30 s), runs in CI alongside the rest of the workspace tests, and has been negative-test-verified (each fails red when the bug is reintroduced):
+  - `packages/data-schemas/src/schema/role.spec.ts` — three guards: (a) every `PermissionTypes` value is a declared path on `rolePermissionsSchema`, (b) every permission that ADMIN gets `USE` for in `roleDefaults` has a `USE: { type: Boolean }` declaration on the schema, (c) end-to-end persistence: `initializeRoles()` round-trips through an in-memory MongoDB and the saved ADMIN doc actually contains every default permission. This catches the IMAGE_GEN-style strict-mode-stripping bug.
+  - `packages/api/src/endpoints/modelCapabilities.guards.spec.ts` — pins that `getAnthropicModelCapabilities`, `getGoogleModelCapabilities`, and `getXAIModelCapabilities` are exported as functions whose arity is ≤1 (i.e. an options object, not positional args). Catches the bug where `api/server/routes/config.js` imports a function that doesn't exist on `@librechat/api`.
+  - `packages/api/src/index.guards.spec.ts` — pins the named public surface of `@librechat/api` (capability helpers + model discovery + image-model discovery). Catches accidental drops in `index.ts`/`endpoints/index.ts` re-export tree.
+  - `client/src/components/Chat/Input/ChatForm.guards.spec.ts` — pins that `<BadgeRow` is never rewrapped in any `isSuperAdmin && (...)` or `isSuperAdmin ? ... : <BadgeRow` ternary gate, by reading the source file with `fs` and asserting against a 1000-char window before each `<BadgeRow` JSX site. Catches reintroduction of the 2026-04-11 mistake during upstream merges.
+  - `client/src/components/Chat/Input/MCPSelect.guards.spec.ts` — pins that MCP chat-bar selector visibility is not gated on empty `mcpValues`. Catches reintroduction of the bug where users cannot select their first MCP server because the selector is hidden until something is already pinned/selected.
+
+  **Do not loosen, skip, or delete these guards without consulting the corresponding lesson above.** They exist precisely because the underlying bug class is invisible at runtime until a real user reports it.
+
+---
+
+### 3.20 User-managed image generation (Settings tab + chat-bar toggle + auto-injection)
+
+#### What it adds
+
+- A new **Settings → Image generation** tab where users discover the image-generation models actually available to them per provider. Discovery covers OpenAI, Azure OpenAI, xAI (image-mode endpoints), Google Gemini API, Vertex AI, Black Forest Labs (Flux, curated), and Stability AI (curated). Each provider row shows whether credentials are server-defined, user-defined, or unconfigured, and lets the user pick a default model.
+- An **Image badge** in the chat-bar `BadgeRow`, gated behind the new `IMAGE_GEN.USE` permission. The badge writes `ephemeralAgent.image_generation` so the toggle persists per conversation.
+- An **always-on auto-injection** path in `Agent.js` (`applyImageGenerationTool`) that adds the right tool key (`image_gen_oai`, `gemini_image_gen`, `flux`, `stable-diffusion`) when any of the following are true: the chat-bar toggle is on, `enabledByDefault` is set in user prefs, the active modelSpec opts in, or a `preferredProvider` is saved. Routing prefers `preferredProvider`, then matches the request endpoint name (openai / azure / xai / google / gemini / vertex), then falls back to openai → google → flux.
+- **Model overrides** plumbed into the four image-generation tools so the per-user model choice (or a preferredProvider's discovered default) flows through rather than the env-only defaults: `OpenAIImageTools` reads `fields.model` ahead of `IMAGE_GEN_OAI_MODEL`, `GeminiImageGen` accepts a `modelOverride`, `FluxAPI` derives `defaultEndpoint` from the chosen Flux model id, and `StableDiffusion` populates A1111's `override_settings.sd_model_checkpoint` with the chosen Stability id.
+- A new `ImageGenerationController` mounted at `/api/image-generation/{models,prefs}` (GET/PATCH) with explicit `IMAGE_GEN.USE` checks and zod-validated payloads. Response shapes are `TImageGenModelsResponse` and `{ prefs: TImageGenerationPrefs }`. The discovery layer caches results per user for one hour and falls back to the curated lists for Flux/Stability with a `notice` if a remote call fails.
+
+#### Key files
+
+Backend:
+
+- `api/server/controllers/ImageGenerationController.js`
+- `api/server/routes/imageGeneration.js`
+- `api/server/index.js` (mounts `/api/image-generation`)
+- `api/server/routes/index.js` (re-exports the new router)
+- `api/models/Agent.js` (`applyImageGenerationTool`, exported for test coverage)
+- `api/app/clients/tools/util/handleTools.js` (`resolveImageModelOverride`, threading `model` into all four image tool constructors)
+- `api/app/clients/tools/structured/OpenAIImageTools.js`
+- `api/app/clients/tools/structured/GeminiImageGen.js`
+- `api/app/clients/tools/structured/FluxAPI.js`
+- `api/app/clients/tools/structured/StableDiffusion.js`
+
+Tests:
+
+- `packages/data-provider/src/imageGeneration.spec.ts`
+- `packages/api/src/endpoints/imageModels.spec.ts`
+- `api/server/controllers/__tests__/ImageGenerationController.spec.js`
+- `api/models/__tests__/applyImageGenerationTool.spec.js`
+
+Shared packages:
+
+- `packages/data-provider/src/imageGeneration.ts` (provider enum, curated model lists, helpers, prefs schemas)
+- `packages/data-provider/src/api-endpoints.ts` (image-generation URL helpers)
+- `packages/data-provider/src/data-service.ts` (`getImageGenerationModels`, `getImageGenerationPrefs`, `updateImageGenerationPrefs`)
+- `packages/data-provider/src/keys.ts` (QueryKeys + MutationKeys)
+- `packages/data-provider/src/permissions.ts` and `roles.ts` (`PermissionTypes.IMAGE_GEN` with `Permissions.USE`)
+- `packages/data-provider/src/config.ts` (`SettingsTabValues.IMAGE_GENERATION`, `LAST_IMAGE_GENERATION_TOGGLE_`, `PIN_IMAGE_GENERATION_`)
+- `packages/data-provider/src/types.ts` (`TEphemeralAgent.image_generation`)
+- `packages/data-provider/src/types/assistants.ts` (`Tools.image_generation`)
+- `packages/data-provider/src/schedules.ts` (ephemeralAgent zod schema honors `image_generation`)
+- `packages/api/src/endpoints/imageModels.ts` (`discoverImageModels`)
+- `packages/api/src/endpoints/index.ts` (re-exports)
+- `packages/data-schemas/src/schema/user.ts` and `types/user.ts` (`imageGenerationPrefs`)
+
+Frontend:
+
+- `client/src/components/Nav/Settings.tsx` (renders the new tab, gated by `useHasAccess(IMAGE_GEN, USE)`)
+- `client/src/components/Nav/SettingsTabs/ImageGeneration/{ImageGeneration.tsx,index.ts}`
+- `client/src/components/Nav/SettingsTabs/index.ts` (re-export)
+- `client/src/components/Chat/Input/ImageGeneration.tsx` (chat-bar badge)
+- `client/src/components/Chat/Input/BadgeRow.tsx` (renders the badge after `<FileSearch />`)
+- `client/src/components/Chat/Input/ToolsDropdown.tsx` (image generation menu item with pin toggle)
+- `client/src/Providers/BadgeRowContext.tsx` (`imageGeneration: useToolToggle(...)` exposed via context)
+- `client/src/data-provider/ImageGeneration/{queries.ts,mutations.ts,index.ts}` (`useImageGenerationModelsQuery`, `useImageGenerationPrefsQuery`, `useUpdateImageGenerationPrefsMutation`)
+- `client/src/data-provider/index.ts` (re-export)
+- `client/src/locales/en/translation.json` (image-generation copy keys)
+
+#### Preserve during merges
+
+- The `IMAGE_GEN` permission must remain registered in `permissions.ts` and seeded in `roles.ts` for the default user role. Any upstream rewrite of role defaults that drops `IMAGE_GEN` will silently disable the feature for everyone.
+- `api/server/index.js` must keep mounting `/api/image-generation` after auth middleware and before the catch-all 404. Same for `api/server/routes/index.js` re-export.
+- The four image-generation tool constructors must keep accepting `model` from `fields`. Upstream periodically rewrites these tools; do not regress to env-only model selection.
+- `Agent.js` must keep calling `applyImageGenerationTool` inside `loadEphemeralAgent`. The export is also used by unit tests.
+- `discoverImageModels` is the single source of truth for the Settings tab. Do not duplicate provider-specific filtering elsewhere; rely on the helpers in `packages/data-provider/src/imageGeneration.ts`.
+- Curated lists (`fluxKnownModels`, `stabilityKnownModels`) and `imageGenDefaultModel` are explicit fallbacks the UI relies on when a provider has no live discovery API. Keep them ordered newest-first and update with new releases as they ship.
+
+#### Relevant env/config surface
+
+- `OPENAI_API_KEY`, `IMAGE_GEN_OAI_API_KEY`, `IMAGE_GEN_OAI_BASEURL`, `IMAGE_GEN_OAI_MODEL` — OpenAI / Azure / xAI image generation
+- `AZURE_OPENAI_API_KEY` plus existing Azure OpenAI base/version env (used when `IMAGE_GEN_OAI_BASEURL` is an Azure URL)
+- `XAI_API_KEY` plus existing `XAI_REVERSE_PROXY_URL` configuration
+- `GOOGLE_API_KEY` / `GEMINI_API_KEY` for Gemini API discovery; existing Vertex service-account / ADC env for Vertex AI
+- `FLUX_API_KEY`, `STABILITY_API_KEY` — curated provider gating
+- Per-user keys saved through the existing user-key flow are also resolved by `loadAuthValues` and merged with env-defined credentials.
+
+#### Live-rail deployment notes
+
+- Code-only deploy: rebuild `data-provider`, `data-schemas`, `packages/api`, then run `npm run frontend`. Push the resulting dists/SPA via `docker cp` and restart the target container — no Docker image rebuild needed.
+- Smoke test after deploy: `curl http://localhost:<port>/api/image-generation/models` must return `401` (unauthenticated). The Settings → Image generation tab loads only for users whose role grants `IMAGE_GEN.USE`.
 
 ---
 
@@ -929,9 +1347,12 @@ When merging upstream changes, pay special attention to these areas.
 ### Runtime/config surface
 
 - `.env.example`
+- `librechat.yaml` (runtime, gitignored -- verify `interface`, `modelSpecs`, and endpoint config are intact after any modification)
 - `librechat.example.yaml`
 - `api/server/routes/config.js`
 - `packages/api/src/endpoints/models.ts`
+- `api/server/services/ModelAccess.js` (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` -- keep aligned with `modelSpecs` quick-selector)
+- `local-services/dev-seed-validation-personas.js` (can inject modelSpecs into librechat.yaml -- do not run against shared runtime yaml)
 
 ### Admin / RBAC / app settings
 
@@ -967,6 +1388,8 @@ When merging upstream changes, pay special attention to these areas.
 ### MCP interoperability / OAuth flows
 
 - `api/server/routes/mcp.js`
+- `client/src/components/Chat/Input/MCPSelect.tsx`
+- `client/src/components/Chat/Input/MCPSelect.guards.spec.ts`
 - `packages/api/src/mcp/zod.ts`
 - `packages/api/src/mcp/oauth/handler.ts`
 - `packages/api/src/mcp/MCPConnectionFactory.ts`
@@ -1052,6 +1475,54 @@ When merging upstream changes, pay special attention to these areas.
 - `.devcontainer/*`
 - `.gitignore`
 
+### Auth cookie and session hardening (LAN/plain-HTTP deployments)
+
+- `packages/api/src/oauth/csrf.ts` — `shouldUseSecureCookie()` with `isPlainHttp` bypass for `http://` DOMAIN_SERVER
+- `api/server/services/AuthService.js` — `sameSite: 'lax'` on `refreshToken` and `token_provider` cookies in `setAuthTokens()`
+- `api/server/controllers/AuthController.js` — diagnostic `logger.debug`/`logger.warn` calls in `refreshController`
+
+### UX bug fixes (stop button, badge row, pinned model)
+
+- `client/src/hooks/SSE/useResumableSSE.ts` — `setSubmission(null)` after final event to clear stop button; `clearDraft` → `clearAllDrafts` fix (the imported function); safety-net catch block that forces UI cleanup if `final` event processing throws
+- ~~`client/src/components/Chat/Input/ChatForm.tsx` — `{!isSuperAdmin && <BadgeRow>}` conditional, super admin detection via `useAdminPermissionsQuery`~~ **Removed 2026-04-26.** `BadgeRow` is the tool-toggle row, not a model selector; the gate is gone and tool-row visibility is now governed entirely by per-tool `useHasAccess` checks inside `BadgeRow.tsx`. A regression guard at `client/src/components/Chat/Input/ChatForm.guards.spec.ts` fails CI if any future merge re-wraps `<BadgeRow` in an `isSuperAdmin` gate.
+- `client/src/hooks/useNewConvo.ts` — `userHasManualModelSelection` check to preserve pinned model; `FILES_DRAFT` cleanup on new conversation
+
+### Regression guards (pinned tests; do not loosen)
+
+- `packages/data-schemas/src/schema/role.spec.ts` — covers (a) Mongoose `rolePermissionsSchema` declares every `PermissionTypes` value, (b) every ADMIN-USE permission has a `USE: Boolean` declaration on the schema, (c) `initializeRoles()` round-trips through in-memory MongoDB without strict-mode stripping. **Why:** prevents the 2026-04-26 IMAGE_GEN class of bug where a permission added to `librechat-data-provider` but not to the Mongoose schema is silently dropped on save.
+- `packages/api/src/endpoints/modelCapabilities.guards.spec.ts` — pins that `getAnthropicModelCapabilities`, `getGoogleModelCapabilities`, `getXAIModelCapabilities` exist as functions accepting an options object. **Why:** `api/server/routes/config.js` imports them by name; a missing export crashes `/api/config` on every request and silently breaks the entire BadgeRow + Settings tab UI.
+- `packages/api/src/index.guards.spec.ts` — pins the named public surface of `@librechat/api` (capability helpers + model discovery + `discoverImageModels`). **Why:** stops accidental drops in `index.ts`/`endpoints/index.ts` re-export tree.
+- `client/src/components/Chat/Input/ChatForm.guards.spec.ts` — pins that `<BadgeRow` is never wrapped in any `isSuperAdmin` gate. **Why:** the 2026-04-11 gate hid all tool toggles from super admins; a future upstream-merge could easily reintroduce it.
+- `client/src/components/Chat/Input/MCPSelect.guards.spec.ts` — pins that MCP selector visibility is not gated on empty `mcpValues`. **Why:** users need the selector visible before any MCP server is pinned or selected.
+- `packages/api/src/utils/content.spec.ts` — pins malformed content filtering for provider-native history, including Anthropic `thinking` blocks missing required signed fields. **Why:** prevents interrupted Claude native-tool turns from being replayed as invalid Anthropic Messages API payloads.
+
+### Gemini/Vertex AI service account support
+
+- `docker-compose.local.override.yml` — bind mount for `./data/google-service-account.json` → `/app/data/google-service-account.json` (read-only)
+- `.gitignore` — `/data/google-service-account.json` entry to prevent credential leakage
+- `.env` — `GOOGLE_KEY=user_provided`, `GOOGLE_AUTH_MODE`, `GOOGLE_SERVICE_KEY_FILE`, `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION`, `GOOGLE_MODELS`
+
+### Dev-rail Langfuse stack isolation
+
+- `local-services/start-all.sh` — `shared_traceability_services` array separated; only started on stable rail; dev rail cleans up stale traceability containers
+- `local-services/rail-env.sh` — exports `LANGFUSE_BASE_URL`/`LANGFUSE_UI_URL` for dev rail (pointing to shared stable Langfuse via `host.docker.internal`), unsets for stable rail
+- `docker-compose.local.override.yml` — passes `LANGFUSE_BASE_URL`/`LANGFUSE_UI_URL` through to API container
+
+### User-managed image generation
+
+- `api/server/index.js`, `api/server/routes/index.js`, `api/server/routes/imageGeneration.js`, `api/server/controllers/ImageGenerationController.js`
+- `api/models/Agent.js` (`applyImageGenerationTool` + `loadEphemeralAgent` integration)
+- `api/app/clients/tools/util/handleTools.js` (`resolveImageModelOverride`)
+- `api/app/clients/tools/structured/{OpenAIImageTools,GeminiImageGen,FluxAPI,StableDiffusion}.js`
+- `packages/api/src/endpoints/imageModels.ts`
+- `packages/data-provider/src/{imageGeneration,api-endpoints,data-service,keys,permissions,roles,config,types,types/assistants,schedules}.ts`
+- `packages/data-schemas/src/schema/user.ts`, `packages/data-schemas/src/types/user.ts`
+- `client/src/components/Nav/Settings.tsx`, `client/src/components/Nav/SettingsTabs/ImageGeneration/`
+- `client/src/components/Chat/Input/{ImageGeneration.tsx,BadgeRow.tsx,ToolsDropdown.tsx}`
+- `client/src/Providers/BadgeRowContext.tsx`
+- `client/src/data-provider/ImageGeneration/`, `client/src/data-provider/index.ts`
+- `client/src/locales/en/translation.json` (image-generation copy keys)
+
 ---
 
 ## 5. Existing focused docs already in this branch
@@ -1063,10 +1534,12 @@ These docs provide deeper detail for specific areas and should be kept consisten
 - `OPENAI_GEMINI_NATIVE_TOOLS.md`
 - `OPENAI_GEMINI_NATIVE_TOOLS_IMPLEMENTATION.md`
 - `LOCAL_CODE_INTERPRETER_INTEGRATION.md`
+- `LOCAL_RAG_INTEGRATION.md`
 - `PATCHED_REMOTE_IMAGE_REFERENCE.md`
 - `REALTIME_VOICE.md`
 - `SCHEDULED_RUNS.md`
 - `XAI_CUSTOM_ENDPOINTS.md`
+- `IMAGE_GENERATION.md`
 - `README.local.md`
 - `UPSTREAM_RELEASE_UPDATE.local.md`
 - `LOCAL_UPSTREAM_SYNC_WORKFLOW.local.md`
@@ -1171,6 +1644,10 @@ That helper path now resolves the checked-in `docker-compose.local.override.yml`
 - the Google endpoint settings UI with auth mode dropdown and conditional field rendering remains intact
 - local startup scripts continue rebuilding and running the custom image from `docker-compose.local.override.yml`
 - the runtime `librechat.yaml` includes a `memory:` section with a valid agent config (provider + model or agent id) so that user memories are retrieved and injected into agent conversations
+- the runtime `librechat.yaml` always includes an `interface` block with `endpointsMenu`, `modelSelect`, `parameters`, `sidePanel`, and `presets` all set to `true`
+- `modelSpecs` in `librechat.yaml` uses `enforce: false` so the quick-selector never blocks free model access; the specs list stays aligned with `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`
+- the Ollama local endpoint uses `fetch: false` with an explicit model list; Ollama Cloud uses `user_provided` key with its own default list; these must not be re-merged into a single endpoint
+- `local-services/dev-seed-validation-personas.js` must never be run against the shared runtime `librechat.yaml`; it is dev-rail validation tooling only
 - secret/runtime-only files remain ignored and not accidentally committed
 
 ---

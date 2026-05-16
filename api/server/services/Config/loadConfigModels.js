@@ -1,13 +1,10 @@
 const { logger } = require('@librechat/data-schemas');
-const {
-  isUserProvided,
-  fetchModels,
-  filterOpenAITextCompatibleModels,
-} = require('@librechat/api');
+const { isUserProvided, fetchModels, filterOpenAITextCompatibleModels } = require('@librechat/api');
 const {
   EModelEndpoint,
   KnownEndpoints,
   extractEnvVariable,
+  isXAIEndpointCandidate,
   normalizeEndpointName,
 } = require('librechat-data-provider');
 const { getUserKeyValues } = require('~/models');
@@ -100,6 +97,38 @@ const isOpenAICompatibleEndpoint = (name, endpoint) => {
 
   return defaultParamsEndpoint === EModelEndpoint.openAI.toLowerCase();
 };
+
+/**
+ * Resolve the merge/override mode for a custom endpoint's models list.
+ *
+ * Resolution order (most specific wins):
+ *  1. `endpoint.models.mode = 'merge' | 'override'` in librechat.yaml.
+ *  2. `CUSTOM_MODELS_MODE = 'merge' | 'override'` env var (applies to every
+ *     custom endpoint that doesn't set the YAML override).
+ *  3. xAI gets `'merge'` by default (preserves the historical xAI-specific
+ *     union of default + discovered models).
+ *  4. Everything else gets `'override'` (the upstream default — only fall back
+ *     to defaults when discovery is empty).
+ */
+function resolveCustomEndpointModelsMode(endpoint) {
+  const yamlMode = (endpoint?.models?.mode ?? '').toString().trim().toLowerCase();
+  if (yamlMode === 'merge' || yamlMode === 'override') {
+    return yamlMode;
+  }
+
+  const envMode = (process.env.CUSTOM_MODELS_MODE ?? '').toString().trim().toLowerCase();
+  if (envMode === 'merge' || envMode === 'override') {
+    return envMode;
+  }
+
+  const isXAI = isXAIEndpointCandidate({
+    endpoint: endpoint?.name,
+    baseURL: extractEnvVariable(endpoint?.baseURL ?? ''),
+    defaultParamsEndpoint: endpoint?.customParams?.defaultParamsEndpoint,
+  });
+
+  return isXAI ? 'merge' : 'override';
+}
 
 const getDefaultModels = (models = {}) =>
   Array.isArray(models.default)
@@ -286,6 +315,25 @@ async function loadConfigModels(req, options = {}) {
 
       if (isStrictOllamaEndpoint(name, endpoint)) {
         modelsConfig[name] = await tagOllamaCloudModels(discoveredModels, endpoint);
+        continue;
+      }
+
+      const mode = resolveCustomEndpointModelsMode(endpoint);
+
+      /**
+       * Merge mode (default for xAI; opt-in elsewhere) unions the configured
+       * `default` list with anything the live API returns. This is what makes
+       * the admin "refresh" button reliable for providers whose live discovery
+       * is partial (xAI 403s on some tiers) or who curate a "must-include"
+       * floor in their librechat.yaml.
+       *
+       * Override mode (the upstream default for non-xAI custom endpoints) only
+       * falls back to the default list when discovery returns nothing.
+       */
+      if (mode === 'merge') {
+        const defaultModelsList = getDefaultModels(endpoint.models);
+        const unionedModels = [...new Set([...filteredDiscoveredModels, ...defaultModelsList])];
+        modelsConfig[name] = unionedModels.length ? unionedModels : defaultModelsList;
         continue;
       }
 

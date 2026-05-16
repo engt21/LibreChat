@@ -1,4 +1,4 @@
-const { Constants } = require('librechat-data-provider');
+const { Constants, EToolResources } = require('librechat-data-provider');
 const { initializeFakeClient } = require('./FakeClient');
 
 jest.mock('~/db/connect');
@@ -1095,6 +1095,51 @@ describe('BaseClient', () => {
       );
       expect(userSave[0].files).toHaveLength(1);
       expect(userSave[0].files[0].file_id).toBe('file-abc');
+    });
+
+    test('processAttachments preserves native execute_code uploads', async () => {
+      const nativeAttachment = {
+        ...attachment,
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        metadata: { nativeTool: EToolResources.execute_code },
+      };
+
+      const processedAttachments = await TestClient.processAttachments({}, [nativeAttachment]);
+
+      expect(processedAttachments).toEqual([nativeAttachment]);
+    });
+
+    test('sendMessage keeps native execute_code uploads after attachment processing', async () => {
+      const nativeAttachment = {
+        ...attachment,
+        filename: 'sheet.xlsx',
+        filepath: '/uploads/sheet.xlsx',
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        metadata: { nativeTool: EToolResources.execute_code },
+      };
+
+      TestClient.options.attachments = [nativeAttachment];
+      TestClient.buildMessages = jest.fn(async (messages) => {
+        const latestMessage = messages[messages.length - 1];
+        TestClient.options.attachments = await TestClient.processAttachments(latestMessage, [
+          nativeAttachment,
+        ]);
+
+        return {
+          prompt: [{ role: 'user', content: latestMessage.text }],
+          tokenCountMap: null,
+        };
+      });
+      TestClient.saveMessageToDatabase = jest.fn().mockResolvedValue({ message: {} });
+
+      await TestClient.sendMessage('Hello');
+
+      const userSave = TestClient.saveMessageToDatabase.mock.calls.find(
+        ([msg]) => msg.isCreatedByUser,
+      );
+      expect(userSave[0].files).toHaveLength(1);
+      expect(userSave[0].files[0].file_id).toBe('file-abc');
+      expect(userSave[0].files[0].metadata).toEqual({ nativeTool: EToolResources.execute_code });
     });
   });
 });

@@ -1,4 +1,3 @@
-const path = require('path');
 const sharp = require('sharp');
 const { v4 } = require('uuid');
 const { ProxyAgent } = require('undici');
@@ -8,7 +7,8 @@ const { logger } = require('@librechat/data-schemas');
 const { ContentTypes, EImageOutputType } = require('librechat-data-provider');
 const {
   geminiToolkit,
-  loadServiceKey,
+  prepareGoogleCredentials,
+  resolveGoogleClientAuth,
   getBalanceConfig,
   getTransactionsConfig,
 } = require('@librechat/api');
@@ -32,16 +32,6 @@ if (process.env.PROXY) {
     }
     return originalFetch.call(this, url, options);
   };
-}
-
-/**
- * Get the default service key file path (consistent with main Google endpoint)
- * @returns {string} - The default path to the service key file
- */
-function getDefaultServiceKeyPath() {
-  return (
-    process.env.GOOGLE_SERVICE_KEY_FILE || path.join(process.cwd(), 'api', 'data', 'auth.json')
-  );
 }
 
 const displayMessage =
@@ -87,7 +77,7 @@ async function convertImageFormat(inputBuffer, targetFormat) {
 
 /**
  * Initialize Gemini client (supports both Gemini API and Vertex AI)
- * Priority: API key (from options, resolved by loadAuthValues) > Vertex AI service account
+ * Priority: API key (from options, resolved by loadAuthValues) > Vertex AI credentials
  * @param {Object} options - Initialization options
  * @param {string} [options.GEMINI_API_KEY] - Gemini API key (resolved by loadAuthValues)
  * @param {string} [options.GOOGLE_KEY] - Google API key (resolved by loadAuthValues)
@@ -106,23 +96,23 @@ async function initializeGeminiClient(options = {}) {
     return new GoogleGenAI({ apiKey: googleKey });
   }
 
-  logger.debug('[GeminiImageGen] Using Vertex AI with service account');
-  const credentialsPath = getDefaultServiceKeyPath();
-  const serviceKey = await loadServiceKey(credentialsPath);
+  const preparedCredentials = await prepareGoogleCredentials();
+  const googleAuth = resolveGoogleClientAuth(preparedCredentials, {
+    env: {
+      ...process.env,
+      GOOGLE_VERTEX_LOCATION:
+        process.env.GOOGLE_CLOUD_LOCATION || process.env.GOOGLE_LOC || 'global',
+    },
+  });
 
-  if (!serviceKey || !serviceKey.project_id) {
+  if (!googleAuth.isConfigured) {
     throw new Error(
-      'Gemini Image Generation requires one of: user-provided API key, GEMINI_API_KEY or GOOGLE_KEY env var, or a valid Google service account. ' +
-        `Service account file not found or invalid at: ${credentialsPath}`,
+      'Gemini Image Generation requires one of: user-provided API key, GEMINI_API_KEY or GOOGLE_KEY env var, a valid Google service account, or Vertex AI application default credentials.',
     );
   }
 
-  return new GoogleGenAI({
-    vertexai: true,
-    project: serviceKey.project_id,
-    location: process.env.GOOGLE_LOC || process.env.GOOGLE_CLOUD_LOCATION || 'global',
-    googleAuthOptions: { credentials: serviceKey },
-  });
+  logger.debug('[GeminiImageGen] Using Vertex AI credentials');
+  return new GoogleGenAI(googleAuth.clientOptions);
 }
 
 /**
@@ -320,6 +310,8 @@ function createGeminiImageTool(fields = {}) {
   const { req, imageFiles = [], userId, fileStrategy, GEMINI_API_KEY, GOOGLE_KEY } = fields;
 
   const imageOutputType = fields.imageOutputType || EImageOutputType.PNG;
+  const modelOverride =
+    typeof fields.model === 'string' && fields.model.trim() ? fields.model.trim() : null;
 
   const geminiImageGenTool = tool(
     async ({ prompt, image_ids, aspectRatio, imageSize }, runnableConfig) => {
@@ -357,7 +349,8 @@ function createGeminiImageTool(fields = {}) {
       }
 
       let apiResponse;
-      const geminiModel = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
+      const geminiModel =
+        modelOverride || process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
       const config = {
         responseModalities: ['TEXT', 'IMAGE'],
       };

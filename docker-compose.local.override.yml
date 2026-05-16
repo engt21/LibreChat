@@ -38,14 +38,16 @@ services:
       NODE_OPTIONS: "--max-old-space-size=${LIBRECHAT_API_NODE_MAX_OLD_SPACE:-1024}"
       MONGO_URI: ${MONGO_URI}
       MEILI_HOST: http://meilisearch:7700
-      DOMAIN_SERVER: http://localhost:${LIBRECHAT_HOST_PORT:-3080}
+      DOMAIN_SERVER: ${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}
       PORT: ${LIBRECHAT_CONTAINER_PORT:-3080}
       AZURE_API_KEY: user_provided
       AZURE_OPENAI_BASEURL: user_provided
       PROVIDER_LOGGING_ENABLED: "true"
-      PROVIDER_LOG_RAW_PAYLOADS: "false"
+      PROVIDER_LOG_RAW_PAYLOADS: "true"
       PROVIDER_LOG_STREAM_CHUNKS: "false"
       PROVIDER_LOG_DIR: /app/logs
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+      LANGFUSE_UI_URL: ${LANGFUSE_UI_URL:-}
       STEP_EVENT_LOGGING_ENABLED: "true"
       STEP_EVENT_LOG_FILE: /app/logs/step-events.log
       STEP_EVENT_MAX_FIELD_LENGTH: "2048"
@@ -61,11 +63,16 @@ services:
       - type: bind
         source: ./librechat.yaml
         target: /app/librechat.yaml
+      - type: bind
+        source: ./data/google-service-account.json
+        target: /app/data/google-service-account.json
+        read_only: true
   rag_api:
     container_name: ${LIBRECHAT_RAG_OPENAI_CONTAINER_NAME:-rag-api-openai-local}
     image: ${LIBRECHAT_RAG_IMAGE:-librechat-local-rag-api:latest}
     pull_policy: never
-    mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-192m}
+    mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-384m}
+    cpus: ${LIBRECHAT_RAG_CPUS:-0.5}
     build:
       context: ${LOCAL_RAG_API_ROOT:-../rag_api}
       dockerfile: Dockerfile.lite
@@ -100,7 +107,8 @@ services:
     container_name: ${LIBRECHAT_RAG_AZURE_CONTAINER_NAME:-rag-api-azure-local}
     image: ${LIBRECHAT_RAG_IMAGE:-librechat-local-rag-api:latest}
     pull_policy: never
-    mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-192m}
+    mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-384m}
+    cpus: ${LIBRECHAT_RAG_CPUS:-0.5}
     build:
       context: ${LOCAL_RAG_API_ROOT:-../rag_api}
       dockerfile: Dockerfile.lite
@@ -136,7 +144,8 @@ services:
     container_name: ${LIBRECHAT_RAG_GOOGLE_CONTAINER_NAME:-rag-api-google-local}
     image: ${LIBRECHAT_RAG_IMAGE:-librechat-local-rag-api:latest}
     pull_policy: never
-    mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-192m}
+    mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-384m}
+    cpus: ${LIBRECHAT_RAG_CPUS:-0.5}
     build:
       context: ${LOCAL_RAG_API_ROOT:-../rag_api}
       dockerfile: Dockerfile.lite
@@ -219,7 +228,25 @@ services:
     user: "0:0"
   vectordb:
     container_name: ${LIBRECHAT_VECTORDB_CONTAINER_NAME:-vectordb}
-    mem_limit: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-128m}
+    mem_limit: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-512m}
+    shm_size: ${LIBRECHAT_VECTORDB_SHM_SIZE:-64m}
+    cpus: ${LIBRECHAT_VECTORDB_CPUS:-1.0}
+    environment:
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - effective_cache_size=256MB
+      - -c
+      - max_connections=50
   langfuse-worker:
     <<: *langfuse-env-file
     image: docker.io/langfuse/langfuse-worker:3
@@ -294,8 +321,10 @@ services:
     <<: *langfuse-env-file
     image: docker.io/redis:7
     mem_limit: ${LIBRECHAT_LANGFUSE_REDIS_MEM_LIMIT:-128m}
-    command: >
-      sh -c 'redis-server --requirepass "$${REDIS_AUTH}" --maxmemory-policy noeviction'
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$${REDIS_AUTH}" --maxmemory ${LIBRECHAT_LANGFUSE_REDIS_MAXMEMORY:-128mb} --maxmemory-policy ${LIBRECHAT_LANGFUSE_REDIS_MAXMEMORY_POLICY:-allkeys-lru}
     volumes:
       - langfuse_redis_data:/data
     healthcheck:

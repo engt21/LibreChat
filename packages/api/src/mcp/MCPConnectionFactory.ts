@@ -2,7 +2,12 @@ import { logger } from '@librechat/data-schemas';
 import type { OAuthClientInformation } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { TokenMethods } from '@librechat/data-schemas';
-import type { MCPOAuthTokens, OAuthMetadata, MCPOAuthFlowMetadata } from '~/mcp/oauth';
+import type {
+  MCPOAuthTokens,
+  OAuthMetadata,
+  MCPOAuthFlowMetadata,
+  OAuthProtectedResourceMetadata,
+} from '~/mcp/oauth';
 import type { FlowStateManager } from '~/flow/manager';
 import type * as t from './types';
 import { MCPTokenStorage, MCPOAuthHandler, ReauthenticationRequiredError } from '~/mcp/oauth';
@@ -288,12 +293,17 @@ export class MCPConnectionFactory {
     },
   ) => Promise<MCPOAuthTokens> {
     return async (refreshToken, metadata) => {
+      const resourceMetadata = (this.serverConfig as t.ParsedServerConfig).oauthMetadata as
+        | OAuthProtectedResourceMetadata
+        | undefined;
+
       return await MCPOAuthHandler.refreshOAuthTokens(
         refreshToken,
         {
           serverUrl: (this.serverConfig as t.SSEOptions | t.StreamableHTTPOptions).url,
           serverName: metadata.serverName,
           clientInfo: metadata.clientInfo,
+          resourceMetadata,
         },
         this.serverConfig.oauth_headers ?? {},
         this.serverConfig.oauth,

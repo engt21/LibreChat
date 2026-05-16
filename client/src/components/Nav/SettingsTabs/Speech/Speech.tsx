@@ -20,6 +20,8 @@ import {
   AutoSendTextSelector,
   EngineSTTDropdown,
   DecibelSelector,
+  TranscriptionModelDropdown,
+  TranscriptionPromptInput,
 } from './STT';
 import ConversationModeSwitch from './ConversationModeSwitch';
 import { useLocalize } from '~/hooks';
@@ -191,6 +193,7 @@ function Speech() {
           <SpeechToTextSwitch />
           <EngineSTTDropdown external={sttExternal} />
           <LanguageSTTDropdown />
+          <TranscriptionModelDropdown />
           <div className="h-px bg-border-medium" role="none" />
           <TextToSpeechSwitch />
           <EngineTTSDropdown external={ttsExternal} />
@@ -215,6 +218,8 @@ function Speech() {
               <DecibelSelector />
             </div>
           )}
+          <TranscriptionModelDropdown />
+          <TranscriptionPromptInput />
           <div className="pb-2">
             <AutoSendTextSelector />
           </div>

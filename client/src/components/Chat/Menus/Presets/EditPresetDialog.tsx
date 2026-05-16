@@ -81,14 +81,11 @@ const EditPresetDialog = ({
       return;
     }
 
-    if (preset.model === models[0]) {
+    if (preset.model) {
       return;
     }
 
-    if (!models.includes(preset.model ?? '')) {
-      console.log('setting model', models[0]);
-      setOption('model')(models[0]);
-    }
+    setOption('model')(models[0]);
   }, [preset, queryClient, setOption]);
 
   const switchEndpoint = useCallback(
@@ -104,9 +101,13 @@ const EditPresetDialog = ({
         endpointsConfig: queryClient.getQueryData<TEndpointsConfig>([QueryKeys.endpoints]) ?? {},
       });
 
+      const modelsConfig = queryClient.getQueryData<TModelsConfig>([QueryKeys.models]);
+      const models = modelsConfig?.[newEndpoint] as string[] | undefined;
+
       setOptions({
         endpoint: newEndpoint,
         endpointType: newEndpointType,
+        ...(models?.[0] ? { model: models[0] } : {}),
       });
     },
     [queryClient, setOptions],

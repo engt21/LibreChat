@@ -147,10 +147,7 @@ export async function exchangeAdminCode(
       logger.warn('[adminExchange] PKCE challenge stored but no code_verifier provided');
       return null;
     }
-    const computedChallenge = crypto
-      .createHash('sha256')
-      .update(codeVerifier)
-      .digest('hex');
+    const computedChallenge = crypto.createHash('sha256').update(codeVerifier).digest('hex');
     if (computedChallenge !== data.pkceChallenge) {
       logger.warn('[adminExchange] PKCE code_verifier does not match stored challenge');
       return null;

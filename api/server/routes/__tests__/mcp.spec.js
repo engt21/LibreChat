@@ -188,10 +188,13 @@ describe('MCP Routes', () => {
       MCPOAuthHandler.storeStateMapping.mockResolvedValue();
       mockFlowManager.initFlow = jest.fn().mockResolvedValue();
 
-      const response = await request(app).get('/api/mcp/test-server/oauth/initiate').query({
-        userId: 'test-user-id',
-        flowId: 'test-user-id:test-server',
-      });
+      const response = await request(app)
+        .get('/api/mcp/test-server/oauth/initiate')
+        .set('Host', '192.168.50.4:3080')
+        .query({
+          userId: 'test-user-id',
+          flowId: 'test-user-id:test-server',
+        });
 
       expect(response.status).toBe(302);
       expect(response.headers.location).toBe('https://oauth.example.com/auth');
@@ -201,7 +204,103 @@ describe('MCP Routes', () => {
         'test-user-id',
         {},
         { clientId: 'test-client-id' },
+        'http://192.168.50.4:3080/api/mcp/test-server/oauth/callback',
       );
+    });
+
+    it('should prefer forwarded host and protocol for the OAuth callback URL', async () => {
+      const mockFlowManager = {
+        getFlowState: jest.fn().mockResolvedValue({
+          metadata: {
+            serverUrl: 'https://test-server.com',
+            oauth: { clientId: 'test-client-id' },
+          },
+        }),
+      };
+
+      getLogStores.mockReturnValue({});
+      require('~/config').getFlowStateManager.mockReturnValue(mockFlowManager);
+      mockRegistryInstance.getServerConfig.mockResolvedValue({});
+
+      MCPOAuthHandler.initiateOAuthFlow.mockResolvedValue({
+        authorizationUrl: 'https://oauth.example.com/auth',
+        flowId: 'test-user-id:test-server',
+        flowMetadata: { state: 'random-state-value' },
+      });
+      MCPOAuthHandler.storeStateMapping.mockResolvedValue();
+      mockFlowManager.initFlow = jest.fn().mockResolvedValue();
+
+      const response = await request(app)
+        .get('/api/mcp/test-server/oauth/initiate')
+        .set('Host', 'internal-librechat:3080')
+        .set('X-Forwarded-Proto', 'https')
+        .set('X-Forwarded-Host', 'chat.example.test')
+        .query({
+          userId: 'test-user-id',
+          flowId: 'test-user-id:test-server',
+        });
+
+      expect(response.status).toBe(302);
+      expect(MCPOAuthHandler.initiateOAuthFlow).toHaveBeenCalledWith(
+        'test-server',
+        'https://test-server.com',
+        'test-user-id',
+        {},
+        { clientId: 'test-client-id' },
+        'https://chat.example.test/api/mcp/test-server/oauth/callback',
+      );
+    });
+
+    it('should prefer DOMAIN_SERVER for the OAuth callback URL when configured', async () => {
+      const originalDomainServer = process.env.DOMAIN_SERVER;
+      process.env.DOMAIN_SERVER = 'http://localhost:3080';
+
+      try {
+        const mockFlowManager = {
+          getFlowState: jest.fn().mockResolvedValue({
+            metadata: {
+              serverUrl: 'https://test-server.com',
+              oauth: { clientId: 'test-client-id' },
+            },
+          }),
+        };
+
+        getLogStores.mockReturnValue({});
+        require('~/config').getFlowStateManager.mockReturnValue(mockFlowManager);
+        mockRegistryInstance.getServerConfig.mockResolvedValue({});
+
+        MCPOAuthHandler.initiateOAuthFlow.mockResolvedValue({
+          authorizationUrl: 'https://oauth.example.com/auth',
+          flowId: 'test-user-id:test-server',
+          flowMetadata: { state: 'random-state-value' },
+        });
+        MCPOAuthHandler.storeStateMapping.mockResolvedValue();
+        mockFlowManager.initFlow = jest.fn().mockResolvedValue();
+
+        const response = await request(app)
+          .get('/api/mcp/test-server/oauth/initiate')
+          .set('Host', '192.168.50.4:3080')
+          .query({
+            userId: 'test-user-id',
+            flowId: 'test-user-id:test-server',
+          });
+
+        expect(response.status).toBe(302);
+        expect(MCPOAuthHandler.initiateOAuthFlow).toHaveBeenCalledWith(
+          'test-server',
+          'https://test-server.com',
+          'test-user-id',
+          {},
+          { clientId: 'test-client-id' },
+          'http://localhost:3080/api/mcp/test-server/oauth/callback',
+        );
+      } finally {
+        if (originalDomainServer === undefined) {
+          delete process.env.DOMAIN_SERVER;
+        } else {
+          process.env.DOMAIN_SERVER = originalDomainServer;
+        }
+      }
     });
 
     it('should return 403 when userId does not match authenticated user', async () => {

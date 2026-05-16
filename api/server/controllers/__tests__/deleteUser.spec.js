@@ -150,7 +150,10 @@ jest.mock('~/cache', () => ({
   getLogStores: jest.fn(),
 }));
 
-const { deleteUserController, deleteUserMcpServers } = require('~/server/controllers/UserController');
+const {
+  deleteUserController,
+  deleteUserMcpServers,
+} = require('~/server/controllers/UserController');
 const { getMCPManager } = require('~/config');
 const { invalidateCachedTools } = require('~/server/services/Config/getCachedTools');
 
@@ -369,7 +372,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
     // Second AclEntry.find: legacy authored servers migration check (empty)
     setupAclEntryFind([
       [{ resourceId: serverId1 }], // user's DELETE-bearing entries
-      [],                          // migrated entries for legacy check
+      [], // migrated entries for legacy check
     ]);
 
     // No other USER principals with DELETE on this server
@@ -413,7 +416,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
     // User's owner entries
     setupAclEntryFind([
       [{ resourceId: serverId1 }], // user has DELETE on serverId1
-      [],                          // legacy migration check
+      [], // legacy migration check
     ]);
 
     // Another USER with DELETE exists
@@ -435,7 +438,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
     // User has DELETE on serverId1
     setupAclEntryFind([
       [{ resourceId: serverId1 }],
-      [],                          // legacy migration check
+      [], // legacy migration check
     ]);
 
     // No other USER with DELETE (GROUP/ROLE entries should not count)
@@ -469,8 +472,8 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
   it('preserves legacy pre-ACL authored servers that have no ACL entries', async () => {
     // No ACL-based ownership entries
     setupAclEntryFind([
-      [],   // no user DELETE entries
-      [],   // legacy migration check: no migrated entries
+      [], // no user DELETE entries
+      [], // legacy migration check: no migrated entries
     ]);
 
     // Legacy authored servers exist
@@ -478,9 +481,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
       if (query.author) {
         return {
           select: jest.fn().mockReturnValue({
-            lean: jest.fn().mockResolvedValue([
-              { _id: serverId2, serverName: 'legacy-server' },
-            ]),
+            lean: jest.fn().mockResolvedValue([{ _id: serverId2, serverName: 'legacy-server' }]),
           }),
         };
       }
@@ -504,8 +505,8 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
   it('skips legacy authored servers that have been migrated to ACL', async () => {
     // No ACL-based owner entries for this user
     setupAclEntryFind([
-      [],                                          // no DELETE entries for user
-      [{ resourceId: serverId2 }],                 // serverId2 has been migrated to ACL
+      [], // no DELETE entries for user
+      [{ resourceId: serverId2 }], // serverId2 has been migrated to ACL
     ]);
 
     // Legacy authored servers - serverId2 is authored but already migrated
@@ -513,9 +514,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
       if (query.author) {
         return {
           select: jest.fn().mockReturnValue({
-            lean: jest.fn().mockResolvedValue([
-              { _id: serverId2, serverName: 'migrated-server' },
-            ]),
+            lean: jest.fn().mockResolvedValue([{ _id: serverId2, serverName: 'migrated-server' }]),
           }),
         };
       }
@@ -533,7 +532,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
     // User has DELETE on serverId1 and serverId2
     setupAclEntryFind([
       [{ resourceId: serverId1 }, { resourceId: serverId2 }],
-      [],   // legacy migration check - no migrated entries
+      [], // legacy migration check - no migrated entries
     ]);
 
     // serverId1 has no other USER DELETE owners; serverId2 does
@@ -550,9 +549,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
       if (query.author) {
         return {
           select: jest.fn().mockReturnValue({
-            lean: jest.fn().mockResolvedValue([
-              { _id: serverId3, serverName: 'legacy-server' },
-            ]),
+            lean: jest.fn().mockResolvedValue([{ _id: serverId3, serverName: 'legacy-server' }]),
           }),
         };
       }
@@ -585,10 +582,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
   it('only considers USER principals with DELETE permission as owners for the target user', async () => {
     // This is the key semantic test: the ownerEntries query must filter by
     // principalType === 'user' AND permBits includes DELETE bit
-    setupAclEntryFind([
-      [{ resourceId: serverId1 }],
-      [],
-    ]);
+    setupAclEntryFind([[{ resourceId: serverId1 }], []]);
 
     mockAclEntryCountDocuments.mockResolvedValue(0);
 
@@ -620,10 +614,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
   });
 
   it('only counts other USER principals with DELETE as competing owners', async () => {
-    setupAclEntryFind([
-      [{ resourceId: serverId1 }],
-      [],
-    ]);
+    setupAclEntryFind([[{ resourceId: serverId1 }], []]);
 
     mockAclEntryCountDocuments.mockResolvedValue(1);
 
@@ -645,10 +636,7 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
   });
 
   it('disconnects MCP sessions and invalidates caches for deleted servers', async () => {
-    setupAclEntryFind([
-      [{ resourceId: serverId1 }],
-      [],
-    ]);
+    setupAclEntryFind([[{ resourceId: serverId1 }], []]);
 
     mockAclEntryCountDocuments.mockResolvedValue(0);
 
@@ -679,8 +667,8 @@ describe('deleteUserMcpServers - sole-owner semantics', () => {
 
   it('returns silently when no servers to delete', async () => {
     setupAclEntryFind([
-      [],  // no ownership entries
-      [],  // no legacy migration check results
+      [], // no ownership entries
+      [], // no legacy migration check results
     ]);
 
     mockMCPServerFind.mockReturnValue({

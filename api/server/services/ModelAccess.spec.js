@@ -18,6 +18,7 @@ describe('ModelAccess', () => {
   const modelsConfig = {
     openAI: ['gpt-4o', 'gpt-5'],
     google: ['gemini-3-flash-preview', 'gemini-2.5-flash-lite'],
+    anthropic: ['claude-opus-4-7', 'claude-sonnet-4-6'],
     ollama: ['qwen2.5:latest', 'gptossbigctx:latest'],
     LiteLLM: ['gemini-2.5-pro', 'gpt-4o'],
     initial: [],
@@ -61,26 +62,9 @@ describe('ModelAccess', () => {
   });
 
   describe('default model permissions', () => {
-    it('applies restricted defaults to new non-admin users', () => {
+    it('applies unrestricted defaults to new non-admin users', () => {
       const result = applyDefaultModelPermissions({ email: 'user@example.com' });
-      expect(result.modelPermissions.enabled).toBe(true);
-      const endpoints = result.modelPermissions.rules.map((r) => r.endpoint).sort();
-      expect(endpoints).toEqual(['anthropic', 'azureOpenAI', 'ollama', 'openAI', 'xai']);
-      expect(result.modelPermissions.rules.find((r) => r.endpoint === 'ollama').models).toEqual([
-        '*',
-      ]);
-      expect(
-        result.modelPermissions.rules.find((r) => r.endpoint === 'azureOpenAI').models,
-      ).toEqual(['*']);
-      expect(result.modelPermissions.rules.find((r) => r.endpoint === 'xai').models).toEqual([
-        'grok-4-1-fast',
-      ]);
-      expect(result.modelPermissions.rules.find((r) => r.endpoint === 'openAI').models).toEqual(
-        expect.arrayContaining(['gpt-5.4-mini', 'gpt-5.4-nano']),
-      );
-      expect(result.modelPermissions.rules.find((r) => r.endpoint === 'anthropic').models).toEqual(
-        expect.arrayContaining(['claude-sonnet-4-5', 'claude-sonnet-4-6']),
-      );
+      expect(result.modelPermissions).toEqual({ enabled: false, rules: [] });
     });
 
     it('keeps admins unrestricted by default', () => {
@@ -128,6 +112,7 @@ describe('ModelAccess', () => {
       expect(result).toEqual({
         openAI: ['gpt-4o'],
         google: [],
+        anthropic: [],
         ollama: [],
         LiteLLM: ['gemini-2.5-pro'],
         initial: [],
@@ -146,8 +131,90 @@ describe('ModelAccess', () => {
       expect(result).toEqual({
         openAI: [],
         google: [],
+        anthropic: [],
         ollama: ['qwen2.5:latest', 'gptossbigctx:latest'],
         LiteLLM: [],
+        initial: [],
+      });
+    });
+
+    it('allows models matched by per-model wildcard rules', () => {
+      const result = filterModelsConfigForUser(
+        {
+          openAI: ['gpt-5.5', 'gpt-4o'],
+          anthropic: ['claude-opus-4-7', 'claude-3-5-sonnet-20241022'],
+          initial: [],
+        },
+        {
+          role: SystemRoles.USER,
+          modelPermissions: {
+            enabled: true,
+            rules: [
+              { endpoint: 'openAI', models: ['gpt-5*'] },
+              { endpoint: 'anthropic', models: ['claude-opus-4-*'] },
+            ],
+          },
+        },
+      );
+
+      expect(result).toEqual({
+        openAI: ['gpt-5.5'],
+        anthropic: ['claude-opus-4-7'],
+        initial: [],
+      });
+    });
+
+    it('keeps every synced OpenAI model for default non-admin users', () => {
+      const result = filterModelsConfigForUser(
+        {
+          openAI: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-4o', 'o5-mini'],
+          initial: [],
+        },
+        {
+          role: SystemRoles.USER,
+          modelPermissions: getDefaultModelPermissionsForRole(SystemRoles.USER),
+        },
+      );
+
+      expect(result).toEqual({
+        openAI: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-4o', 'o5-mini'],
+        initial: [],
+      });
+    });
+
+    it('treats legacy default allowlists as unrestricted so old users see refreshed provider models', () => {
+      const result = filterModelsConfigForUser(
+        {
+          openAI: ['gpt-5.5', 'gpt-4o'],
+          google: ['gemini-3.1-pro'],
+          anthropic: ['claude-opus-4-7', 'claude-3-5-sonnet-20241022'],
+          xai: ['grok-4-1-fast', 'grok-4-2'],
+          ollama: ['llama4:latest'],
+          azureOpenAI: ['gpt5-prod'],
+          initial: [],
+        },
+        {
+          role: SystemRoles.USER,
+          modelPermissions: {
+            enabled: true,
+            rules: [
+              { endpoint: 'azureOpenAI', models: ['*'] },
+              { endpoint: 'ollama', models: ['*'] },
+              { endpoint: 'openAI', models: ['gpt-5.4-mini'] },
+              { endpoint: 'anthropic', models: ['claude-opus-4-*'] },
+              { endpoint: 'xai', models: ['grok-4-1-fast'] },
+            ],
+          },
+        },
+      );
+
+      expect(result).toEqual({
+        openAI: ['gpt-5.5', 'gpt-4o'],
+        google: ['gemini-3.1-pro'],
+        anthropic: ['claude-opus-4-7', 'claude-3-5-sonnet-20241022'],
+        xai: ['grok-4-1-fast', 'grok-4-2'],
+        ollama: ['llama4:latest'],
+        azureOpenAI: ['gpt5-prod'],
         initial: [],
       });
     });
@@ -227,6 +294,30 @@ describe('ModelAccess', () => {
         },
       });
     });
+
+    it('accepts per-model wildcard permissions for future provider models', () => {
+      expect(
+        validateModelPermissions(
+          {
+            enabled: true,
+            rules: [
+              { endpoint: 'openAI', models: ['gpt-5*'] },
+              { endpoint: 'anthropic', models: ['claude-opus-4-*'] },
+            ],
+          },
+          modelsConfig,
+        ),
+      ).toEqual({
+        isValid: true,
+        modelPermissions: {
+          enabled: true,
+          rules: [
+            { endpoint: 'anthropic', models: ['claude-opus-4-*'] },
+            { endpoint: 'openAI', models: ['gpt-5*'] },
+          ],
+        },
+      });
+    });
   });
 
   describe('validateModelAccess', () => {
@@ -276,39 +367,12 @@ describe('ModelAccess', () => {
 
     it('getDefaultModelPermissionsForRole(USER) includes the documented endpoints', () => {
       const perms = getDefaultModelPermissionsForRole(SystemRoles.USER);
-      expect(perms.enabled).toBe(true);
-
-      const endpointMap = new Map(perms.rules.map((r) => [r.endpoint, r.models]));
-
-      // Documented in CUSTOMIZATION_MASTER_DOC.md and README.md
-      expect(endpointMap.has('azureOpenAI')).toBe(true);
-      expect(endpointMap.get('azureOpenAI')).toEqual(['*']);
-
-      expect(endpointMap.has('ollama')).toBe(true);
-      expect(endpointMap.get('ollama')).toEqual(['*']);
-
-      expect(endpointMap.has('openAI')).toBe(true);
-      expect(endpointMap.get('openAI')).toEqual(
-        expect.arrayContaining(['gpt-5.3-chat-latest', 'gpt-5.4-mini', 'gpt-5.4-nano']),
-      );
-
-      expect(endpointMap.has('anthropic')).toBe(true);
-      expect(endpointMap.get('anthropic')).toEqual(
-        expect.arrayContaining(['claude-sonnet-4-5', 'claude-sonnet-4-6', 'claude-haiku-4-5']),
-      );
-      // No opus
-      expect(endpointMap.get('anthropic')).not.toEqual(expect.arrayContaining(['claude-opus-4']));
-
-      expect(endpointMap.has('xai')).toBe(true);
-      expect(endpointMap.get('xai')).toEqual(['grok-4-1-fast']);
+      expect(perms).toEqual({ enabled: false, rules: [] });
     });
 
     it('superadmin sync after creation does not leave stale model restrictions in behavior', () => {
-      // When a superadmin is created through OpenID/LDAP without a role field,
-      // applyDefaultModelPermissions sets restricted defaults. After syncUserSuperAdminStatus
-      // promotes the role to ADMIN, hasModelRestrictions must still return false.
       const newUser = applyDefaultModelPermissions({ email: 'admin@example.com' });
-      expect(newUser.modelPermissions.enabled).toBe(true);
+      expect(newUser.modelPermissions.enabled).toBe(false);
 
       // Simulate promotion
       newUser.role = SystemRoles.ADMIN;

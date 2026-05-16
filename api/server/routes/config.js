@@ -1,12 +1,23 @@
 const express = require('express');
 const { logger } = require('@librechat/data-schemas');
-const { isEnabled, getBalanceConfig, getGoogleModelCapabilities } = require('@librechat/api');
-const { Constants, CacheKeys, defaultSocialLogins } = require('librechat-data-provider');
+const api = require('@librechat/api');
+const { isEnabled, getBalanceConfig, getGoogleModelCapabilities, getXAIModelCapabilities } = api;
+const getAnthropicModelCapabilities =
+  typeof api.getAnthropicModelCapabilities === 'function'
+    ? api.getAnthropicModelCapabilities
+    : async () => undefined;
+const {
+  Constants,
+  CacheKeys,
+  EModelEndpoint,
+  defaultSocialLogins,
+} = require('librechat-data-provider');
 const { getLdapConfig } = require('~/server/services/Config/ldap');
 const { getAppConfig } = require('~/server/services/Config/app');
 const optionalJwtAuth = require('~/server/middleware/optionalJwtAuth');
 const { getModelsConfig } = require('~/server/controllers/ModelController');
 const { filterModelSpecsConfig } = require('~/server/services/ModelAccess');
+const { applyDynamicSuggestedModelSpecs } = require('~/server/services/suggestedModelSpecs');
 const { getEffectiveAppSettings } = require('~/server/services/Admin/appSettings');
 const { getProjectByName } = require('~/models/Project');
 const { getLogStores } = require('~/cache');
@@ -35,26 +46,53 @@ router.get('/', async function (req, res) {
     }
 
     const modelsConfig = await getModelsConfig(req);
+    const modelSpecs = applyDynamicSuggestedModelSpecs(startupConfig.modelSpecs, modelsConfig);
     return {
       ...startupConfig,
-      modelSpecs: filterModelSpecsConfig(startupConfig.modelSpecs, modelsConfig),
+      modelSpecs: filterModelSpecsConfig(modelSpecs, modelsConfig),
     };
   };
 
   const cachedStartupConfig = await cache.get(CacheKeys.STARTUP_CONFIG);
   if (cachedStartupConfig) {
+    const appConfig = await getAppConfig({ role: req.user?.role }).catch((error) => {
+      logger.error('Error loading app config for startup config refresh:', error);
+      return undefined;
+    });
+    const anthropicVertexConfig = appConfig?.endpoints?.[EModelEndpoint.anthropic]?.vertexConfig;
+    const currentAnthropicModelCapabilities = await getAnthropicModelCapabilities({
+      user: req.user?.id,
+      vertexModels: anthropicVertexConfig?.modelNames,
+      forceRefresh: true,
+    }).catch((error) => {
+      logger.error('Error fetching Anthropic model capabilities:', error);
+      return undefined;
+    });
     const currentGoogleModelCapabilities = await getGoogleModelCapabilities().catch((error) => {
       logger.error('Error fetching Google model capabilities:', error);
       return undefined;
     });
+    const currentXAIModelCapabilities = await getXAIModelCapabilities({
+      appConfig,
+      userObject: req.user,
+    }).catch((error) => {
+      logger.error('Error fetching xAI model capabilities:', error);
+      return undefined;
+    });
 
     if (
+      JSON.stringify(cachedStartupConfig.anthropicModelCapabilities ?? null) !==
+        JSON.stringify(currentAnthropicModelCapabilities ?? null) ||
       JSON.stringify(cachedStartupConfig.googleModelCapabilities ?? null) !==
-      JSON.stringify(currentGoogleModelCapabilities ?? null)
+        JSON.stringify(currentGoogleModelCapabilities ?? null) ||
+      JSON.stringify(cachedStartupConfig.xaiModelCapabilities ?? null) !==
+        JSON.stringify(currentXAIModelCapabilities ?? null)
     ) {
       const refreshedStartupConfig = {
         ...cachedStartupConfig,
+        anthropicModelCapabilities: currentAnthropicModelCapabilities,
         googleModelCapabilities: currentGoogleModelCapabilities,
+        xaiModelCapabilities: currentXAIModelCapabilities,
       };
 
       await cache.set(CacheKeys.STARTUP_CONFIG, refreshedStartupConfig);
@@ -78,8 +116,23 @@ router.get('/', async function (req, res) {
   try {
     const appConfig = await getAppConfig({ role: req.user?.role });
     const appSettings = await getEffectiveAppSettings();
+    const anthropicVertexConfig = appConfig?.endpoints?.[EModelEndpoint.anthropic]?.vertexConfig;
+    const anthropicModelCapabilities = await getAnthropicModelCapabilities({
+      user: req.user?.id,
+      vertexModels: anthropicVertexConfig?.modelNames,
+    }).catch((error) => {
+      logger.error('Error fetching Anthropic model capabilities:', error);
+      return undefined;
+    });
     const googleModelCapabilities = await getGoogleModelCapabilities().catch((error) => {
       logger.error('Error fetching Google model capabilities:', error);
+      return undefined;
+    });
+    const xaiModelCapabilities = await getXAIModelCapabilities({
+      appConfig,
+      userObject: req.user,
+    }).catch((error) => {
+      logger.error('Error fetching xAI model capabilities:', error);
       return undefined;
     });
 
@@ -136,7 +189,9 @@ router.get('/', async function (req, res) {
       interface: appConfig?.interfaceConfig,
       turnstile: appConfig?.turnstileConfig,
       modelSpecs: appConfig?.modelSpecs,
+      anthropicModelCapabilities,
       googleModelCapabilities,
+      xaiModelCapabilities,
       balance: balanceConfig,
       sharedLinksEnabled,
       publicSharedLinksEnabled,

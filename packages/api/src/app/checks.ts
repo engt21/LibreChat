@@ -135,15 +135,24 @@ export function checkVariables() {
  * Logs information or warning based on the API's availability and response.
  */
 export async function checkHealth() {
-  try {
-    const response = await fetch(`${process.env.RAG_API_URL}/health`);
-    if (response?.ok && response?.status === 200) {
-      logger.info(`RAG API is running and reachable at ${process.env.RAG_API_URL}.`);
+  const ragApis = [
+    { name: 'RAG API', url: process.env.RAG_API_URL },
+    { name: 'OpenAI RAG API', url: process.env.OPENAI_RAG_API_URL },
+    { name: 'Azure OpenAI RAG API', url: process.env.AZURE_OPENAI_RAG_API_URL },
+    { name: 'Google RAG API', url: process.env.GOOGLE_RAG_API_URL },
+  ].filter((service) => Boolean(service.url));
+
+  for (const service of ragApis) {
+    try {
+      const response = await fetch(`${service.url}/health`);
+      if (response?.ok && response?.status === 200) {
+        logger.info(`${service.name} is running and reachable at ${service.url}.`);
+      }
+    } catch {
+      logger.warn(
+        `${service.name} is either not running or not reachable at ${service.url}, you may experience errors with file uploads.`,
+      );
     }
-  } catch {
-    logger.warn(
-      `RAG API is either not running or not reachable at ${process.env.RAG_API_URL}, you may experience errors with file uploads.`,
-    );
   }
 }
 

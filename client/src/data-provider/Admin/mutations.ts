@@ -53,3 +53,52 @@ export const useUpdateAdminUserMutation = (
     },
   );
 };
+
+export const useDeleteAdminUserMutation = (
+  options?: UseMutationOptions<void, t.TError | undefined, { userId: string }>,
+): UseMutationResult<void, t.TError | undefined, { userId: string }, unknown> => {
+  const queryClient = useQueryClient();
+
+  return useMutation(
+    [MutationKeys.deleteAdminUser],
+    ({ userId }: { userId: string }) => dataService.deleteAdminUser(userId),
+    {
+      ...options,
+      onSuccess: (data, variables, context) => {
+        queryClient.invalidateQueries([QueryKeys.adminUsers]);
+        queryClient.invalidateQueries([QueryKeys.adminUsage]);
+        queryClient.removeQueries([QueryKeys.adminUser, variables.userId]);
+        options?.onSuccess?.(data, variables, context);
+      },
+    },
+  );
+};
+
+export const useRefreshAdminModelsMutation = (
+  options?: UseMutationOptions<
+    t.TAdminModelsRefreshResponse,
+    t.TError | undefined,
+    t.TAdminModelsRefreshRequest | undefined
+  >,
+): UseMutationResult<
+  t.TAdminModelsRefreshResponse,
+  t.TError | undefined,
+  t.TAdminModelsRefreshRequest | undefined,
+  unknown
+> => {
+  const queryClient = useQueryClient();
+
+  return useMutation(
+    [MutationKeys.refreshAdminModels],
+    (payload?: t.TAdminModelsRefreshRequest) => dataService.refreshAdminModels(payload ?? {}),
+    {
+      ...options,
+      onSuccess: (data, variables, context) => {
+        queryClient.invalidateQueries([QueryKeys.models]);
+        queryClient.invalidateQueries([QueryKeys.endpoints]);
+        queryClient.invalidateQueries([QueryKeys.startupConfig]);
+        options?.onSuccess?.(data, variables, context);
+      },
+    },
+  );
+};

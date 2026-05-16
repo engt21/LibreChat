@@ -39,6 +39,29 @@ export const useUpdateConversationMutation = (
   );
 };
 
+export const useSaveRealtimeConversationMutation = (): UseMutationResult<
+  t.TSaveRealtimeConversationResponse,
+  unknown,
+  t.TSaveRealtimeConversationRequest,
+  unknown
+> => {
+  const queryClient = useQueryClient();
+
+  return useMutation(
+    (payload: t.TSaveRealtimeConversationRequest) => dataService.saveRealtimeConversation(payload),
+    {
+      mutationKey: [MutationKeys.saveRealtimeConversation],
+      onSuccess: (conversation) => {
+        queryClient.setQueryData(
+          [QueryKeys.conversation, conversation.conversationId],
+          conversation,
+        );
+        addConvoToAllQueries(queryClient, conversation);
+      },
+    },
+  );
+};
+
 export const useTagConversationMutation = (
   conversationId: string,
   options?: t.updateTagsInConvoOptions,

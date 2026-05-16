@@ -11,6 +11,15 @@ export interface IUserModelPermissions {
   rules?: IModelPermissionRule[];
 }
 
+export interface IUserImageGenerationPrefs {
+  /** When true, the image-generation tool is auto-injected for new chats. */
+  enabledByDefault?: boolean;
+  /** Preferred provider id used when the current chat endpoint has no native image gen. */
+  preferredProvider?: string | null;
+  /** Map of provider id -> chosen model id. */
+  models?: Record<string, string>;
+}
+
 export interface IUserPushSubscription {
   endpoint: string;
   expirationTime?: number | null;
@@ -81,6 +90,7 @@ export interface IUser extends Document {
     memories?: boolean;
   };
   modelPermissions?: IUserModelPermissions;
+  imageGenerationPrefs?: IUserImageGenerationPrefs;
   favorites?: Array<{
     agentId?: string;
     model?: string;
@@ -121,6 +131,7 @@ export interface UpdateUserRequest {
     memories?: boolean;
   };
   modelPermissions?: IUserModelPermissions;
+  imageGenerationPrefs?: IUserImageGenerationPrefs;
   notifications?: IUserNotifications;
 }
 

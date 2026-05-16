@@ -46,6 +46,9 @@ compose_services=(
   rag_api_azure
   rag_api_google
   code-interpreter-local
+)
+
+shared_traceability_services=(
   langfuse-worker
   langfuse-web
   langfuse-model-pricing-sync
@@ -55,10 +58,17 @@ compose_services=(
   langfuse-postgres
 )
 
-if metrics_build_context_available; then
-  compose_services+=(metrics)
+if [[ "$LIBRECHAT_RAIL" == "stable" ]]; then
+  compose_services+=("${shared_traceability_services[@]}")
+
+  if metrics_build_context_available; then
+    compose_services+=(metrics)
+  else
+    echo "Skipping metrics service because exporter repo was not found at $LIBRECHAT_EXPORTER_ROOT" >&2
+  fi
 else
-  echo "Skipping metrics service because exporter repo was not found at $LIBRECHAT_EXPORTER_ROOT" >&2
+  # Dev reuses the stable telemetry stack to avoid duplicating Langfuse and exporter workloads.
+  docker compose "${compose_args[@]}" rm -sf "${shared_traceability_services[@]}" metrics >/dev/null 2>&1 || true
 fi
 
 docker compose "${compose_args[@]}" config >/dev/null
@@ -81,6 +91,9 @@ if [[ "$LIBRECHAT_MANAGE_SHARED_SERVICES" == "true" ]]; then
 fi
 
 echo "Started LibreChat rail '$LIBRECHAT_RAIL' on http://127.0.0.1:$LIBRECHAT_HOST_PORT"
+if [[ "$LIBRECHAT_RAIL" == "dev" ]]; then
+  echo "Dev rail reuses the shared stable Langfuse/metrics stack on host ports 3000/9091."
+fi
 
 echo
 echo "Running post-start health check..."

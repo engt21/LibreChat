@@ -9,8 +9,10 @@ import React, {
   useCallback,
 } from 'react';
 import { Badge } from '@librechat/client';
-import { useRecoilValue, useRecoilCallback } from 'recoil';
+import { atom, useRecoilValue, useRecoilCallback } from 'recoil';
 import type { LucideIcon } from 'lucide-react';
+
+const fallbackAtom = atom<boolean>({ key: 'badgeFallbackAtom', default: false });
 import CodeInterpreter from './CodeInterpreter';
 import { BadgeRowProvider } from '~/Providers';
 import ToolsDropdown from './ToolsDropdown';
@@ -21,6 +23,7 @@ import FileSearch from './FileSearch';
 import Artifacts from './Artifacts';
 import MCPSelect from './MCPSelect';
 import WebSearch from './WebSearch';
+import ImageGeneration from './ImageGeneration';
 import store from '~/store';
 
 interface BadgeRowProps {
@@ -47,7 +50,7 @@ interface BadgeWrapperProps {
 const BadgeWrapper = React.memo(
   forwardRef<HTMLDivElement, BadgeWrapperProps>(
     ({ badge, isEditing, isInChat, onToggle, onDelete, onMouseDown, badgeRefs }, ref) => {
-      const atomBadge = useRecoilValue(badge.atom);
+      const atomBadge = useRecoilValue(badge.atom ?? fallbackAtom);
       const isActive = badge.atom ? atomBadge : false;
 
       return (
@@ -376,6 +379,7 @@ function BadgeRow({
             <WebSearch />
             <CodeInterpreter />
             <FileSearch />
+            <ImageGeneration />
             <Artifacts />
             <MCPSelect />
           </>

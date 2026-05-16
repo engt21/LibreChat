@@ -6,6 +6,7 @@ const path = require('node:path');
 const rootDir = path.resolve(__dirname, '..');
 const agentsDir = path.join(rootDir, 'node_modules', '@librechat', 'agents');
 const langchainOpenAIDir = path.join(rootDir, 'node_modules', '@langchain', 'openai');
+const langchainAnthropicDir = path.join(rootDir, 'node_modules', '@langchain', 'anthropic');
 const langfuseLangchainDir = path.join(rootDir, 'node_modules', '@langfuse', 'langchain');
 const librechatApiDir = path.join(rootDir, 'packages', 'api');
 const guardedStreamTargets = new Set([
@@ -15,6 +16,299 @@ const guardedStreamTargets = new Set([
 ]);
 
 const patchTargets = [
+  // ── Anthropic malformed thinking-block guard (src) ──
+  // Interrupted/cancelled Claude streams can leave partial thinking blocks in graph state.
+  // Anthropic rejects replayed history if a `thinking` block lacks both required fields.
+  {
+    relativePath: 'src/llm/anthropic/utils/message_inputs.ts',
+    replacements: [
+      {
+        description:
+          'Skip malformed Anthropic thinking blocks before building Messages API payloads',
+        from: `      } else if (contentPart.type === 'thinking') {
+        const block: AnthropicThinkingBlockParam = {
+          type: 'thinking' as const, // Explicitly setting the type as "thinking"
+          thinking: contentPart.thinking,
+          signature: contentPart.signature,
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+        return block;
+      } else if (contentPart.type === 'redacted_thinking') {`,
+        to: `      } else if (contentPart.type === 'thinking') {
+        if (
+          typeof contentPart.thinking !== 'string' ||
+          contentPart.thinking.length === 0 ||
+          typeof contentPart.signature !== 'string' ||
+          contentPart.signature.length === 0
+        ) {
+          return null;
+        }
+
+        const block: AnthropicThinkingBlockParam = {
+          type: 'thinking' as const, // Explicitly setting the type as "thinking"
+          thinking: contentPart.thinking,
+          signature: contentPart.signature,
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+        return block;
+      } else if (contentPart.type === 'redacted_thinking') {`,
+      },
+      {
+        description:
+          'Skip orphaned Anthropic web search blocks before building Messages API payloads',
+        from: `    return contentBlocks.filter((block) => block !== null);`,
+        legacy: [
+          `    return contentBlocks.filter(
+      (block) =>
+        block !== null &&
+        !(block.type === 'text' && 'text' in block && block.text === '')
+    );`,
+          `    const filteredContentBlocks = contentBlocks.filter((block) => block !== null);
+    const serverToolUseIds = new Set<string>();
+    const webSearchToolResultIds = new Set<string>();
+
+    for (const block of filteredContentBlocks) {
+      if (block.type === 'server_tool_use' && typeof block.id === 'string') {
+        serverToolUseIds.add(block.id);
+      } else if (
+        block.type === 'web_search_tool_result' &&
+        typeof block.tool_use_id === 'string'
+      ) {
+        webSearchToolResultIds.add(block.tool_use_id);
+      }
+    }
+
+    return filteredContentBlocks.filter((block) => {
+      if (block.type === 'server_tool_use') {
+        return typeof block.id === 'string' && webSearchToolResultIds.has(block.id);
+      }
+
+      if (block.type === 'web_search_tool_result') {
+        return (
+          typeof block.tool_use_id === 'string' &&
+          serverToolUseIds.has(block.tool_use_id)
+        );
+      }
+
+      return true;
+    });`,
+        ],
+        to: `    const filteredContentBlocks = contentBlocks.filter(
+      (block) =>
+        block !== null &&
+        !(block.type === 'text' && 'text' in block && block.text === '')
+    );
+    const serverToolUseIds = new Set<string>();
+    const webSearchToolResultIds = new Set<string>();
+
+    for (const block of filteredContentBlocks) {
+      if (block.type === 'server_tool_use' && typeof block.id === 'string') {
+        serverToolUseIds.add(block.id);
+      } else if (
+        block.type === 'web_search_tool_result' &&
+        typeof block.tool_use_id === 'string'
+      ) {
+        webSearchToolResultIds.add(block.tool_use_id);
+      }
+    }
+
+    return filteredContentBlocks.filter((block) => {
+      if (block.type === 'server_tool_use') {
+        return typeof block.id === 'string' && webSearchToolResultIds.has(block.id);
+      }
+
+      if (block.type === 'web_search_tool_result') {
+        return (
+          typeof block.tool_use_id === 'string' &&
+          serverToolUseIds.has(block.tool_use_id)
+        );
+      }
+
+      return true;
+    });`,
+      },
+    ],
+  },
+  // ── Anthropic malformed thinking-block guard (esm) ──
+  {
+    relativePath: 'dist/esm/llm/anthropic/utils/message_inputs.mjs',
+    replacements: [
+      {
+        description:
+          'Skip malformed Anthropic thinking blocks before building Messages API payloads',
+        from: `            else if (contentPart.type === 'thinking') {
+                const block = {
+                    type: 'thinking', // Explicitly setting the type as "thinking"
+                    thinking: contentPart.thinking,
+                    signature: contentPart.signature,
+                    ...(cacheControl ? { cache_control: cacheControl } : {}),
+                };
+                return block;
+            }
+            else if (contentPart.type === 'redacted_thinking') {`,
+        to: `            else if (contentPart.type === 'thinking') {
+                if (typeof contentPart.thinking !== 'string' ||
+                    contentPart.thinking.length === 0 ||
+                    typeof contentPart.signature !== 'string' ||
+                    contentPart.signature.length === 0) {
+                    return null;
+                }
+                const block = {
+                    type: 'thinking', // Explicitly setting the type as "thinking"
+                    thinking: contentPart.thinking,
+                    signature: contentPart.signature,
+                    ...(cacheControl ? { cache_control: cacheControl } : {}),
+                };
+                return block;
+            }
+            else if (contentPart.type === 'redacted_thinking') {`,
+      },
+      {
+        description:
+          'Skip orphaned Anthropic web search blocks before building Messages API payloads',
+        from: `        return contentBlocks.filter((block) => block !== null);`,
+        legacy: [
+          `        return contentBlocks.filter((block) => block !== null &&
+            !(block.type === 'text' && 'text' in block && block.text === ''));`,
+          `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null);
+        const serverToolUseIds = new Set();
+        const webSearchToolResultIds = new Set();
+        for (const block of filteredContentBlocks) {
+            if (block.type === 'server_tool_use' && typeof block.id === 'string') {
+                serverToolUseIds.add(block.id);
+            }
+            else if (block.type === 'web_search_tool_result' &&
+                typeof block.tool_use_id === 'string') {
+                webSearchToolResultIds.add(block.tool_use_id);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === 'server_tool_use') {
+                return typeof block.id === 'string' && webSearchToolResultIds.has(block.id);
+            }
+            if (block.type === 'web_search_tool_result') {
+                return (typeof block.tool_use_id === 'string' &&
+                    serverToolUseIds.has(block.tool_use_id));
+            }
+            return true;
+        });`,
+        ],
+        to: `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
+            !(block.type === 'text' && 'text' in block && block.text === ''));
+        const serverToolUseIds = new Set();
+        const webSearchToolResultIds = new Set();
+        for (const block of filteredContentBlocks) {
+            if (block.type === 'server_tool_use' && typeof block.id === 'string') {
+                serverToolUseIds.add(block.id);
+            }
+            else if (block.type === 'web_search_tool_result' &&
+                typeof block.tool_use_id === 'string') {
+                webSearchToolResultIds.add(block.tool_use_id);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === 'server_tool_use') {
+                return typeof block.id === 'string' && webSearchToolResultIds.has(block.id);
+            }
+            if (block.type === 'web_search_tool_result') {
+                return (typeof block.tool_use_id === 'string' &&
+                    serverToolUseIds.has(block.tool_use_id));
+            }
+            return true;
+        });`,
+      },
+    ],
+  },
+  // ── Anthropic malformed thinking-block guard (cjs) ──
+  {
+    relativePath: 'dist/cjs/llm/anthropic/utils/message_inputs.cjs',
+    replacements: [
+      {
+        description:
+          'Skip malformed Anthropic thinking blocks before building Messages API payloads',
+        from: `            else if (contentPart.type === 'thinking') {
+                const block = {
+                    type: 'thinking', // Explicitly setting the type as "thinking"
+                    thinking: contentPart.thinking,
+                    signature: contentPart.signature,
+                    ...(cacheControl ? { cache_control: cacheControl } : {}),
+                };
+                return block;
+            }
+            else if (contentPart.type === 'redacted_thinking') {`,
+        to: `            else if (contentPart.type === 'thinking') {
+                if (typeof contentPart.thinking !== 'string' ||
+                    contentPart.thinking.length === 0 ||
+                    typeof contentPart.signature !== 'string' ||
+                    contentPart.signature.length === 0) {
+                    return null;
+                }
+                const block = {
+                    type: 'thinking', // Explicitly setting the type as "thinking"
+                    thinking: contentPart.thinking,
+                    signature: contentPart.signature,
+                    ...(cacheControl ? { cache_control: cacheControl } : {}),
+                };
+                return block;
+            }
+            else if (contentPart.type === 'redacted_thinking') {`,
+      },
+      {
+        description:
+          'Skip orphaned Anthropic web search blocks before building Messages API payloads',
+        from: `        return contentBlocks.filter((block) => block !== null);`,
+        legacy: [
+          `        return contentBlocks.filter((block) => block !== null &&
+            !(block.type === 'text' && 'text' in block && block.text === ''));`,
+          `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null);
+        const serverToolUseIds = new Set();
+        const webSearchToolResultIds = new Set();
+        for (const block of filteredContentBlocks) {
+            if (block.type === 'server_tool_use' && typeof block.id === 'string') {
+                serverToolUseIds.add(block.id);
+            }
+            else if (block.type === 'web_search_tool_result' &&
+                typeof block.tool_use_id === 'string') {
+                webSearchToolResultIds.add(block.tool_use_id);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === 'server_tool_use') {
+                return typeof block.id === 'string' && webSearchToolResultIds.has(block.id);
+            }
+            if (block.type === 'web_search_tool_result') {
+                return (typeof block.tool_use_id === 'string' &&
+                    serverToolUseIds.has(block.tool_use_id));
+            }
+            return true;
+        });`,
+        ],
+        to: `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
+            !(block.type === 'text' && 'text' in block && block.text === ''));
+        const serverToolUseIds = new Set();
+        const webSearchToolResultIds = new Set();
+        for (const block of filteredContentBlocks) {
+            if (block.type === 'server_tool_use' && typeof block.id === 'string') {
+                serverToolUseIds.add(block.id);
+            }
+            else if (block.type === 'web_search_tool_result' &&
+                typeof block.tool_use_id === 'string') {
+                webSearchToolResultIds.add(block.tool_use_id);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === 'server_tool_use') {
+                return typeof block.id === 'string' && webSearchToolResultIds.has(block.id);
+            }
+            if (block.type === 'web_search_tool_result') {
+                return (typeof block.tool_use_id === 'string' &&
+                    serverToolUseIds.has(block.tool_use_id));
+            }
+            return true;
+        });`,
+      },
+    ],
+  },
   {
     relativePath: 'src/llm/openai/utils/index.ts',
     replacements: [
@@ -525,6 +819,59 @@ const patchTargets = [
       },
     ],
   },
+  // ── xAI streaming must route through the Responses API when requested ──
+  // Without this, ChatXAI._streamResponseChunks unconditionally hits
+  // /v1/chat/completions and xAI rejects `{ type: 'web_search' }` with the
+  // 422 "expected function or live_search" error even when useResponsesApi
+  // is true or a built-in tool is bound. Matches the OpenAI sibling's guard.
+  {
+    relativePath: 'dist/cjs/llm/openai/index.cjs',
+    replacements: [
+      {
+        description:
+          'Route ChatXAI._streamResponseChunks through the Responses API when _useResponseApi(options) is true',
+        from: `    async *_streamResponseChunks(messages$1, options, runManager) {
+        const messagesMapped = index._convertMessagesToOpenAIParams(messages$1, this.model);
+        const params = {
+            ...this.invocationParams(options, {
+                streaming: true,
+            }),
+            messages: messagesMapped,
+            stream: true,
+        };
+        let defaultRole;
+        const streamIterable = await this.completionWithRetry(params, options);`,
+        to: `    async *_streamResponseChunks(messages$1, options, runManager) {
+        if (this._useResponseApi(options)) {
+            const streamIterable = await this.responseApiWithRetry({
+                ...this.invocationParams(options, { streaming: true }),
+                input: index._convertMessagesToOpenAIResponsesParams(messages$1, this.model, this.zdrEnabled),
+                stream: true,
+            }, options);
+            for await (const data of streamIterable) {
+                const chunk = index._convertOpenAIResponsesDeltaToBaseMessageChunk(data);
+                if (chunk == null) continue;
+                yield chunk;
+                if (this._lc_stream_delay != null) {
+                    await run.sleep(this._lc_stream_delay);
+                }
+                await runManager?.handleLLMNewToken(chunk.text || '', undefined, undefined, undefined, undefined, { chunk });
+            }
+            return;
+        }
+        const messagesMapped = index._convertMessagesToOpenAIParams(messages$1, this.model);
+        const params = {
+            ...this.invocationParams(options, {
+                streaming: true,
+            }),
+            messages: messagesMapped,
+            stream: true,
+        };
+        let defaultRole;
+        const streamIterable = await this.completionWithRetry(params, options);`,
+      },
+    ],
+  },
   // ── Web search status event capture (src) ──
   // Capture in_progress/searching status events alongside the existing completed handler
   {
@@ -1018,6 +1365,187 @@ const langchainPatchTargets = [
   },
 ];
 
+const langchainAnthropicPatchTargets = [
+  // ── Anthropic malformed thinking + orphaned server web-search replay guard (esm) ──
+  {
+    relativePath: 'dist/utils/message_inputs.js',
+    replacements: [
+      {
+        description:
+          'Skip malformed Anthropic thinking blocks before LangChain builds Messages API payloads',
+        from: `            else if (contentPart.type === "thinking") {
+                const block = {
+                    type: "thinking", // Explicitly setting the type as "thinking"
+                    thinking: contentPart.thinking,
+                    signature: contentPart.signature,
+                    ...(cacheControl ? { cache_control: cacheControl } : {}),
+                };
+                return block;
+            }
+            else if (contentPart.type === "redacted_thinking") {`,
+        to: `            else if (contentPart.type === "thinking") {
+                if (typeof contentPart.thinking !== "string" ||
+                    contentPart.thinking.length === 0 ||
+                    typeof contentPart.signature !== "string" ||
+                    contentPart.signature.length === 0) {
+                    return null;
+                }
+                const block = {
+                    type: "thinking", // Explicitly setting the type as "thinking"
+                    thinking: contentPart.thinking,
+                    signature: contentPart.signature,
+                    ...(cacheControl ? { cache_control: cacheControl } : {}),
+                };
+                return block;
+            }
+            else if (contentPart.type === "redacted_thinking") {`,
+      },
+      {
+        description:
+          'Skip orphaned Anthropic server web-search blocks before LangChain history replay',
+        from: `        return contentBlocks;`,
+        legacy: [
+          `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
+            !(block.type === "text" && "text" in block && block.text === ""));
+        const serverToolUseIds = new Set();
+        const webSearchToolResultIds = new Set();
+        for (const block of filteredContentBlocks) {
+            if (block.type === "server_tool_use" && typeof block.id === "string") {
+                serverToolUseIds.add(block.id);
+            }
+            else if (block.type === "web_search_tool_result" &&
+                typeof block.tool_use_id === "string") {
+                webSearchToolResultIds.add(block.tool_use_id);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === "server_tool_use") {
+                return typeof block.id === "string" && webSearchToolResultIds.has(block.id);
+            }
+            if (block.type === "web_search_tool_result") {
+                return (typeof block.tool_use_id === "string" &&
+                    serverToolUseIds.has(block.tool_use_id));
+            }
+            return true;
+        });`,
+        ],
+        to: `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
+            !(block.type === "text" && "text" in block && block.text === ""));
+        const serverToolUseIds = new Set();
+        const webSearchToolResultIds = new Set();
+        for (const block of filteredContentBlocks) {
+            if (block.type === "server_tool_use" && typeof block.id === "string") {
+                serverToolUseIds.add(block.id);
+            }
+            else if (block.type === "web_search_tool_result" &&
+                typeof block.tool_use_id === "string") {
+                webSearchToolResultIds.add(block.tool_use_id);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === "server_tool_use") {
+                return typeof block.id === "string" && webSearchToolResultIds.has(block.id);
+            }
+            if (block.type === "web_search_tool_result") {
+                return (typeof block.tool_use_id === "string" &&
+                    serverToolUseIds.has(block.tool_use_id));
+            }
+            return true;
+        });`,
+      },
+    ],
+  },
+  // ── Anthropic malformed thinking + orphaned server web-search replay guard (cjs) ──
+  {
+    relativePath: 'dist/utils/message_inputs.cjs',
+    replacements: [
+      {
+        description:
+          'Skip malformed Anthropic thinking blocks before LangChain builds Messages API payloads',
+        from: `            else if (contentPart.type === "thinking") {
+                const block = {
+                    type: "thinking", // Explicitly setting the type as "thinking"
+                    thinking: contentPart.thinking,
+                    signature: contentPart.signature,
+                    ...(cacheControl ? { cache_control: cacheControl } : {}),
+                };
+                return block;
+            }
+            else if (contentPart.type === "redacted_thinking") {`,
+        to: `            else if (contentPart.type === "thinking") {
+                if (typeof contentPart.thinking !== "string" ||
+                    contentPart.thinking.length === 0 ||
+                    typeof contentPart.signature !== "string" ||
+                    contentPart.signature.length === 0) {
+                    return null;
+                }
+                const block = {
+                    type: "thinking", // Explicitly setting the type as "thinking"
+                    thinking: contentPart.thinking,
+                    signature: contentPart.signature,
+                    ...(cacheControl ? { cache_control: cacheControl } : {}),
+                };
+                return block;
+            }
+            else if (contentPart.type === "redacted_thinking") {`,
+      },
+      {
+        description:
+          'Skip orphaned Anthropic server web-search blocks before LangChain history replay',
+        from: `        return contentBlocks;`,
+        legacy: [
+          `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
+            !(block.type === "text" && "text" in block && block.text === ""));
+        const serverToolUseIds = new Set();
+        const webSearchToolResultIds = new Set();
+        for (const block of filteredContentBlocks) {
+            if (block.type === "server_tool_use" && typeof block.id === "string") {
+                serverToolUseIds.add(block.id);
+            }
+            else if (block.type === "web_search_tool_result" &&
+                typeof block.tool_use_id === "string") {
+                webSearchToolResultIds.add(block.tool_use_id);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === "server_tool_use") {
+                return typeof block.id === "string" && webSearchToolResultIds.has(block.id);
+            }
+            if (block.type === "web_search_tool_result") {
+                return (typeof block.tool_use_id === "string" &&
+                    serverToolUseIds.has(block.tool_use_id));
+            }
+            return true;
+        });`,
+        ],
+        to: `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
+            !(block.type === "text" && "text" in block && block.text === ""));
+        const serverToolUseIds = new Set();
+        const webSearchToolResultIds = new Set();
+        for (const block of filteredContentBlocks) {
+            if (block.type === "server_tool_use" && typeof block.id === "string") {
+                serverToolUseIds.add(block.id);
+            }
+            else if (block.type === "web_search_tool_result" &&
+                typeof block.tool_use_id === "string") {
+                webSearchToolResultIds.add(block.tool_use_id);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === "server_tool_use") {
+                return typeof block.id === "string" && webSearchToolResultIds.has(block.id);
+            }
+            if (block.type === "web_search_tool_result") {
+                return (typeof block.tool_use_id === "string" &&
+                    serverToolUseIds.has(block.tool_use_id));
+            }
+            return true;
+        });`,
+      },
+    ],
+  },
+];
+
 const langfusePatchTargets = [
   // ── Prevent Langfuse from overwriting model name with raw API response model_name ──
   // Azure API responses return bare model names (e.g. "gpt-5.4-mini") without the
@@ -1072,6 +1600,9 @@ function applyReplacement(contents, replacement, filePath) {
   }
 
   if (!contents.includes(replacement.from)) {
+    if (replacement.optional === true) {
+      return contents;
+    }
     throw new Error(`Could not find expected snippet in ${filePath}`);
   }
 
@@ -1157,6 +1688,12 @@ function applyRuntimePatches(targets = patchTargets) {
     }
   }
 
+  if (fs.existsSync(langchainAnthropicDir)) {
+    for (const target of langchainAnthropicPatchTargets) {
+      patchFile(target.relativePath, target.replacements, langchainAnthropicDir);
+    }
+  }
+
   if (fs.existsSync(langfuseLangchainDir)) {
     for (const target of langfusePatchTargets) {
       patchFile(target.relativePath, target.replacements, langfuseLangchainDir);
@@ -1182,11 +1719,19 @@ const librechatApiPatchTargets = [
       {
         description:
           'Increase default agent context window fallback from 18000 to 128000 for Ollama/custom endpoints',
+        optional: true,
         from: `options.endpointTokenConfig), 18000);`,
         to: `options.endpointTokenConfig), 128000);`,
       },
       {
+        description: 'Increase default agent context constant from 32000 to 128000',
+        optional: true,
+        from: `const DEFAULT_MAX_CONTEXT_TOKENS = 32000;`,
+        to: `const DEFAULT_MAX_CONTEXT_TOKENS = 128000;`,
+      },
+      {
         description: 'Increase agent context num fallback from 18000 to 128000',
+        optional: true,
         from: `const agentMaxContextNum = Number(agentMaxContextTokens) || 18000;`,
         to: `const agentMaxContextNum = Number(agentMaxContextTokens) || 128000;`,
       },
@@ -1201,6 +1746,7 @@ if (require.main === module) {
 module.exports = {
   agentsDir,
   langchainOpenAIDir,
+  langchainAnthropicDir,
   langfuseLangchainDir,
   librechatApiDir,
   applyReplacement,
@@ -1208,6 +1754,7 @@ module.exports = {
   patchFile,
   patchTargets,
   langchainPatchTargets,
+  langchainAnthropicPatchTargets,
   langfusePatchTargets,
   librechatApiPatchTargets,
   validatePatchedFile,

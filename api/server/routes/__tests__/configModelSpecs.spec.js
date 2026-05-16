@@ -9,7 +9,7 @@
  * 5. Both cached and uncached paths apply filtering
  */
 
-const { SystemRoles, CacheKeys } = require('librechat-data-provider');
+const { SystemRoles, CacheKeys, EModelEndpoint } = require('librechat-data-provider');
 
 /* ---------- Mock stores ---------- */
 const mockCacheMap = new Map();
@@ -51,16 +51,12 @@ jest.mock('~/server/services/Config/app', () => ({
 
 /* ---------- Mock getEffectiveAppSettings ---------- */
 jest.mock('~/server/services/Admin/appSettings', () => ({
-  getEffectiveAppSettings: jest.fn(() =>
-    Promise.resolve({ registrationEnabled: true }),
-  ),
+  getEffectiveAppSettings: jest.fn(() => Promise.resolve({ registrationEnabled: true })),
 }));
 
 /* ---------- Mock getProjectByName ---------- */
 jest.mock('~/models/Project', () => ({
-  getProjectByName: jest.fn(() =>
-    Promise.resolve({ _id: { toString: () => 'mock-project-id' } }),
-  ),
+  getProjectByName: jest.fn(() => Promise.resolve({ _id: { toString: () => 'mock-project-id' } })),
 }));
 
 /* ---------- Mock getLdapConfig ---------- */
@@ -74,12 +70,17 @@ jest.mock('@librechat/data-schemas', () => ({
 }));
 
 /* ---------- Mock @librechat/api ---------- */
-jest.mock('@librechat/api', () => ({
-  isEnabled: jest.fn((v) => v === 'true' || v === true),
-  getBalanceConfig: jest.fn(() => undefined),
-  getGoogleModelCapabilities: jest.fn(() => Promise.resolve(undefined)),
-  getXAIModelCapabilities: jest.fn(() => Promise.resolve(undefined)),
-}));
+jest.mock(
+  '@librechat/api',
+  () => ({
+    isEnabled: jest.fn((v) => v === 'true' || v === true),
+    getBalanceConfig: jest.fn(() => undefined),
+    getAnthropicModelCapabilities: jest.fn(() => Promise.resolve(undefined)),
+    getGoogleModelCapabilities: jest.fn(() => Promise.resolve(undefined)),
+    getXAIModelCapabilities: jest.fn(() => Promise.resolve(undefined)),
+  }),
+  { virtual: true },
+);
 
 const request = require('supertest');
 const express = require('express');
@@ -112,6 +113,49 @@ const fullModelSpecs = {
       name: 'Claude Spec',
       label: 'Claude',
       preset: { endpoint: 'anthropic', model: 'claude-sonnet-4-5' },
+    },
+  ],
+};
+
+const suggestedModelSpecs = {
+  enforce: false,
+  prioritize: true,
+  list: [
+    {
+      name: 'GPT-5.4 Mini',
+      label: 'GPT-5.4 Mini',
+      preset: { endpoint: EModelEndpoint.openAI, model: 'gpt-5.4-mini' },
+      group: EModelEndpoint.openAI,
+    },
+    {
+      name: 'GPT-5.4 Nano',
+      label: 'GPT-5.4 Nano',
+      preset: { endpoint: EModelEndpoint.openAI, model: 'gpt-5.4-nano' },
+      group: EModelEndpoint.openAI,
+    },
+    {
+      name: 'GPT-5.3 Chat',
+      label: 'GPT-5.3 Chat',
+      preset: { endpoint: EModelEndpoint.openAI, model: 'gpt-5.3-chat-latest' },
+      group: EModelEndpoint.openAI,
+    },
+    {
+      name: 'Claude Sonnet 4.6',
+      label: 'Claude Sonnet 4.6',
+      preset: { endpoint: EModelEndpoint.anthropic, model: 'claude-sonnet-4-6' },
+      group: EModelEndpoint.anthropic,
+    },
+    {
+      name: 'Claude Sonnet 4.5',
+      label: 'Claude Sonnet 4.5',
+      preset: { endpoint: EModelEndpoint.anthropic, model: 'claude-sonnet-4-5' },
+      group: EModelEndpoint.anthropic,
+    },
+    {
+      name: 'Claude Haiku 4.5',
+      label: 'Claude Haiku 4.5',
+      preset: { endpoint: EModelEndpoint.anthropic, model: 'claude-haiku-4-5' },
+      group: EModelEndpoint.anthropic,
     },
   ],
 };
@@ -258,6 +302,49 @@ describe('/api/config modelSpecs filtering (VAL-MODEL-003)', () => {
       expect(res.body.modelSpecs).toBeDefined();
       expect(res.body.modelSpecs.list).toHaveLength(1);
       expect(res.body.modelSpecs.list[0].name).toBe('Gemini Spec');
+    });
+
+    it('cached config path refreshes simple suggested specs from the current model catalog', async () => {
+      mockCacheMap.set(CacheKeys.STARTUP_CONFIG, {
+        appTitle: 'Test',
+        modelSpecs: suggestedModelSpecs,
+        serverDomain: 'http://localhost:3080',
+      });
+
+      mockReqUser = {
+        id: 'user-admin',
+        role: SystemRoles.ADMIN,
+      };
+      mockModelsConfig = {
+        [EModelEndpoint.openAI]: [
+          'gpt-5.5-pro',
+          'gpt-5.5',
+          'gpt-5.4',
+          'gpt-5.4-mini',
+          'gpt-5.4-nano',
+        ],
+        [EModelEndpoint.anthropic]: ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-6'],
+      };
+
+      const res = await request(app).get('/api/config');
+
+      expect(res.status).toBe(200);
+      expect(res.body.modelSpecs.list.map((spec) => spec.preset.model)).toEqual([
+        'gpt-5.5',
+        'gpt-5.4',
+        'gpt-5.4-mini',
+        'claude-opus-4-7',
+        'claude-opus-4-6',
+        'claude-sonnet-4-6',
+      ]);
+      expect(res.body.modelSpecs.list.map((spec) => spec.label)).toEqual([
+        'GPT-5.5',
+        'GPT-5.4',
+        'GPT-5.4 Mini',
+        'Claude Opus 4.7',
+        'Claude Opus 4.6',
+        'Claude Sonnet 4.6',
+      ]);
     });
 
     it('restricted user with no matching endpoints receives empty modelSpecs list', async () => {

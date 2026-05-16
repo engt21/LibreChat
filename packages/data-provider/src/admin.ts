@@ -159,10 +159,12 @@ export type TAdminUserDetails = z.infer<typeof adminUserDetailsSchema>;
 
 export const mcpDomainFilterModeSchema = z.enum(['allowlist', 'denylist']);
 export type MCPDomainFilterMode = z.infer<typeof mcpDomainFilterModeSchema>;
+export const platformPromptSchema = z.string().max(20000).nullable();
 
 export const adminSettingsSchema = z.object({
   settingsId: z.string(),
   registrationEnabled: z.boolean(),
+  platformPrompt: platformPromptSchema,
   observability: observabilityLinksSchema,
   mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),
   mcpAllowedDomains: z.array(z.string()).optional(),
@@ -172,6 +174,7 @@ export type TAdminSettings = z.infer<typeof adminSettingsSchema>;
 
 export const adminSettingsUpdateSchema = z.object({
   registrationEnabled: z.boolean().optional(),
+  platformPrompt: platformPromptSchema.optional(),
   observability: observabilityLinksSchema.partial().optional(),
   mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),
   mcpAllowedDomains: z.array(z.string()).optional(),
@@ -198,3 +201,23 @@ export type AdminListParams = {
   q?: string;
   limit?: number;
 };
+
+export const adminModelsRefreshProviderSchema = z.object({
+  count: z.number(),
+  models: z.array(z.string()),
+});
+
+export type TAdminModelsRefreshProvider = z.infer<typeof adminModelsRefreshProviderSchema>;
+
+export const adminModelsRefreshResponseSchema = z.object({
+  refreshedAt: z.string(),
+  providers: z.record(adminModelsRefreshProviderSchema),
+});
+
+export type TAdminModelsRefreshResponse = z.infer<typeof adminModelsRefreshResponseSchema>;
+
+export const adminModelsRefreshRequestSchema = z.object({
+  provider: z.string().optional(),
+});
+
+export type TAdminModelsRefreshRequest = z.infer<typeof adminModelsRefreshRequestSchema>;

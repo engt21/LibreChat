@@ -1,0 +1,361 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - navigation:
+                - generic:
+                  - generic:
+                    - button [expanded]:
+                      - img
+                    - generic:
+                      - button:
+                        - img
+                      - link:
+                        - /url: /c/new
+                        - img
+                  - generic:
+                    - img
+                    - textbox:
+                      - /placeholder: Search messages
+                    - button [disabled]:
+                      - img
+                  - generic:
+                    - generic:
+                      - generic:
+                        - grid:
+                          - rowgroup:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - button:
+                                    - generic:
+                                      - generic:
+                                        - img
+                                      - generic: Agent Marketplace
+                            - generic:
+                              - button:
+                                - generic: Chats
+                                - img
+                - button:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - img
+                  - generic: Validation SuperAdmin
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - main:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - button [expanded]:
+                                - generic:
+                                  - img
+                                - generic: Claude Sonnet 4.5
+                              - generic:
+                                - dialog:
+                                  - generic:
+                                    - generic:
+                                      - combobox [expanded]
+                                      - generic: Search models...
+                                  - listbox:
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - img
+                                        - generic:
+                                          - generic: GPT-5.4 Mini
+                                          - generic: Fast, affordable OpenAI model
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - img
+                                        - generic:
+                                          - generic: GPT-5
+                                          - generic: Flagship OpenAI reasoning model
+                                    - option [selected]:
+                                      - generic:
+                                        - generic:
+                                          - img
+                                        - generic:
+                                          - generic: Claude Sonnet 4.5
+                                          - generic: Anthropic balanced model
+                                      - img
+                                      - generic: selected
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - img
+                                        - generic:
+                                          - generic: Gemini 2.5 Pro
+                                          - generic: Google flagship model
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - img
+                                        - generic:
+                                          - generic: Ollama Local
+                                          - generic: Local Ollama model
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - img
+                                            - generic: OpenAI
+                                          - generic:
+                                            - button:
+                                              - img
+                                              - generic:
+                                                - generic: Set API Key
+                                      - generic:
+                                        - img
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - img
+                                        - generic: My Agents
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - img
+                                            - generic: Azure OpenAI
+                                          - generic:
+                                            - button:
+                                              - img
+                                              - generic:
+                                                - generic: Set API Key
+                                      - generic:
+                                        - img
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - img
+                                            - generic: Google
+                                          - generic:
+                                            - button:
+                                              - img
+                                              - generic:
+                                                - generic: Set API Key
+                                      - generic:
+                                        - img
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - img
+                                            - generic: Anthropic
+                                          - generic:
+                                            - button:
+                                              - img
+                                              - generic:
+                                                - generic: Set API Key
+                                      - generic:
+                                        - img
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - img
+                                            - generic: Ollama
+                                          - generic:
+                                            - button:
+                                              - img
+                                              - generic:
+                                                - generic: Set API Key
+                                      - generic:
+                                        - img
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - img
+                                            - generic: Ollama Cloud
+                                          - generic:
+                                            - button:
+                                              - img
+                                              - generic:
+                                                - generic: Set API Key
+                                      - generic:
+                                        - img
+                                    - option:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - img
+                                            - generic: xAI
+                                          - generic:
+                                            - button:
+                                              - img
+                                              - generic:
+                                                - generic: Set API Key
+                                      - generic:
+                                        - img
+                            - button:
+                              - img
+                            - button:
+                              - img
+                        - generic:
+                          - generic:
+                            - button:
+                              - img
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                            - generic: Happy late night, Validation SuperAdmin
+                            - paragraph:
+                              - generic:
+                                - generic: H
+                                - generic: a
+                                - generic: p
+                                - generic: p
+                                - generic: "y"
+                              - generic:
+                                - generic: l
+                                - generic: a
+                                - generic: t
+                                - generic: e
+                              - generic:
+                                - generic: "n"
+                                - generic: i
+                                - generic: g
+                                - generic: h
+                                - generic: t
+                                - generic: ","
+                              - generic:
+                                - generic: V
+                                - generic: a
+                                - generic: l
+                                - generic: i
+                                - generic: d
+                                - generic: a
+                                - generic: t
+                                - generic: i
+                                - generic: o
+                                - generic: "n"
+                              - generic:
+                                - generic: S
+                                - generic: u
+                                - generic: p
+                                - generic: e
+                                - generic: r
+                                - generic: A
+                                - generic: d
+                                - generic: m
+                                - generic: i
+                                - generic: "n"
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - textbox:
+                                      - /placeholder: Message Claude
+                                - generic:
+                                  - generic:
+                                    - button:
+                                      - generic:
+                                        - img
+                                  - button:
+                                    - img
+                                  - button:
+                                    - img
+                                  - generic:
+                                    - button [disabled]:
+                                      - generic:
+                                        - img
+                    - contentinfo:
+                      - generic:
+                        - link:
+                          - /url: https://librechat.ai
+                          - text: LibreChat v0.8.3
+                        - text: "- Every AI for Everyone."
+              - generic:
+                - generic:
+                  - button [expanded]
+              - separator
+              - navigation:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - button:
+                                  - img
+                                  - text: Agent Builder
+                            - generic:
+                              - generic:
+                                - button:
+                                  - img
+                                  - text: Prompts
+                            - generic:
+                              - generic:
+                                - button:
+                                  - img
+                                  - text: Memories
+                            - generic:
+                              - generic:
+                                - button:
+                                  - img
+                                  - text: Attach Files
+                            - generic:
+                              - generic:
+                                - button:
+                                  - img
+                                  - text: Bookmarks
+                            - generic:
+                              - generic:
+                                - button:
+                                  - img
+                                  - text: MCP Settings
+                            - generic:
+                              - generic:
+                                - button:
+                                  - img
+                                  - text: Hide Panel
+    - button:
+      - img
+      - generic: Open React Query Devtools
+    - list
+  - dialog "Set API Key for Anthropic" [ref=e692]:
+    - heading "Set API Key for Anthropic" [level=2] [ref=e694]
+    - generic [ref=e695]:
+      - generic [ref=e696]: Your key will never expire
+      - combobox [active] [ref=e698] [cursor=pointer]:
+        - generic [ref=e700]: Expires in 12 hours
+        - generic:
+          - img
+      - generic [ref=e702]: Key
+      - textbox "Key" [ref=e705]:
+        - /placeholder: Enter value for Key
+    - generic [ref=e706]:
+      - button "Revoke" [ref=e708] [cursor=pointer]
+      - button "Submit" [ref=e709] [cursor=pointer]
+    - button "Close" [ref=e710] [cursor=pointer]:
+      - img [ref=e711]
+      - generic [ref=e714]: Close

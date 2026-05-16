@@ -31,4 +31,6 @@ export interface GoogleConfigOptions {
   streamRate?: number;
   /** Model to use for title generation */
   titleModel?: string;
+  /** Optional per-model Vertex route override resolved from live discovery */
+  vertexLocation?: string;
 }

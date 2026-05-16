@@ -57,14 +57,14 @@ const useSetIndexOptions: TUseSetOptions = (preset = false) => {
       }
     }
 
-    if (param === 'web_search' && isOllamaEndpoint) {
+    // Sync web_search sidebar toggle to ephemeralAgent so chat bar badges stay in sync
+    if (param === 'web_search') {
       setEphemeralAgent((prevAgent) => ({
         ...(prevAgent ?? {}),
         web_search: newValue === true,
-        web_search_mode:
-          newValue === true
-            ? (prevAgent?.web_search_mode ?? WebSearchModes.ollama_native)
-            : prevAgent?.web_search_mode,
+        ...(isOllamaEndpoint && newValue === true
+          ? { web_search_mode: prevAgent?.web_search_mode ?? WebSearchModes.ollama_native }
+          : {}),
       }));
     }
 

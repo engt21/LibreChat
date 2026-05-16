@@ -12,6 +12,7 @@ export type ScheduledJobTarget = {
     web_search_mode?: string;
     file_search?: boolean;
     execute_code?: boolean;
+    execute_code_mode?: string;
     mcp?: string[];
     artifacts?: string;
   };

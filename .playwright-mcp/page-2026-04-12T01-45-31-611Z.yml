@@ -1,0 +1,125 @@
+- generic [ref=e2]:
+  - generic [ref=e32]:
+    - navigation "Chat History" [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - button "Close sidebar" [expanded] [ref=e39] [cursor=pointer]:
+            - img [ref=e40]
+          - generic [ref=e42]:
+            - button "Bookmarks" [ref=e43] [cursor=pointer]:
+              - img [ref=e44]
+            - link "New chat" [ref=e46] [cursor=pointer]:
+              - /url: /c/new
+              - img [ref=e47]
+        - generic [ref=e49] [cursor=pointer]:
+          - img [ref=e50]
+          - textbox "Search messages" [ref=e53]
+          - button "Clear search" [disabled] [ref=e54]:
+            - img [ref=e55]
+        - grid "Conversations" [ref=e61]:
+          - rowgroup [ref=e62]:
+            - button "Chats" [ref=e64] [cursor=pointer]:
+              - generic [ref=e65]: Chats
+              - img [ref=e66]
+      - button "Account Settings" [ref=e68] [cursor=pointer]:
+        - img "Playwright Bot's avatar" [ref=e72]
+        - generic [ref=e73]: Playwright Bot
+    - generic [ref=e75]:
+      - generic [ref=e76]:
+        - main [ref=e78]:
+          - generic [ref=e79]:
+            - generic [ref=e81]:
+              - generic [ref=e83]:
+                - button "Select a model" [ref=e85] [cursor=pointer]:
+                  - img [ref=e87]
+                  - generic [ref=e89]: GPT-5.4 Mini
+                - button "Presets" [ref=e90] [cursor=pointer]:
+                  - img [ref=e91]
+                - button "Add multi-conversation" [ref=e95] [cursor=pointer]:
+                  - img [ref=e96]
+              - button "Temporary Chat" [ref=e100] [cursor=pointer]:
+                - img [ref=e101]
+            - generic [ref=e110]:
+              - generic [ref=e113]:
+                - img [ref=e116]
+                - generic [ref=e118]: Good evening, Playwright Bot
+                - paragraph [ref=e119]:
+                  - generic [ref=e120]:
+                    - generic [ref=e121]: G
+                    - generic [ref=e122]: o
+                    - generic [ref=e123]: o
+                    - generic [ref=e124]: d
+                  - generic [ref=e126]:
+                    - generic [ref=e127]: e
+                    - generic [ref=e128]: v
+                    - generic [ref=e129]: e
+                    - generic [ref=e130]: "n"
+                    - generic [ref=e131]: i
+                    - generic [ref=e132]: "n"
+                    - generic [ref=e133]: g
+                    - generic [ref=e134]: ","
+                  - generic [ref=e136]:
+                    - generic [ref=e137]: P
+                    - generic [ref=e138]: l
+                    - generic [ref=e139]: a
+                    - generic [ref=e140]: "y"
+                    - generic [ref=e141]: w
+                    - generic [ref=e142]: r
+                    - generic [ref=e143]: i
+                    - generic [ref=e144]: g
+                    - generic [ref=e145]: h
+                    - generic [ref=e146]: t
+                  - generic [ref=e148]:
+                    - generic [ref=e149]: B
+                    - generic [ref=e150]: o
+                    - generic [ref=e151]: t
+              - generic [ref=e156]:
+                - textbox "Message input" [active] [ref=e159]:
+                  - /placeholder: Message GPT-5.4
+                - generic [ref=e161]:
+                  - button "Attach File Options" [ref=e163] [cursor=pointer]:
+                    - img [ref=e165]
+                  - button "Tools Options" [ref=e168] [cursor=pointer]:
+                    - img [ref=e170]
+                  - button "Use microphone" [ref=e173] [cursor=pointer]:
+                    - img [ref=e174]
+                  - button "Open realtime voice dialog" [ref=e177] [cursor=pointer]:
+                    - img [ref=e178]
+                  - button "Send message" [disabled] [ref=e185]:
+                    - img [ref=e187]
+            - contentinfo [ref=e189]:
+              - generic [ref=e190]:
+                - link "LibreChat v0.8.3" [ref=e191] [cursor=pointer]:
+                  - /url: https://librechat.ai
+                - text: "- Every AI for Everyone."
+        - button "Open Control Panel" [ref=e194] [cursor=pointer]
+        - separator [ref=e200]
+        - navigation "Controls" [ref=e201]:
+          - generic [ref=e207]:
+            - button "Agent Builder" [ref=e208] [cursor=pointer]:
+              - img [ref=e209]
+              - generic [ref=e212]: Agent Builder
+            - button "Prompts" [ref=e213] [cursor=pointer]:
+              - img [ref=e214]
+              - generic [ref=e218]: Prompts
+            - button "Memories" [ref=e219] [cursor=pointer]:
+              - img [ref=e220]
+              - generic [ref=e224]: Memories
+            - button "Parameters" [ref=e225] [cursor=pointer]:
+              - img [ref=e226]
+              - generic [ref=e229]: Parameters
+            - button "Attach Files" [ref=e230] [cursor=pointer]:
+              - img [ref=e231]
+              - generic [ref=e233]: Attach Files
+            - button "Bookmarks" [ref=e234] [cursor=pointer]:
+              - img [ref=e235]
+              - generic [ref=e237]: Bookmarks
+            - button "MCP Settings" [ref=e238] [cursor=pointer]:
+              - img [ref=e239]
+              - generic [ref=e243]: MCP Settings
+            - button "Hide Panel" [ref=e244] [cursor=pointer]:
+              - img [ref=e245]
+              - generic [ref=e247]: Hide Panel
+      - button "Close right side panel"
+  - region "Notifications (F8)":
+    - list

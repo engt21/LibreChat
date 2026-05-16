@@ -38,9 +38,9 @@
     "icon": "assets/image_gen_oai.png",
     "authConfig": [
       {
-        "authField": "IMAGE_GEN_OAI_API_KEY",
+        "authField": "IMAGE_GEN_OAI_API_KEY||OPENAI_API_KEY",
         "label": "OpenAI Image Tools API Key",
-        "description": "Your OpenAI API Key for Image Generation and Editing"
+        "description": "Your OpenAI API Key for Image Generation and Editing. Falls back to the configured OpenAI provider key."
       }
     ]
   },
@@ -87,6 +87,20 @@
     "name": "Calculator",
     "pluginKey": "calculator",
     "description": "Perform simple and complex mathematical calculations.",
+    "icon": "assets/calculator.svg",
+    "authConfig": []
+  },
+  {
+    "name": "Scientific Calculator",
+    "pluginKey": "scientific_calculator",
+    "description": "Scientific calculator with PEMDAS arithmetic, trigonometry, logarithms, statistics (mean, median, std, variance), combinatorics, unit conversions, and matrix operations.",
+    "icon": "assets/calculator.svg",
+    "authConfig": []
+  },
+  {
+    "name": "Code Interpreter Math",
+    "pluginKey": "code_interpreter_math",
+    "description": "Advanced math via Python code execution. Use for symbolic algebra, statistical tests, numerical methods, optimization, and complex multi-step computations. Requires the local code interpreter service.",
     "icon": "assets/calculator.svg",
     "authConfig": []
   },
@@ -160,9 +174,9 @@
     "icon": "assets/gemini_image_gen.svg",
     "authConfig": [
       {
-        "authField": "GEMINI_API_KEY||GOOGLE_KEY||GOOGLE_SERVICE_KEY_FILE",
+        "authField": "GEMINI_API_KEY||GOOGLE_KEY||GOOGLE_SERVICE_KEY_FILE||GOOGLE_APPLICATION_CREDENTIALS",
         "label": "Gemini API Key (optional)",
-        "description": "Your Google Gemini API Key from <a href='https://aistudio.google.com/app/apikey' target='_blank'>Google AI Studio</a>. Leave blank to use Vertex AI with a service account (GOOGLE_SERVICE_KEY_FILE or api/data/auth.json).",
+        "description": "Your Google Gemini API Key from <a href='https://aistudio.google.com/app/apikey' target='_blank'>Google AI Studio</a>. Leave blank to use Vertex AI with a service account (GOOGLE_SERVICE_KEY_FILE or api/data/auth.json) or application default credentials (GOOGLE_APPLICATION_CREDENTIALS / gcloud auth application-default login).",
         "optional": true
       }
     ]

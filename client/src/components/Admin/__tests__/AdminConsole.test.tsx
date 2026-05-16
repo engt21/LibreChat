@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { SystemRoles, AdminPermissions } from 'librechat-data-provider';
 
 // --- mock navigate ---
@@ -32,6 +32,9 @@ const mockAdminObservabilityQuery: Record<string, unknown> = {
 const mockAdminRolesQuery: Record<string, unknown> = { data: [], isLoading: false };
 const mockAdminModelsQuery: Record<string, unknown> = { data: undefined, isLoading: false };
 
+const mockRefreshAdminModelsMutate = jest.fn();
+const mockUpdateAdminSettingsMutateAsync = jest.fn();
+
 jest.mock('~/data-provider', () => ({
   useAdminPermissionsQuery: () => mockAdminPermissionsQuery,
   useAdminUsersQuery: () => mockAdminUsersQuery,
@@ -53,7 +56,13 @@ jest.mock('~/data-provider', () => ({
     error: null,
   }),
   useUpdateAdminSettingsMutation: () => ({
-    mutateAsync: jest.fn(),
+    mutateAsync: mockUpdateAdminSettingsMutateAsync,
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useRefreshAdminModelsMutation: () => ({
+    mutate: mockRefreshAdminModelsMutate,
     isLoading: false,
     isError: false,
     error: null,
@@ -94,12 +103,8 @@ jest.mock('@librechat/client', () => {
       open?: boolean;
       onOpenChange?: (open: boolean) => void;
     }) => React.createElement('div', null, children),
-    OGDialogTrigger: ({
-      children,
-    }: {
-      children: React.ReactNode;
-      asChild?: boolean;
-    }) => React.createElement(React.Fragment, null, children),
+    OGDialogTrigger: ({ children }: { children: React.ReactNode; asChild?: boolean }) =>
+      React.createElement(React.Fragment, null, children),
     OGDialogTemplate: () => null,
     Spinner: () => React.createElement('div', { 'data-testid': 'spinner' }, 'loading'),
     Switch: ({
@@ -134,11 +139,14 @@ function resetQueryDefaults() {
   mockAdminPermissionsQuery.isSuccess = false;
   mockAdminPermissionsQuery.isLoading = false;
   mockAdminPermissionsQuery.isError = false;
+  mockAdminSettingsQuery.data = undefined;
+  mockAdminSettingsQuery.isLoading = false;
 }
 
 describe('AdminConsole – permission gating', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUpdateAdminSettingsMutateAsync.mockReset();
     mockUser = null;
     resetQueryDefaults();
   });
@@ -306,5 +314,108 @@ describe('AdminConsole – permission gating', () => {
     expect(screen.getByText('com_admin_users')).toBeInTheDocument();
     // Manage access should NOT appear (superadmin-only)
     expect(screen.queryByText('com_admin_manage_access')).not.toBeInTheDocument();
+  });
+});
+
+describe('AdminConsole – platform prompt settings', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUpdateAdminSettingsMutateAsync.mockReset();
+    mockUser = { role: SystemRoles.ADMIN, adminRoleIds: [] };
+    resetQueryDefaults();
+    mockAdminPermissionsQuery.isSuccess = true;
+    mockAdminPermissionsQuery.data = {
+      isSuperAdmin: true,
+      permissions: Object.values(AdminPermissions),
+      adminRoles: [],
+    };
+    mockAdminSettingsQuery.data = {
+      settingsId: 'global',
+      registrationEnabled: true,
+      platformPrompt: 'Existing platform policy',
+      observability: {
+        langfuseUrl: '',
+        grafanaUrl: '',
+        metricsUrl: '',
+        prometheusUrl: '',
+      },
+      mcpDomainFilterMode: 'denylist',
+      mcpAllowedDomains: [],
+    };
+  });
+
+  afterEach(() => {
+    mockAdminSettingsQuery.data = undefined;
+  });
+
+  it('renders and saves the admin-only platform prompt', async () => {
+    render(<AdminConsole />);
+
+    const textarea = await screen.findByLabelText('com_admin_platform_prompt');
+    expect(textarea).toHaveValue('Existing platform policy');
+
+    fireEvent.change(textarea, { target: { value: 'New platform policy' } });
+    fireEvent.click(screen.getByText('com_admin_save_settings'));
+
+    await waitFor(() => {
+      expect(mockUpdateAdminSettingsMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          platformPrompt: 'New platform policy',
+        }),
+      );
+    });
+  });
+});
+
+describe('AdminConsole – model discovery refresh section', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUpdateAdminSettingsMutateAsync.mockReset();
+    mockRefreshAdminModelsMutate.mockReset();
+    mockUser = { role: SystemRoles.ADMIN, adminRoleIds: [] };
+    resetQueryDefaults();
+    mockAdminPermissionsQuery.isSuccess = true;
+    mockAdminPermissionsQuery.data = {
+      isSuperAdmin: true,
+      permissions: Object.values(AdminPermissions),
+      adminRoles: [],
+    };
+    mockAdminModelsQuery.data = {
+      openAI: ['gpt-5', 'gpt-5.5'],
+      anthropic: ['claude-4-sonnet'],
+    };
+  });
+
+  it('renders the Refresh Models section for users with SETTINGS_WRITE', () => {
+    render(<AdminConsole />);
+    expect(screen.getByText('com_admin_model_discovery')).toBeInTheDocument();
+    expect(screen.getByText('com_admin_refresh_all_models')).toBeInTheDocument();
+  });
+
+  it('triggers a global refresh when the "Refresh all" button is clicked', () => {
+    render(<AdminConsole />);
+    fireEvent.click(screen.getByText('com_admin_refresh_all_models'));
+    expect(mockRefreshAdminModelsMutate).toHaveBeenCalledTimes(1);
+    expect(mockRefreshAdminModelsMutate).toHaveBeenCalledWith(undefined);
+  });
+
+  it('triggers a per-provider refresh when a provider button is clicked', () => {
+    render(<AdminConsole />);
+    const buttons = screen.getAllByText('com_admin_refresh_provider');
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(buttons[0]);
+    expect(mockRefreshAdminModelsMutate).toHaveBeenCalledWith({ provider: expect.any(String) });
+  });
+
+  it('hides the section when the user lacks SETTINGS_WRITE', () => {
+    mockAdminPermissionsQuery.data = {
+      isSuperAdmin: false,
+      permissions: [AdminPermissions.OBSERVABILITY_READ],
+      adminRoles: [],
+    };
+    mockUser = { role: SystemRoles.USER, adminRoleIds: ['observability_admin'] };
+
+    render(<AdminConsole />);
+    expect(screen.queryByText('com_admin_model_discovery')).not.toBeInTheDocument();
   });
 });

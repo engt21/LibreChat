@@ -326,6 +326,12 @@ export function getXAISettingCapabilityState(
             supported: false,
             reason: 'This model does not support xAI verbosity controls.',
           };
+    case 'useResponsesApi':
+      return {
+        supported: false,
+        reason:
+          'xAI automatically uses the Responses API when needed (e.g., for web search). This toggle is not applicable.',
+      };
     default:
       return { supported: true };
   }

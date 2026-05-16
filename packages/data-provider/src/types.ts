@@ -13,6 +13,7 @@ import type { TMinimalFeedback } from './feedback';
 import type { ContentTypes } from './types/runs';
 import type { Agent } from './types/assistants';
 import type { WebSearchModes } from './config';
+import type { CodeInterpreterModes } from './config';
 
 export * from './admin';
 export * from './schedules';
@@ -57,6 +58,7 @@ export type TEndpointOption = Pick<
   | 'thinkingBudget'
   | 'thinkingLevel'
   | 'effort'
+  | 'service_tier'
   // Assistant/Agent fields
   | 'assistant_id'
   | 'agent_id'
@@ -104,7 +106,9 @@ export type TEphemeralAgent = {
   web_search_mode?: WebSearchModes;
   file_search?: boolean;
   execute_code?: boolean;
+  execute_code_mode?: CodeInterpreterModes;
   artifacts?: string;
+  image_generation?: boolean;
 };
 
 export type TPayload = Partial<TMessage> &
@@ -241,6 +245,7 @@ export type TUpdateUserKeyRequest = {
   name: string;
   value: string;
   expiresAt: string;
+  merge?: boolean;
 };
 
 export type TAgentApiKeyCreateRequest = {
@@ -504,6 +509,7 @@ export type TRefreshTokenResponse = {
 
 export type TCheckUserKeyResponse = {
   expiresAt: string;
+  value?: string;
 };
 
 export type TRequestPasswordResetResponse = {

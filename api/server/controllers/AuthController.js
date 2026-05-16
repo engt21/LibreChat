@@ -68,6 +68,13 @@ const refreshController = async (req, res) => {
   const parsedCookies = req.headers.cookie ? cookies.parse(req.headers.cookie) : {};
   const token_provider = parsedCookies.token_provider;
 
+  logger.debug('[refreshController] Cookies present:', {
+    hasRefreshToken: !!parsedCookies.refreshToken,
+    hasTokenProvider: !!parsedCookies.token_provider,
+    tokenProvider: parsedCookies.token_provider || 'none',
+    cookieHeader: req.headers.cookie ? 'present' : 'missing',
+  });
+
   if (token_provider === 'openid' && isEnabled(process.env.OPENID_REUSE_TOKENS)) {
     /** For OpenID users, read refresh token from session to avoid large cookie issues */
     const refreshToken = req.session?.openidTokens?.refreshToken || parsedCookies.refreshToken;
@@ -140,6 +147,7 @@ const refreshController = async (req, res) => {
   /** For non-OpenID users, read refresh token from cookies */
   const refreshToken = parsedCookies.refreshToken;
   if (!refreshToken) {
+    logger.warn('[refreshController] No refresh token cookie found for non-OpenID user');
     return res.status(200).send('Refresh token not provided');
   }
 
@@ -165,6 +173,11 @@ const refreshController = async (req, res) => {
       },
       { lean: false },
     );
+
+    logger.debug('[refreshController] Session lookup result:', {
+      sessionFound: !!session,
+      sessionExpired: session ? session.expiration <= new Date() : 'n/a',
+    });
 
     if (session && session.expiration > new Date()) {
       const token = await setAuthTokens(userId, res, session);

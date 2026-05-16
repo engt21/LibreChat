@@ -108,8 +108,7 @@ export function createSafeUser(
   }
 
   if ('federatedTokens' in user) {
-    safeUser.federatedTokens = (user as Record<string, unknown>)
-      .federatedTokens as FederatedTokens;
+    safeUser.federatedTokens = (user as Record<string, unknown>).federatedTokens as FederatedTokens;
   }
 
   return safeUser;

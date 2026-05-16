@@ -1,0 +1,271 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - navigation "Chat History" [ref=e8]:
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - button "Close sidebar" [expanded] [ref=e11] [cursor=pointer]:
+            - img [ref=e12]
+          - generic [ref=e14]:
+            - button "Bookmarks" [ref=e57] [cursor=pointer]:
+              - img [ref=e58]
+            - link "New chat" [ref=e15] [cursor=pointer]:
+              - /url: /c/new
+              - img [ref=e16]
+        - generic [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+          - textbox "Search messages" [ref=e64]
+          - button "Clear search" [disabled] [ref=e65]:
+            - img [ref=e66]
+        - grid "Conversations" [ref=e23]:
+          - rowgroup [ref=e24]:
+            - button "Chats" [ref=e69] [cursor=pointer]:
+              - generic [ref=e70]: Chats
+              - img [ref=e71]
+      - button "Account Settings" [ref=e73] [cursor=pointer]:
+        - img "Validation User's avatar" [ref=e77]
+        - generic [ref=e78]: Validation User
+    - generic [ref=e79]:
+      - generic [ref=e80]:
+        - main [ref=e82]:
+          - generic [ref=e83]:
+            - generic [ref=e85]:
+              - generic [ref=e87]:
+                - button "Select a model" [ref=e89] [cursor=pointer]:
+                  - img [ref=e338]
+                  - generic [ref=e93]: Claude Sonnet 4.5
+                - button "Presets" [ref=e94] [cursor=pointer]:
+                  - img [ref=e95]
+                - button "Add multi-conversation" [ref=e99] [cursor=pointer]:
+                  - img [ref=e100]
+              - button "Temporary Chat" [ref=e104] [cursor=pointer]:
+                - img [ref=e105]
+            - generic [ref=e114]:
+              - generic [ref=e117]:
+                - img [ref=e343]
+                - generic [ref=e122]: Happy late night, Validation User
+                - paragraph [ref=e123]:
+                  - generic [ref=e124]:
+                    - generic [ref=e125]: H
+                    - generic [ref=e126]: a
+                    - generic [ref=e127]: p
+                    - generic [ref=e128]: p
+                    - generic [ref=e129]: "y"
+                  - generic [ref=e131]:
+                    - generic [ref=e132]: l
+                    - generic [ref=e133]: a
+                    - generic [ref=e134]: t
+                    - generic [ref=e135]: e
+                  - generic [ref=e137]:
+                    - generic [ref=e138]: "n"
+                    - generic [ref=e139]: i
+                    - generic [ref=e140]: g
+                    - generic [ref=e141]: h
+                    - generic [ref=e142]: t
+                    - generic [ref=e143]: ","
+                  - generic [ref=e145]:
+                    - generic [ref=e146]: V
+                    - generic [ref=e147]: a
+                    - generic [ref=e148]: l
+                    - generic [ref=e149]: i
+                    - generic [ref=e150]: d
+                    - generic [ref=e151]: a
+                    - generic [ref=e152]: t
+                    - generic [ref=e153]: i
+                    - generic [ref=e154]: o
+                    - generic [ref=e155]: "n"
+                  - generic [ref=e157]:
+                    - generic [ref=e158]: U
+                    - generic [ref=e159]: s
+                    - generic [ref=e160]: e
+                    - generic [ref=e161]: r
+              - generic [ref=e166]:
+                - textbox "Message input" [ref=e169]: file upload execute_code request
+                - generic [ref=e171]:
+                  - button "Attach File Options" [ref=e173] [cursor=pointer]:
+                    - img [ref=e175]
+                  - button "Tools Options" [ref=e178] [cursor=pointer]:
+                    - img [ref=e180]
+                  - button "Use microphone" [ref=e183] [cursor=pointer]:
+                    - img [ref=e184]
+                  - button "Open realtime voice dialog" [ref=e187] [cursor=pointer]:
+                    - img [ref=e188]
+                  - button "Send message" [ref=e195] [cursor=pointer]:
+                    - img [ref=e197]
+            - contentinfo [ref=e199]:
+              - generic [ref=e391]:
+                - link "LibreChat v0.8.3" [ref=e392] [cursor=pointer]:
+                  - /url: https://librechat.ai
+                - text: "- Every AI for Everyone."
+        - button "Close Control Panel" [expanded] [ref=e348] [cursor=pointer]
+        - separator [ref=e210]
+        - navigation "Controls" [ref=e211]:
+          - generic [ref=e217]:
+            - generic [ref=e350]:
+              - button "Agent Builder" [expanded] [active] [ref=e351] [cursor=pointer]:
+                - img [ref=e352]
+                - text: Agent Builder
+              - region "Agent Builder" [ref=e393]:
+                - form "Agent configuration form" [ref=e395]:
+                  - generic [ref=e398]:
+                    - generic [ref=e399]: Agent
+                    - combobox "Agent" [ref=e400] [cursor=pointer]:
+                      - generic [ref=e401]: Create New Agent
+                      - img [ref=e402]
+                  - generic [ref=e404]:
+                    - generic [ref=e405]:
+                      - button "Upload agent avatar image" [ref=e407] [cursor=pointer]:
+                        - img [ref=e409]
+                      - generic [ref=e410]: Name*
+                      - textbox "Agent name" [ref=e411]:
+                        - /placeholder: "Optional: The name of the agent"
+                      - paragraph [ref=e412]
+                    - generic [ref=e413]:
+                      - generic [ref=e414]: Description
+                      - textbox "Agent description" [ref=e415]:
+                        - /placeholder: "Optional: Describe your Agent here"
+                    - generic [ref=e416]:
+                      - generic [ref=e417]: Category *
+                      - generic [ref=e418]:
+                        - generic [ref=e419]: Agent's category selector
+                        - combobox "Agent's category selector" [ref=e420] [cursor=pointer]:
+                          - generic [ref=e421]: General
+                          - img [ref=e422]
+                    - generic [ref=e424]:
+                      - generic [ref=e425]:
+                        - generic [ref=e426]: Instructions
+                        - generic "Add variables to instructions" [ref=e427]:
+                          - button "Add variable to instructions" [ref=e428] [cursor=pointer]:
+                            - img [ref=e429]
+                            - text: Variables
+                      - textbox "Agent instructions" [ref=e431]:
+                        - /placeholder: The system instructions that the agent uses
+                    - generic [ref=e432]:
+                      - generic [ref=e433]: Model *
+                      - button "Select a model" [ref=e434] [cursor=pointer]:
+                        - generic [ref=e436]: Select a model
+                    - generic [ref=e437]:
+                      - generic [ref=e438]: Capabilities
+                      - generic [ref=e439]:
+                        - generic [ref=e442]:
+                          - generic [ref=e443]: Code Interpreter API
+                          - generic [ref=e444]: by LibreChat
+                        - generic [ref=e445]:
+                          - generic [ref=e446]:
+                            - checkbox "Run Code" [ref=e447] [cursor=pointer]
+                            - checkbox
+                            - generic [ref=e448] [cursor=pointer]: Run Code
+                            - button "When enabled, allows your agent to leverage the LibreChat Code Interpreter API to run generated code, including file processing, securely. Requires a valid API key." [ref=e450] [cursor=pointer]:
+                              - img [ref=e451]
+                          - generic [ref=e455]:
+                            - generic [ref=e456]: "Files below are for Code Interpreter only:"
+                            - button "Upload for Code Interpreter" [disabled] [ref=e458]:
+                              - generic [ref=e459]:
+                                - img [ref=e460]
+                                - text: Upload for Code Interpreter
+                      - generic [ref=e462]:
+                        - generic [ref=e466]: Web Search
+                        - generic [ref=e468]:
+                          - checkbox "Web Search" [disabled] [ref=e469]
+                          - checkbox [disabled]
+                          - generic [ref=e470]: Web Search
+                          - generic [ref=e471]:
+                            - button "Add Web Search API Keys" [ref=e472] [cursor=pointer]:
+                              - img [ref=e473]
+                            - button "When enabled, allows your agent to search the web for up-to-date information. Requires a valid API key." [ref=e476] [cursor=pointer]:
+                              - img [ref=e477]
+                      - generic [ref=e480]:
+                        - generic [ref=e482]:
+                          - generic [ref=e483]: File Context
+                          - img [ref=e484]
+                        - generic [ref=e487]:
+                          - button "Upload File Context" [disabled] [ref=e489]:
+                            - generic [ref=e490]:
+                              - img [ref=e491]
+                              - text: Upload File Context
+                          - generic [ref=e493]: Agent must be created before uploading files for File Context.
+                      - generic [ref=e494]:
+                        - generic [ref=e497]: Artifacts
+                        - generic [ref=e498]:
+                          - generic [ref=e499]:
+                            - generic [ref=e500]:
+                              - generic [ref=e501]: Enable Artifacts
+                              - img [ref=e503]
+                            - switch "Enable Artifacts" [ref=e506] [cursor=pointer]
+                            - checkbox
+                          - generic [ref=e507]:
+                            - generic [ref=e508]:
+                              - generic [ref=e509]: Include shadcn/ui components instructions
+                              - img [ref=e511]
+                            - switch "Include shadcn/ui components instructions" [disabled] [ref=e514]
+                            - checkbox [disabled]
+                          - generic [ref=e515]:
+                            - generic [ref=e516]:
+                              - generic [ref=e517]: Custom Prompt Mode
+                              - img [ref=e519]
+                            - switch "Custom Prompt Mode" [disabled] [ref=e522]
+                            - checkbox [disabled]
+                      - generic [ref=e523]:
+                        - generic [ref=e526]: File Search
+                        - generic [ref=e527]:
+                          - checkbox "Enable File Search" [ref=e528] [cursor=pointer]
+                          - checkbox
+                          - generic [ref=e529] [cursor=pointer]: Enable File Search
+                          - button "When enabled, the agent will be informed of the exact filenames listed below, allowing it to retrieve relevant context from these files." [ref=e530] [cursor=pointer]:
+                            - img [ref=e531]
+                        - generic [ref=e534]:
+                          - button "Upload for File Search" [disabled] [ref=e536]:
+                            - generic [ref=e537]:
+                              - img [ref=e538]
+                              - text: Upload for File Search
+                          - generic [ref=e540]: Agent must be created before uploading files for File Search.
+                    - generic [ref=e541]:
+                      - generic [ref=e542]: MCP Servers
+                      - button "Add MCP Server Tools" [ref=e545] [cursor=pointer]:
+                        - generic [ref=e546]: Add MCP Server Tools
+                    - generic [ref=e547]:
+                      - generic [ref=e548]: Tools and Actions
+                      - generic [ref=e550]:
+                        - button "Add Tools" [ref=e551] [cursor=pointer]:
+                          - generic [ref=e552]: Add Tools
+                        - button "Add Actions" [disabled] [ref=e553]:
+                          - generic [ref=e554]: Add Actions
+                    - generic [ref=e555]:
+                      - generic [ref=e558]: Support Contact
+                      - generic [ref=e559]:
+                        - generic [ref=e560]:
+                          - generic [ref=e562]: Name
+                          - textbox "Support contact name" [ref=e563]
+                        - generic [ref=e564]:
+                          - generic [ref=e566]: Email
+                          - textbox "Support contact email" [ref=e567]:
+                            - /placeholder: support@example.com
+                  - generic [ref=e568]:
+                    - button "Advanced" [ref=e569] [cursor=pointer]:
+                      - img [ref=e570]
+                      - text: Advanced
+                    - button "Create" [ref=e574] [cursor=pointer]
+            - button "Prompts" [ref=e357] [cursor=pointer]:
+              - img [ref=e358]
+              - text: Prompts
+            - button "Memories" [ref=e364] [cursor=pointer]:
+              - img [ref=e365]
+              - text: Memories
+            - button "Attach Files" [ref=e371] [cursor=pointer]:
+              - img [ref=e372]
+              - text: Attach Files
+            - button "Bookmarks" [ref=e376] [cursor=pointer]:
+              - img [ref=e377]
+              - text: Bookmarks
+            - button "MCP Settings" [ref=e381] [cursor=pointer]:
+              - img [ref=e382]
+              - text: MCP Settings
+            - button "Hide Panel" [ref=e388] [cursor=pointer]:
+              - img [ref=e389]
+              - text: Hide Panel
+      - button "Close right side panel"
+  - complementary "React Query Devtools":
+    - button "Open React Query Devtools" [ref=e48] [cursor=pointer]:
+      - img [ref=e49]
+      - generic [ref=e55]: Open React Query Devtools
+  - region "Notifications (F8)":
+    - list

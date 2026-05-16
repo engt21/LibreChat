@@ -138,6 +138,26 @@ export const useUploadFileMutation = (
   });
 };
 
+export const useUploadTranscriptionReferenceMutation = (
+  _options?: t.UploadMutationOptions,
+  signal?: AbortSignal | null,
+): UseMutationResult<t.TFileUpload, unknown, FormData, unknown> => {
+  const queryClient = useQueryClient();
+  const { onSuccess, ...options } = _options || {};
+
+  return useMutation([MutationKeys.fileUpload, 'transcription-reference'], {
+    mutationFn: (body: FormData) => dataService.uploadTranscriptionReference(body, signal),
+    ...options,
+    onSuccess: (data, formData, context) => {
+      queryClient.setQueryData<t.TFile[] | undefined>([QueryKeys.files], (_files) => [
+        data,
+        ...(_files ?? []),
+      ]);
+      onSuccess?.(data, formData, context);
+    },
+  });
+};
+
 export const useDeleteFilesMutation = (
   _options?: t.DeleteMutationOptions,
 ): UseMutationResult<

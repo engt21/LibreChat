@@ -7,6 +7,7 @@ import { fileConfigSchema } from './file-config';
 import { apiBaseUrl } from './api-endpoints';
 import { FileSources } from './types/files';
 import { MCPServersSchema } from './mcp';
+import type { TAnthropicModelCapabilities } from './anthropic';
 import type { TGoogleModelCapabilities } from './google';
 import type { TXAIModelCapabilities } from './xai';
 
@@ -784,6 +785,7 @@ export type TStartupConfig = {
   customFooter?: string;
   modelSpecs?: TSpecsConfig;
   modelDescriptions?: Record<string, Record<string, string>>;
+  anthropicModelCapabilities?: Record<string, TAnthropicModelCapabilities>;
   googleModelCapabilities?: Record<string, TGoogleModelCapabilities>;
   xaiModelCapabilities?: Record<string, Record<string, TXAIModelCapabilities>>;
   sharedLinksEnabled: boolean;
@@ -1109,6 +1111,8 @@ export const alternateName = {
 };
 
 const sharedOpenAIModels = [
+  'gpt-5.5',
+  'gpt-5.5-pro',
   'gpt-5.4',
   'gpt-5.4-mini',
   'gpt-5.4-nano',
@@ -1148,6 +1152,7 @@ const sharedOpenAIModels = [
 ];
 
 const sharedAnthropicModels = [
+  'claude-opus-4-7',
   'claude-sonnet-4-6',
   'claude-opus-4-6',
   'claude-sonnet-4-5',
@@ -1751,6 +1756,10 @@ export enum SettingsTabValues {
    * Tab for Personalization Settings
    */
   PERSONALIZATION = 'personalization',
+  /**
+   * Tab for Image Generation Settings
+   */
+  IMAGE_GENERATION = 'imageGeneration',
 }
 
 export enum STTProviders {
@@ -1846,6 +1855,11 @@ export enum WebSearchModes {
   ollama_mcp = 'ollama_mcp',
 }
 
+export enum CodeInterpreterModes {
+  librechat = 'librechat',
+  provider_native = 'provider_native',
+}
+
 export enum LocalStorageKeys {
   /** Key for the admin defined App Title */
   APP_TITLE = 'appTitle',
@@ -1879,16 +1893,22 @@ export enum LocalStorageKeys {
   ENABLE_USER_MSG_MARKDOWN = 'enableUserMsgMarkdown',
   /** Key for displaying analysis tool code input */
   SHOW_ANALYSIS_CODE = 'showAnalysisCode',
+  /** Key for automatically expanding tool details */
+  AUTO_EXPAND_TOOLS = 'autoExpandTools',
   /** Last selected MCP values per conversation ID */
   LAST_MCP_ = 'LAST_MCP_',
   /** Last checked toggle for Code Interpreter API per conversation ID */
   LAST_CODE_TOGGLE_ = 'LAST_CODE_TOGGLE_',
+  /** Last selected Code Interpreter mode per conversation ID */
+  LAST_CODE_MODE_ = 'LAST_CODE_MODE_',
   /** Last checked toggle for Web Search per conversation ID */
   LAST_WEB_SEARCH_TOGGLE_ = 'LAST_WEB_SEARCH_TOGGLE_',
   /** Last selected web search mode per conversation ID */
   LAST_WEB_SEARCH_MODE_ = 'LAST_WEB_SEARCH_MODE_',
   /** Last checked toggle for File Search per conversation ID */
   LAST_FILE_SEARCH_TOGGLE_ = 'LAST_FILE_SEARCH_TOGGLE_',
+  /** Last checked toggle for Image Generation per conversation ID */
+  LAST_IMAGE_GENERATION_TOGGLE_ = 'LAST_IMAGE_GENERATION_TOGGLE_',
   /** Last checked toggle for Artifacts per conversation ID */
   LAST_ARTIFACTS_TOGGLE_ = 'LAST_ARTIFACTS_TOGGLE_',
   /** Key for the last selected agent provider */
@@ -1901,6 +1921,8 @@ export enum LocalStorageKeys {
   PIN_WEB_SEARCH_ = 'PIN_WEB_SEARCH_',
   /** Pin state for Code Interpreter per conversation ID */
   PIN_CODE_INTERPRETER_ = 'PIN_CODE_INTERPRETER_',
+  /** Pin state for Image Generation per conversation ID */
+  PIN_IMAGE_GENERATION_ = 'PIN_IMAGE_GENERATION_',
 }
 
 export enum ForkOptions {

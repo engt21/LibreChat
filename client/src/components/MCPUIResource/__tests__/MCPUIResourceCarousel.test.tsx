@@ -263,5 +263,14 @@ describe('MCPUIResourceCarousel', () => {
 
       expect(container.firstChild).toBeNull();
     });
+
+    it('should return null when markdown node properties are missing', () => {
+      currentTestMessages = [];
+
+      const { container } = renderWithRecoil(<MCPUIResourceCarousel node={{} as any} />);
+
+      expect(container.firstChild).toBeNull();
+      expect(screen.queryByTestId('ui-resource-carousel')).not.toBeInTheDocument();
+    });
   });
 });

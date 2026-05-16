@@ -1,0 +1,139 @@
+const { EModelEndpoint } = require('librechat-data-provider');
+const {
+  applyDynamicSuggestedModelSpecs,
+  getSuggestedModelsForEndpoint,
+} = require('./suggestedModelSpecs');
+
+describe('suggested model specs', () => {
+  const specsConfig = {
+    enforce: false,
+    prioritize: true,
+    list: [
+      {
+        name: 'GPT-5.4 Mini',
+        label: 'GPT-5.4 Mini',
+        description: 'Fast, affordable OpenAI model',
+        group: EModelEndpoint.openAI,
+        preset: { endpoint: EModelEndpoint.openAI, model: 'gpt-5.4-mini' },
+      },
+      {
+        name: 'GPT-5.4 Nano',
+        label: 'GPT-5.4 Nano',
+        description: 'Lightweight OpenAI model',
+        group: EModelEndpoint.openAI,
+        preset: { endpoint: EModelEndpoint.openAI, model: 'gpt-5.4-nano' },
+      },
+      {
+        name: 'GPT-5.3 Chat',
+        label: 'GPT-5.3 Chat',
+        description: 'OpenAI conversational model',
+        group: EModelEndpoint.openAI,
+        preset: { endpoint: EModelEndpoint.openAI, model: 'gpt-5.3-chat-latest' },
+      },
+      {
+        name: 'Claude Sonnet 4.6',
+        label: 'Claude Sonnet 4.6',
+        description: 'Latest Anthropic Sonnet',
+        group: EModelEndpoint.anthropic,
+        preset: { endpoint: EModelEndpoint.anthropic, model: 'claude-sonnet-4-6' },
+      },
+      {
+        name: 'Claude Sonnet 4.5',
+        label: 'Claude Sonnet 4.5',
+        description: 'Anthropic balanced model',
+        group: EModelEndpoint.anthropic,
+        preset: { endpoint: EModelEndpoint.anthropic, model: 'claude-sonnet-4-5' },
+      },
+      {
+        name: 'Claude Haiku 4.5',
+        label: 'Claude Haiku 4.5',
+        description: 'Fast Anthropic model',
+        group: EModelEndpoint.anthropic,
+        preset: { endpoint: EModelEndpoint.anthropic, model: 'claude-haiku-4-5' },
+      },
+    ],
+  };
+
+  it('chooses the latest preferred OpenAI suggestions while skipping pro/nano/tooling variants', () => {
+    expect(
+      getSuggestedModelsForEndpoint(
+        EModelEndpoint.openAI,
+        [
+          'gpt-5.5-pro',
+          'gpt-5.5',
+          'gpt-5.4-thinking',
+          'gpt-5.4',
+          'gpt-5.4-mini',
+          'gpt-5.4-nano',
+          'gpt-5.1-codex',
+          'gpt-5.1',
+        ],
+        3,
+      ),
+    ).toEqual(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']);
+  });
+
+  it('updates simple OpenAI and Anthropic quick-selector specs from the current model catalog', () => {
+    const result = applyDynamicSuggestedModelSpecs(specsConfig, {
+      [EModelEndpoint.openAI]: [
+        'gpt-5.5-pro',
+        'gpt-5.5',
+        'gpt-5.4',
+        'gpt-5.4-mini',
+        'gpt-5.4-nano',
+      ],
+      [EModelEndpoint.anthropic]: [
+        'claude-sonnet-4-6',
+        'claude-opus-4-7',
+        'claude-opus-4-6',
+        'claude-haiku-4-5',
+      ],
+    });
+
+    expect(result.list.map((spec) => spec.preset.model)).toEqual([
+      'gpt-5.5',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'claude-opus-4-7',
+      'claude-opus-4-6',
+      'claude-sonnet-4-6',
+    ]);
+    expect(result.list.map((spec) => spec.label)).toEqual([
+      'GPT-5.5',
+      'GPT-5.4',
+      'GPT-5.4 Mini',
+      'Claude Opus 4.7',
+      'Claude Opus 4.6',
+      'Claude Sonnet 4.6',
+    ]);
+  });
+
+  it('does not rewrite custom model specs that carry behavior beyond a simple provider shortcut', () => {
+    const customSpec = {
+      name: 'OpenAI with tools',
+      label: 'OpenAI with tools',
+      group: EModelEndpoint.openAI,
+      webSearch: true,
+      preset: { endpoint: EModelEndpoint.openAI, model: 'gpt-5.4-mini' },
+    };
+
+    const result = applyDynamicSuggestedModelSpecs(
+      { ...specsConfig, list: [customSpec] },
+      { [EModelEndpoint.openAI]: ['gpt-5.5'] },
+    );
+
+    expect(result.list[0]).toEqual(customSpec);
+  });
+
+  it('removes surplus simple suggestions when a refreshed key exposes fewer models', () => {
+    const result = applyDynamicSuggestedModelSpecs(specsConfig, {
+      [EModelEndpoint.openAI]: ['gpt-5.4-mini'],
+      [EModelEndpoint.anthropic]: ['claude-sonnet-4-6'],
+    });
+
+    expect(result.list.map((spec) => spec.preset.model)).toEqual([
+      'gpt-5.4-mini',
+      'claude-sonnet-4-6',
+    ]);
+  });
+});

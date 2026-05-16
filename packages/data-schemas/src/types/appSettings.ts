@@ -6,6 +6,7 @@ export type MCPDomainFilterMode = 'allowlist' | 'denylist';
 export type AppSettings = {
   settingsId: string;
   registrationEnabled?: boolean;
+  platformPrompt?: string | null;
   observability?: TObservabilityLinks;
   mcpDomainFilterMode?: MCPDomainFilterMode;
   mcpAllowedDomains?: string[];

@@ -133,7 +133,7 @@ export function SourceHovercard({
                 {isFile ? (
                   <>
                     {source.snippet && (
-                      <span className="my-2 text-ellipsis break-all text-xs text-text-secondary md:text-sm">
+                      <span className="my-2 block max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded bg-surface-primary-contrast p-2 text-xs text-text-secondary md:text-sm">
                         {source.snippet}
                       </span>
                     )}

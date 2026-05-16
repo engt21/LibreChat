@@ -1,0 +1,183 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - navigation "Chat History" [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - button "Close sidebar" [expanded] [ref=e12] [cursor=pointer]:
+            - img [ref=e13]
+          - generic [ref=e15]:
+            - button "Bookmarks" [ref=e16] [cursor=pointer]:
+              - img [ref=e17]
+            - link "New chat" [ref=e19] [cursor=pointer]:
+              - /url: /c/new
+              - img [ref=e20]
+        - grid "Conversations" [ref=e25]:
+          - rowgroup [ref=e26]:
+            - button "Chats" [ref=e28] [cursor=pointer]:
+              - generic [ref=e29]: Chats
+              - img [ref=e30]
+            - heading "Today" [level=2] [ref=e33]
+            - button "New Chat conversation" [ref=e35] [cursor=pointer]:
+              - generic "New Chat" [ref=e36]:
+                - img [ref=e38]
+                - generic "New Chat" [ref=e40]
+            - heading "Yesterday" [level=2] [ref=e42]
+            - button "Simple Affirmation conversation" [ref=e44] [cursor=pointer]:
+              - generic "Simple Affirmation" [ref=e45]:
+                - img [ref=e47]
+                - generic "Simple Affirmation" [ref=e49]
+            - button "Ok conversation" [ref=e51] [cursor=pointer]:
+              - generic "Ok" [ref=e52]:
+                - img [ref=e54]
+                - generic "Ok" [ref=e56]
+      - button "Account Settings" [ref=e57] [cursor=pointer]:
+        - img "Playwright Bot's avatar" [ref=e61]
+        - generic [ref=e62]: Playwright Bot
+    - generic [ref=e64]:
+      - generic [ref=e65]:
+        - main [ref=e67]:
+          - generic [ref=e68]:
+            - generic [ref=e70]:
+              - generic [ref=e72]:
+                - generic [ref=e73]:
+                  - button "Select a model" [expanded] [ref=e74] [cursor=pointer]:
+                    - img [ref=e76]
+                    - generic [ref=e78]: GPT-5.4 Mini
+                  - dialog "Select a model" [ref=e240]:
+                    - generic [ref=e242]:
+                      - combobox [expanded] [active] [ref=e243]
+                      - generic: Search models...
+                    - listbox [ref=e244]:
+                      - option "OpenAI" [ref=e245]:
+                        - generic [ref=e248]:
+                          - img [ref=e250]
+                          - generic [ref=e252]: OpenAI
+                        - generic:
+                          - img
+                      - option "My Agents" [ref=e253] [cursor=pointer]:
+                        - generic [ref=e254]:
+                          - img [ref=e256]
+                          - generic [ref=e259]: My Agents
+                      - option "Azure OpenAI" [ref=e260]:
+                        - generic [ref=e263]:
+                          - img [ref=e265]
+                          - generic [ref=e269]: Azure OpenAI
+                        - generic:
+                          - img
+                      - option "Google" [ref=e270]:
+                        - generic [ref=e273]:
+                          - img [ref=e275]
+                          - generic [ref=e277]: Google
+                        - generic:
+                          - img
+                      - option "Anthropic" [ref=e278]:
+                        - generic [ref=e281]:
+                          - img [ref=e283]
+                          - generic [ref=e288]: Anthropic
+                        - generic:
+                          - img
+                      - option "Ollama" [ref=e289]:
+                        - generic [ref=e292]:
+                          - img [ref=e294]
+                          - generic [ref=e295]: Ollama
+                        - generic:
+                          - img
+                      - option "Ollama" [ref=e296]:
+                        - generic [ref=e299] [cursor=pointer]:
+                          - generic [ref=e301]:
+                            - img [ref=e303]
+                            - img [ref=e307]
+                          - generic [ref=e309]: Ollama
+                        - generic:
+                          - img
+                - button "Presets" [ref=e79] [cursor=pointer]:
+                  - img [ref=e80]
+                - button "Add multi-conversation" [ref=e84] [cursor=pointer]:
+                  - img [ref=e85]
+              - button "Temporary Chat" [ref=e89] [cursor=pointer]:
+                - img [ref=e90]
+            - generic [ref=e99]:
+              - generic [ref=e102]:
+                - img [ref=e105]
+                - generic [ref=e107]: Happy late night, Playwright Bot
+                - paragraph [ref=e108]:
+                  - generic [ref=e109]:
+                    - generic [ref=e110]: H
+                    - generic [ref=e111]: a
+                    - generic [ref=e112]: p
+                    - generic [ref=e113]: p
+                    - generic [ref=e114]: "y"
+                  - generic [ref=e116]:
+                    - generic [ref=e117]: l
+                    - generic [ref=e118]: a
+                    - generic [ref=e119]: t
+                    - generic [ref=e120]: e
+                  - generic [ref=e122]:
+                    - generic [ref=e123]: "n"
+                    - generic [ref=e124]: i
+                    - generic [ref=e125]: g
+                    - generic [ref=e126]: h
+                    - generic [ref=e127]: t
+                    - generic [ref=e128]: ","
+                  - generic [ref=e130]:
+                    - generic [ref=e131]: P
+                    - generic [ref=e132]: l
+                    - generic [ref=e133]: a
+                    - generic [ref=e134]: "y"
+                    - generic [ref=e135]: w
+                    - generic [ref=e136]: r
+                    - generic [ref=e137]: i
+                    - generic [ref=e138]: g
+                    - generic [ref=e139]: h
+                    - generic [ref=e140]: t
+                  - generic [ref=e142]:
+                    - generic [ref=e143]: B
+                    - generic [ref=e144]: o
+                    - generic [ref=e145]: t
+              - generic [ref=e150]:
+                - textbox "Message input" [ref=e153]:
+                  - /placeholder: Message Gemini
+                - generic [ref=e155]:
+                  - button "Attach File Options" [ref=e157] [cursor=pointer]:
+                    - img [ref=e159]
+                  - button "Tools Options" [ref=e162] [cursor=pointer]:
+                    - img [ref=e164]
+                  - button "Use microphone" [ref=e167] [cursor=pointer]:
+                    - img [ref=e168]
+                  - button "Open realtime voice dialog" [ref=e171] [cursor=pointer]:
+                    - img [ref=e172]
+                  - button "Send message" [disabled] [ref=e179]:
+                    - img [ref=e181]
+            - contentinfo [ref=e183]:
+              - generic [ref=e184]:
+                - link "LibreChat v0.8.3" [ref=e185] [cursor=pointer]:
+                  - /url: https://librechat.ai
+                - text: "- Every AI for Everyone."
+        - button "Open Control Panel" [ref=e188] [cursor=pointer]
+        - separator [ref=e194]
+        - navigation "Controls" [ref=e195]:
+          - generic [ref=e201]:
+            - button "Agent Builder" [ref=e202] [cursor=pointer]:
+              - img [ref=e203]
+              - generic [ref=e206]: Agent Builder
+            - button "Prompts" [ref=e207] [cursor=pointer]:
+              - img [ref=e208]
+              - generic [ref=e212]: Prompts
+            - button "Memories" [ref=e213] [cursor=pointer]:
+              - img [ref=e214]
+              - generic [ref=e218]: Memories
+            - button "Attach Files" [ref=e219] [cursor=pointer]:
+              - img [ref=e220]
+              - generic [ref=e222]: Attach Files
+            - button "Bookmarks" [ref=e223] [cursor=pointer]:
+              - img [ref=e224]
+              - generic [ref=e226]: Bookmarks
+            - button "MCP Settings" [ref=e227] [cursor=pointer]:
+              - img [ref=e228]
+              - generic [ref=e232]: MCP Settings
+            - button "Hide Panel" [ref=e233] [cursor=pointer]:
+              - img [ref=e234]
+              - generic [ref=e236]: Hide Panel
+      - button "Close right side panel"
+  - region "Notifications (F8)":
+    - list

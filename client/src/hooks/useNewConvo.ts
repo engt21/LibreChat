@@ -90,13 +90,25 @@ const useNewConvo = (index = 0) => {
         const modelsConfig = modelsData ?? modelsQuery.data;
         const { endpoint = null } = conversation;
         const buildDefaultConversation = (endpoint === null || buildDefault) ?? false;
+        // Check if the user has explicitly selected a non-spec model:
+        // If their last conversation has an endpoint but no spec, they've manually
+        // overridden the model selection and we should not revert to the admin default.
+        const { lastConversationSetup: storedConvoSetup } = getLocalStorageItems();
+        const userHasManualModelSelection =
+          storedConvoSetup != null &&
+          typeof storedConvoSetup === 'object' &&
+          storedConvoSetup.endpoint != null &&
+          !storedConvoSetup.spec;
+
         const activePreset =
           // use default preset only when it's defined,
           // preset is not provided,
+          // user hasn't manually selected a different (non-spec) model,
           // endpoint matches or is null (to allow endpoint change),
           // and buildDefaultConversation is true
           defaultPreset &&
           !preset &&
+          !userHasManualModelSelection &&
           (defaultPreset.endpoint === endpoint || !endpoint) &&
           buildDefaultConversation
             ? defaultPreset
@@ -336,6 +348,7 @@ const useNewConvo = (index = 0) => {
           }));
 
         setFiles(new Map());
+        localStorage.removeItem(`${LocalStorageKeys.FILES_DRAFT}${Constants.NEW_CONVO}`);
         localStorage.setItem(LocalStorageKeys.FILES_TO_DELETE, JSON.stringify({}));
 
         if (!saveDrafts && filesToDelete.length > 0) {

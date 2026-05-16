@@ -182,7 +182,8 @@ describe('Server Configuration', () => {
       return new Promise((resolve, reject) => {
         const addr = app.server.address();
         const req = http.request({
-          hostname: addr.address === '::' || addr.address === '0.0.0.0' ? '127.0.0.1' : addr.address,
+          hostname:
+            addr.address === '::' || addr.address === '0.0.0.0' ? '127.0.0.1' : addr.address,
           port: addr.port,
           path,
           headers: {

@@ -395,7 +395,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
         },
         tools: [
           {
-            type: 'web_search_20250305',
+            type: 'web_search_20260209',
             name: 'web_search',
           },
         ],
@@ -567,7 +567,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
 
       expect(result.tools).toEqual([
         {
-          type: 'web_search_20250305',
+          type: 'web_search_20260209',
           name: 'web_search',
         },
       ]);
@@ -640,7 +640,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
 
       expect(result.tools).toEqual([
         {
-          type: 'web_search_20250305',
+          type: 'web_search_20260209',
           name: 'web_search',
         },
       ]);
@@ -763,7 +763,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
 
         expect(result.tools).toEqual([
           {
-            type: 'web_search_20250305',
+            type: 'web_search_20260209',
             name: 'web_search',
           },
         ]);

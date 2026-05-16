@@ -12,6 +12,11 @@ import {
   checkPromptCacheSupport,
   configureReasoning,
   getClaudeHeaders,
+  mergeAnthropicBetaHeaders,
+  ANTHROPIC_CONTEXT_MANAGEMENT_BETA,
+  ANTHROPIC_MCP_CLIENT_BETA,
+  ANTHROPIC_WEB_SEARCH_TOOL,
+  ANTHROPIC_VERTEX_WEB_SEARCH_TOOL,
 } from './helpers';
 import {
   createAnthropicVertexClient,
@@ -60,6 +65,14 @@ export const knownAnthropicParams = new Set([
   'defaultHeaders',
 ]);
 
+const knownAnthropicInvocationParams = new Set([
+  'service_tier',
+  'tool_choice',
+  'mcp_servers',
+  'context_management',
+  'container',
+]);
+
 /**
  * Applies default parameters to the target object only if the field is undefined
  * @param target - The target object to apply defaults to
@@ -71,6 +84,37 @@ function applyDefaultParams(target: Record<string, unknown>, defaults: Record<st
       target[key] = value;
     }
   }
+}
+
+function setInvocationKwarg(
+  target: AnthropicClientOptions & { stream?: boolean },
+  key: string,
+  value: unknown,
+  overwrite = true,
+) {
+  if (!overwrite && target.invocationKwargs?.[key] !== undefined) {
+    return;
+  }
+
+  target.invocationKwargs = target.invocationKwargs ?? {};
+  const existingValue = target.invocationKwargs[key];
+
+  if (
+    value != null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    existingValue != null &&
+    typeof existingValue === 'object' &&
+    !Array.isArray(existingValue)
+  ) {
+    target.invocationKwargs[key] = {
+      ...(existingValue as Record<string, unknown>),
+      ...(value as Record<string, unknown>),
+    };
+    return;
+  }
+
+  target.invocationKwargs[key] = value;
 }
 
 /**
@@ -193,6 +237,18 @@ function getLLMConfig(
     requestOptions.clientOptions.defaultHeaders = headers;
   }
 
+  if (typeof mergedOptions.service_tier === 'string' && mergedOptions.service_tier !== '') {
+    setInvocationKwarg(requestOptions, 'service_tier', mergedOptions.service_tier);
+  }
+
+  const mergedOptionsRecord = mergedOptions as Record<string, unknown>;
+  for (const key of ['tool_choice', 'mcp_servers', 'context_management', 'container'] as const) {
+    const value = mergedOptionsRecord[key];
+    if (value !== undefined) {
+      setInvocationKwarg(requestOptions, key, value);
+    }
+  }
+
   if (options.proxy && requestOptions.clientOptions) {
     const proxyAgent = new ProxyAgent(options.proxy);
     requestOptions.clientOptions.fetchOptions = {
@@ -219,6 +275,8 @@ function getLLMConfig(
       if (knownAnthropicParams.has(key)) {
         /** Route known Anthropic params to requestOptions only if undefined */
         applyDefaultParams(requestOptions as Record<string, unknown>, { [key]: value });
+      } else if (knownAnthropicInvocationParams.has(key)) {
+        setInvocationKwarg(requestOptions, key, value, false);
       }
       /** Leave other params for transform to handle - they might be OpenAI params */
     }
@@ -238,6 +296,8 @@ function getLLMConfig(
       if (knownAnthropicParams.has(key)) {
         /** Route known Anthropic params to requestOptions */
         (requestOptions as Record<string, unknown>)[key] = value;
+      } else if (knownAnthropicInvocationParams.has(key)) {
+        setInvocationKwarg(requestOptions, key, value);
       }
       /** Leave other params for transform to handle - they might be OpenAI params */
     }
@@ -260,11 +320,33 @@ function getLLMConfig(
     });
   }
 
+  if (requestOptions.invocationKwargs?.context_management != null) {
+    requestOptions.clientOptions = requestOptions.clientOptions ?? {};
+    requestOptions.clientOptions.defaultHeaders = mergeAnthropicBetaHeaders(
+      requestOptions.clientOptions.defaultHeaders,
+      ANTHROPIC_CONTEXT_MANAGEMENT_BETA,
+    );
+  }
+
+  const hasMCPServers = Array.isArray(requestOptions.invocationKwargs?.mcp_servers)
+    ? requestOptions.invocationKwargs.mcp_servers.length > 0
+    : requestOptions.invocationKwargs?.mcp_servers != null;
+
+  if (hasMCPServers) {
+    requestOptions.clientOptions = requestOptions.clientOptions ?? {};
+    requestOptions.clientOptions.defaultHeaders = mergeAnthropicBetaHeaders(
+      requestOptions.clientOptions.defaultHeaders,
+      ANTHROPIC_MCP_CLIENT_BETA,
+    );
+  }
+
   const tools = [];
 
   if (enableWebSearch) {
     tools.push({
-      type: 'web_search_20250305',
+      type: isAnthropicVertexCredentials(creds)
+        ? ANTHROPIC_VERTEX_WEB_SEARCH_TOOL
+        : ANTHROPIC_WEB_SEARCH_TOOL,
       name: 'web_search',
     });
 
@@ -273,10 +355,10 @@ function getLLMConfig(
         requestOptions.clientOptions = {};
       }
 
-      requestOptions.clientOptions.defaultHeaders = {
-        ...requestOptions.clientOptions.defaultHeaders,
-        'anthropic-beta': 'web-search-2025-03-05',
-      };
+      requestOptions.clientOptions.defaultHeaders = mergeAnthropicBetaHeaders(
+        requestOptions.clientOptions.defaultHeaders,
+        'web-search-2025-03-05',
+      );
     }
   }
 

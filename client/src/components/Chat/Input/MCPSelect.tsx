@@ -14,7 +14,6 @@ function MCPSelectContent() {
   const { conversationId, storageContextKey, mcpServerManager } = useBadgeRowContext();
   const {
     localize,
-    isPinned,
     mcpValues,
     placeholderText,
     selectableServers,
@@ -47,10 +46,6 @@ function MCPSelectContent() {
     }
     return localize('com_ui_x_selected', { 0: selectedCount });
   }, [selectedCount, selectableServers, mcpValues, localize]);
-
-  if (!isPinned && mcpValues?.length === 0) {
-    return null;
-  }
 
   const configDialogProps = getConfigDialogProps();
 

@@ -7,6 +7,16 @@ import * as m from './types/mutations';
 import * as q from './types/queries';
 import * as f from './types/files';
 import * as mcp from './types/mcpServers';
+import type {
+  TRealtimeModelsResponse,
+  TSaveRealtimeConversationRequest,
+  TSaveRealtimeConversationResponse,
+} from './realtime';
+import type {
+  TImageGenModelsResponse,
+  TImageGenerationPrefs,
+  TImageGenerationPrefsUpdate,
+} from './imageGeneration';
 import * as config from './config';
 import request from './request';
 import * as s from './schemas';
@@ -185,6 +195,10 @@ export function updateAdminUser(
   return request.patch(endpoints.adminUser(userId), payload);
 }
 
+export function deleteAdminUser(userId: string): Promise<void> {
+  return request.delete(endpoints.adminUser(userId));
+}
+
 export function getAdminUsage(params: t.AdminListParams = {}): Promise<t.TAdminUsageResponse> {
   return request.get(endpoints.adminUsage(params));
 }
@@ -205,6 +219,12 @@ export function getAdminRoles(): Promise<t.TAdminRole[]> {
   return request.get(endpoints.adminRoles());
 }
 
+export function refreshAdminModels(
+  payload: t.TAdminModelsRefreshRequest = {},
+): Promise<t.TAdminModelsRefreshResponse> {
+  return request.post(endpoints.adminRefreshModels(), payload);
+}
+
 export const updateTokenCount = (text: string) => {
   return request.post(endpoints.tokenizer(), { arg: text });
 };
@@ -221,8 +241,10 @@ export const register = (payload: t.TRegisterUser) => {
   return request.post(endpoints.register(), payload);
 };
 
-export const userKeyQuery = (name: string): Promise<t.TCheckUserKeyResponse> =>
-  request.get(endpoints.userKeyQuery(name));
+export const userKeyQuery = (
+  name: string,
+  includeValue = false,
+): Promise<t.TCheckUserKeyResponse> => request.get(endpoints.userKeyQuery(name, includeValue));
 
 export const getLoginGoogle = () => {
   return request.get(endpoints.loginGoogle());
@@ -302,6 +324,30 @@ export const getAIEndpoints = (): Promise<t.TEndpointsConfig> => {
 
 export const getModels = async (): Promise<t.TModelsConfig> => {
   return request.get(endpoints.models());
+};
+
+export const getRealtimeModels = async (): Promise<TRealtimeModelsResponse> => {
+  return request.get(endpoints.realtimeModels());
+};
+
+export const saveRealtimeConversation = async (
+  payload: TSaveRealtimeConversationRequest,
+): Promise<TSaveRealtimeConversationResponse> => {
+  return request.post(endpoints.realtimeConversation(), payload);
+};
+
+export const getImageGenerationModels = async (): Promise<TImageGenModelsResponse> => {
+  return request.get(endpoints.imageGenerationModels());
+};
+
+export const getImageGenerationPrefs = async (): Promise<{ prefs: TImageGenerationPrefs }> => {
+  return request.get(endpoints.imageGenerationPrefs());
+};
+
+export const updateImageGenerationPrefs = async (
+  payload: TImageGenerationPrefsUpdate,
+): Promise<{ prefs: TImageGenerationPrefs }> => {
+  return request.patch(endpoints.imageGenerationPrefs(), payload);
 };
 
 /* Assistants */
@@ -484,6 +530,20 @@ export const uploadImage = (
 export const uploadFile = (data: FormData, signal?: AbortSignal | null): Promise<f.TFileUpload> => {
   const requestConfig = signal ? { signal } : undefined;
   return request.postMultiPart(endpoints.files(), data, requestConfig);
+};
+
+export const uploadTranscriptionReference = (
+  data: FormData,
+  signal?: AbortSignal | null,
+): Promise<f.TFileUpload> => {
+  const requestConfig = signal ? { signal } : undefined;
+  return request.postMultiPart(endpoints.fileTranscriptionReference(), data, requestConfig);
+};
+
+export const startAudioTranscription = (
+  payload: f.StartAudioTranscriptionRequest,
+): Promise<f.StartAudioTranscriptionResponse> => {
+  return request.post(endpoints.fileTranscribe(), payload);
 };
 
 /* actions */

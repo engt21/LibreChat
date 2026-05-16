@@ -50,6 +50,8 @@ class StableDiffusionAPI extends Tool {
 
     this.name = 'stable-diffusion';
     this.url = fields.SD_WEBUI_URL || this.getServerURL();
+    this.modelOverride =
+      typeof fields.model === 'string' && fields.model.trim() ? fields.model.trim() : null;
     this.description_for_model = `// Generate images and visuals using text.
 // Guidelines:
 // - ALWAYS use {{"prompt": "7+ detailed keywords", "negative_prompt": "7+ detailed keywords"}} structure for queries.
@@ -110,6 +112,13 @@ class StableDiffusionAPI extends Tool {
       width: 1024,
       height: 1024,
     };
+    if (this.modelOverride) {
+      payload.override_settings = {
+        ...(payload.override_settings ?? {}),
+        sd_model_checkpoint: this.modelOverride,
+      };
+      payload.override_settings_restore_afterwards = true;
+    }
     let generationResponse;
     try {
       generationResponse = await axios.post(`${url}/sdapi/v1/txt2img`, payload);

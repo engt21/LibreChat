@@ -10,6 +10,14 @@ import type { TGoogleModelCapabilities } from './google';
 describe('google model helpers', () => {
   it('normalizes Google model names returned by the models API', () => {
     expect(normalizeGoogleModelName('models/gemini-2.5-flash')).toBe('gemini-2.5-flash');
+    expect(normalizeGoogleModelName('publishers/google/models/gemini-2.5-flash')).toBe(
+      'gemini-2.5-flash',
+    );
+    expect(
+      normalizeGoogleModelName(
+        'projects/test-project/locations/us-central1/publishers/google/models/gemini-2.5-flash',
+      ),
+    ).toBe('gemini-2.5-flash');
     expect(normalizeGoogleModelName('gemma-3-27b-it')).toBe('gemma-3-27b-it');
   });
 
@@ -77,6 +85,17 @@ describe('google model helpers', () => {
     expect(capabilities.supportsThinkingBudget).toBe(true);
     expect(capabilities.supportsThinkingLevel).toBe(false);
     expect(capabilities.supportsWebSearch).toBe(true);
+  });
+
+  it('treats gemini-2.5-flash-lite as not supporting thinking controls', () => {
+    const capabilities = getGoogleModelCapabilities('gemini-2.5-flash-lite');
+
+    expect(capabilities.supportsThinking).toBe(false);
+    expect(capabilities.supportsThinkingBudget).toBe(false);
+    expect(getGoogleSettingCapabilityState('thinking', capabilities)).toEqual({
+      supported: false,
+      reason: 'This model does not support thinking/reasoning controls.',
+    });
   });
 
   it('disables unsupported Google Search grounding controls for older Gemini and Gemma models', () => {

@@ -1,4 +1,4 @@
-import { memo, useMemo, useCallback } from 'react';
+import React, { memo, useMemo, useCallback } from 'react';
 import { ContentTypes } from 'librechat-data-provider';
 import type {
   TMessageContentParts,
@@ -10,10 +10,53 @@ import { MessageContext, SearchContext } from '~/Providers';
 import { ParallelContentRenderer, type PartWithIndex } from './ParallelContent';
 import { mapAttachments } from '~/utils';
 import { EditTextPart, EmptyText } from './Parts';
+import { mergeAdjacentThinkingParts } from '~/utils/streamingReasoning';
 import MemoryArtifacts from './MemoryArtifacts';
 import Sources from '~/components/Web/Sources';
 import Container from './Container';
+import { ErrorMessage } from './MessageContent';
 import Part from './Part';
+
+const MESSAGE_PART_RENDER_ERROR =
+  'This message part could not be displayed. The rest of the chat is still available.';
+
+type MessagePartErrorBoundaryProps = {
+  children: React.ReactNode;
+  resetKey: string;
+};
+
+type MessagePartErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class MessagePartErrorBoundary extends React.Component<
+  MessagePartErrorBoundaryProps,
+  MessagePartErrorBoundaryState
+> {
+  state: MessagePartErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): MessagePartErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Message part render error:', error, errorInfo);
+  }
+
+  componentDidUpdate(prevProps: MessagePartErrorBoundaryProps) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <ErrorMessage text={MESSAGE_PART_RENDER_ERROR} className="my-2" />;
+    }
+
+    return this.props.children;
+  }
+}
 
 type PartWithContextProps = {
   part: TMessageContentParts;
@@ -46,6 +89,10 @@ const PartWithContext = memo(function PartWithContext({
   isLast,
   partAttachments,
 }: PartWithContextProps) {
+  const toolCallId = (part?.[ContentTypes.TOOL_CALL] as Agents.ToolCall | undefined)?.id ?? '';
+  const resetKey = `${messageId}:${idx}:${part?.type ?? 'unknown'}:${toolCallId}:${
+    isSubmitting ? 'submitting' : 'settled'
+  }`;
   const contextValue = useMemo(
     () => ({
       messageId,
@@ -60,19 +107,21 @@ const PartWithContext = memo(function PartWithContext({
   );
 
   return (
-    <MessageContext.Provider value={contextValue}>
-      <Part
-        part={part}
-        attachments={partAttachments}
-        messageMetadata={messageMetadata}
-        textOffset={textOffset}
-        isSubmitting={isSubmitting}
-        key={`part-${messageId}-${idx}`}
-        isCreatedByUser={isCreatedByUser}
-        isLast={isLastPart}
-        showCursor={isLastPart && isLast}
-      />
-    </MessageContext.Provider>
+    <MessagePartErrorBoundary resetKey={resetKey}>
+      <MessageContext.Provider value={contextValue}>
+        <Part
+          part={part}
+          attachments={partAttachments}
+          messageMetadata={messageMetadata}
+          textOffset={textOffset}
+          isSubmitting={isSubmitting}
+          key={`part-${messageId}-${idx}`}
+          isCreatedByUser={isCreatedByUser}
+          isLast={isLastPart}
+          showCursor={isLastPart && isLast}
+        />
+      </MessageContext.Provider>
+    </MessagePartErrorBoundary>
   );
 });
 
@@ -142,7 +191,7 @@ const ContentParts = memo(function ContentParts({
   const effectiveIsSubmitting = isLatestMessage ? isSubmitting : false;
 
   const renderPart = useCallback(
-    (part: TMessageContentParts, idx: number, isLastPart: boolean) => {
+    (part: TMessageContentParts, idx: number, isLastPart: boolean, nextType?: string) => {
       const toolCallId = (part?.[ContentTypes.TOOL_CALL] as Agents.ToolCall | undefined)?.id ?? '';
       return (
         <PartWithContext
@@ -157,7 +206,7 @@ const ContentParts = memo(function ContentParts({
           textOffset={textOffsets[idx] ?? 0}
           isLatestMessage={isLatestMessage}
           isCreatedByUser={isCreatedByUser}
-          nextType={content?.[idx + 1]?.type}
+          nextType={nextType}
           isSubmitting={effectiveIsSubmitting}
           partAttachments={attachmentMap[toolCallId]}
         />
@@ -165,7 +214,6 @@ const ContentParts = memo(function ContentParts({
     },
     [
       attachmentMap,
-      content,
       conversationId,
       effectiveIsSubmitting,
       isCreatedByUser,
@@ -223,7 +271,6 @@ const ContentParts = memo(function ContentParts({
   }
 
   const showEmptyCursor = content.length === 0 && effectiveIsSubmitting;
-  const lastContentIdx = content.length - 1;
 
   // Parallel content: use dedicated renderer with columns (TMessageContentParts includes ContentMetadata)
   const hasParallelContent = content.some((part) => part?.groupId != null);
@@ -243,11 +290,7 @@ const ContentParts = memo(function ContentParts({
 
   // Sequential content: render parts in order (90% of cases)
   const sequentialParts: PartWithIndex[] = [];
-  content.forEach((part, idx) => {
-    if (part) {
-      sequentialParts.push({ part, idx });
-    }
-  });
+  sequentialParts.push(...mergeAdjacentThinkingParts(content));
 
   return (
     <SearchContext.Provider value={{ searchResults }}>
@@ -258,7 +301,14 @@ const ContentParts = memo(function ContentParts({
           <EmptyText />
         </Container>
       )}
-      {sequentialParts.map(({ part, idx }) => renderPart(part, idx, idx === lastContentIdx))}
+      {sequentialParts.map(({ part, idx }, visibleIdx) =>
+        renderPart(
+          part,
+          idx,
+          visibleIdx === sequentialParts.length - 1,
+          sequentialParts[visibleIdx + 1]?.part.type,
+        ),
+      )}
     </SearchContext.Provider>
   );
 });

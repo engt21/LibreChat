@@ -16,6 +16,8 @@ const {
   getAdminObservabilityController,
   updateAdminUserController,
   updateAdminSettingsController,
+  deleteAdminUserController,
+  refreshAdminModelsController,
 } = require('~/server/controllers/AdminController');
 const authRoutes = require('./auth');
 
@@ -39,6 +41,11 @@ router.get(
   requireAdminPermission(AdminPermissions.USERS_READ),
   asyncHandler(getAdminUserController),
 );
+router.delete(
+  '/users/:userId',
+  requireAdminPermission(AdminPermissions.USERS_DELETE),
+  asyncHandler(deleteAdminUserController),
+);
 router.patch('/users/:userId', requireAdmin, asyncHandler(updateAdminUserController));
 router.get(
   '/usage',
@@ -59,6 +66,11 @@ router.get(
   '/observability',
   requireAdminPermission(AdminPermissions.OBSERVABILITY_READ),
   asyncHandler(getAdminObservabilityController),
+);
+router.post(
+  '/models/refresh',
+  requireAdminPermission(AdminPermissions.SETTINGS_WRITE),
+  asyncHandler(refreshAdminModelsController),
 );
 router.get('/rbac/roles', requireAdmin, asyncHandler(getAdminRolesController));
 

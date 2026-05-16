@@ -43,6 +43,7 @@ type FileUploadType =
   | 'document'
   | 'image_document'
   | 'image_document_extended'
+  | 'image_document_extended_video_audio'
   | 'image_document_video_audio';
 
 interface AttachFileMenuProps {
@@ -61,7 +62,7 @@ const AttachFileMenu = ({
   disabled,
   endpointType,
   conversationId,
-  endpointFileConfig,
+  endpointFileConfig: _endpointFileConfig,
   useResponsesApi,
 }: AttachFileMenuProps) => {
   const localize = useLocalize();
@@ -107,6 +108,8 @@ const AttachFileMenu = ({
       inputRef.current.accept = 'image/*,.heif,.heic,.pdf,application/pdf';
     } else if (fileType === 'image_document_extended') {
       inputRef.current.accept = `image/*,.heif,.heic,${bedrockDocumentExtensions}`;
+    } else if (fileType === 'image_document_extended_video_audio') {
+      inputRef.current.accept = `image/*,.heif,.heic,${bedrockDocumentExtensions},video/*,audio/*`;
     } else if (fileType === 'image_document_video_audio') {
       inputRef.current.accept = 'image/*,.heif,.heic,.pdf,application/pdf,video/*,audio/*';
     } else {
@@ -139,14 +142,10 @@ const AttachFileMenu = ({
           label: localize('com_ui_upload_provider'),
           onClick: () => {
             setToolResource(undefined);
-            let fileType: Exclude<FileUploadType, 'image' | 'document'> = 'image_document';
-            if (currentProvider === Providers.GOOGLE || currentProvider === Providers.OPENROUTER) {
-              fileType = 'image_document_video_audio';
-            } else if (
-              currentProvider === Providers.BEDROCK ||
-              endpointType === EModelEndpoint.bedrock
-            ) {
-              fileType = 'image_document_extended';
+            let fileType: Exclude<FileUploadType, 'image' | 'document'> =
+              'image_document_video_audio';
+            if (currentProvider === Providers.BEDROCK || endpointType === EModelEndpoint.bedrock) {
+              fileType = 'image_document_extended_video_audio';
             }
             onAction(fileType);
           },
@@ -296,7 +295,6 @@ const AttachFileMenu = ({
         onFilesSelected={handleSharePointFilesSelected}
         isDownloading={isProcessing}
         downloadProgress={downloadProgress}
-        maxSelectionCount={endpointFileConfig?.fileLimit}
       />
     </>
   );

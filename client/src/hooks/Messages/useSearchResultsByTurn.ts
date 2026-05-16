@@ -6,6 +6,7 @@ import { groundingMetadataToSearchResult } from '~/utils/googleGrounding';
 interface FileSource {
   fileId: string;
   fileName: string;
+  content?: string;
   pages?: number[];
   relevance?: number;
   pageRelevance?: Record<string, number>;
@@ -15,6 +16,7 @@ interface FileSource {
 interface DeduplicatedSource {
   fileId: string;
   fileName: string;
+  content?: string;
   pages: number[];
   relevance: number;
   pageRelevance: Record<string, number>;
@@ -60,19 +62,24 @@ export function useSearchResultsByTurn({
         sources.forEach((source: FileSource) => {
           const fileId = source.fileId;
           if (deduplicatedSources.has(fileId)) {
-            // Merge pages for the same file
+            // Merge pages and content for the same file
             const existing = deduplicatedSources.get(fileId);
             if (existing) {
               const existingPages = existing.pages || [];
               const newPages = source.pages || [];
               const allPages = [...existingPages, ...newPages];
-              // Remove duplicates and sort
               const uniquePages = [...new Set(allPages)].sort((a, b) => a - b);
 
-              // Merge page relevance mappings
               const existingPageRelevance = existing.pageRelevance || {};
               const newPageRelevance = source.pageRelevance || {};
               const mergedPageRelevance = { ...existingPageRelevance, ...newPageRelevance };
+
+              // Append chunk content, separated by ellipsis
+              if (source.content) {
+                existing.content = existing.content
+                  ? `${existing.content}\n...\n${source.content}`
+                  : source.content;
+              }
 
               existing.pages = uniquePages;
               existing.relevance = Math.max(existing.relevance || 0, source.relevance || 0);
@@ -82,6 +89,7 @@ export function useSearchResultsByTurn({
             deduplicatedSources.set(fileId, {
               fileId: source.fileId,
               fileName: source.fileName,
+              content: source.content,
               pages: source.pages || [],
               relevance: source.relevance || 0.5,
               pageRelevance: source.pageRelevance || {},
@@ -102,10 +110,13 @@ export function useSearchResultsByTurn({
                 title: source.fileName || localize('com_file_unknown'),
                 link: `#file-${source.fileId}`, // Create a pseudo-link for file references
                 attribution: source.fileName || localize('com_file_unknown'), // Show filename in inline display
-                snippet:
-                  source.pages && source.pages.length > 0
+                snippet: source.content
+                  ? source.content.length > 500
+                    ? source.content.slice(0, 500) + '...'
+                    : source.content
+                  : source.pages && source.pages.length > 0
                     ? localize('com_file_pages', { pages: source.pages.join(', ') })
-                    : '', // Only page numbers for hover
+                    : '',
                 type: 'file' as const,
                 // Store additional agent-specific data as properties on the reference
                 fileId: source.fileId,

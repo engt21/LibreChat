@@ -14,12 +14,27 @@ const { getModelsConfig } = require('~/server/controllers/ModelController');
 const { filterModelSpecsConfig } = require('~/server/services/ModelAccess');
 const agents = require('~/server/services/Endpoints/agents');
 const { updateFilesUsage } = require('~/models');
+const { getEffectiveAppSettings } = require('~/server/services/Admin/appSettings');
 
 const buildFunction = {
   [EModelEndpoint.agents]: agents.buildOptions,
   [EModelEndpoint.assistants]: assistants.buildOptions,
   [EModelEndpoint.azureAssistants]: azureAssistants.buildOptions,
 };
+
+function getPlatformPrompt(appSettings) {
+  return typeof appSettings?.platformPrompt === 'string' && appSettings.platformPrompt.trim()
+    ? appSettings.platformPrompt.trim()
+    : '';
+}
+
+function combinePromptPrefix(platformPrompt, promptPrefix) {
+  const parts = [platformPrompt, promptPrefix].filter(
+    (part) => typeof part === 'string' && part.trim(),
+  );
+
+  return parts.length ? parts.join('\n\n') : undefined;
+}
 
 async function buildEndpointOption(req, res, next) {
   const { endpoint, endpointType } = req.body;
@@ -98,6 +113,22 @@ async function buildEndpointOption(req, res, next) {
   try {
     const isAgents =
       isAgentsEndpoint(endpoint) || req.baseUrl.startsWith(EndpointURLs[EModelEndpoint.agents]);
+    let appSettings = req.appSettings;
+    if (!appSettings) {
+      try {
+        appSettings = await getEffectiveAppSettings();
+        req.appSettings = appSettings;
+      } catch (error) {
+        logger.error('Error fetching app settings in buildEndpointOption', error);
+      }
+    }
+
+    const platformPrompt = getPlatformPrompt(appSettings);
+    if (!isAgents && platformPrompt) {
+      parsedBody.promptPrefix = combinePromptPrefix(platformPrompt, parsedBody.promptPrefix);
+      req.body.promptPrefix = parsedBody.promptPrefix;
+    }
+
     const builder = isAgents
       ? (...args) => buildFunction[EModelEndpoint.agents](req, ...args)
       : buildFunction[endpointType ?? endpoint];

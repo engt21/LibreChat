@@ -260,7 +260,9 @@ cd /pool/home/timeng/LibreChat-custom
 Use `stable` as the primary rail (`r1`, `:3080`) and `dev` as the validation / warm rollover rail (`r2`, `:3081`).
 Validate on `dev` first, keep `stable` serving traffic, and only rebuild `stable` after the `dev` rail passes.
 
-Manual compose equivalent for a single rail:
+Both rails run the core LibreChat services, but only `stable` owns the shared Langfuse + metrics stack. `dev` reuses the stable traceability services on host ports (`3000`, `9091`, `9090`, `3001`) instead of starting duplicate Langfuse or exporter containers.
+
+Manual compose equivalent for the shared `stable` rail:
 
 ```bash
 cd /pool/home/timeng/LibreChat-custom
@@ -273,7 +275,7 @@ This is the default path agents should use. It builds `librechat-local:latest` f
 
 `docker-compose.local.override.yml` is intentionally checked into this worktree so restart/rebuild flows do not depend on the upstream-sync worktree's `docker-compose.override.yml` symlink.
 
-The local override also starts `langfuse-model-pricing-sync`, which continuously seeds missing Langfuse model pricing from this branch's configured provider model lists, custom endpoint defaults, generalized xAI/Grok family patterns, and free local Ollama models. The same service also loads `./langfuse/.env` so it can backfill historical Langfuse generations in ClickHouse when pricing or token counts were missing at ingest time. LibreChat and Touchdown Azure traces now use `azure-openai/<deployment>` Langfuse model aliases, and the shared pricing config for those aliases belongs in `./langfuse/.env` via `AZURE_OPENAI_MODELS` plus optional `LANGFUSE_MODEL_ALIAS_MAP` entries.
+On `stable`, the local override also starts `langfuse-model-pricing-sync`, which continuously seeds missing Langfuse model pricing from this branch's configured provider model lists, custom endpoint defaults, generalized xAI/Grok family patterns, and free local Ollama models. The same service also loads `./langfuse/.env` so it can backfill historical Langfuse generations in ClickHouse when pricing or token counts were missing at ingest time. LibreChat and Touchdown Azure traces now use `azure-openai/<deployment>` Langfuse model aliases, and the shared pricing config for those aliases belongs in `./langfuse/.env` via `AZURE_OPENAI_MODELS` plus optional `LANGFUSE_MODEL_ALIAS_MAP` entries.
 
 The Grafana/Loki sidecar should always follow `/pool/home/timeng/LibreChat-custom/logs` for this worktree so Grafana shows the current customization-stack logs. The same Promtail stack also mounts `/pool/home/timeng/touchdown/logs` and `/pool/home/timeng/touchdown/logs_backward` by default so the shared Grafana/Loki environment covers Touchdown and Backwards Touchdown too.
 

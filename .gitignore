@@ -96,6 +96,7 @@ my.secrets
 *.api-key
 service-account*.json
 *credentials*.json
+/data/google-service-account.json
 /secrets/
 /keys/
 /credentials/

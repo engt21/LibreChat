@@ -8,6 +8,7 @@ import {
   memoryPermissionsSchema,
   runCodePermissionsSchema,
   bookmarkPermissionsSchema,
+  imageGenPermissionsSchema,
   webSearchPermissionsSchema,
   fileSearchPermissionsSchema,
   multiConvoPermissionsSchema,
@@ -103,6 +104,9 @@ const defaultRolesSchema = z.object({
         [Permissions.SHARE]: z.boolean().default(true),
         [Permissions.SHARE_PUBLIC]: z.boolean().default(true),
       }),
+      [PermissionTypes.IMAGE_GEN]: imageGenPermissionsSchema.extend({
+        [Permissions.USE]: z.boolean().default(true),
+      }),
     }),
   }),
   [SystemRoles.USER]: roleSchema.extend({
@@ -175,6 +179,9 @@ export const roleDefaults = defaultRolesSchema.parse({
         [Permissions.SHARE]: true,
         [Permissions.SHARE_PUBLIC]: true,
       },
+      [PermissionTypes.IMAGE_GEN]: {
+        [Permissions.USE]: true,
+      },
     },
   },
   [SystemRoles.USER]: {
@@ -200,6 +207,7 @@ export const roleDefaults = defaultRolesSchema.parse({
       [PermissionTypes.FILE_CITATIONS]: {},
       [PermissionTypes.MCP_SERVERS]: {},
       [PermissionTypes.REMOTE_AGENTS]: {},
+      [PermissionTypes.IMAGE_GEN]: {},
     },
   },
 });

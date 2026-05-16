@@ -11,6 +11,13 @@ jest.mock('~/server/services/Config', () => ({
   getMCPServerTools: jest.fn(),
 }));
 
+const mockGetServerConfig = jest.fn();
+jest.mock('~/config', () => ({
+  getMCPServersRegistry: () => ({
+    getServerConfig: (...args) => mockGetServerConfig(...args),
+  }),
+}));
+
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 const { agentSchema } = require('@librechat/data-schemas');
@@ -38,6 +45,11 @@ const { AclEntry, User } = require('~/db/models');
  * @type {import('mongoose').Model<import('@librechat/data-schemas').IAgent>}
  */
 let Agent;
+
+beforeEach(() => {
+  mockGetServerConfig.mockReset();
+  mockGetServerConfig.mockResolvedValue(undefined);
+});
 
 describe('models/Agent', () => {
   describe('Agent Resource File Operations', () => {
@@ -2442,6 +2454,39 @@ describe('models/Agent', () => {
       } else {
         expect(result).toBeNull();
       }
+    });
+
+    test('should fall back to registry toolFunctions for ephemeral MCP servers when cache is empty', async () => {
+      const { Constants } = require('librechat-data-provider');
+      const { EPHEMERAL_AGENT_ID } = Constants;
+
+      getMCPServerTools.mockResolvedValue(null);
+      mockGetServerConfig.mockResolvedValue({
+        toolFunctions: {
+          tool1_mcp_server1: {},
+        },
+      });
+
+      const mockReq = {
+        user: { id: 'user123' },
+        body: {
+          promptPrefix: 'Registry fallback instructions',
+          ephemeralAgent: {
+            mcp: ['server1'],
+          },
+        },
+      };
+
+      const result = await loadAgent({
+        req: mockReq,
+        agent_id: EPHEMERAL_AGENT_ID,
+        endpoint: 'openai',
+        model_parameters: { model: 'gpt-4' },
+      });
+
+      expect(result.tools).toContain('tool1_mcp_server1');
+      expect(result.tools).not.toContain(`${Constants.mcp_all}${Constants.mcp_delimiter}server1`);
+      expect(mockGetServerConfig).toHaveBeenCalledWith('server1', 'user123');
     });
 
     test('should default Ollama ephemeral web search to native Ollama tools', async () => {

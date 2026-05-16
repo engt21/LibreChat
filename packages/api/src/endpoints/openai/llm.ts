@@ -431,6 +431,15 @@ export function getOpenAILLMConfig({
     /** OpenRouter expects web search as a plugins parameter */
     modelKwargs.plugins = [{ id: 'web' }];
     hasModelKwargs = true;
+  } else if (enableWebSearch && isXAIEndpoint) {
+    /**
+     * xAI accepts `web_search` ONLY on the Responses API. If the request ever
+     * lands on Chat Completions (e.g., because useResponsesApi is stripped or
+     * the provider doesn't honor it), xAI returns a 422 demanding `live_search`.
+     * Force Responses API and push the Responses-shaped web_search tool.
+     */
+    llmConfig.useResponsesApi = true;
+    tools.push({ type: 'web_search' });
   } else if (enableWebSearch && !isOllamaEndpoint) {
     /** Standard OpenAI web search uses tools API */
     llmConfig.useResponsesApi = true;
@@ -577,6 +586,28 @@ export function getOpenAILLMConfig({
       delete llmConfig.maxTokens;
       delete modelKwargs.max_output_tokens;
       delete modelKwargs.max_completion_tokens;
+    }
+  }
+
+  /**
+   * xAI safety net: a `{ type: 'web_search' }` tool on Chat Completions causes
+   * a 422 from xAI ("expected `function` or `live_search`"). If something
+   * downstream cleared useResponsesApi, drop the web_search tool rather than
+   * ship a broken request. Any remaining web_search tool implies Responses API
+   * is required, so re-assert it.
+   */
+  if (isXAIEndpoint && tools.length > 0) {
+    const hasWebSearchTool = tools.some(
+      (tool) =>
+        tool != null &&
+        typeof tool === 'object' &&
+        (tool as { type?: unknown }).type === 'web_search',
+    );
+
+    if (hasWebSearchTool) {
+      if (llmConfig.useResponsesApi !== true) {
+        llmConfig.useResponsesApi = true;
+      }
     }
   }
 

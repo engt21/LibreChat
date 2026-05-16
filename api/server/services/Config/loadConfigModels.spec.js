@@ -352,7 +352,9 @@ describe('loadConfigModels', () => {
         user: 'testUserId',
       }),
     );
-    expect(result).toEqual({ xai: ['grok-4-1212', 'grok-3-mini'] });
+    // xAI defaults to merge mode so curated `default` models stay visible
+    // even when discovery returns a partial set (and vice-versa).
+    expect(result).toEqual({ xai: ['grok-4-1212', 'grok-3-mini', 'grok-4-0709'] });
   });
 
   it('isolates xAI discovery per user when two users have the same endpoint name', async () => {
@@ -385,7 +387,8 @@ describe('loadConfigModels', () => {
       endpointNames: ['xai'],
       includeUserProvidedFetch: true,
     });
-    expect(resultA).toEqual({ xai: ['grok-4-1212'] });
+    // xAI defaults to merge mode → curated default + per-user fetched.
+    expect(resultA).toEqual({ xai: ['grok-4-1212', 'grok-4-0709'] });
     expect(fetchModels).toHaveBeenCalledWith(
       expect.objectContaining({
         apiKey: 'xai-user-a-key',
@@ -402,7 +405,7 @@ describe('loadConfigModels', () => {
       endpointNames: ['xai'],
       includeUserProvidedFetch: true,
     });
-    expect(resultB).toEqual({ xai: ['grok-3-mini', 'grok-3'] });
+    expect(resultB).toEqual({ xai: ['grok-3-mini', 'grok-3', 'grok-4-0709'] });
     expect(fetchModels).toHaveBeenCalledWith(
       expect.objectContaining({
         apiKey: 'xai-user-b-key',
@@ -692,11 +695,7 @@ describe('loadConfigModels', () => {
       },
     });
 
-    fetchModels.mockResolvedValue([
-      'gptossbigctx:latest',
-      'qwen3.5:397b',
-      'gpt-oss:120b',
-    ]);
+    fetchModels.mockResolvedValue(['gptossbigctx:latest', 'qwen3.5:397b', 'gpt-oss:120b']);
 
     // Mock axios to return local models from the local URL only
     mockAxiosGet.mockImplementation((url) => {
@@ -715,5 +714,115 @@ describe('loadConfigModels', () => {
       'qwen3.5:397b \u2601',
       'gpt-oss:120b \u2601',
     ]);
+  });
+
+  describe('models.mode resolution for custom endpoints', () => {
+    afterEach(() => {
+      delete process.env.CUSTOM_MODELS_MODE;
+    });
+
+    it('respects endpoint.models.mode = "merge" for non-xAI custom endpoints', async () => {
+      getAppConfig.mockResolvedValue({
+        endpoints: {
+          custom: [
+            {
+              name: 'CustomCo',
+              apiKey: 'API_KEY',
+              baseURL: 'https://example.com/v1',
+              models: {
+                fetch: true,
+                mode: 'merge',
+                default: ['curated-flagship'],
+              },
+            },
+          ],
+        },
+      });
+
+      fetchModels.mockResolvedValue(['live-1', 'live-2']);
+
+      const result = await loadConfigModels(mockRequest);
+
+      expect(result.CustomCo).toEqual(['live-1', 'live-2', 'curated-flagship']);
+    });
+
+    it('respects endpoint.models.mode = "override" for xAI (opt-out of merge default)', async () => {
+      getAppConfig.mockResolvedValue({
+        endpoints: {
+          custom: [
+            {
+              name: 'xai',
+              apiKey: 'xai-key',
+              baseURL: 'https://api.x.ai/v1',
+              customParams: { defaultParamsEndpoint: 'xai' },
+              models: {
+                fetch: true,
+                mode: 'override',
+                default: ['grok-4-0709'],
+              },
+            },
+          ],
+        },
+      });
+
+      fetchModels.mockResolvedValue(['grok-4-1212']);
+
+      const result = await loadConfigModels(mockRequest);
+
+      // override mode uses live discovery only when non-empty
+      expect(result.xai).toEqual(['grok-4-1212']);
+    });
+
+    it('lets CUSTOM_MODELS_MODE=merge enable union for any custom endpoint', async () => {
+      process.env.CUSTOM_MODELS_MODE = 'merge';
+      getAppConfig.mockResolvedValue({
+        endpoints: {
+          custom: [
+            {
+              name: 'CustomCo',
+              apiKey: 'API_KEY',
+              baseURL: 'https://example.com/v1',
+              models: {
+                fetch: true,
+                default: ['curated-flagship', 'curated-mini'],
+              },
+            },
+          ],
+        },
+      });
+
+      fetchModels.mockResolvedValue(['live-1', 'curated-mini']);
+
+      const result = await loadConfigModels(mockRequest);
+
+      expect(result.CustomCo).toEqual(['live-1', 'curated-mini', 'curated-flagship']);
+    });
+
+    it('YAML mode beats CUSTOM_MODELS_MODE env override', async () => {
+      process.env.CUSTOM_MODELS_MODE = 'merge';
+      getAppConfig.mockResolvedValue({
+        endpoints: {
+          custom: [
+            {
+              name: 'CustomCo',
+              apiKey: 'API_KEY',
+              baseURL: 'https://example.com/v1',
+              models: {
+                fetch: true,
+                mode: 'override',
+                default: ['curated-flagship'],
+              },
+            },
+          ],
+        },
+      });
+
+      fetchModels.mockResolvedValue(['live-1']);
+
+      const result = await loadConfigModels(mockRequest);
+
+      // override mode → only live results, defaults only used when empty
+      expect(result.CustomCo).toEqual(['live-1']);
+    });
   });
 });

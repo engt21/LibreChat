@@ -3,13 +3,17 @@ import { Providers } from '@librechat/agents';
 import {
   Tools,
   KnownEndpoints,
+  CodeInterpreterModes,
   checkOpenAIStorage,
   EModelEndpoint,
   isEphemeralAgentId,
+  getAnthropicModelCapabilities,
+  getOpenAIModelCapabilities,
 } from 'librechat-data-provider';
 import type { AgentToolResources, TFile } from 'librechat-data-provider';
 import type { IMongoFile } from '@librechat/data-schemas';
 import type { ServerRequest } from '~/types';
+import { ANTHROPIC_CODE_EXECUTION_TOOL } from '~/endpoints/anthropic/helpers';
 
 export type AgentNativeTools = {
   web_search?: {
@@ -32,6 +36,7 @@ export type NativeToolSelection = {
   requiresResponsesApi: boolean;
   openAIExecuteCode: boolean;
   openAIFileSearch: boolean;
+  anthropicCodeExecution: boolean;
   googleCodeExecution: boolean;
 };
 
@@ -67,9 +72,14 @@ const googleProviders = new Set<string>([
   Providers.VERTEXAI,
 ]);
 
+const anthropicProviders = new Set<string>([EModelEndpoint.anthropic, Providers.ANTHROPIC]);
 const xaiProviders = new Set<string>([KnownEndpoints.xai, Providers.XAI]);
 
 const getProviderLabel = (provider: string) => {
+  if (anthropicProviders.has(provider)) {
+    return Providers.ANTHROPIC;
+  }
+
   if (xaiProviders.has(provider)) {
     return Providers.XAI;
   }
@@ -107,10 +117,11 @@ const getToolKey = (tool: unknown): string => {
 
 const isOpenAIProvider = (provider: string) => openAIProviders.has(provider);
 const isGoogleProvider = (provider: string) => googleProviders.has(provider);
+const isAnthropicProvider = (provider: string) => anthropicProviders.has(provider);
 const isXAIProvider = (provider: string) => xaiProviders.has(provider);
 
-const PROVIDER_NATIVE_CODE_INTERPRETER = 'provider_native';
-const LIBRECHAT_MANAGED_CODE_INTERPRETER = 'librechat';
+const PROVIDER_NATIVE_CODE_INTERPRETER = CodeInterpreterModes.provider_native;
+const LIBRECHAT_MANAGED_CODE_INTERPRETER = CodeInterpreterModes.librechat;
 
 const parseCodeInterpreterRouting = (value?: string) => {
   if (typeof value !== 'string') {
@@ -161,11 +172,15 @@ export const selectNativeTools = ({
   provider,
   tools,
   tool_resources,
+  model,
+  codeInterpreterMode,
 }: {
   agentId: string;
   provider: string;
   tools?: string[];
   tool_resources?: AgentToolResources;
+  model?: string | null;
+  codeInterpreterMode?: string;
 }): NativeToolSelection => {
   const selection: NativeToolSelection = {
     stripTools: new Set<string>(),
@@ -173,6 +188,7 @@ export const selectNativeTools = ({
     requiresResponsesApi: false,
     openAIExecuteCode: false,
     openAIFileSearch: false,
+    anthropicCodeExecution: false,
     googleCodeExecution: false,
   };
 
@@ -184,7 +200,10 @@ export const selectNativeTools = ({
 
   if (isOpenAIProvider(provider)) {
     const useProviderNativeCodeInterpreter = shouldUseProviderNativeCodeInterpreter(provider);
-    selection.enableWebSearch = requestedTools.has(Tools.web_search);
+    const openAIModelCapabilities = getOpenAIModelCapabilities(model);
+    selection.enableWebSearch =
+      requestedTools.has(Tools.web_search) &&
+      (!openAIModelCapabilities.hasKnownCapabilities || openAIModelCapabilities.supportsWebSearch);
     selection.openAIExecuteCode =
       useProviderNativeCodeInterpreter && requestedTools.has(Tools.execute_code);
     selection.openAIFileSearch = requestedTools.has(Tools.file_search);
@@ -204,8 +223,35 @@ export const selectNativeTools = ({
     return selection;
   }
 
+  if (isAnthropicProvider(provider)) {
+    const codeFiles = tool_resources?.execute_code?.files ?? [];
+    const anthropicModelCapabilities = getAnthropicModelCapabilities(model);
+    const anthropicCodeMode =
+      typeof codeInterpreterMode === 'string'
+        ? parseCodeInterpreterRouting(codeInterpreterMode)
+        : LIBRECHAT_MANAGED_CODE_INTERPRETER;
+    selection.enableWebSearch =
+      requestedTools.has(Tools.web_search) && anthropicModelCapabilities.supportsWebSearch;
+    selection.anthropicCodeExecution =
+      anthropicCodeMode === PROVIDER_NATIVE_CODE_INTERPRETER &&
+      anthropicModelCapabilities.supportsCodeExecution &&
+      requestedTools.has(Tools.execute_code) &&
+      codeFiles.length === 0;
+
+    if (selection.enableWebSearch) {
+      selection.stripTools.add(Tools.web_search);
+    }
+
+    if (selection.anthropicCodeExecution) {
+      selection.stripTools.add(Tools.execute_code);
+    }
+
+    return selection;
+  }
+
   if (isXAIProvider(provider)) {
     selection.enableWebSearch = requestedTools.has(Tools.web_search);
+    selection.requiresResponsesApi = selection.enableWebSearch;
 
     if (selection.enableWebSearch) {
       selection.stripTools.add(Tools.web_search);
@@ -539,6 +585,24 @@ export const buildNativeProviderTools = async ({
 
   if (selection.enableWebSearch) {
     nativeTools.web_search = { provider: providerLabel };
+  }
+
+  if (isAnthropicProvider(provider)) {
+    if (selection.anthropicCodeExecution) {
+      tools.push({
+        type: ANTHROPIC_CODE_EXECUTION_TOOL,
+        name: 'code_execution',
+      });
+      nativeTools.execute_code = {
+        provider: providerLabel,
+        file_ids: [],
+      };
+    }
+
+    return {
+      tools,
+      nativeTools: Object.keys(nativeTools).length ? nativeTools : undefined,
+    };
   }
 
   if (isGoogleProvider(provider)) {

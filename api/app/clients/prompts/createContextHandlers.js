@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { logger } = require('@librechat/data-schemas');
 const { isEnabled, generateShortLivedToken } = require('@librechat/api');
+const { getRagRequestConfig } = require('~/server/services/Files/VectorDB/auth');
 
 const footer = `Use the context as your learned knowledge to better answer the user.
 
@@ -11,7 +12,12 @@ In your response, remember to follow these guidelines:
 `;
 
 function createContextHandlers(req, userMessageContent) {
-  if (!process.env.RAG_API_URL) {
+  if (
+    !process.env.RAG_API_URL &&
+    !process.env.OPENAI_RAG_API_URL &&
+    !process.env.AZURE_OPENAI_RAG_API_URL &&
+    !process.env.GOOGLE_RAG_API_URL
+  ) {
     return;
   }
 
@@ -22,16 +28,26 @@ function createContextHandlers(req, userMessageContent) {
   const useFullContext = isEnabled(process.env.RAG_USE_FULL_CONTEXT);
 
   const query = async (file) => {
+    const { ragApiUrl, headers: ragHeaders } = await getRagRequestConfig({
+      req,
+      provider: file?.metadata?.ragProvider,
+      metadata: file?.metadata,
+    });
+    if (!ragApiUrl) {
+      throw new Error('RAG API URL not configured');
+    }
+
     if (useFullContext) {
-      return axios.get(`${process.env.RAG_API_URL}/documents/${file.file_id}/context`, {
+      return axios.get(`${ragApiUrl}/documents/${file.file_id}/context`, {
         headers: {
           Authorization: `Bearer ${jwtToken}`,
+          ...ragHeaders,
         },
       });
     }
 
     return axios.post(
-      `${process.env.RAG_API_URL}/query`,
+      `${ragApiUrl}/query`,
       {
         file_id: file.file_id,
         query: userMessageContent,
@@ -41,6 +57,7 @@ function createContextHandlers(req, userMessageContent) {
         headers: {
           Authorization: `Bearer ${jwtToken}`,
           'Content-Type': 'application/json',
+          ...ragHeaders,
         },
       },
     );

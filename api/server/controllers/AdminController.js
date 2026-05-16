@@ -15,6 +15,7 @@ const {
   normalizeModelPermissions,
   validateModelPermissions,
 } = require('~/server/services/ModelAccess');
+const { deleteUserAccount } = require('~/server/controllers/UserController');
 
 const USER_FIELDS =
   'name username email provider role adminRoleIds emailVerified twoFactorEnabled termsAccepted personalization modelPermissions favorites createdAt updatedAt';
@@ -273,6 +274,34 @@ const updateAdminUserController = async (req, res) => {
   });
 };
 
+const deleteAdminUserController = async (req, res) => {
+  const targetUser = await User.findById(req.params.userId, USER_FIELDS).lean();
+  if (!targetUser) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  const targetUserId = targetUser._id.toString();
+  if (req.user.id === targetUserId) {
+    return res.status(400).json({ message: 'Use account settings to delete your own account' });
+  }
+
+  const requesterIsSuperAdmin = req.user.role === SystemRoles.ADMIN;
+  if (!requesterIsSuperAdmin && targetUser.role === SystemRoles.ADMIN) {
+    return res.status(403).json({ message: 'Only superadmins can delete superadmin accounts' });
+  }
+
+  await deleteUserAccount({
+    req,
+    user: {
+      id: targetUserId,
+      _id: targetUser._id,
+      email: targetUser.email,
+    },
+  });
+
+  return res.status(200).json({ message: 'User deleted' });
+};
+
 const getAdminUsageController = async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q : '';
   const limit = parseLimit(req.query.limit);
@@ -318,6 +347,29 @@ const getAdminRolesController = async (_req, res) => {
   return res.status(200).json(roles);
 };
 
+const refreshAdminModelsController = async (req, res) => {
+  // Lazy-require so the existing AdminController spec suites don't have to mock
+  // the entire MODEL_QUERIES cache wiring just to test unrelated controllers.
+  const {
+    refreshAllModels,
+    refreshProviderModels,
+  } = require('~/server/services/Models/refreshModels');
+
+  const provider = typeof req.body?.provider === 'string' ? req.body.provider.trim() : '';
+
+  try {
+    const result = provider
+      ? await refreshProviderModels(req, provider)
+      : await refreshAllModels(req);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error?.statusCode === 400) {
+      return res.status(400).json({ message: error.message });
+    }
+    throw error;
+  }
+};
+
 module.exports = {
   getAdminRolesController,
   getAdminUsageController,
@@ -328,4 +380,6 @@ module.exports = {
   getAdminObservabilityController,
   updateAdminUserController,
   updateAdminSettingsController,
+  deleteAdminUserController,
+  refreshAdminModelsController,
 };

@@ -192,7 +192,6 @@ function FileSearch({
         disabled={disabledUploadButton}
         isDownloading={isProcessing}
         downloadProgress={downloadProgress}
-        maxSelectionCount={endpointFileConfig?.fileLimit}
       />
     </div>
   );

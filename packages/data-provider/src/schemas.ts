@@ -185,6 +185,12 @@ export enum AnthropicEffort {
   max = 'max',
 }
 
+export enum AnthropicServiceTier {
+  unset = '',
+  auto = 'auto',
+  standard_only = 'standard_only',
+}
+
 export enum BedrockReasoningConfig {
   low = 'low',
   medium = 'medium',
@@ -228,6 +234,7 @@ export const imageDetailValue = {
 export const eImageDetailSchema = z.nativeEnum(ImageDetail);
 export const eReasoningEffortSchema = z.nativeEnum(ReasoningEffort);
 export const eAnthropicEffortSchema = z.nativeEnum(AnthropicEffort);
+export const eAnthropicServiceTierSchema = z.nativeEnum(AnthropicServiceTier);
 export const eReasoningSummarySchema = z.nativeEnum(ReasoningSummary);
 export const eVerbositySchema = z.nativeEnum(Verbosity);
 export const eThinkingLevelSchema = z.nativeEnum(ThinkingLevel);
@@ -495,6 +502,14 @@ export const anthropicSettings = {
       AnthropicEffort.medium,
       AnthropicEffort.high,
       AnthropicEffort.max,
+    ],
+  },
+  service_tier: {
+    default: AnthropicServiceTier.unset,
+    options: [
+      AnthropicServiceTier.unset,
+      AnthropicServiceTier.auto,
+      AnthropicServiceTier.standard_only,
     ],
   },
   web_search: {
@@ -772,6 +787,8 @@ export const tConversationSchema = z.object({
   useResponsesApi: z.boolean().optional(),
   /* Anthropic: Effort control */
   effort: eAnthropicEffortSchema.optional().nullable(),
+  /* Anthropic: Capacity routing */
+  service_tier: eAnthropicServiceTierSchema.optional().nullable(),
   /* OpenAI Responses API / Anthropic API / Google API */
   web_search: z.boolean().optional(),
   /* disable streaming */
@@ -899,6 +916,7 @@ export const tQueryParamsSchema = tConversationSchema
     thinkingBudget: true,
     thinkingLevel: true,
     effort: true,
+    service_tier: true,
     /** @endpoints bedrock */
     region: true,
     /** @endpoints bedrock */
@@ -1261,6 +1279,7 @@ export const anthropicBaseSchema = tConversationSchema.pick({
   thinking: true,
   thinkingBudget: true,
   effort: true,
+  service_tier: true,
   artifacts: true,
   iconURL: true,
   greeting: true,

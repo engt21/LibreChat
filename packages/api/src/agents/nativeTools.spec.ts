@@ -1,6 +1,16 @@
-import { EModelEndpoint, EToolResources, KnownEndpoints, Tools } from 'librechat-data-provider';
+import {
+  CodeInterpreterModes,
+  EModelEndpoint,
+  EToolResources,
+  KnownEndpoints,
+  Tools,
+} from 'librechat-data-provider';
 import { Providers } from '@librechat/agents';
-import { mergeNativeProviderTools, selectNativeTools } from './nativeTools';
+import {
+  buildNativeProviderTools,
+  mergeNativeProviderTools,
+  selectNativeTools,
+} from './nativeTools';
 
 describe('nativeTools', () => {
   const originalOpenAIRouting = process.env.OPENAI_CODE_INTERPRETER_ROUTING;
@@ -59,6 +69,19 @@ describe('nativeTools', () => {
       expect(selection.stripTools).toEqual(new Set([Tools.file_search]));
     });
 
+    it('keeps OpenAI web search structured for search-preview models that do not support the native toggle', () => {
+      const selection = selectNativeTools({
+        agentId: 'ephemeral-agent',
+        provider: EModelEndpoint.openAI,
+        model: 'gpt-4o-search-preview',
+        tools: [Tools.web_search],
+      });
+
+      expect(selection.enableWebSearch).toBe(false);
+      expect(selection.requiresResponsesApi).toBe(false);
+      expect(selection.stripTools.size).toBe(0);
+    });
+
     it('keeps Google tools structured when native tools would conflict with attached files', () => {
       const selection = selectNativeTools({
         agentId: 'ephemeral-agent',
@@ -114,7 +137,7 @@ describe('nativeTools', () => {
       expect(selection.stripTools.size).toBe(0);
     });
 
-    it('maps xAI web search to provider-native routing without rewriting other tools', () => {
+    it('maps xAI web search to provider-native routing and requires Responses API', () => {
       const selection = selectNativeTools({
         agentId: 'ephemeral-agent',
         provider: KnownEndpoints.xai,
@@ -122,9 +145,95 @@ describe('nativeTools', () => {
       });
 
       expect(selection.enableWebSearch).toBe(true);
-      expect(selection.requiresResponsesApi).toBe(false);
+      expect(selection.requiresResponsesApi).toBe(true);
       expect(selection.openAIExecuteCode).toBe(false);
       expect(selection.stripTools).toEqual(new Set([Tools.web_search]));
+    });
+
+    it('does not require Responses API for xAI without web_search', () => {
+      const selection = selectNativeTools({
+        agentId: 'ephemeral-agent',
+        provider: KnownEndpoints.xai,
+        tools: [Tools.execute_code],
+      });
+
+      expect(selection.enableWebSearch).toBe(false);
+      expect(selection.requiresResponsesApi).toBe(false);
+      expect(selection.stripTools.size).toBe(0);
+    });
+
+    it('maps Anthropic web search natively and uses Anthropic-native code execution only when requested', () => {
+      const selection = selectNativeTools({
+        agentId: 'ephemeral-agent',
+        provider: EModelEndpoint.anthropic,
+        model: 'claude-opus-4-6',
+        tools: [Tools.web_search, Tools.execute_code],
+        codeInterpreterMode: CodeInterpreterModes.provider_native,
+      });
+
+      expect(selection.enableWebSearch).toBe(true);
+      expect(selection.anthropicCodeExecution).toBe(true);
+      expect(selection.requiresResponsesApi).toBe(false);
+      expect(selection.stripTools).toEqual(new Set([Tools.web_search, Tools.execute_code]));
+    });
+
+    it('keeps Anthropic code execution structured when LibreChat-managed mode is selected', () => {
+      const selection = selectNativeTools({
+        agentId: 'ephemeral-agent',
+        provider: EModelEndpoint.anthropic,
+        model: 'claude-opus-4-6',
+        tools: [Tools.web_search, Tools.execute_code],
+        codeInterpreterMode: CodeInterpreterModes.librechat,
+      });
+
+      expect(selection.enableWebSearch).toBe(true);
+      expect(selection.anthropicCodeExecution).toBe(false);
+      expect(selection.stripTools).toEqual(new Set([Tools.web_search]));
+    });
+
+    it('keeps Anthropic native tools structured when the selected model does not support them', () => {
+      const selection = selectNativeTools({
+        agentId: 'ephemeral-agent',
+        provider: EModelEndpoint.anthropic,
+        model: 'claude-3-haiku-20240307',
+        tools: [Tools.web_search, Tools.execute_code],
+        codeInterpreterMode: CodeInterpreterModes.provider_native,
+      });
+
+      expect(selection.enableWebSearch).toBe(false);
+      expect(selection.anthropicCodeExecution).toBe(false);
+      expect(selection.stripTools.size).toBe(0);
+    });
+
+    it('keeps Anthropic code execution structured when local code files are attached', () => {
+      const selection = selectNativeTools({
+        agentId: 'ephemeral-agent',
+        provider: EModelEndpoint.anthropic,
+        model: 'claude-opus-4-6',
+        tools: [Tools.execute_code],
+        codeInterpreterMode: CodeInterpreterModes.provider_native,
+        tool_resources: {
+          [EToolResources.execute_code]: {
+            files: [
+              {
+                user: 'user',
+                file_id: 'file-1',
+                bytes: 10,
+                embedded: false,
+                filename: 'script.py',
+                filepath: '/uploads/script.py',
+                object: 'file',
+                type: 'text/x-python',
+                usage: 0,
+              },
+            ],
+          },
+        },
+      });
+
+      expect(selection.enableWebSearch).toBe(false);
+      expect(selection.anthropicCodeExecution).toBe(false);
+      expect(selection.stripTools.size).toBe(0);
     });
 
     it('does not rewrite saved agents', () => {
@@ -148,6 +257,32 @@ describe('nativeTools', () => {
       );
 
       expect(tools).toEqual([{ type: 'web_search' }, { googleSearch: {} }, { codeExecution: {} }]);
+    });
+  });
+
+  describe('buildNativeProviderTools', () => {
+    it('uses the current Anthropic native code execution tool identifier', async () => {
+      const result = await buildNativeProviderTools({
+        req: { body: {} } as never,
+        provider: EModelEndpoint.anthropic,
+        llmConfig: {},
+        selection: {
+          stripTools: new Set([Tools.execute_code]),
+          enableWebSearch: false,
+          requiresResponsesApi: false,
+          openAIExecuteCode: false,
+          openAIFileSearch: false,
+          anthropicCodeExecution: true,
+          googleCodeExecution: false,
+        },
+      });
+
+      expect(result.tools).toEqual([
+        {
+          type: 'code_execution_20250825',
+          name: 'code_execution',
+        },
+      ]);
     });
   });
 });

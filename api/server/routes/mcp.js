@@ -608,15 +608,57 @@ router.post(
         return res.status(500).json({ error: 'Failed to reinitialize MCP server for user' });
       }
 
-      const { success, message, oauthRequired, oauthUrl } = result;
+      const { success, message, oauthRequired } = result;
+      let { oauthUrl } = result;
 
       if (oauthRequired) {
         const flowId = MCPOAuthHandler.generateFlowId(user.id, serverName);
         setOAuthCsrfCookie(res, flowId, OAUTH_CSRF_COOKIE_PATH);
+
+        // When reinitMCPServer detected OAuth is needed but couldn't produce a full
+        // authorization URL (e.g. new server with no stored tokens), initiate a
+        // proper OAuth flow here where we have access to req for callback URL generation.
+        if (!oauthUrl && serverConfig.url) {
+          try {
+            const oauthHeaders = await getOAuthHeaders(serverName, user.id);
+            const redirectUri = getOAuthCallbackUrl(req, serverName);
+            const oauthConfig = serverConfig.oauth || {};
+            const flowsCache = getLogStores(CacheKeys.FLOWS);
+            const flowMgr = getFlowStateManager(flowsCache);
+
+            const flowResult = await MCPOAuthHandler.initiateOAuthFlow(
+              serverName,
+              serverConfig.url,
+              user.id,
+              oauthHeaders,
+              oauthConfig,
+              redirectUri,
+            );
+
+            oauthUrl = flowResult.authorizationUrl;
+
+            if (flowResult.flowMetadata?.state) {
+              await MCPOAuthHandler.storeStateMapping(
+                flowResult.flowMetadata.state,
+                flowResult.flowId,
+                flowMgr,
+              );
+            }
+
+            logger.info(
+              `[MCP Reinitialize] Initiated OAuth flow for ${serverName}, auth URL generated`,
+            );
+          } catch (flowErr) {
+            logger.error(
+              `[MCP Reinitialize] Failed to initiate OAuth flow for ${serverName}:`,
+              flowErr,
+            );
+          }
+        }
       }
 
       res.json({
-        success,
+        success: success || Boolean(oauthRequired && oauthUrl),
         message,
         oauthUrl,
         serverName,
