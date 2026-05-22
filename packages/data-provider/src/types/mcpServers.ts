@@ -28,12 +28,18 @@ export type MCPServerCreateParams = {
   config: MCPServerUserInput; // UI fields only (title, description, url, oauth, iconPath)
 };
 
+export type MCPServerMetadataUpdate = {
+  title?: string;
+  description?: string;
+  iconPath?: string;
+};
+
 /**
  * Parameters for updating an existing user-managed MCP server
  * Note: Only UI-editable fields are allowed (excludes server-managed fields)
  */
 export type MCPServerUpdateParams = {
-  config?: MCPServerUserInput; // UI fields only (title, description, url, oauth, iconPath)
+  config?: MCPServerUserInput | MCPServerMetadataUpdate; // UI fields only
 };
 
 /**

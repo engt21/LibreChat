@@ -123,7 +123,11 @@ async function getMergedMCPDomainConfig(appConfig) {
   const hasAdmin = Array.isArray(adminDomains) && adminDomains.length > 0;
 
   let domains;
-  if (!hasYaml && !hasAdmin) {
+  if (filterMode === 'denylist') {
+    // In denylist mode this value is the deny list. YAML domains are operator-approved
+    // SSRF exemptions, so only admin-configured domains belong in the deny list.
+    domains = hasAdmin ? adminDomains : [];
+  } else if (!hasYaml && !hasAdmin) {
     domains = yamlDomains;
   } else {
     domains = [...new Set([...(hasYaml ? yamlDomains : []), ...(hasAdmin ? adminDomains : [])])];
@@ -728,10 +732,9 @@ function createToolInstance({
       if (consentDetection.isConsent && stepId) {
         try {
           await runStepDeltaEmitter(consentDetection.authUrl);
-          logger.debug(
-            `[MCP][${serverName}][${toolName}] Emitted structured consent auth delta`,
-            { authUrl: consentDetection.authUrl },
-          );
+          logger.debug(`[MCP][${serverName}][${toolName}] Emitted structured consent auth delta`, {
+            authUrl: consentDetection.authUrl,
+          });
         } catch (emitError) {
           logger.warn(
             `[MCP][${serverName}][${toolName}] Failed to emit consent auth delta`,

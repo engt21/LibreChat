@@ -17,7 +17,8 @@ import { cacheConfig } from '~/cache/cacheConfig';
  * - Cache Repository: Stores YAML-defined configs loaded at startup (in-memory or Redis-backed)
  * - DB Repository: Stores dynamic configs created at runtime (not yet implemented)
  *
- * Query priority: Cache configs are checked first, then DB configs.
+ * Query priority: DB configs are checked first, then cache configs.
+ * This lets user-managed DB overrides shadow app-level YAML definitions.
  */
 export class MCPServersRegistry {
   private static instance: MCPServersRegistry;
@@ -113,17 +114,16 @@ export class MCPServersRegistry {
       return await this.readThroughCache.get(cacheKey);
     }
 
-    // First we check if any config exist with the cache
-    // Yaml config are pre loaded to the cache
-    const configFromCache = await this.cacheConfigsRepo.get(serverName);
-    if (configFromCache) {
-      await this.readThroughCache.set(cacheKey, configFromCache);
-      return configFromCache;
+    const configFromDB = await this.dbConfigsRepo.get(serverName, userId);
+    if (configFromDB) {
+      await this.readThroughCache.set(cacheKey, configFromDB);
+      return configFromDB;
     }
 
-    const configFromDB = await this.dbConfigsRepo.get(serverName, userId);
-    await this.readThroughCache.set(cacheKey, configFromDB);
-    return configFromDB;
+    // YAML config is preloaded into the cache repository.
+    const configFromCache = await this.cacheConfigsRepo.get(serverName);
+    await this.readThroughCache.set(cacheKey, configFromCache);
+    return configFromCache;
   }
 
   public async getAllServerConfigs(userId?: string): Promise<Record<string, t.ParsedServerConfig>> {
@@ -208,6 +208,45 @@ export class MCPServersRegistry {
     const result = await configRepo.add(serverName, parsedConfig, userId);
     // Invalidate read-through caches so the new server appears immediately
     // in getAllServerConfigs and getServerConfig (cache freshness fix)
+    await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName, userId));
+    await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName));
+    await this.readThroughCacheAll.clear();
+    return result;
+  }
+
+  public async addServerWithName(
+    serverName: string,
+    config: t.MCPOptions,
+    storageLocation: 'CACHE' | 'DB',
+    userId?: string,
+  ): Promise<t.AddServerResult> {
+    if (storageLocation !== 'DB') {
+      return this.addServer(serverName, config, storageLocation, userId);
+    }
+
+    let parsedConfig: t.ParsedServerConfig;
+    try {
+      parsedConfig = await MCPServerInspector.inspect(
+        serverName,
+        config,
+        undefined,
+        this.allowedDomains,
+        this.domainFilterMode,
+        this.ssrfExemptions,
+      );
+    } catch (error) {
+      logger.error(`[MCPServersRegistry] Failed to inspect server "${serverName}":`, error);
+      if (isMCPDomainNotAllowedError(error)) {
+        throw error;
+      }
+      throw new MCPInspectionFailedError(serverName, error as Error);
+    }
+
+    const result = await (this.dbConfigsRepo as ServerConfigsDB).addWithServerName(
+      serverName,
+      parsedConfig,
+      userId,
+    );
     await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName, userId));
     await this.readThroughCache.delete(this.getReadThroughCacheKey(serverName));
     await this.readThroughCacheAll.clear();

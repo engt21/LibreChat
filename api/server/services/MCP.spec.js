@@ -38,6 +38,7 @@ jest.mock('@librechat/api', () => {
 const { logger } = require('@librechat/data-schemas');
 const { MCPOAuthHandler } = require('@librechat/api');
 const { CacheKeys, Constants } = require('librechat-data-provider');
+const { getEffectiveAppSettings } = require('./Admin/appSettings');
 const D = Constants.mcp_delimiter;
 const {
   createMCPTool,
@@ -930,9 +931,89 @@ describe('User parameter passing tests', () => {
       // The fourth argument is ssrfExemptions (yaml allowedDomains).
       expect(mockIsMCPDomainAllowed).toHaveBeenCalledWith(
         { url: 'https://disallowed-domain.com/sse' },
-        ['allowed-domain.com'],
+        [],
         'denylist',
         ['allowed-domain.com'],
+      );
+    });
+
+    it('should use only admin domains as the denylist while retaining yaml SSRF exemptions', async () => {
+      const mockUser = { id: 'domain-test-user', role: 'user' };
+      const mockRes = { write: jest.fn(), flush: jest.fn() };
+
+      mockRegistryInstance.getServerConfig.mockResolvedValue({
+        url: 'http://192.168.50.4:8769/mcp',
+      });
+      mockGetAppConfig.mockResolvedValue({
+        mcpSettings: { allowedDomains: ['http://192.168.50.4:8769'] },
+      });
+      getEffectiveAppSettings.mockResolvedValueOnce({
+        mcpAllowedDomains: ['blocked-domain.com'],
+        mcpDomainFilterMode: 'denylist',
+      });
+      mockIsMCPDomainAllowed.mockResolvedValueOnce(true);
+
+      await createMCPTool({
+        res: mockRes,
+        user: mockUser,
+        toolKey: `search_videos${D}youtube-search`,
+        provider: 'openai',
+        userMCPAuthMap: {},
+        availableTools: {
+          [`search_videos${D}youtube-search`]: {
+            function: {
+              description: 'Search YouTube videos',
+              parameters: { type: 'object', properties: {} },
+            },
+          },
+        },
+      });
+
+      expect(mockIsMCPDomainAllowed).toHaveBeenCalledWith(
+        { url: 'http://192.168.50.4:8769/mcp' },
+        ['blocked-domain.com'],
+        'denylist',
+        ['http://192.168.50.4:8769'],
+      );
+    });
+
+    it('should merge yaml and admin domains in allowlist mode', async () => {
+      const mockUser = { id: 'domain-test-user', role: 'user' };
+      const mockRes = { write: jest.fn(), flush: jest.fn() };
+
+      mockRegistryInstance.getServerConfig.mockResolvedValue({
+        url: 'https://allowed-domain.com/sse',
+      });
+      mockGetAppConfig.mockResolvedValue({
+        mcpSettings: { allowedDomains: ['yaml-allowed.com'] },
+      });
+      getEffectiveAppSettings.mockResolvedValueOnce({
+        mcpAllowedDomains: ['admin-allowed.com'],
+        mcpDomainFilterMode: 'allowlist',
+      });
+      mockIsMCPDomainAllowed.mockResolvedValueOnce(true);
+
+      await createMCPTool({
+        res: mockRes,
+        user: mockUser,
+        toolKey: `test-tool${D}test-server`,
+        provider: 'openai',
+        userMCPAuthMap: {},
+        availableTools: {
+          [`test-tool${D}test-server`]: {
+            function: {
+              description: 'Test tool',
+              parameters: { type: 'object', properties: {} },
+            },
+          },
+        },
+      });
+
+      expect(mockIsMCPDomainAllowed).toHaveBeenCalledWith(
+        { url: 'https://allowed-domain.com/sse' },
+        ['yaml-allowed.com', 'admin-allowed.com'],
+        'allowlist',
+        ['yaml-allowed.com'],
       );
     });
 
@@ -1481,10 +1562,7 @@ describe('createMCPTool — consent delta emission (VAL-MCP-004)', () => {
       llm_instructions: 'Please share the authorization link with the user.',
     });
 
-    const mockCallTool = jest.fn().mockResolvedValue([
-      [{ type: 'text', text: consentJson }],
-      null,
-    ]);
+    const mockCallTool = jest.fn().mockResolvedValue([[{ type: 'text', text: consentJson }], null]);
 
     mockGetMCPManager.mockReturnValue({
       callTool: mockCallTool,
@@ -1563,10 +1641,9 @@ describe('createMCPTool — consent delta emission (VAL-MCP-004)', () => {
   it('should NOT emit auth delta for normal (non-consent) tool output', async () => {
     const normalOutput = 'Here are your calendar events for today: Meeting at 10am, Lunch at noon.';
 
-    const mockCallTool = jest.fn().mockResolvedValue([
-      [{ type: 'text', text: normalOutput }],
-      null,
-    ]);
+    const mockCallTool = jest
+      .fn()
+      .mockResolvedValue([[{ type: 'text', text: normalOutput }], null]);
 
     mockGetMCPManager.mockReturnValue({
       callTool: mockCallTool,
@@ -1633,10 +1710,7 @@ describe('createMCPTool — consent delta emission (VAL-MCP-004)', () => {
       llm_instructions: 'Provider authorization needed.',
     });
 
-    const mockCallTool = jest.fn().mockResolvedValue([
-      [{ type: 'text', text: consentJson }],
-      null,
-    ]);
+    const mockCallTool = jest.fn().mockResolvedValue([[{ type: 'text', text: consentJson }], null]);
 
     mockGetMCPManager.mockReturnValue({
       callTool: mockCallTool,
@@ -1708,9 +1782,6 @@ describe('createMCPTool — consent delta emission (VAL-MCP-004)', () => {
 });
 
 describe('createMCPTool — invocation-time OAuth gating respects requiresOAuth (VAL-MCP-001)', () => {
-  const { sendEvent, GenerationJobManager } = require('@librechat/api');
-  const { GraphEvents } = require('@librechat/agents');
-
   let mockGetMCPManager;
   let mockGetFlowStateManager;
   let mockGetLogStores;

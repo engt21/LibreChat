@@ -11,6 +11,7 @@ jest.mock('~/mcp/registry/db/ServerConfigsDB', () => ({
     get: jest.fn().mockResolvedValue(undefined),
     getAll: jest.fn().mockResolvedValue({}),
     add: jest.fn().mockResolvedValue(undefined),
+    addWithServerName: jest.fn().mockResolvedValue(undefined),
     update: jest.fn().mockResolvedValue(undefined),
     remove: jest.fn().mockResolvedValue(undefined),
     reset: jest.fn().mockResolvedValue(undefined),
@@ -232,6 +233,19 @@ describe('MCPServersRegistry', () => {
         const config3 = await registry.getServerConfig('test_server');
         expect(config3).toEqual(testParsedConfig);
         expect(cacheRepoGetSpy).toHaveBeenCalledTimes(1); // Still 1
+      });
+
+      it('should prefer DB configs over cache configs for the same server name', async () => {
+        await registry['cacheConfigsRepo'].add('shadowed_server', testParsedConfig);
+        const dbConfig = { ...testParsedConfig, command: 'python', dbId: 'db-id' };
+        jest.spyOn(registry['dbConfigsRepo'], 'get').mockResolvedValue(dbConfig);
+
+        const config = await registry.getServerConfig('shadowed_server', 'user123');
+
+        expect(config).toEqual(dbConfig);
+        if (config && 'command' in config) {
+          expect(config.command).toBe('python');
+        }
       });
 
       it('should cache "not found" results to avoid repeated DB lookups', async () => {

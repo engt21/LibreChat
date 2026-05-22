@@ -11,20 +11,24 @@ interface MCPServerFormProps {
 }
 
 export default function MCPServerForm({ formHook }: MCPServerFormProps) {
-  const { methods, isEditMode, server } = formHook;
+  const { methods, isEditMode, isStdioEditMode, server } = formHook;
 
   return (
     <FormProvider {...methods}>
       <div className="space-y-4 px-1 py-1">
         <BasicInfoSection />
 
-        <ConnectionSection />
+        {!isStdioEditMode && (
+          <>
+            <ConnectionSection />
 
-        <TransportSection />
+            <TransportSection />
 
-        <AuthSection isEditMode={isEditMode} serverName={server?.serverName} />
+            <AuthSection isEditMode={isEditMode} serverName={server?.serverName} />
 
-        <TrustSection />
+            <TrustSection />
+          </>
+        )}
       </div>
     </FormProvider>
   );

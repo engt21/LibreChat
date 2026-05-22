@@ -129,6 +129,39 @@ export class ServerConfigsDB implements IServerConfigsRepositoryInterface {
       );
     }
 
+    return await this.createAndGrantServer(config, userId);
+  }
+
+  /**
+   * Creates a DB-backed MCP server while preserving an existing app-level serverName.
+   * Used when a YAML/cache-defined server is edited in the UI and becomes a DB override.
+   */
+  public async addWithServerName(
+    serverName: string,
+    config: ParsedServerConfig,
+    userId?: string,
+  ): Promise<AddServerResult> {
+    logger.debug(
+      `[ServerConfigsDB.addWithServerName] Creating server with preserved serverName: ${serverName} for user ${userId}`,
+    );
+    if (!userId) {
+      throw new Error(
+        '[ServerConfigsDB.addWithServerName] User ID is required to create a database-stored MCP server.',
+      );
+    }
+
+    if (!serverName) {
+      throw new Error('[ServerConfigsDB.addWithServerName] serverName is required.');
+    }
+
+    return await this.createAndGrantServer(config, userId, serverName);
+  }
+
+  private async createAndGrantServer(
+    config: ParsedServerConfig,
+    userId: string,
+    serverName?: string,
+  ): Promise<AddServerResult> {
     const sanitizedConfig = {
       ...config,
       headers: sanitizeCredentialPlaceholders(
@@ -140,10 +173,24 @@ export class ServerConfigsDB implements IServerConfigsRepositoryInterface {
     const transformedConfig = this.transformUserApiKeyConfig(sanitizedConfig);
     /** Encrypted config before storing in database */
     const encryptedConfig = await this.encryptConfig(transformedConfig);
-    const createdServer = await this._dbMethods.createMCPServer({
-      config: encryptedConfig,
-      author: userId,
-    });
+    let createdServer: MCPServerDocument;
+
+    if (serverName) {
+      const MCPServer = this._mongoose.model<MCPServerDocument>('MCPServer');
+      createdServer = (
+        await MCPServer.create({
+          serverName,
+          config: encryptedConfig,
+          author: userId,
+        })
+      ).toObject() as MCPServerDocument;
+    } else {
+      createdServer = await this._dbMethods.createMCPServer({
+        config: encryptedConfig,
+        author: userId,
+      });
+    }
+
     await this._aclService.grantPermission({
       principalType: PrincipalType.USER,
       principalId: userId,

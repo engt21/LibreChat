@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useCallback, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import type { MCPServerCreateParams } from 'librechat-data-provider';
+import type { MCPServerCreateParams, MCPServerUpdateParams } from 'librechat-data-provider';
 import {
   useCreateMCPServerMutation,
   useUpdateMCPServerMutation,
@@ -46,7 +46,7 @@ export interface MCPServerFormData {
   description?: string;
   icon?: string;
   url: string;
-  type: 'streamable-http' | 'sse';
+  type: 'streamable-http' | 'sse' | 'stdio';
   auth: AuthConfig;
   trust: boolean;
 }
@@ -55,6 +55,27 @@ interface UseMCPServerFormProps {
   server?: MCPServerDefinition | null;
   onSuccess?: (serverName: string, isOAuth: boolean) => void;
   onClose?: () => void;
+}
+
+function isStdioServer(server?: MCPServerDefinition | null) {
+  return server?.config?.type === 'stdio' || Boolean(server?.config && 'command' in server.config);
+}
+
+function titleFromServerName(serverName: string) {
+  return serverName
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim();
+}
+
+function getServerFormTransport(server: MCPServerDefinition): MCPServerFormData['type'] {
+  if (isStdioServer(server)) {
+    return 'stdio';
+  }
+  if (server.config.type === 'sse') {
+    return 'sse';
+  }
+  return 'streamable-http';
 }
 
 export function useMCPServerForm({ server, onSuccess, onClose }: UseMCPServerFormProps) {
@@ -72,6 +93,7 @@ export function useMCPServerForm({ server, onSuccess, onClose }: UseMCPServerFor
 
   // Check if editing existing server
   const isEditMode = !!server;
+  const isStdioEditMode = isEditMode && isStdioServer(server);
 
   // Default form values
   const defaultValues = useMemo<MCPServerFormData>(() => {
@@ -86,10 +108,10 @@ export function useMCPServerForm({ server, onSuccess, onClose }: UseMCPServerFor
       const apiKeyConfig = 'apiKey' in server.config ? server.config.apiKey : undefined;
 
       return {
-        title: server.config.title || '',
+        title: server.config.title || titleFromServerName(server.serverName),
         description: server.config.description || '',
         url: 'url' in server.config ? server.config.url : '',
-        type: (server.config.type as 'streamable-http' | 'sse') || 'streamable-http',
+        type: getServerFormTransport(server),
         icon: server.config.iconPath || '',
         auth: {
           auth_type: authType,
@@ -142,7 +164,6 @@ export function useMCPServerForm({ server, onSuccess, onClose }: UseMCPServerFor
 
   // Watch URL for auto-fill
   const watchedUrl = watch('url');
-  const watchedTitle = watch('title');
 
   // Auto-fill title from URL when title is empty
   const handleUrlChange = useCallback(
@@ -175,16 +196,27 @@ export function useMCPServerForm({ server, onSuccess, onClose }: UseMCPServerFor
   const onSubmit = methods.handleSubmit(async (formData: MCPServerFormData) => {
     setIsSubmitting(true);
     try {
-      const config: Record<string, unknown> = {
-        type: formData.type,
-        url: formData.url,
-        title: formData.title,
-        ...(formData.description && { description: formData.description }),
-        ...(formData.icon && { iconPath: formData.icon }),
-      };
+      let config: Record<string, unknown>;
+
+      if (isStdioEditMode) {
+        config = {
+          title: formData.title,
+          description: formData.description || '',
+          ...(formData.icon && { iconPath: formData.icon }),
+        };
+      } else {
+        config = {
+          type: formData.type,
+          url: formData.url,
+          title: formData.title,
+          ...(formData.description && { description: formData.description }),
+          ...(formData.icon && { iconPath: formData.icon }),
+        };
+      }
 
       // Add OAuth configuration
       if (
+        !isStdioEditMode &&
         formData.auth.auth_type === AuthTypeEnum.OAuth &&
         (formData.auth.oauth_client_id ||
           formData.auth.oauth_client_secret ||
@@ -206,7 +238,7 @@ export function useMCPServerForm({ server, onSuccess, onClose }: UseMCPServerFor
       }
 
       // Add API Key configuration
-      if (formData.auth.auth_type === AuthTypeEnum.ServiceHttp) {
+      if (!isStdioEditMode && formData.auth.auth_type === AuthTypeEnum.ServiceHttp) {
         const source = formData.auth.api_key_source || 'admin';
         const authorizationType = formData.auth.api_key_authorization_type || 'bearer';
 
@@ -221,11 +253,12 @@ export function useMCPServerForm({ server, onSuccess, onClose }: UseMCPServerFor
         };
       }
 
-      const params: MCPServerCreateParams = { config };
+      const createParams = { config } as MCPServerCreateParams;
+      const updateParams = { config } as MCPServerUpdateParams;
 
       const result = server
-        ? await updateMutation.mutateAsync({ serverName: server.serverName, data: params })
-        : await createMutation.mutateAsync(params);
+        ? await updateMutation.mutateAsync({ serverName: server.serverName, data: updateParams })
+        : await createMutation.mutateAsync(createParams);
 
       showToast({
         message: server
@@ -301,6 +334,7 @@ export function useMCPServerForm({ server, onSuccess, onClose }: UseMCPServerFor
   return {
     methods,
     isEditMode,
+    isStdioEditMode,
     isSubmitting,
     isDeleting,
     onSubmit,

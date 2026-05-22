@@ -17,7 +17,91 @@ const { CacheKeys, Constants, MCPServerUserInputSchema } = require('librechat-da
 const { cacheMCPServerTools, getMCPServerTools } = require('~/server/services/Config');
 const { getMCPManager, getMCPServersRegistry, getFlowStateManager } = require('~/config');
 const { reinitMCPServer } = require('~/server/services/Tools/mcp');
+const { findMCPServerByServerName } = require('~/models');
 const { getLogStores } = require('~/cache');
+
+const PRESERVED_CONFIG_BACKED_FIELDS = [
+  'headers',
+  'startup',
+  'timeout',
+  'sseReadTimeout',
+  'initTimeout',
+  'chatMenu',
+  'serverInstructions',
+  'customUserVars',
+  'oauth_headers',
+];
+
+const STDIO_METADATA_FIELDS = ['title', 'description', 'iconPath'];
+const TITLE_PATTERN = /^[a-zA-Z0-9 ]+$/;
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isStdioConfig(config) {
+  return config?.type === 'stdio' || ('command' in (config || {}) && Array.isArray(config?.args));
+}
+
+function mergePreservedConfigFields(existingConfig, validatedConfig) {
+  if (!existingConfig) {
+    return validatedConfig;
+  }
+
+  const mergedConfig = { ...validatedConfig };
+  for (const field of PRESERVED_CONFIG_BACKED_FIELDS) {
+    if (existingConfig[field] !== undefined && mergedConfig[field] === undefined) {
+      mergedConfig[field] = existingConfig[field];
+    }
+  }
+  return mergedConfig;
+}
+
+function validateStdioMetadataUpdate(config) {
+  if (!isRecord(config)) {
+    return { success: false, errors: [{ message: 'Configuration must be an object' }] };
+  }
+
+  const unknownFields = Object.keys(config).filter(
+    (field) => !STDIO_METADATA_FIELDS.includes(field),
+  );
+  if (unknownFields.length > 0) {
+    return {
+      success: false,
+      errors: [
+        {
+          message: `Stdio MCP servers only support metadata updates (${STDIO_METADATA_FIELDS.join(', ')})`,
+        },
+      ],
+    };
+  }
+
+  if (config.title !== undefined) {
+    if (typeof config.title !== 'string' || !TITLE_PATTERN.test(config.title)) {
+      return {
+        success: false,
+        errors: [{ message: 'Title can only contain letters, numbers, and spaces' }],
+      };
+    }
+  }
+
+  if (config.description !== undefined && typeof config.description !== 'string') {
+    return { success: false, errors: [{ message: 'Description must be a string' }] };
+  }
+
+  if (config.iconPath !== undefined && typeof config.iconPath !== 'string') {
+    return { success: false, errors: [{ message: 'Icon path must be a string' }] };
+  }
+
+  return {
+    success: true,
+    data: {
+      ...(config.title !== undefined && { title: config.title }),
+      ...(config.description !== undefined && { description: config.description }),
+      ...(config.iconPath !== undefined && { iconPath: config.iconPath }),
+    },
+  };
+}
 
 /**
  * Handles MCP-specific errors and sends appropriate HTTP responses.
@@ -190,9 +274,9 @@ const getMCPTools = async (req, res) => {
               const authServerUrl = authServers[0];
               if (typeof authServerUrl === 'string' && authServerUrl.length > 0) {
                 try {
-                  const { discoverAuthorizationServerMetadata } = require(
-                    '@modelcontextprotocol/sdk/client/auth.js',
-                  );
+                  const {
+                    discoverAuthorizationServerMetadata,
+                  } = require('@modelcontextprotocol/sdk/client/auth.js');
                   const serverMetadata = await discoverAuthorizationServerMetadata(
                     new URL(authServerUrl),
                   );
@@ -471,22 +555,48 @@ const updateMCPServerController = async (req, res) => {
     const userId = req.user?.id;
     const { serverName } = req.params;
     const { config } = req.body;
+    const registry = getMCPServersRegistry();
+    const existingConfig = await registry.getServerConfig(serverName, userId);
 
-    const validation = MCPServerUserInputSchema.safeParse(config);
-    if (!validation.success) {
-      return res.status(400).json({
-        message: 'Invalid configuration',
-        errors: validation.error.errors,
-      });
+    if (!existingConfig) {
+      return res.status(404).json({ message: 'MCP server not found' });
     }
-    const parsedConfig = await getMCPServersRegistry().updateServer(
-      serverName,
-      validation.data,
-      'DB',
-      userId,
-    );
 
-    res.status(200).json(redactServerSecrets(parsedConfig));
+    let configForUpdate;
+    if (isStdioConfig(existingConfig)) {
+      const validation = validateStdioMetadataUpdate(config);
+      if (!validation.success) {
+        return res.status(400).json({
+          message: 'Invalid configuration',
+          errors: validation.errors,
+        });
+      }
+
+      configForUpdate = {
+        ...existingConfig,
+        ...validation.data,
+      };
+    } else {
+      const validation = MCPServerUserInputSchema.safeParse(config);
+      if (!validation.success) {
+        return res.status(400).json({
+          message: 'Invalid configuration',
+          errors: validation.error.errors,
+        });
+      }
+
+      configForUpdate = mergePreservedConfigFields(existingConfig, validation.data);
+    }
+
+    const existingDBServer = await findMCPServerByServerName(serverName);
+    const parsedConfig = existingDBServer
+      ? await registry.updateServer(serverName, configForUpdate, 'DB', userId)
+      : (await registry.addServerWithName(serverName, configForUpdate, 'DB', userId)).config;
+
+    res.status(200).json({
+      serverName,
+      ...redactServerSecrets(parsedConfig),
+    });
   } catch (error) {
     logger.error('[updateMCPServer]', error);
     const mcpErrorResponse = handleMCPError(error, res);

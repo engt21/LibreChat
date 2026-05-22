@@ -2,7 +2,14 @@ import { useCallback, useState, useMemo, useRef, useEffect } from 'react';
 import { useAtom } from 'jotai';
 import { useToastContext } from '@librechat/client';
 import { useQueryClient } from '@tanstack/react-query';
-import { Constants, QueryKeys, MCPOptions, ResourceType } from 'librechat-data-provider';
+import {
+  Constants,
+  QueryKeys,
+  MCPOptions,
+  ResourceType,
+  PermissionBits,
+  SystemRoles,
+} from 'librechat-data-provider';
 import {
   useCancelMCPOAuthMutation,
   useUpdateUserPluginsMutation,
@@ -11,7 +18,7 @@ import {
 } from 'librechat-data-provider/react-query';
 import type { TUpdateUserPlugins, TPlugin, MCPServersResponse } from 'librechat-data-provider';
 import type { ConfigFieldDetail } from '~/common';
-import { useLocalize, useMCPSelect, useMCPConnectionStatus } from '~/hooks';
+import { useLocalize, useMCPSelect, useMCPConnectionStatus, useAuthContext } from '~/hooks';
 import { useGetStartupConfig, useMCPServersQuery } from '~/data-provider';
 import { mcpServerInitStatesAtom, getServerInitState } from '~/store/mcp';
 import type { MCPServerInitState } from '~/store/mcp';
@@ -35,6 +42,7 @@ export function useMCPServerManager({
   const localize = useLocalize();
   const queryClient = useQueryClient();
   const { showToast } = useToastContext();
+  const { user } = useAuthContext();
   const { data: startupConfig } = useGetStartupConfig(); // Keep for UI config only
 
   const { data: loadedServers, isLoading } = useMCPServersQuery();
@@ -52,9 +60,13 @@ export function useMCPServerManager({
       for (const [serverName, metadata] of Object.entries(loadedServers)) {
         const { dbId, consumeOnly, ...config } = metadata;
 
-        // Get effective permissions from the permissions map using _id
-        // Fall back to 1 (VIEW) for YAML-based servers without _id
-        const effectivePermissions = dbId && permissionsMap?.[dbId] ? permissionsMap[dbId] : 1;
+        // YAML/cache-backed servers have no ACL row. Admins can edit them into DB-backed overrides.
+        let effectivePermissions = PermissionBits.VIEW;
+        if (dbId && permissionsMap?.[dbId]) {
+          effectivePermissions = permissionsMap[dbId];
+        } else if (user?.role === SystemRoles.ADMIN) {
+          effectivePermissions = PermissionBits.VIEW | PermissionBits.EDIT;
+        }
 
         definitions.push({
           serverName,
@@ -66,7 +78,7 @@ export function useMCPServerManager({
       }
     }
     return definitions;
-  }, [loadedServers, permissionsMap]);
+  }, [loadedServers, permissionsMap, user?.role]);
 
   // Memoize filtered servers for useMCPSelect to prevent infinite loops
   const selectableServers = useMemo(
