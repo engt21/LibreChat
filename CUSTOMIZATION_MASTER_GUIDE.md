@@ -59,13 +59,18 @@ The custom work falls into these main buckets:
 - Shows the model-picker API-key settings cog at the provider level, but only for super-admin users, excluding `My Agents`
 - Reopens that provider settings cog with the saved provider values preloaded so super admins can update only the changed field
 - Adds `AppSettings.platformPrompt`, a super-admin-editable platform system prompt that is prepended before preset/user/agent instructions for Assistants and Agents
+- Adds optional model steering (`AppSettings.modelSteeringEnabled` + per-user `modelSteeringPrefs.enabled`): during a running non-Assistants generation, the normal chat bar can send a steering instruction via `POST /api/agents/chat/steer` while Stop remains available; the server aborts the active job, saves the partial assistant response, and restarts the continuation under the partial response.
 
 ### Main files
 
 #### Backend
 
 - `api/server/controllers/AdminController.js`
+- `api/server/controllers/ModelSteeringController.js`
+- `api/server/controllers/agents/request.js`
 - `api/server/routes/admin/index.js`
+- `api/server/routes/agents/chat.js`
+- `api/server/routes/modelSteering.js`
 - `api/server/middleware/adminAccess.js`
 - `api/server/middleware/buildEndpointOption.js`
 - `api/server/services/Admin/appSettings.js`
@@ -77,6 +82,11 @@ The custom work falls into these main buckets:
 #### Frontend
 
 - `client/src/components/Admin/AdminConsole.tsx`
+- `client/src/components/Nav/SettingsTabs/Personalization.tsx`
+- `client/src/components/Chat/Input/ChatForm.tsx`
+- `client/src/hooks/Chat/useChatHelpers.ts`
+- `client/src/hooks/Input/useTextarea.ts`
+- `client/src/hooks/Messages/useSubmitMessage.ts`
 - `client/src/components/Chat/Menus/Endpoints/ModelSelectorContext.tsx`
 - `client/src/components/Chat/Menus/Endpoints/components/EndpointItem.tsx`
 - `client/src/components/Chat/Menus/Endpoints/components/EndpointModelItem.tsx`
@@ -85,11 +95,14 @@ The custom work falls into these main buckets:
 - `client/src/data-provider/Admin/*`
 - `packages/api/src/agents/context.ts`
 - `packages/data-provider/src/admin.ts`
+- `packages/data-provider/src/modelSteering.ts`
+- `packages/data-provider/src/createPayload.ts`
 
 #### Schemas and types
 
 - `packages/data-schemas/src/schema/adminRole.ts`
 - `packages/data-schemas/src/schema/appSettings.ts`
+- `packages/data-schemas/src/schema/user.ts`
 - matching models/methods/types in `packages/data-schemas/src/*`
 
 ### Preserve during merges
@@ -99,6 +112,8 @@ The custom work falls into these main buckets:
 - `SUPERADMIN_EMAILS` sync behavior
 - DB-backed app settings behavior
 - `AppSettings.platformPrompt` schema/zod/UI handling and prompt-prepend ordering
+- `AppSettings.modelSteeringEnabled`, `user.modelSteeringPrefs.enabled`, `/api/model-steering/prefs`, and `/api/agents/chat/steer` gates
+- model steering normal-chat-bar UX: no separate input, Stop + Send coexist while steerable, Enter submits steering, first-message streams fall back to `latestMessage.conversationId`, and steering drafts/input are cleared after submit
 - host-aware observability URLs
 - super-admin-only model-picker API-key settings access
 
@@ -432,7 +447,9 @@ This area is partly documented in `README.md`, but there is no single standalone
 - Keeps `LibreChat` as the upstream-sync worktree
 - Uses helper scripts to symlink runtime-only secret/data files into the custom worktree while keeping the local Docker override checked into this repo
 - Standardizes local startup on detached Docker compose using the custom worktree
-- Adds user-level systemd services for startup and an Ollama keep-warm timer
+- Defaults the dev rail to shared-stable MongoDB/uploads so `:3081` can access the same user data if the stable API is down, while retaining separate dev image tags, ports, logs, Meilisearch data, and code-interpreter state
+- Adds user-level systemd services for stable startup, dev failover watchdog, and Ollama keep-warm timer
+- Keeps dev normally stopped; the failover watchdog starts minimal dev only after stable health failures and stops failover-owned dev after stable recovers
 - Keeps a full local-build path as the default runtime
 - Keeps an optional patched-remote image workflow for targeted validation
 - keeps a local loopback `DOMAIN_SERVER` default in the Docker override for Arcade Microsoft OAuth
@@ -450,9 +467,14 @@ This area is partly documented in `README.md`, but there is no single standalone
 #### Local scripts
 
 - `local-services/ensure-runtime-files.sh`
+- `local-services/rail-env.sh`
 - `local-services/start-all.sh`
 - `local-services/stop-all.sh`
 - `local-services/status-all.sh`
+- `local-services/sync-from-stable.sh`
+- `local-services/health-check.sh`
+- `local-services/dev-seed-validation-personas.js`
+- `local-services/dev-failover-watchdog.sh`
 - `local-services/install-user-service.sh`
 - `local-services/enable-on-boot.sh`
 - `local-services/disable-on-boot.sh`
@@ -484,6 +506,12 @@ This area is partly documented in `README.md`, but there is no single standalone
 - keep exporter-sidecar compose commands separate from the main app stack
 - keep user systemd service definitions pointing at `LibreChat-custom`
 - keep the documented `DOMAIN_SERVER` callback behavior aligned with the MCP section above
+- keep dev shared-stable data mode in `rail-env.sh` (`LIBRECHAT_DEV_USE_STABLE_MONGO=true` by default) and the opt-in isolated fallback (`LIBRECHAT_DEV_USE_STABLE_MONGO=false`)
+- keep failover lifecycle in place: stable systemd startup is explicit, automatic dev startup is owned by `librechat-dev-failover.timer`, and `LIBRECHAT_DEV_PROFILE=failover` starts only minimal dev services without rebuilding
+- keep reduced dev resource defaults; dev is for explicit testing or stable failure fallback, not a second always-on full stack
+- keep `sync-from-stable.sh` from restoring MongoDB or rsyncing uploads when dev already shares stable data
+- keep `health-check.sh` treating shared `uploads/` as an intentional safe shared mount
+- keep `dev-seed-validation-personas.js` refusing shared/stable MongoDB targets unless explicitly overridden; dev testing on shared data should use test accounts and avoid destructive resets
 
 ### Supporting docs
 

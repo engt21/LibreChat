@@ -56,19 +56,21 @@ Rationale: planning measured only ~1.2–1.3 GiB available RAM on a ~29 GiB host
 
 Deterministic validation personas are seeded by `local-services/dev-seed-validation-personas.js`. The script:
 
-1. Connects to the dev MongoDB at `mongodb://127.0.0.1:27018/LibreChat`
+1. Connects to isolated dev MongoDB at `mongodb://127.0.0.1:27018/LibreChat`
 2. Clears all ban entries, violation logs, and rate-limiter state from the `logs` and `keyv` collections
 3. Creates or resets five validation personas with known passwords and correct role/adminRoleIds
 4. Clears stale sessions for those personas
 5. Writes a gitignored local manifest at `local-services/.dev-validation-manifest.local.json`
 
+The current default dev rail shares stable/prod MongoDB and `uploads/`. In that mode, do **not** run the seed/reset script; use existing test accounts such as `playwright@test.local` or already-provisioned validation accounts. The script refuses stable/shared MongoDB targets by default; `DEV_SEED_ALLOW_SHARED_PROD_DB=true` is an intentional override only for explicitly approved shared-DB seeding.
+
 ### Usage
 
 ```bash
 # 1. Start the dev rail (if not already running)
-./local-services/start-all.sh dev
+LIBRECHAT_DEV_USE_STABLE_MONGO=false ./local-services/start-all.sh dev
 
-# 2. Seed the personas (run from repo root)
+# 2. Seed the personas against isolated dev MongoDB (run from repo root)
 node local-services/dev-seed-validation-personas.js
 
 # 3. Restart the API to flush in-memory rate-limiter and ban caches
@@ -145,7 +147,7 @@ The full prerequisite inventory is at `.factory/validation/customization-preserv
 
 ### Pre-run preparation (locally resolvable, no secrets needed)
 
-1. **Clear temp bans before every assertion group**: Run `node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25` before each assertion batch. The seeded personas accumulate bans during blocked-model probes, non-browser UA requests, and rapid login attempts.
+1. **Clear temp bans before every assertion group on isolated dev only**: Run `node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25` before each assertion batch when `LIBRECHAT_DEV_USE_STABLE_MONGO=false`. In default shared-stable mode, skip this reset path and use existing test accounts to avoid mutating shared production data.
 2. **VAPID push keys**: Run `./local-services/generate-vapid-keys.sh` to generate and append VAPID keys to `.env`, then restart the dev API. This unblocks VAL-SCHED-009.
 3. **SUPERADMIN_EMAILS env check**: The app loads this via `dotenv` from `/app/.env`, NOT from `printenv`. Use `docker exec librechat-dev-api node -e "require('dotenv').config({path:'/app/.env'}); console.log(process.env.SUPERADMIN_EMAILS ? 'SET' : 'UNSET')"` to verify. This unblocks VAL-CROSS-001.
 4. **Ollama**: Use `deepseek-r1:14b` (or another model known to invoke tools reliably) for VAL-PROVIDER-010/011 validation. `qwen2.5:latest` may answer without actually calling the `web_search` tool in this environment, so do not treat it as the default validation model for the hosted web-search contract. Set explicit timeouts and add a direct instruction to use web search when validating the web-search path.
@@ -270,3 +272,37 @@ The push notification delivery code (`notifications.js`) already prunes endpoint
   - `VAL-MCP-004` still **fails** because pending-consent Arcade flow still lacks pre-consent tool discovery and continuation metadata.
   - `VAL-MODEL-003` still **fails** because `/api/config` still omits filtered `modelSpecs` even though blocked-model enforcement succeeds across chat/agent/assistant probes.
 - Operational friction: high-volume negative-path probes can re-trigger anti-abuse state; reseed personas and restart `librechat-dev-api` before assertion batches when needed.
+
+## Round 11 local-rerun notes (2026-04-11)
+
+- Scope remained local-only per user override: reran `VAL-MCP-001`, `VAL-MCP-004`, and `VAL-MODEL-003` on dev rail `:3081`; deferred OCR/provider/Ollama/MCP-refresh/push-click clusters stayed out of scope.
+- Outcomes: all three assertions still **failed**.
+  - `VAL-MCP-001`: non-OAuth MCP rerun still failed with OAuth-consent-required run error; this rerun also observed `POST /api/mcp` returning `404 {"message":"Endpoint not found"}` for local server registration attempts.
+  - `VAL-MCP-004`: pending-consent Arcade rerun still did not surface pre-consent tool discovery or continuation metadata (`authorization_url`/`llm_instructions` remained null in the run response).
+  - `VAL-MODEL-003`: restricted `/api/models` stayed correct, but `/api/config` still omitted `modelSpecs`; blocked assistant probe was additionally contaminated by temporary-ban middleware in this pass.
+- Operational note: after this rerun, `node local-services/dev-seed-validation-personas.js` + `docker restart librechat-dev-api` was re-run to restore the validation baseline.
+
+## Round 12 local-rerun notes (2026-04-11)
+
+- Scope remained local-only per user override: reran `VAL-MCP-001`, `VAL-MCP-004`, and `VAL-MODEL-003` on dev rail `:3081`; deferred OCR/provider/Ollama/MCP-refresh/push-click clusters stayed out of scope.
+- Outcomes: all three assertions still **failed**.
+  - `VAL-MCP-001`: `POST /api/mcp/servers` now succeeds and confirms valid no-input/open-object schema evidence, but scheduled non-OAuth MCP invocation still returns OAuth-consent-required failure.
+  - `VAL-MCP-004`: pending-consent Arcade server registration succeeds, but pre-consent `/api/mcp/tools` remains empty and scheduled failure responses still omit continuation metadata (`authorization_url`/`llm_instructions`/`continuationMetadata` absent).
+  - `VAL-MODEL-003`: restricted `/api/models` and blocked-model rejection across chat/agent/assistant now show clean model-access errors (no temporary-ban contamination), but `/api/config` still exposes `modelSpecs.list` as empty under restricted policy.
+- Operational note: direct restoration of original `val-user` modelPermissions returned `400` on this rerun; reseeding personas plus `docker restart librechat-dev-api` restored baseline state and was captured in post-run evidence.
+
+## Round 13 local-rerun notes (2026-04-11)
+
+- Scope remained local-only per user override: reran `VAL-MCP-001`, `VAL-MCP-004`, and `VAL-MODEL-003` on dev rail `:3081`; deferred OCR/provider/Ollama/MCP-refresh/push-click clusters stayed out of scope.
+- Outcomes: `VAL-MODEL-003` now **passes** after overlap-enforced restriction reprobe (`modelSpecs.list` filtered to the allowed runtime model plus blocked chat/agent/assistant requests returning model-access errors).
+- `VAL-MCP-001` still **fails**: non-OAuth MCP server creation preserved no-input/open-object schema behavior, but scheduled OpenAI invocation still returned `Tool ... not found` instead of a successful MCP tool call.
+- `VAL-MCP-004` still **fails**: pending-consent Arcade server remained pre-consent tool-empty and scheduled failure response exposed `continuationMetadata.servers` only, with `authorization_url`/`llm_instructions` still absent.
+- Operational note: avoid non-browser user-agent strings on blocked-model probes; they can trigger anti-abuse `Illegal request`/temporary-ban responses and contaminate model-access evidence until reseed + API restart.
+
+## Round 14 local-rerun notes (2026-04-11)
+
+- Scope remained local-only per user override: reran `VAL-MCP-001` and `VAL-MCP-004` on dev rail `:3081`; deferred OCR/provider/Ollama/MCP-refresh/push-click clusters stayed out of scope.
+- Outcomes:
+  - `VAL-MCP-001` now **passes**: non-OAuth MCP server creation via `POST /api/mcp/servers` preserved no-input/open-object schema shape, tools populated, and scheduled OpenAI invocation succeeded with `lastStatus=succeeded` (`preview={}`).
+  - `VAL-MCP-004` still **fails**: pending-consent Arcade server stayed pre-consent tool-empty and scheduled OAuth failure still omitted `authorization_url`/`llm_instructions` while only `continuationMetadata` was present.
+- Evidence: `.factory/validation/customization-preservation/user-testing/flows/group-round14-local-mcp-rerun.json` and mission evidence `.../group-round14-local-mcp-rerun/api-round14-local-mcp-rerun.json`.

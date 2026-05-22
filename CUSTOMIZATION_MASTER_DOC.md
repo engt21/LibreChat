@@ -87,6 +87,7 @@ The custom work in this branch falls into these main buckets:
 - reopening that provider settings cog now reloads saved provider values so super admins can edit only the field that changed instead of re-entering the whole config
 - user API-key updates/revokes invalidate server-side model discovery caches (`MODEL_QUERIES`, `MODELS_CONFIG`, startup refresh latch) and client-side `models`/`endpoints`/`startupConfig` queries so BYOK OpenAI/Anthropic model lists refresh immediately after key rotation
 - an admin-managed platform system prompt, stored in `AppSettings.platformPrompt`, that super admins edit from Workspace settings and the server prepends ahead of preset/user/agent instructions for Assistants and Agents
+- optional model steering, gated by `AppSettings.modelSteeringEnabled` plus per-user `modelSteeringPrefs.enabled`: while a non-Assistants generation is running, the normal chat bar changes to the steering placeholder, keeps Stop visible, and Enter/Send posts the steering text to `POST /api/agents/chat/steer`. The backend aborts the active stream, saves the partial assistant response, then restarts the continuation with the steering instruction parented to that partial response.
 - a "Model discovery" section in the admin console with a "Refresh all providers" button plus per-provider refresh buttons; this drops the `MODEL_QUERIES` and `MODELS_CONFIG` caches, resets the in-process startup-refresh latch, and re-runs `loadModels` so freshly released models (e.g., `gpt-5.5`, `gpt-5.5-pro`) appear in the picker without restarting the server. Backed by `POST /api/admin/models/refresh` (gated by `AdminPermissions.SETTINGS_WRITE`)
 - merge-mode resolution for env-pinned model lists (`OPENAI_MODELS`, `ANTHROPIC_MODELS`, `GOOGLE_MODELS`, `AZURE_OPENAI_MODELS`, etc.). Each `*_MODELS` env var is paired with a `*_MODELS_MODE` knob (`override` (default) or `merge`). In merge mode, the env list is preserved at the front and unioned (deduped, optionally filtered for OpenAI text-compatibility) with anything live discovery returns, so newly released provider models surface after the admin refresh button without dropping curated env-pinned ids. Discovery failures fall back to the env list verbatim. BYOK OpenAI/Anthropic discovery uses the resolved per-user key/base URL with user-scoped cache keys and never tries to use the `user_provided` sentinel as a live API key. Custom YAML endpoints (xAI/Ollama/etc.) get an analogous resolution: `endpoint.models.mode` (YAML) → `CUSTOM_MODELS_MODE` env → xAI defaults to `merge`, others default to `override`
 - version-descending sort for the merged OpenAI/Anthropic/Google model lists. Each provider has a `getXxxModelVersionScore` + `sortXxxModelsByVersion` helper in `packages/api/src/endpoints/models.ts` that ranks model ids by extracted `<major>.<minor>` so that newer frontier ids (e.g., `gpt-5.5-pro-2026-04-23`) sit at the top of the chat picker rather than appended after legacy `gpt-3.5/gpt-4` entries the live API returns earlier. `*-instruct` always sinks to the very bottom and Azure deployments preserve admin-curated order (no auto-sort) since deployment names are operator-controlled.
@@ -96,9 +97,13 @@ The custom work in this branch falls into these main buckets:
 Backend:
 
 - `api/server/controllers/AdminController.js`
+- `api/server/controllers/ModelSteeringController.js`
 - `api/server/controllers/ModelController.js`
+- `api/server/controllers/agents/request.js`
 - `api/server/services/Models/refreshModels.js`
+- `api/server/routes/agents/chat.js`
 - `api/server/routes/keys.js`
+- `api/server/routes/modelSteering.js`
 - `api/server/services/Models/refreshModels.spec.js`
 - `api/server/routes/admin/index.js`
 - `api/server/middleware/adminAccess.js`
@@ -114,6 +119,10 @@ Backend:
 Frontend/shared:
 
 - `client/src/components/Admin/AdminConsole.tsx`
+- `client/src/components/Nav/SettingsTabs/Personalization.tsx`
+- `client/src/hooks/Chat/useChatHelpers.ts`
+- `client/src/hooks/Input/useTextarea.ts`
+- `client/src/hooks/Messages/useSubmitMessage.ts`
 - `client/src/components/Chat/Menus/Endpoints/ModelSelectorContext.tsx`
 - `client/src/components/Chat/Menus/Endpoints/components/EndpointItem.tsx`
 - `client/src/components/Chat/Menus/Endpoints/components/EndpointModelItem.tsx`
@@ -123,11 +132,15 @@ Frontend/shared:
 - `client/src/data-provider/Admin/queries.ts`
 - `packages/api/src/agents/context.ts`
 - `packages/data-provider/src/admin.ts`
+- `packages/data-provider/src/modelSteering.ts`
+- `packages/data-provider/src/createPayload.ts`
 - `packages/data-provider/src/react-query/react-query-service.ts`
 - `packages/data-schemas/src/schema/adminRole.ts`
 - `packages/data-schemas/src/schema/appSettings.ts`
 - `packages/data-schemas/src/types/adminRole.ts`
 - `packages/data-schemas/src/types/appSettings.ts`
+- `packages/data-schemas/src/schema/user.ts`
+- `packages/data-schemas/src/types/user.ts`
 
 #### Preserve during merges
 
@@ -135,6 +148,9 @@ Frontend/shared:
 - `SUPERADMIN_EMAILS` sync behavior
 - DB-backed app settings and registration gating
 - `AppSettings.platformPrompt` normalization, admin UI wiring, and prompt-prepend behavior in `buildEndpointOption` plus `packages/api/src/agents/context.ts`
+- `AppSettings.modelSteeringEnabled`, `user.modelSteeringPrefs.enabled`, `PATCH /api/model-steering/prefs`, and `POST /api/agents/chat/steer` server-side gates; do not rely on frontend-only hiding
+- the model steering abort/save/restart contract in `api/server/routes/agents/chat.js`, including active-job ownership checks, partial assistant persistence, and continuation parenting to the saved partial assistant message
+- normal chat-bar steering UX in `ChatForm.tsx`, `useTextarea.ts`, `useSubmitMessage.ts`, and `useChatHelpers.ts`: no separate steering textarea, Stop and Send coexist during steerable generation, Enter submits steering even when `enterToSend` is off, first-message streams can steer once the latest assistant message has a real conversation id, and the input/draft clears after submit
 - host-aware admin observability links
 - admin console UI and its data-provider wiring
 - super-admin-only model-picker API-key settings access
@@ -151,6 +167,10 @@ Frontend/shared:
 - A successful refresh must invalidate `[QueryKeys.models]`, `[QueryKeys.endpoints]`, and `[QueryKeys.startupConfig]` on the client so the chat picker, endpoint list, and startup config all pick up the new models.
 - User-key updates must invalidate the same model/startup caches as the admin refresh flow. Otherwise a rotated Anthropic/OpenAI BYOK key can be saved successfully while stale server `MODEL_QUERIES`/`MODELS_CONFIG` results continue hiding newly released models until process restart.
 - The platform prompt must be prepended, not appended: Assistants merge it before `promptPrefix`, and Agents pass it into `buildAgentInstructions` before shared run context, agent/user instructions, and MCP instructions.
+- Model steering must be enforced on the server as well as the client. The `/api/agents/chat/steer` route checks workspace enablement, user preference, stream ownership, running-state, and endpoint support before aborting the active job.
+- The steering input is the normal chat bar. During a steerable stream, `useTextarea` intentionally bypasses the usual `enterToSend=false` newline behavior so a plain Enter submits steering, while Stop remains independently clickable.
+- New-chat steering cannot depend only on `conversation.conversationId`, because the URL can remain `/c/new` while the backend has already assigned the active stream a real conversation id. Use `latestMessage.conversationId` as the fallback for both steering and Stop.
+- Clear both form state and pending/conversation drafts after steering submit. Otherwise autosave can restore the steering instruction into the input after the continuation finishes.
 - `OPENAI_MODELS` / `ANTHROPIC_MODELS` / `GOOGLE_MODELS` short-circuit live discovery in `getOpenAIModels`/`getAnthropicModels`/`getGoogleModels` whenever they are set. Without `*_MODELS_MODE=merge`, even the admin refresh button cannot surface newer models (e.g., `gpt-5.5`) because the env list strictly overrides discovery. The dev/stable `.env` ships with `OPENAI_MODELS_MODE=merge` and `GOOGLE_MODELS_MODE=merge`. `ANTHROPIC_MODELS_MODE=merge` is supported but disabled by default (no `ANTHROPIC_MODELS` is currently set).
 - In merge mode we explicitly pass `[]` as the seed to `fetchOpenAIModels`/`fetchAnthropicModels` so a discovery failure returns `[]` (which `unionWithLiveDiscovery` treats as fallback). Passing the static defaults as the seed would cause failed discoveries to leak the upstream default list into the merged result.
 - For OpenAI (non-Azure), the merged list runs through `filterOpenAITextCompatibleModels` to drop audio/realtime/embedding/image variants the chat path cannot use. Azure deployments skip the filter because deployment names are admin-controlled and may not match the OpenAI-id heuristic.
@@ -649,6 +669,9 @@ Frontend/shared:
 - Ollama keep-warm timer/service
 - optional admin-only patched-remote image path
 - devcontainer persistence behavior
+- dev rail shared-stable data mode: by default `start-all.sh dev` rewrites the stable `MONGO_URI` to the LAN-accessible stable MongoDB host/port and shares `uploads/`, so dev can access the same conversations/files if the stable API is down while keeping separate image tags, ports, logs, Meilisearch data, and code-interpreter state
+- dev failover watchdog: `librechat-dev-failover.timer` runs `dev-failover-watchdog.sh`, starts dev in a minimal API-only profile after stable health failures, and stops failover-owned dev after stable recovers
+- lower dev resource defaults for standby/testing/failover operation; full dev is ~1 GiB API heap-limited and failover dev is smaller, with RAG/vector/code services omitted from the failover profile
 - secret/runtime ignore patterns in `.gitignore`
 - MCP OAuth callback URLs with `DOMAIN_SERVER`-first resolution plus forwarded/request-host fallback
 - `DOMAIN_SERVER` in `docker-compose.local.override.yml` uses `${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}` so the `.env` value (typically `http://192.168.50.4:3080`) takes precedence for LAN access; falls back to localhost for pure-local development
@@ -665,9 +688,14 @@ Frontend/shared:
 - `.devcontainer/devcontainer.json`
 - `.devcontainer/docker-compose.yml`
 - `local-services/ensure-runtime-files.sh`
+- `local-services/rail-env.sh`
 - `local-services/start-all.sh`
 - `local-services/stop-all.sh`
 - `local-services/status-all.sh`
+- `local-services/sync-from-stable.sh`
+- `local-services/health-check.sh`
+- `local-services/dev-seed-validation-personas.js`
+- `local-services/dev-failover-watchdog.sh`
 - `local-services/install-user-service.sh`
 - `local-services/enable-on-boot.sh`
 - `local-services/disable-on-boot.sh`
@@ -691,6 +719,11 @@ Frontend/shared:
 - LiteLLM file-path expectations if LiteLLM is re-enabled
 - MCP OAuth callback redirect URIs should prefer a valid `DOMAIN_SERVER`, then forwarded headers, then request host/protocol
 - `DOMAIN_SERVER` in `docker-compose.local.override.yml` must use `${DOMAIN_SERVER:-...}` so `.env` can override it; hardcoding `http://localhost:...` will break OAuth callbacks when accessing LibreChat from other machines on the LAN
+- dev shared-stable data mode is intentional: preserve `LIBRECHAT_DEV_USE_STABLE_MONGO=true` default, `LIBRECHAT_DEV_SHARED_MONGO_HOST`/`PORT` overrides, and `LIBRECHAT_DEV_SHARED_UPLOADS_DIR`; `LIBRECHAT_DEV_USE_STABLE_MONGO=false` is the opt-in isolated mode
+- preserve the failover lifecycle: `librechat-stack.service` starts stable explicitly, `librechat-dev-failover.timer` is the only automatic dev starter, and failover-owned dev is stopped when stable health is back
+- preserve minimal failover profile behavior in `start-all.sh` (`LIBRECHAT_DEV_PROFILE=failover` + `--no-build` + `--skip-health-check`) so automated failover does not rebuild or start heavyweight dev-only services
+- preserve `sync-from-stable.sh` behavior that skips Mongo restore/upload rsync when dev already shares stable data, and `health-check.sh` allowance for shared `uploads/`
+- preserve `dev-seed-validation-personas.js` refusal to seed/reset validation personas against stable/shared MongoDB unless `DEV_SEED_ALLOW_SHARED_PROD_DB=true` is explicitly set
 
 #### Runtime files linked into the custom worktree
 
@@ -717,6 +750,13 @@ All agent missions (upstream merges, version bumps, feature migrations, validati
 - If something goes wrong, only the dev rail gets fixed or restarted; stable remains untouched as fallback
 
 This policy exists because the user depends on the stable rail for daily use. Disrupting stable during a mission leaves the user without a working instance.
+
+#### Dev shared-stable data guardrails
+
+- Default dev runtime can read/write the same MongoDB database and uploaded files as stable. This is intentional for fallback access, but it means dev testing must use test accounts and avoid destructive data resets.
+- Existing test accounts such as `playwright@test.local` should be used for browser automation and validation on dev. Persona seeding/reset tooling is for isolated dev Mongo only unless deliberately overridden.
+- Stable containers still remain protected: dev may connect to the stable MongoDB backend, but missions must not restart, rebuild, stop, or mutate `librechat-stable-*` containers without explicit promotion approval.
+- Dev should normally be stopped while stable is healthy. The watchdog only stops dev instances it started itself, leaving manually started dev alone for explicit testing unless `LIBRECHAT_FAILOVER_STOP_MANUAL_DEV_ON_RECOVERY=true` is set.
 
 ---
 
@@ -1263,6 +1303,7 @@ These are recurring lessons from the focused docs plus past Droid sessions for t
 - An **Image badge** in the chat-bar `BadgeRow`, gated behind the new `IMAGE_GEN.USE` permission. The badge writes `ephemeralAgent.image_generation` so the toggle persists per conversation.
 - An **always-on auto-injection** path in `Agent.js` (`applyImageGenerationTool`) that adds the right tool key (`image_gen_oai`, `gemini_image_gen`, `flux`, `stable-diffusion`) when any of the following are true: the chat-bar toggle is on, `enabledByDefault` is set in user prefs, the active modelSpec opts in, or a `preferredProvider` is saved. Routing prefers `preferredProvider`, then matches the request endpoint name (openai / azure / xai / google / gemini / vertex), then falls back to openai → google → flux.
 - **Model overrides** plumbed into the four image-generation tools so the per-user model choice (or a preferredProvider's discovered default) flows through rather than the env-only defaults: `OpenAIImageTools` reads `fields.model` ahead of `IMAGE_GEN_OAI_MODEL`, `GeminiImageGen` accepts a `modelOverride`, `FluxAPI` derives `defaultEndpoint` from the chosen Flux model id, and `StableDiffusion` populates A1111's `override_settings.sd_model_checkpoint` with the chosen Stability id.
+- **Real OpenAI GPT-image streaming previews** for `image_gen_oai`: the tool requests OpenAI Image API streaming (`stream: true`, `partial_images: 3`) only for official OpenAI `gpt-image-*` models, emits transient partial images through the existing SSE attachment map, and still saves the final completed image through the existing artifact pipeline. Azure OpenAI, xAI/custom base URLs, DALL-E models, edits, and unsupported streaming responses remain on the non-streaming fallback path.
 - A new `ImageGenerationController` mounted at `/api/image-generation/{models,prefs}` (GET/PATCH) with explicit `IMAGE_GEN.USE` checks and zod-validated payloads. Response shapes are `TImageGenModelsResponse` and `{ prefs: TImageGenerationPrefs }`. The discovery layer caches results per user for one hour and falls back to the curated lists for Flux/Stability with a `notice` if a remote call fails.
 
 #### Key files
@@ -1275,6 +1316,7 @@ Backend:
 - `api/server/routes/index.js` (re-exports the new router)
 - `api/models/Agent.js` (`applyImageGenerationTool`, exported for test coverage)
 - `api/app/clients/tools/util/handleTools.js` (`resolveImageModelOverride`, threading `model` into all four image tool constructors)
+- `api/server/services/ToolService.js` (threads `res`/`streamId` into tool execution so `image_gen_oai` can emit partial attachments)
 - `api/app/clients/tools/structured/OpenAIImageTools.js`
 - `api/app/clients/tools/structured/GeminiImageGen.js`
 - `api/app/clients/tools/structured/FluxAPI.js`
@@ -1286,6 +1328,8 @@ Tests:
 - `packages/api/src/endpoints/imageModels.spec.ts`
 - `api/server/controllers/__tests__/ImageGenerationController.spec.js`
 - `api/models/__tests__/applyImageGenerationTool.spec.js`
+- `api/app/clients/tools/structured/specs/OpenAIImageTools.spec.js`
+- `client/src/components/Chat/Messages/Content/__tests__/OpenAIImageGen.test.tsx`
 
 Shared packages:
 
@@ -1310,6 +1354,7 @@ Frontend:
 - `client/src/components/Chat/Input/ImageGeneration.tsx` (chat-bar badge)
 - `client/src/components/Chat/Input/BadgeRow.tsx` (renders the badge after `<FileSearch />`)
 - `client/src/components/Chat/Input/ToolsDropdown.tsx` (image generation menu item with pin toggle)
+- `client/src/components/Chat/Messages/Content/Parts/OpenAIImageGen/OpenAIImageGen.tsx` (renders newest streamed partial preview, then final saved attachment)
 - `client/src/Providers/BadgeRowContext.tsx` (`imageGeneration: useToolToggle(...)` exposed via context)
 - `client/src/data-provider/ImageGeneration/{queries.ts,mutations.ts,index.ts}` (`useImageGenerationModelsQuery`, `useImageGenerationPrefsQuery`, `useUpdateImageGenerationPrefsMutation`)
 - `client/src/data-provider/index.ts` (re-export)
@@ -1320,6 +1365,7 @@ Frontend:
 - The `IMAGE_GEN` permission must remain registered in `permissions.ts` and seeded in `roles.ts` for the default user role. Any upstream rewrite of role defaults that drops `IMAGE_GEN` will silently disable the feature for everyone.
 - `api/server/index.js` must keep mounting `/api/image-generation` after auth middleware and before the catch-all 404. Same for `api/server/routes/index.js` re-export.
 - The four image-generation tool constructors must keep accepting `model` from `fields`. Upstream periodically rewrites these tools; do not regress to env-only model selection.
+- `OpenAIImageTools.js` partial-image streaming must remain additive: only official OpenAI `gpt-image-*` generations stream transient attachment previews, and final persisted files must continue through `createToolEndCallback`/`saveBase64Image`.
 - `Agent.js` must keep calling `applyImageGenerationTool` inside `loadEphemeralAgent`. The export is also used by unit tests.
 - `discoverImageModels` is the single source of truth for the Settings tab. Do not duplicate provider-specific filtering elsewhere; rely on the helpers in `packages/data-provider/src/imageGeneration.ts`.
 - Curated lists (`fluxKnownModels`, `stabilityKnownModels`) and `imageGenDefaultModel` are explicit fallbacks the UI relies on when a provider has no live discovery API. Keep them ordered newest-first and update with new releases as they ship.

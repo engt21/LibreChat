@@ -72,21 +72,23 @@ E2E tests use Playwright: `npm run e2e` (requires running app instance).
 
 ## Local runtime -- rail policy
 
-Two deployment rails share this codebase. Always validate on dev first.
+Two deployment rails share this codebase. Always validate runtime changes on dev first when an app instance is needed, but do not leave dev running after validation unless stable is unhealthy or the user explicitly wants dev up.
 
 | Rail | Purpose | Host port | Image tag | Docker project |
 |------|---------|-----------|-----------|----------------|
 | `stable` (r1) | Production | 3080 | `librechat-local-stable:latest` | `librechat-stable` |
-| `dev` (r2) | Validation | 3081 | `librechat-local-dev:latest` | `librechat-dev` |
+| `dev` (r2) | Validation / failover | 3081 | `librechat-local-dev:latest` | `librechat-dev` |
 
 ```bash
-./local-services/start-all.sh dev       # Build + start dev rail
 ./local-services/start-all.sh stable    # Build + start production rail
+./local-services/start-all.sh dev       # Manual full dev for explicit testing; stop it when done
+LIBRECHAT_DEV_PROFILE=failover ./local-services/start-all.sh dev --no-build --skip-health-check  # API-only fallback
 ./local-services/status-all.sh all      # Health check both rails
 ./local-services/stop-all.sh dev        # Stop dev rail
+./local-services/dev-failover-watchdog.sh # Health-gated dev failover controller
 ```
 
-Both rails include: LibreChat API, MongoDB, Meilisearch, PostgreSQL+pgvector (`vectordb`), 3 RAG API instances (OpenAI/Azure/Google embeddings), and the local code interpreter. The `stable` rail additionally owns the shared Langfuse + metrics stack. The `dev` rail reuses that shared traceability backend via host ports instead of starting its own Langfuse/metrics containers.
+`stable` is the steady-state production rail and owns the full stack, including shared Langfuse + metrics. `dev` normally stays stopped and is started only for explicit testing or by `librechat-dev-failover.timer` after stable health fails. In default shared-stable mode, dev connects to stable MongoDB and shared `uploads/` so `:3081` can access the same data when stable API is down; use existing test accounts for dev testing and avoid destructive data resets. The failover profile is intentionally API-only and resource-limited.
 
 ### CRITICAL: Deploying code-only changes -- never rebuild unnecessarily
 
@@ -114,14 +116,14 @@ Runtime secret/data files (`.env`, `librechat.yaml`, `langfuse/.env`, `data-node
 
 ## CRITICAL: Mission safety -- dev-rail-only policy
 
-**All agent missions (upstream merges, version bumps, feature migrations, validation harnesses) MUST operate exclusively on the dev rail (r2, port 3081) for the entire duration of the mission.** The stable/production rail (r1, port 3080) must remain running and untouched so the user can continue using it normally while the mission executes.
+**All agent missions (upstream merges, version bumps, feature migrations, validation harnesses) MUST validate app/runtime behavior on the dev rail (r2, port 3081) when a running instance is needed.** The stable/production rail (r1, port 3080) must remain running and untouched so the user can continue using it normally while the mission executes. Dev is not an always-on second production stack: start it only for explicit validation/testing or failover, and stop it after validation when stable is healthy.
 
 ### Hard rules for missions
 
 1. **Never rebuild, restart, stop, or reconfigure the stable rail** during any mission step. The stable containers must stay up and serving live traffic throughout.
 2. **Never run `./local-services/start-all.sh stable`** as part of a mission. Only `./local-services/start-all.sh dev` is permitted during mission work.
 3. **Never direct Docker commands at `librechat-stable-*` containers** (build, restart, exec with mutations, etc.) during mission work.
-4. **All code changes, builds, tests, and validation happen on dev only.** The dev rail has its own compose project, image tags, ports, and writable state under `.rails/dev/`.
+4. **All code changes, builds, tests, and runtime validation happen on dev only.** Dev has its own compose project, image tags, ports, logs, Meilisearch, and code-interpreter state, but shares stable MongoDB/uploads by default; use test accounts and avoid destructive shared-data actions.
 5. **Promotion to stable happens ONLY at the very end of the mission**, after ALL of the following are confirmed:
    - All validation contract checks pass on dev
    - All tests (lint, build, unit, integration) pass on dev
@@ -129,10 +131,11 @@ Runtime secret/data files (`.env`, `librechat.yaml`, `langfuse/.env`, `data-node
    - The user has been informed and has given explicit approval to promote
 6. **The cutover sequence** (when promotion is approved): `docker cp` changed files into stable, `docker restart` stable. For the brief restart window, dev absorbs traffic. After stable is healthy, traffic returns to stable.
 7. **If something goes wrong during the mission**, the dev rail is the only thing that gets fixed or restarted. Stable remains untouched as the fallback.
+8. **After dev validation**, stop dev with `./local-services/stop-all.sh dev` if stable is healthy and the user did not ask to keep dev running. Automatic failover is owned by `librechat-dev-failover.timer`, which starts API-only dev when stable health fails and stops failover-owned dev when stable recovers.
 
 ### Why this matters
 
-The user depends on the stable rail for daily use. A mission that accidentally disrupts stable leaves the user without a working instance. The dev rail exists precisely so that all experimental, migration, and validation work can happen in isolation without risk to the production environment.
+The user depends on the stable rail for daily use. A mission that accidentally disrupts stable leaves the user without a working instance. The dev rail exists for explicit testing and health-gated fallback access; it should not consume resources as an always-on parallel stack while stable is healthy.
 
 ## Mandatory read order before coding
 

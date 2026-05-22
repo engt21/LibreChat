@@ -58,10 +58,10 @@ git fetch /pool/home/timeng/LibreChat-custom-backup-pre-migration.git engt21/loc
 
 ### 3. Dev Bundle Export/Import (runtime state)
 
-Dev bundle export/import captures the full dev-rail runtime state including:
+Dev bundle export/import captures isolated dev-rail runtime state. The current default dev rail uses shared-stable MongoDB/uploads; use `LIBRECHAT_DEV_USE_STABLE_MONGO=false` when you need a fully isolated dev bundle that owns its own MongoDB and uploads.
 
 **Bind files:** `.env`, `librechat.yaml`, `langfuse/.env`  
-**Bind directories:** `images/`, `.rails/dev/uploads/`, `.rails/dev/data-node/`, `.rails/dev/meili_data_v1.35.1/`, `.rails/dev/local-code-interpreter/data/`  
+**Bind directories:** `images/`, `.rails/dev/uploads/` in isolated mode, `.rails/dev/data-node/`, `.rails/dev/meili_data_v1.35.1/`, `.rails/dev/local-code-interpreter/data/`
 **Docker volumes:** `pgdata2`, `langfuse_postgres_data`, `langfuse_clickhouse_data`, `langfuse_minio_data`, `langfuse_redis_data`
 
 **Export:**
