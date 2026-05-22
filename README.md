@@ -379,7 +379,7 @@ This branch includes additional MCP compatibility work beyond upstream LibreChat
 - Live local validation connected to Arcade `microsoft-tools`, listed 24 tools, and advanced `MicrosoftOnedrive_WhoAmI` plus `MicrosoftOnedrive_GetMyDrive` to provider authorization prompts instead of LibreChat MCP initialization errors.
 - The local runtime also configures a read-only `internet-archive` MCP server at `http://192.168.50.4:8770/mcp` for Wayback Machine and archive.org research tools; see `INTERNET_ARCHIVE_MCP.md`.
 
-For the detailed local-runtime version of these notes, see `README.local.md` and `CUSTOMIZATION_MASTER_DOC.md`.
+For the detailed local-runtime version of these notes, see `README.local.md`, `CUSTOMIZATION_MASTER_DOC.md`, and `INTERNET_ARCHIVE_MCP.md`.
 
 ### Default model access for new non-admin users
 

@@ -637,6 +637,36 @@ Ignored files are only safe if they were never tracked. If a secret file ever be
 
 ---
 
+## 13. Internet Archive / Wayback read-only MCP server integration
+
+### What it does
+
+- Runs the external `/pool/home/timeng/internet-archive-mcp-server` FastMCP service as LibreChat MCP server `internet-archive`
+- Uses streamable HTTP at `http://192.168.50.4:8770/mcp`
+- Exposes 19 read-only Wayback and archive.org tools for capture lookup, CDX search, snapshot text/source fetches, snapshot comparison, item search, metadata, files/full text, reviews, views, and Simple Lists
+- Intentionally excludes write/auth/destructive Internet Archive APIs such as Save Page Now, uploads/deletes, metadata writes, review writes, relationship writes, and task submissions
+
+### Main files
+
+- `librechat.yaml` (runtime, gitignored)
+- `/pool/home/timeng/internet-archive-mcp-server`
+- `/home/timeng/.config/systemd/user/internet-archive-mcp.service`
+- `INTERNET_ARCHIVE_MCP.md`
+
+### Preserve during merges
+
+- `mcpServers.internet-archive` must remain `type: streamable-http` at `http://192.168.50.4:8770/mcp` with `timeout: 90000`
+- `http://192.168.50.4:8770` must remain in `mcpSettings.allowedDomains`
+- the external server must stay read-only unless a separate security review and explicit approval authorizes writes
+- preserve rate limiting, `Retry-After` handling, bounded output limits, and binary-derivative safeguards for full-text selection
+
+### Supporting docs
+
+- `INTERNET_ARCHIVE_MCP.md`
+- `CUSTOMIZATION_MASTER_DOC.md`
+
+---
+
 ## Existing supporting docs already in this branch
 
 These documents still matter and should not be forgotten just because this master guide exists:
