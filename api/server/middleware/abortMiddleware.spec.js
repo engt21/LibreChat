@@ -16,9 +16,11 @@ const mockSpendStructuredTokens = jest.fn().mockResolvedValue();
 const mockRecordCollectedUsage = jest
   .fn()
   .mockResolvedValue({ input_tokens: 100, output_tokens: 50 });
+const mockFilterMalformedContentParts = jest.fn((parts) => parts);
 
 const mockGetMultiplier = jest.fn().mockReturnValue(1);
 const mockGetCacheMultiplier = jest.fn().mockReturnValue(null);
+const mockSaveMessage = jest.fn().mockResolvedValue();
 
 jest.mock('~/models/spendTokens', () => ({
   spendTokens: (...args) => mockSpendTokens(...args),
@@ -46,6 +48,7 @@ jest.mock('@librechat/api', () => ({
   GenerationJobManager: {
     abortJob: jest.fn(),
   },
+  filterMalformedContentParts: (...args) => mockFilterMalformedContentParts(...args),
   recordCollectedUsage: mockRecordCollectedUsage,
   sanitizeMessageForTransmit: jest.fn((msg) => msg),
 }));
@@ -69,7 +72,7 @@ jest.mock('~/server/middleware/error', () => ({
 const mockUpdateBalance = jest.fn().mockResolvedValue({});
 const mockBulkInsertTransactions = jest.fn().mockResolvedValue(undefined);
 jest.mock('~/models', () => ({
-  saveMessage: jest.fn().mockResolvedValue(),
+  saveMessage: (...args) => mockSaveMessage(...args),
   getConvo: jest.fn().mockResolvedValue({ title: 'Test Chat' }),
   updateBalance: mockUpdateBalance,
   bulkInsertTransactions: mockBulkInsertTransactions,
@@ -79,11 +82,73 @@ jest.mock('./abortRun', () => ({
   abortRun: jest.fn(),
 }));
 
-const { spendCollectedUsage } = require('./abortMiddleware');
+const { GenerationJobManager } = require('@librechat/api');
+const { handleAbort, spendCollectedUsage } = require('./abortMiddleware');
 
 describe('abortMiddleware - spendCollectedUsage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  describe('abort response persistence', () => {
+    it('should filter orphaned Anthropic web search blocks before saving aborted content', async () => {
+      const orphanContent = [
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_orphan',
+          name: 'web_search',
+          input: { query: 'latest events' },
+        },
+        { type: 'text', text: 'Partial answer' },
+      ];
+      const filteredContent = [{ type: 'text', text: 'Partial answer' }];
+      mockFilterMalformedContentParts.mockReturnValueOnce(filteredContent);
+      GenerationJobManager.abortJob.mockResolvedValueOnce({
+        success: true,
+        jobData: {
+          responseMessageId: 'response-msg',
+          userMessage: {
+            messageId: 'user-msg',
+            parentMessageId: 'root',
+            conversationId: 'conversation-123',
+            text: 'Search the web',
+          },
+          conversationId: 'conversation-123',
+          sender: 'Claude',
+          endpoint: 'agents',
+          model: 'claude-opus-4-7',
+          promptTokens: 10,
+        },
+        content: orphanContent,
+        text: 'Partial answer',
+        collectedUsage: [],
+      });
+
+      const req = {
+        body: { abortKey: 'test-abort-key:abort', endpoint: 'agents' },
+        user: { id: 'user-123', email: 'user@example.com' },
+      };
+      const res = {
+        headersSent: false,
+        setHeader: jest.fn(),
+        send: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+      };
+
+      await handleAbort()(req, res);
+
+      expect(mockFilterMalformedContentParts).toHaveBeenCalledWith(orphanContent);
+      expect(mockSaveMessage).toHaveBeenCalledWith(
+        req,
+        expect.objectContaining({
+          content: filteredContent,
+        }),
+        expect.objectContaining({ context: 'api/server/middleware/abortMiddleware.js' }),
+      );
+
+      const finalEvent = JSON.parse(res.send.mock.calls[0][0]);
+      expect(finalEvent.responseMessage.content).toEqual(filteredContent);
+    });
   });
 
   describe('spendCollectedUsage delegation', () => {
