@@ -98,6 +98,52 @@ describe('OpenAIImageGen', () => {
       expect(image.className).not.toContain('invisible');
       expect(image.className).not.toContain('absolute');
     });
+
+    it('shows streamed partial image during generation', () => {
+      render(
+        <OpenAIImageGen
+          {...defaultProps}
+          initialProgress={0.5}
+          attachments={[
+            {
+              filename: 'partial.png',
+              filepath: 'data:image/png;base64,partial',
+              conversationId: 'conv1',
+            } as never,
+          ]}
+        />,
+      );
+      const image = screen.getByTestId('image-component');
+      expect(image).toHaveAttribute('data-src', 'data:image/png;base64,partial');
+      expect(image.className).not.toContain('invisible');
+      expect(screen.queryByTestId('pixel-card')).not.toBeInTheDocument();
+    });
+
+    it('uses the latest attachment so final image replaces streamed previews', () => {
+      render(
+        <OpenAIImageGen
+          {...defaultProps}
+          initialProgress={1}
+          isSubmitting={false}
+          attachments={[
+            {
+              filename: 'partial.png',
+              filepath: 'data:image/png;base64,partial',
+              conversationId: 'conv1',
+            } as never,
+            {
+              filename: 'final.png',
+              filepath: '/images/final.png',
+              conversationId: 'conv1',
+            } as never,
+          ]}
+        />,
+      );
+      expect(screen.getByTestId('image-component')).toHaveAttribute(
+        'data-src',
+        '/images/final.png',
+      );
+    });
   });
 
   describe('PixelCard visibility', () => {

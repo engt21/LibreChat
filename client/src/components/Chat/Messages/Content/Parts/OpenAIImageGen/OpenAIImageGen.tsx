@@ -49,13 +49,14 @@ export default function OpenAIImageGen({
     }
   }
 
-  const attachment = attachments?.[0];
+  const attachment = attachments?.[attachments.length - 1];
   const {
     filepath = null,
     filename = '',
     width: imgWidth,
     height: imgHeight,
   } = (attachment as TFile & TAttachmentMetadata) || {};
+  const hasStreamingPreview = progress < 1 && !!filepath;
 
   useEffect(() => {
     if (isSubmitting) {
@@ -123,14 +124,16 @@ export default function OpenAIImageGen({
       </div>
       <div className={cn('relative mb-2 flex w-full max-w-lg justify-start', IMAGE_MAX_H)}>
         <div className={cn('overflow-hidden', progress < 1 ? [IMAGE_FULL_H, 'w-full'] : 'w-auto')}>
-          {progress < 1 && <PixelCard variant="default" progress={progress} randomness={0.6} />}
+          {progress < 1 && !hasStreamingPreview && (
+            <PixelCard variant="default" progress={progress} randomness={0.6} />
+          )}
           <Image
             width={imgWidth}
             args={parsedArgs}
             height={imgHeight}
             altText={filename}
             imagePath={filepath ?? ''}
-            className={progress < 1 ? 'invisible absolute' : ''}
+            className={progress < 1 && !hasStreamingPreview ? 'invisible absolute' : ''}
           />
         </div>
       </div>

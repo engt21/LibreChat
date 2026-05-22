@@ -8,6 +8,7 @@ This document describes the user-managed image generation feature in this custom
 - A new **Image badge** in the chat-bar is gated by the `IMAGE_GEN.USE` permission. The toggle persists per conversation as `ephemeralAgent.image_generation`.
 - An **always-on auto-injection** path in `Agent.js` adds the right tool key when any of the following are true: chat-bar toggle on, `enabledByDefault` set in user prefs, or the active modelSpec opts in.
 - Per-user model selection is plumbed through to the four image-generation tools (`image_gen_oai`, `gemini_image_gen`, `flux`, `stable-diffusion`) so the saved provider default actually wins over the env-only default.
+- OpenAI GPT-image generation streams real partial-image previews to the existing attachment pipeline while preserving the final saved image artifact. Azure/custom/non-GPT-image paths stay on the existing non-streaming flow.
 
 ## Goals
 
@@ -63,11 +64,11 @@ Discovery is intentionally tolerant: when a remote call fails for a configured p
 
 Three handlers, all gated by `IMAGE_GEN.USE`:
 
-| Method | Path                                  | Purpose                                                                                           |
-|--------|---------------------------------------|---------------------------------------------------------------------------------------------------|
-| GET    | `/api/image-generation/models`        | Calls `discoverImageModels({ user, loadCredential, appConfig })`, returns `TImageGenModelsResponse` |
-| GET    | `/api/image-generation/prefs`         | Returns `{ prefs: TImageGenerationPrefs }` (default object if user has none saved)                |
-| PATCH  | `/api/image-generation/prefs`         | Validates body with `imageGenerationPrefsUpdateSchema`, merges with existing, persists, returns saved prefs |
+| Method | Path                           | Purpose                                                                                                     |
+| ------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/image-generation/models` | Calls `discoverImageModels({ user, loadCredential, appConfig })`, returns `TImageGenModelsResponse`         |
+| GET    | `/api/image-generation/prefs`  | Returns `{ prefs: TImageGenerationPrefs }` (default object if user has none saved)                          |
+| PATCH  | `/api/image-generation/prefs`  | Validates body with `imageGenerationPrefsUpdateSchema`, merges with existing, persists, returns saved prefs |
 
 Errors are squashed to 401/403/400/500 with structured payloads so the client never sees a stack trace.
 
@@ -85,10 +86,12 @@ function resolveImageModelOverride({ toolKey, endpoint, prefs }) {
 
 Each of the four image-generation tools accepts the resolved id:
 
-- `OpenAIImageTools.js` — uses `fields.model` ahead of `IMAGE_GEN_OAI_MODEL`
+- `OpenAIImageTools.js` — uses `fields.model` ahead of `IMAGE_GEN_OAI_MODEL`; for official OpenAI GPT-image generation it requests `stream: true` / `partial_images: 3`, emits partial previews as transient `attachment` SSE events keyed by `messageId` + `toolCallId`, and still returns the final base64 image through the existing artifact saver.
 - `GeminiImageGen.js` — accepts `modelOverride` from `fields.model`
 - `FluxAPI.js` — derives `this.defaultEndpoint` (e.g. `/v1/flux-pro-1.1`) from the model id
 - `StableDiffusion.js` — populates A1111's `override_settings.sd_model_checkpoint`
+
+Streaming is intentionally narrow: it requires an official OpenAI base URL, a `gpt-image-*` model, and tool-call metadata from the agent stream. Azure OpenAI, xAI/custom base URLs, DALL-E models, edits, and unsupported streaming errors fall back to the existing final-response behavior.
 
 ### Auto-injection — `api/models/Agent.js :: applyImageGenerationTool`
 
@@ -133,6 +136,10 @@ A single `CheckboxButton` with a Lucide `Image` icon. The badge is rendered by `
 
 Per-conversation toggle state lives at `LocalStorageKeys.LAST_IMAGE_GENERATION_TOGGLE_<convoId>` and (mirrored) on `ephemeralAgent.image_generation` via the existing `useToolToggle` hook. The chat-bar pin lives at `LocalStorageKeys.PIN_IMAGE_GENERATION_pinned`.
 
+### Streamed previews
+
+`OpenAIImageGen.tsx` consumes the normal per-tool `attachments` array. During an OpenAI GPT-image stream, the backend sends transient data-URL attachments for `image_generation.partial_image` and `image_generation.completed`; the component displays the newest attachment immediately and suppresses the fake `PixelCard` once a real preview exists. When the final persisted file attachment arrives from `createToolEndCallback`, it is appended last and replaces the transient data URL without changing the saved message shape.
+
 ## Permissions
 
 A new `PermissionTypes.IMAGE_GEN` is registered in `permissions.ts` and seeded with `USE` in the default user role in `roles.ts`. The controller, the chat-bar badge, the dropdown item, and the Settings tab all gate on `IMAGE_GEN.USE`. Admins can revoke the permission to disable image generation per role without removing any deployment-level credentials.
@@ -141,26 +148,28 @@ A new `PermissionTypes.IMAGE_GEN` is registered in `permissions.ts` and seeded w
 
 The discovery layer recognizes the following env (server-defined credentials):
 
-| Provider          | Env variables                                                                                  |
-|-------------------|------------------------------------------------------------------------------------------------|
-| OpenAI            | `OPENAI_API_KEY` (or `IMAGE_GEN_OAI_API_KEY`), `IMAGE_GEN_OAI_BASEURL`, `IMAGE_GEN_OAI_MODEL`  |
-| Azure OpenAI      | `AZURE_OPENAI_API_KEY` plus existing Azure base/api-version env                                |
-| xAI               | `XAI_API_KEY` plus `XAI_REVERSE_PROXY_URL`                                                     |
-| Google Gemini API | `GOOGLE_API_KEY` / `GEMINI_API_KEY`                                                            |
-| Vertex AI         | Existing Vertex service-account / ADC env (re-uses `prepareGoogleCredentials`)                 |
-| Flux (BFL)        | `FLUX_API_KEY`                                                                                 |
-| Stability AI      | `STABILITY_API_KEY`                                                                            |
+| Provider          | Env variables                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| OpenAI            | `OPENAI_API_KEY` (or `IMAGE_GEN_OAI_API_KEY`), `IMAGE_GEN_OAI_BASEURL`, `IMAGE_GEN_OAI_MODEL` |
+| Azure OpenAI      | `AZURE_OPENAI_API_KEY` plus existing Azure base/api-version env                               |
+| xAI               | `XAI_API_KEY` plus `XAI_REVERSE_PROXY_URL`                                                    |
+| Google Gemini API | `GOOGLE_API_KEY` / `GEMINI_API_KEY`                                                           |
+| Vertex AI         | Existing Vertex service-account / ADC env (re-uses `prepareGoogleCredentials`)                |
+| Flux (BFL)        | `FLUX_API_KEY`                                                                                |
+| Stability AI      | `STABILITY_API_KEY`                                                                           |
 
 Per-user keys saved through the existing user-key flow are also resolved via `loadAuthValues` (with `throwError: false`) and merged with env-defined credentials — the Settings tab labels show whether the source is `server` or `user`.
 
 ## Tests
 
-| File                                                                    | What it covers                                              |
-|-------------------------------------------------------------------------|-------------------------------------------------------------|
-| `packages/data-provider/src/imageGeneration.spec.ts`                    | helpers, curated lists, prefs zod schemas, endpoint URLs    |
-| `packages/api/src/endpoints/imageModels.spec.ts`                        | provider-info merging, OpenAI live discovery, curated fallbacks |
-| `api/server/controllers/__tests__/ImageGenerationController.spec.js`    | get/patch/permission/error paths                             |
-| `api/models/__tests__/applyImageGenerationTool.spec.js`                 | tool-key selection per endpoint and prefs                    |
+| File                                                                            | What it covers                                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `packages/data-provider/src/imageGeneration.spec.ts`                            | helpers, curated lists, prefs zod schemas, endpoint URLs            |
+| `packages/api/src/endpoints/imageModels.spec.ts`                                | provider-info merging, OpenAI live discovery, curated fallbacks     |
+| `api/server/controllers/__tests__/ImageGenerationController.spec.js`            | get/patch/permission/error paths                                    |
+| `api/models/__tests__/applyImageGenerationTool.spec.js`                         | tool-key selection per endpoint and prefs                           |
+| `api/app/clients/tools/structured/specs/OpenAIImageTools.spec.js`               | OpenAI partial-image streaming, Azure non-streaming guard, fallback |
+| `client/src/components/Chat/Messages/Content/__tests__/OpenAIImageGen.test.tsx` | partial preview rendering and final-attachment replacement          |
 
 Run them all:
 
@@ -168,6 +177,8 @@ Run them all:
 cd packages/data-provider && npx jest --testPathPatterns=imageGeneration
 cd packages/api && npx jest --testPathPatterns=imageModels
 cd api && npx jest --testPathPatterns="ImageGenerationController|applyImageGenerationTool"
+cd api && npx jest --testPathPatterns=app/clients/tools/structured/specs/OpenAIImageTools.spec.js
+cd client && npx jest --testPathPatterns=components/Chat/Messages/Content/__tests__/OpenAIImageGen.test.tsx
 ```
 
 ## Live-rail deployment
@@ -197,3 +208,4 @@ The Settings → Image generation tab loads only for users whose role grants `IM
 - **`@librechat/api` is symlinked from `node_modules/@librechat/api -> packages/api`.** If `packages/api/dist` is missing (e.g. after a `rimraf` from a Docker build), every Jest spec that mocks `@librechat/api` will fail with `Cannot find module '@librechat/api'`. Always run `npm run build:api` before running api workspace tests on a freshly checked-out tree.
 - **Curated newest-first ordering matters.** The `pickDefaultImageModel` helper relies on the curated list ordering for fallback. Keep `fluxKnownModels` and `stabilityKnownModels` in newest-first order with explicit `releasedAt` timestamps.
 - **Auto-injection must not regress to "openai-only".** The candidate chain explicitly walks `openai → google → flux`, so even if the active endpoint is unrecognized we still produce a working tool key when the user has any provider configured.
+- **Partial-image streaming should stay additive.** The final saved image still flows through `createToolEndCallback`/`saveBase64Image`; transient preview attachments must not be persisted into the response message or replace the artifact saver.

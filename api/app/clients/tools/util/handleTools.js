@@ -288,6 +288,8 @@ const loadTools = async ({
         ...authValues,
         isAgent: !!agent,
         req: options.req,
+        res: options.res,
+        streamId: options.streamId ?? options.req?._resumableStreamId ?? null,
         imageOutputType,
         fileStrategy,
         imageFiles,

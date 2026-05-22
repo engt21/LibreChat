@@ -7,12 +7,20 @@ const { tool } = require('@langchain/core/tools');
 const { logger } = require('@librechat/data-schemas');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { ContentTypes, EImageOutputType } = require('librechat-data-provider');
-const { logAxiosError, oaiToolkit, extractBaseURL } = require('@librechat/api');
+const {
+  logAxiosError,
+  oaiToolkit,
+  extractBaseURL,
+  GenerationJobManager,
+} = require('@librechat/api');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { getFiles } = require('~/models');
 
 const displayMessage =
   "The tool displayed an image. All generated images are already plainly visible, so don't repeat the descriptions in detail. Do not list download links as they are available in the UI already. The user may download the images by clicking on them, but do not mention anything about downloading to the user.";
+const OPENAI_IMAGE_PARTIALS = 3;
+const IMAGE_GENERATION_PARTIAL_EVENT = 'image_generation.partial_image';
+const IMAGE_GENERATION_COMPLETED_EVENT = 'image_generation.completed';
 
 /**
  * Replaces unwanted characters from the input string
@@ -41,6 +49,165 @@ function returnValue(value) {
 function createAbortHandler() {
   return function () {
     logger.debug('[ImageGenOAI] Image generation aborted');
+  };
+}
+
+function isAzureImageEndpoint() {
+  return Boolean(process.env.IMAGE_GEN_OAI_AZURE_API_VERSION && process.env.IMAGE_GEN_OAI_BASEURL);
+}
+
+function isGptImageModel(model) {
+  return typeof model === 'string' && /^gpt-image-/i.test(model);
+}
+
+function isOfficialOpenAIBaseURL(baseURL) {
+  try {
+    return new URL(baseURL).hostname.toLowerCase() === 'api.openai.com';
+  } catch (error) {
+    logger.warn('[ImageGenOAI] Could not parse OpenAI image base URL for streaming check', error);
+    return false;
+  }
+}
+
+function supportsImageStreaming({ baseURL, model }) {
+  return !isAzureImageEndpoint() && isGptImageModel(model) && isOfficialOpenAIBaseURL(baseURL);
+}
+
+function getToolCallMetadata(runnableConfig) {
+  const metadata = runnableConfig?.metadata ?? {};
+  const toolCall = runnableConfig?.toolCall ?? {};
+  return {
+    messageId: metadata.run_id,
+    conversationId: metadata.thread_id,
+    toolCallId: toolCall.id ?? toolCall.tool_call_id,
+  };
+}
+
+function canEmitPartialImage({ res, streamId, runnableConfig }) {
+  const { messageId, conversationId, toolCallId } = getToolCallMetadata(runnableConfig);
+  return Boolean((streamId || res) && messageId && conversationId && toolCallId);
+}
+
+function emitPartialImageAttachment({
+  res,
+  streamId,
+  event,
+  toolName,
+  output_format,
+  runnableConfig,
+}) {
+  const base64Image = event?.b64_json;
+  if (!base64Image) {
+    return;
+  }
+
+  const { messageId, conversationId, toolCallId } = getToolCallMetadata(runnableConfig);
+  if (!messageId || !conversationId || !toolCallId) {
+    logger.debug('[ImageGenOAI] Skipping partial image event without tool metadata');
+    return;
+  }
+
+  const format = event.output_format || output_format || EImageOutputType.PNG;
+  const isComplete = event.type === IMAGE_GENERATION_COMPLETED_EVENT;
+  const partialIndex =
+    typeof event.partial_image_index === 'number' ? event.partial_image_index : undefined;
+  const filenameSuffix = isComplete ? 'complete' : `partial_${partialIndex ?? 'latest'}`;
+  const attachment = {
+    messageId,
+    toolCallId,
+    conversationId,
+    filename: `${toolName}_${filenameSuffix}.${format}`,
+    filepath: `data:image/${format};base64,${base64Image}`,
+    partial: !isComplete,
+    partialImageIndex: partialIndex,
+  };
+
+  if (streamId) {
+    GenerationJobManager.emitChunk(streamId, { event: 'attachment', data: attachment });
+    return;
+  }
+
+  if (res && !res.writableEnded) {
+    res.write(`event: attachment\ndata: ${JSON.stringify(attachment)}\n\n`);
+  }
+}
+
+function shouldFallbackFromStreamingError(error) {
+  const message = String(error?.message ?? '').toLowerCase();
+  const status = error?.status ?? error?.response?.status;
+  const mayBeUnsupportedStreamingStatus = [400, 404, 415, 422].includes(status);
+  const isUnsupportedStreamingMessage =
+    message.includes('stream') ||
+    message.includes('partial_images') ||
+    message.includes('unsupported') ||
+    message.includes('unknown parameter');
+
+  if (!isUnsupportedStreamingMessage) {
+    return false;
+  }
+
+  return status == null || mayBeUnsupportedStreamingStatus;
+}
+
+async function generateImageWithPartials({
+  openai,
+  request,
+  options,
+  fields,
+  toolName,
+  output_format,
+  runnableConfig,
+}) {
+  const stream = await openai.images.generate(
+    {
+      ...request,
+      stream: true,
+      partial_images: OPENAI_IMAGE_PARTIALS,
+    },
+    {
+      ...options,
+      stream: true,
+    },
+  );
+
+  let finalEvent = null;
+  let latestEvent = null;
+
+  for await (const event of stream) {
+    if (
+      event?.type !== IMAGE_GENERATION_PARTIAL_EVENT &&
+      event?.type !== IMAGE_GENERATION_COMPLETED_EVENT
+    ) {
+      continue;
+    }
+
+    latestEvent = event;
+    emitPartialImageAttachment({
+      res: fields.res,
+      streamId: fields.streamId,
+      event,
+      toolName,
+      output_format,
+      runnableConfig,
+    });
+
+    if (event.type === IMAGE_GENERATION_COMPLETED_EVENT) {
+      finalEvent = event;
+    }
+  }
+
+  const imageEvent = finalEvent ?? latestEvent;
+  if (!imageEvent?.b64_json) {
+    return null;
+  }
+
+  return {
+    data: [{ b64_json: imageEvent.b64_json }],
+    background: imageEvent.background,
+    output_format: imageEvent.output_format || output_format,
+    quality: imageEvent.quality,
+    size: imageEvent.size,
+    usage: imageEvent.usage,
   };
 }
 
@@ -162,24 +329,51 @@ function createOpenAIImageTools(fields = {}) {
           derivedSignal.addEventListener('abort', abortHandler, { once: true });
         }
 
-        resp = await openai.images.generate(
-          {
-            model: imageModel,
-            prompt: replaceUnwantedChars(prompt),
-            n: Math.min(Math.max(1, n), 10),
-            background,
-            output_format,
-            output_compression:
-              output_format === EImageOutputType.WEBP || output_format === EImageOutputType.JPEG
-                ? output_compression
-                : undefined,
-            quality,
-            size,
-          },
-          {
-            signal: derivedSignal,
-          },
-        );
+        const request = {
+          model: imageModel,
+          prompt: replaceUnwantedChars(prompt),
+          n: Math.min(Math.max(1, n), 10),
+          background,
+          output_format,
+          output_compression:
+            output_format === EImageOutputType.WEBP || output_format === EImageOutputType.JPEG
+              ? output_compression
+              : undefined,
+          quality,
+          size,
+        };
+        const requestOptions = {
+          signal: derivedSignal,
+        };
+
+        if (
+          supportsImageStreaming({ baseURL, model: imageModel }) &&
+          canEmitPartialImage({ res: fields.res, streamId: fields.streamId, runnableConfig })
+        ) {
+          try {
+            resp = await generateImageWithPartials({
+              openai,
+              request,
+              options: requestOptions,
+              fields,
+              toolName: 'image_gen_oai',
+              output_format,
+              runnableConfig,
+            });
+          } catch (streamError) {
+            if (!shouldFallbackFromStreamingError(streamError)) {
+              throw streamError;
+            }
+            logger.warn(
+              '[ImageGenOAI] Streaming image generation unavailable, falling back to final image response',
+              streamError,
+            );
+          }
+        }
+
+        if (!resp) {
+          resp = await openai.images.generate(request, requestOptions);
+        }
       } catch (error) {
         const message = '[image_gen_oai] Problem generating the image:';
         logAxiosError({ error, message });
@@ -199,6 +393,7 @@ Error Message: ${error.message}`);
 
       // For gpt-image-1, the response contains base64-encoded images
       // TODO: handle cost in `resp.usage`
+      output_format = resp.output_format || output_format;
       const base64Image = resp.data[0].b64_json;
 
       if (!base64Image) {

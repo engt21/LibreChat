@@ -56,7 +56,10 @@ const { processFileURL, uploadImageBuffer } = require('~/server/services/Files/p
 const { primeFiles: primeSearchFiles } = require('~/app/clients/tools/util/fileSearch');
 const { primeFiles: primeCodeFiles } = require('~/server/services/Files/Code/process');
 const { manifestToolMap, toolkits } = require('~/app/clients/tools/manifest');
-const { createOnSearchResults, createOnWebSearchStatus } = require('~/server/services/Tools/search');
+const {
+  createOnSearchResults,
+  createOnWebSearchStatus,
+} = require('~/server/services/Tools/search');
 const { OLLAMA_WEB_FETCH_TOOL } = require('~/server/services/Tools/ollama');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { reinitMCPServer } = require('~/server/services/Tools/mcp');
@@ -158,6 +161,8 @@ async function processRequiredActions(client, requiredActions) {
     options: {
       processFileURL,
       req: client.req,
+      res: client.res,
+      streamId: client.req?._resumableStreamId || null,
       uploadImageBuffer,
       openAIApiKey: client.apiKey,
       returnMetadata: true,
@@ -902,6 +907,7 @@ async function loadAgentTools({
       res,
       openAIApiKey,
       tool_resources,
+      streamId,
       processFileURL,
       uploadImageBuffer,
       returnMetadata: true,
@@ -1231,7 +1237,10 @@ async function loadToolsForExecution({
   if (regularToolNames.length > 0) {
     const includesWebSearch = regularToolNames.includes(Tools.web_search);
     const webSearchCallbacks = includesWebSearch
-      ? { ...createOnSearchResults(res, streamId), onWebSearchStatus: createOnWebSearchStatus(res, streamId) }
+      ? {
+          ...createOnSearchResults(res, streamId),
+          onWebSearchStatus: createOnWebSearchStatus(res, streamId),
+        }
       : undefined;
 
     const { loadedTools } = await loadTools({
@@ -1244,6 +1253,7 @@ async function loadToolsForExecution({
       options: {
         req,
         res,
+        streamId,
         tool_resources,
         processFileURL,
         uploadImageBuffer,
