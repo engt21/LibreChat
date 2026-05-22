@@ -415,6 +415,73 @@ describe('useMCPSelect', () => {
       });
     });
 
+    it('should store per-server MCP tool filters and select the server', async () => {
+      const { Wrapper, servers } = createWrapper(['server1']);
+
+      const TestComponent = () => {
+        const mcpHook = useMCPSelect({ servers });
+        const ephemeralAgent = useRecoilValue(ephemeralAgentByConvoId(Constants.NEW_CONVO));
+        return { mcpHook, ephemeralAgent };
+      };
+
+      const { result } = renderHook(() => TestComponent(), { wrapper: Wrapper });
+
+      act(() => {
+        result.current.mcpHook.setServerToolSelection(
+          'server1',
+          ['tool2_mcp_server1'],
+          ['tool1_mcp_server1', 'tool2_mcp_server1'],
+        );
+      });
+
+      await waitFor(() => {
+        expect(result.current.mcpHook.mcpValues).toEqual(['server1']);
+        expect(result.current.mcpHook.mcpToolFilter).toEqual({
+          server1: ['tool2_mcp_server1'],
+        });
+        expect(result.current.ephemeralAgent?.mcpToolFilter).toEqual({
+          server1: ['tool2_mcp_server1'],
+        });
+      });
+    });
+
+    it('should remove a per-server MCP tool filter when all tools are selected', async () => {
+      const { Wrapper, servers } = createWrapper(['server1']);
+      const allToolKeys = ['tool1_mcp_server1', 'tool2_mcp_server1'];
+
+      const TestComponent = () => {
+        const mcpHook = useMCPSelect({ servers });
+        const ephemeralAgent = useRecoilValue(ephemeralAgentByConvoId(Constants.NEW_CONVO));
+        return { mcpHook, ephemeralAgent };
+      };
+
+      const { result } = renderHook(() => TestComponent(), { wrapper: Wrapper });
+
+      act(() => {
+        result.current.mcpHook.setServerToolSelection(
+          'server1',
+          ['tool1_mcp_server1'],
+          allToolKeys,
+        );
+      });
+
+      await waitFor(() => {
+        expect(result.current.mcpHook.mcpToolFilter).toEqual({
+          server1: ['tool1_mcp_server1'],
+        });
+      });
+
+      act(() => {
+        result.current.mcpHook.setServerToolSelection('server1', allToolKeys, allToolKeys);
+      });
+
+      await waitFor(() => {
+        expect(result.current.mcpHook.mcpValues).toEqual(['server1']);
+        expect(result.current.mcpHook.mcpToolFilter).toEqual({});
+        expect(result.current.ephemeralAgent?.mcpToolFilter).toBeUndefined();
+      });
+    });
+
     it('should clear mcpValues when ephemeralAgent.mcp is set to empty array', async () => {
       // Create a shared wrapper
       const { Wrapper, servers } = createWrapper(['initial-value']);

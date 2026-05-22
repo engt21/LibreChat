@@ -9,10 +9,28 @@ Users can manage scheduled runs from **Settings → Data → Scheduled runs**.
 - cron-based scheduling with timezone support
 - agent runs and direct model prompts
 - manual run-now execution
+- direct model prompt tool settings:
+  - web search
+  - code interpreter
+  - file search
+  - artifacts mode
+  - MCP server selection
+  - optional per-server MCP tool subsets
 - email notifications
 - SMS notifications through Twilio
 - SMS notifications through carrier gateway email addresses
 - browser push notifications
+
+## MCP tool selection
+
+Scheduled direct model prompts use the same ephemeral-agent MCP shape as chat:
+
+- `target.ephemeralAgent.mcp` lists selected MCP servers.
+- `target.ephemeralAgent.mcpToolFilter` is optional and maps server names to selected concrete tool keys.
+- If a server is selected but missing from `mcpToolFilter`, all of that server's tools are included.
+- If all tools are selected in the UI, the filter entry is intentionally removed so future tool additions remain available by default.
+
+In **Settings → Data → Scheduled runs**, select an MCP server to include all tools by default, then expand **Tool Options** under that server to narrow the subset. Unchecking every tool deselects that server from the schedule.
 
 ## Notification setup
 

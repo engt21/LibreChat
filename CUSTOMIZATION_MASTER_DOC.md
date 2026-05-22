@@ -56,7 +56,7 @@ The custom work in this branch falls into these main buckets:
 5. OpenAI/Azure plus Google Gemini model-family capability-aware settings
 6. xAI custom-endpoint live model discovery and capability-aware settings
 7. Ollama multi-source model discovery, hosted web search, and reasoning controls
-8. MCP interoperability and OAuth hardening for OpenAI / Arcade-hosted MCP tools
+8. MCP interoperability, OAuth hardening, and per-server tool filtering for OpenAI / Arcade-hosted MCP tools
 9. Realtime voice brokered sessions across OpenAI/Azure/Gemini/xAI-compatible providers
 10. Local code interpreter bridge with warm-session reuse and provider-routing controls
 11. Langfuse pricing sync, historical backfill, and alias-aware observability support
@@ -189,6 +189,7 @@ Frontend/shared:
 - scheduler runner process started by the backend
 - scheduled-run target support for richer ephemeral-agent tool settings:
   - MCP server selection (`mcp[]`)
+  - per-server MCP tool subsets (`mcpToolFilter`)
   - code interpreter (`execute_code`)
   - file search (`file_search`)
   - artifacts mode (`artifacts`)
@@ -206,6 +207,7 @@ Backend:
 - `api/models/ScheduledJob.js`
 - `api/server/routes/schedules.js`
 - `api/server/controllers/ScheduledJobsController.js`
+- `api/server/services/Tools/mcpToolFilter.js`
 - `api/server/services/ScheduledJobs/cron.js`
 - `api/server/services/ScheduledJobs/execution.js`
 - `api/server/services/ScheduledJobs/runner.js`
@@ -222,6 +224,7 @@ Frontend/shared:
 - `client/src/data-provider/Schedules/index.ts`
 - `client/src/data-provider/Schedules/mutations.ts`
 - `client/src/data-provider/Schedules/queries.ts`
+- `client/src/hooks/MCP/useMCPSelect.ts`
 - `client/public/assets/push-sw.js`
 - `packages/data-provider/src/schedules.ts`
 - `packages/data-schemas/src/schema/scheduledJob.ts`
@@ -233,7 +236,7 @@ Frontend/shared:
 - backend startup hook for the scheduled runner
 - scheduled-job schema/model/types
 - scheduled-run target normalization for nested `ephemeralAgent` fields during create/update
-- scheduled-run settings UI for MCP/tool/artifact/web-search options
+- scheduled-run settings UI for MCP server/tool-subset/artifact/web-search options
 - push service worker and browser notification plumbing
 - env/config support for scheduled runner and notifications
 
@@ -247,7 +250,8 @@ Frontend/shared:
 #### Lessons learned
 
 - Scheduled-run edits must merge nested `target.ephemeralAgent` fields instead of replacing the whole object, or saved tool selections disappear on update.
-- Keep UI and backend schemas aligned for every scheduled-run target field (`mcp`, `execute_code`, `file_search`, `artifacts`, `web_search_mode`) or the controller will silently drop user selections.
+- Keep UI and backend schemas aligned for every scheduled-run target field (`mcp`, `mcpToolFilter`, `execute_code`, `file_search`, `artifacts`, `web_search_mode`) or the controller will silently drop user selections.
+- For MCP scheduled runs, `mcp[]` is the selected server list; `mcpToolFilter[server]` is optional and means "only these concrete tool keys." Missing filter entries must keep the backward-compatible all-tools default.
 - `web_search_mode` is only meaningful for Ollama-backed scheduled runs, so the UI should gate it to Ollama endpoints and default safely elsewhere.
 
 ---
@@ -567,13 +571,26 @@ Frontend/shared:
 - sets the local Docker override to `DOMAIN_SERVER=${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}` so the `.env` value takes precedence and Arcade/OAuth callbacks use the correct LAN address; falls back to localhost loopback for development
 - distinguishes LibreChat MCP initialization from downstream provider consent: a tool returning `authorization_url` / `llm_instructions` means the MCP server is connected and the remaining step is provider-side authorization
 - keeps the MCP chat-bar selector visible whenever the user has `MCP_SERVERS.USE`, the active model supports structured tool calling, and selectable MCP servers exist, even when no MCP server is pinned or selected yet
+- lets chat and scheduled-run users expand an MCP server and include a subset of that server's tools while preserving the old default that selecting a server includes all tools
+- stores per-conversation/new-chat MCP subsets in `ephemeralAgent.mcpToolFilter` and tab-isolated `LAST_MCP_TOOL_FILTER_*` local storage; missing server entries mean "all tools"
+- filters ephemeral agent tool expansion on the backend so selected MCP tool subsets apply to normal chat, scheduled runs, and added/parallel ephemeral agents
 - detects OAuth-requiring errors from transport layer messages containing `"Authorization"` / `"authorization"` (e.g. arcade.dev's `"Missing Authorization header"`) in addition to `"OAuth"`, `"authentication"`, and `"401"` patterns — only enters the OAuth path when the server config has `requiresOAuth` or `oauthMetadata` set, so local non-OAuth servers are never affected
 - when `reinitMCPServer` detects `oauthRequired=true` but has no `oauthUrl` (common for newly created OAuth servers with no stored tokens), the reinitialize route handler initiates a proper OAuth flow via `MCPOAuthHandler.initiateOAuthFlow` to generate a full authorization URL with client_id/state/redirect_uri — without this, the UI would spin indefinitely waiting for an auth URL that never arrives
 
 #### Key files
 
 - `client/src/components/Chat/Input/MCPSelect.tsx`
+- `client/src/components/Chat/Input/MCPSubMenu.tsx`
+- `client/src/components/MCP/MCPServerMenuItem.tsx`
+- `client/src/hooks/MCP/useMCPSelect.ts`
+- `client/src/hooks/MCP/useMCPServerManager.ts`
+- `client/src/store/mcp.ts`
+- `client/src/components/Nav/SettingsTabs/Data/ScheduledRuns.tsx`
 - `client/src/components/Chat/Input/MCPSelect.guards.spec.ts`
+- `api/models/Agent.js`
+- `api/models/loadAddedAgent.js`
+- `api/app/clients/tools/util/handleTools.js`
+- `api/server/services/Tools/mcpToolFilter.js`
 - `packages/api/src/mcp/zod.ts`
 - `packages/api/src/mcp/__tests__/zod.spec.ts`
 - `packages/api/src/mcp/oauth/handler.ts`
@@ -593,12 +610,19 @@ Frontend/shared:
 - `DOMAIN_SERVER` in `docker-compose.local.override.yml` must use `${DOMAIN_SERVER:-...}` syntax so the `.env` value takes precedence; hardcoding `http://localhost:...` breaks OAuth callbacks for LAN-accessed instances
 - provider authorization prompts returned from Arcade Microsoft tools should not be treated as LibreChat MCP initialization failures
 - do not reintroduce a `!isPinned && mcpValues?.length === 0` render guard in `MCPSelect.tsx`; empty `mcpValues` means "nothing selected yet", not "hide the selector"
+- keep MCP server selection and MCP tool filtering separate: `ephemeralAgent.mcp` lists servers, while optional `ephemeralAgent.mcpToolFilter` maps server name to concrete tool keys; omitting a server from `mcpToolFilter` must continue to mean all tools
+- when all tools for a server are selected, remove that server's filter entry instead of storing a full copy of the tool list; this preserves current all-tools behavior and avoids stale filters after server tool discovery changes
+- backend filtering must happen after per-user/server discovery (`getMCPServerTools`, registry `toolFunctions`, or `reinitMCPServer`) so tool caches and the global registry remain complete
+- `mcp_all` fallback handling in `handleTools.loadTools()` must respect `ephemeralAgent.mcpToolFilter`; otherwise cold scheduled runs can silently expand a filtered server back to all tools
 - `isOAuthError` in `reinitMCPServer` must include `'Authorization'`/`'authorization'` patterns to match arcade.dev transport errors; the check is always guarded by `serverNeedsOAuth` so local servers are safe
 - the reinitialize route must initiate `MCPOAuthHandler.initiateOAuthFlow` when `oauthRequired=true` but `oauthUrl=null` — this is the only path that produces a full auth URL for newly created OAuth servers
 
 #### Validation notes
 
 - `client/src/components/Chat/Input/MCPSelect.guards.spec.ts` asserts that the MCP selector is not hidden solely because no server is pinned or selected
+- `client/src/hooks/MCP/__tests__/useMCPSelect.test.tsx` covers per-server MCP tool filters, including default all-tools cleanup when all tools are selected
+- `api/models/Agent.spec.js` covers backend filtering of ephemeral MCP tool expansion
+- `api/server/services/ScheduledJobs/ScheduledJobsController.spec.js` covers preserving `mcpToolFilter` through nested scheduled-run updates
 - `packages/api/src/mcp/__tests__/zod.spec.ts` covers the bare-object schema normalization behavior
 - `packages/api/src/mcp/__tests__/handler.test.ts` covers resource-metadata-based OAuth refresh behavior
 - `api/server/routes/__tests__/mcp.spec.js` includes callback URL precedence coverage, although the suite is still blocked locally by the existing Alpine `mongodb-memory-server` limitation

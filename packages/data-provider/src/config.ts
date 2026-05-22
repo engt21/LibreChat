@@ -1898,6 +1898,8 @@ export enum LocalStorageKeys {
   AUTO_EXPAND_TOOLS = 'autoExpandTools',
   /** Last selected MCP values per conversation ID */
   LAST_MCP_ = 'LAST_MCP_',
+  /** Last selected per-server MCP tool filters per conversation ID */
+  LAST_MCP_TOOL_FILTER_ = 'LAST_MCP_TOOL_FILTER_',
   /** Last checked toggle for Code Interpreter API per conversation ID */
   LAST_CODE_TOGGLE_ = 'LAST_CODE_TOGGLE_',
   /** Last selected Code Interpreter mode per conversation ID */

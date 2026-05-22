@@ -103,6 +103,7 @@ export type TEndpointOption = Pick<
 
 export type TEphemeralAgent = {
   mcp?: string[];
+  mcpToolFilter?: Record<string, string[]>;
   web_search?: boolean;
   web_search_mode?: WebSearchModes;
   file_search?: boolean;

@@ -8,6 +8,7 @@ import MCPConfigDialog from '~/components/MCP/MCPConfigDialog';
 import StackedMCPIcons from '~/components/MCP/StackedMCPIcons';
 import { useBadgeRowContext } from '~/Providers';
 import { useHasAccess } from '~/hooks';
+import { useMCPToolsQuery } from '~/data-provider';
 import { cn } from '~/utils';
 
 function MCPSelectContent() {
@@ -22,7 +23,12 @@ function MCPSelectContent() {
     getConfigDialogProps,
     toggleServerSelection,
     getServerStatusIconProps,
+    mcpToolFilter,
+    setServerToolSelection,
   } = mcpServerManager;
+  const { data: mcpToolsData } = useMCPToolsQuery({
+    enabled: selectableServers.length > 0,
+  });
 
   const menuStore = Ariakit.useMenuStore({ focusLoop: true });
   const isOpen = menuStore.useState('open');
@@ -103,7 +109,10 @@ function MCPSelectContent() {
                 connectionStatus={connectionStatus}
                 isInitializing={isInitializing}
                 statusIconProps={getServerStatusIconProps(server.serverName)}
+                tools={mcpToolsData?.servers?.[server.serverName]?.tools ?? []}
+                mcpToolFilter={mcpToolFilter}
                 onToggle={toggleServerSelection}
+                onToolSelectionChange={setServerToolSelection}
               />
             ))}
           </div>

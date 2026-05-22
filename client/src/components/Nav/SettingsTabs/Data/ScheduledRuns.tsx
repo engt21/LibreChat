@@ -6,6 +6,7 @@ import {
   WebSearchModes,
   type TScheduledJob,
   type TScheduledJobCreatePayload,
+  type MCPTool,
 } from 'librechat-data-provider';
 import {
   Button,
@@ -29,6 +30,7 @@ import {
   useGetEndpointsQuery,
   useListAgentsQuery,
   useMCPServersQuery,
+  useMCPToolsQuery,
   useRunScheduledJobMutation,
   useScheduledJobNotificationsQuery,
   useScheduledJobsQuery,
@@ -57,6 +59,7 @@ type ScheduleFormState = {
   fileSearch: boolean;
   artifacts: ArtifactModes | '';
   mcpServers: string[];
+  mcpToolFilter: Record<string, string[]>;
   notifications: {
     email: boolean;
     sms: boolean;
@@ -97,6 +100,20 @@ function getArtifactMode(value?: string | null): ArtifactModes | '' {
   return Object.values(ArtifactModes).includes(value as ArtifactModes)
     ? (value as ArtifactModes)
     : '';
+}
+
+function normalizeMcpToolKeys(value?: string[]) {
+  return Array.from(new Set((value ?? []).map((item) => String(item).trim()).filter(Boolean)));
+}
+
+function pruneMcpToolFilter(filter: Record<string, string[]>, selectedServers: string[]) {
+  const selectedSet = new Set(selectedServers);
+  return Object.fromEntries(
+    Object.entries(filter)
+      .filter(([serverName, toolKeys]) => selectedSet.has(serverName) && Array.isArray(toolKeys))
+      .map(([serverName, toolKeys]) => [serverName, normalizeMcpToolKeys(toolKeys)] as const)
+      .filter(([, toolKeys]) => toolKeys.length > 0),
+  );
 }
 
 function getBrowserTimeZone() {
@@ -195,6 +212,7 @@ function createFormState(
       fileSearch: false,
       artifacts: '',
       mcpServers: [],
+      mcpToolFilter: {},
       notifications: {
         email: true,
         sms: false,
@@ -222,6 +240,10 @@ function createFormState(
     fileSearch: schedule.target?.ephemeralAgent?.file_search === true,
     artifacts: getArtifactMode(schedule.target?.ephemeralAgent?.artifacts),
     mcpServers: schedule.target?.ephemeralAgent?.mcp || [],
+    mcpToolFilter: pruneMcpToolFilter(
+      schedule.target?.ephemeralAgent?.mcpToolFilter || {},
+      schedule.target?.ephemeralAgent?.mcp || [],
+    ),
     notifications: {
       email: schedule.notifications?.email === true,
       sms: schedule.notifications?.sms === true,
@@ -231,6 +253,7 @@ function createFormState(
 }
 
 function buildPayload(form: ScheduleFormState): TScheduledJobCreatePayload {
+  const mcpToolFilter = pruneMcpToolFilter(form.mcpToolFilter, form.mcpServers);
   const payload: TScheduledJobCreatePayload = {
     name: form.name.trim(),
     prompt: form.prompt.trim(),
@@ -259,6 +282,7 @@ function buildPayload(form: ScheduleFormState): TScheduledJobCreatePayload {
               file_search: form.fileSearch,
               artifacts: form.artifacts || undefined,
               mcp: form.mcpServers.length ? form.mcpServers : undefined,
+              mcpToolFilter: Object.keys(mcpToolFilter).length ? mcpToolFilter : undefined,
             },
           },
   };
@@ -293,6 +317,7 @@ export default function ScheduledRuns() {
   const agentsQuery = useListAgentsQuery({ limit: 100, requiredPermission: PermissionBits.VIEW });
   const endpointsQuery = useGetEndpointsQuery();
   const mcpServersQuery = useMCPServersQuery();
+  const mcpToolsQuery = useMCPToolsQuery();
   const modelsQuery = useGetModelsQuery();
 
   const createMutation = useCreateScheduledJobMutation();
@@ -489,10 +514,50 @@ export default function ScheduledRuns() {
       const nextServers = checked
         ? Array.from(new Set([...current.mcpServers, serverName]))
         : current.mcpServers.filter((value) => value !== serverName);
+      const nextToolFilter = pruneMcpToolFilter(current.mcpToolFilter, nextServers);
 
       return {
         ...current,
         mcpServers: nextServers,
+        mcpToolFilter: nextToolFilter,
+      };
+    });
+  };
+
+  const handleMcpToolToggle = (
+    serverName: string,
+    toolKey: string,
+    checked: boolean,
+    allToolKeys: string[],
+  ) => {
+    setForm((current) => {
+      const currentSelection = current.mcpToolFilter[serverName] || allToolKeys;
+      const nextSelection = checked
+        ? normalizeMcpToolKeys([...currentSelection, toolKey])
+        : currentSelection.filter((value) => value !== toolKey);
+
+      let nextServers = current.mcpServers.includes(serverName)
+        ? current.mcpServers
+        : [...current.mcpServers, serverName];
+      const nextToolFilter = { ...pruneMcpToolFilter(current.mcpToolFilter, nextServers) };
+
+      if (nextSelection.length === 0) {
+        nextServers = nextServers.filter((value) => value !== serverName);
+        delete nextToolFilter[serverName];
+      } else if (
+        allToolKeys.length > 0 &&
+        nextSelection.length === allToolKeys.length &&
+        allToolKeys.every((value) => nextSelection.includes(value))
+      ) {
+        delete nextToolFilter[serverName];
+      } else {
+        nextToolFilter[serverName] = nextSelection;
+      }
+
+      return {
+        ...current,
+        mcpServers: nextServers,
+        mcpToolFilter: pruneMcpToolFilter(nextToolFilter, nextServers),
       };
     });
   };
@@ -514,24 +579,84 @@ export default function ScheduledRuns() {
   } else {
     mcpServersContent = (
       <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-border-light p-3">
-        {mcpServerOptions.map((server) => (
-          <label
-            key={server.value}
-            className="flex items-start gap-3 rounded-md border border-transparent px-2 py-1.5 text-sm hover:bg-surface-secondary"
-          >
-            <input
-              type="checkbox"
-              checked={form.mcpServers.includes(server.value)}
-              onChange={(event) => handleMcpServerToggle(server.value, event.target.checked)}
-            />
-            <span className="min-w-0">
-              <span className="block font-medium text-text-primary">{server.label}</span>
-              {server.description ? (
-                <span className="block text-xs text-text-secondary">{server.description}</span>
+        {mcpServerOptions.map((server) => {
+          const serverTools = [...(mcpToolsQuery.data?.servers?.[server.value]?.tools ?? [])].sort(
+            (left: MCPTool, right: MCPTool) => left.name.localeCompare(right.name),
+          );
+          const allToolKeys = serverTools.map((tool) => tool.pluginKey);
+          const isSelected = form.mcpServers.includes(server.value);
+          const selectedToolKeys = isSelected
+            ? form.mcpToolFilter[server.value] || allToolKeys
+            : [];
+          const selectedToolKeySet = new Set(selectedToolKeys);
+          let toolSummary: string | null = null;
+          if (isSelected && allToolKeys.length > 0) {
+            toolSummary =
+              selectedToolKeys.length === allToolKeys.length
+                ? localize('com_ui_mcp_all_tools')
+                : localize('com_ui_mcp_selected_tools', {
+                    selected: selectedToolKeys.length,
+                    total: allToolKeys.length,
+                  });
+          }
+
+          return (
+            <div
+              key={server.value}
+              className="rounded-md border border-transparent px-2 py-1.5 text-sm hover:bg-surface-secondary"
+            >
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={(event) => handleMcpServerToggle(server.value, event.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="block font-medium text-text-primary">{server.label}</span>
+                  {server.description ? (
+                    <span className="block text-xs text-text-secondary">{server.description}</span>
+                  ) : null}
+                  {toolSummary ? (
+                    <span className="block text-xs text-text-secondary">{toolSummary}</span>
+                  ) : null}
+                </span>
+              </label>
+              {isSelected && serverTools.length > 0 ? (
+                <details className="ml-6 mt-2">
+                  <summary className="cursor-pointer text-xs text-text-secondary">
+                    {localize('com_ui_mcp_tool_options')}
+                  </summary>
+                  <div className="mt-2 space-y-1 border-l border-border-light pl-2">
+                    {serverTools.map((tool) => (
+                      <label key={tool.pluginKey} className="flex items-start gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={selectedToolKeySet.has(tool.pluginKey)}
+                          onChange={(event) =>
+                            handleMcpToolToggle(
+                              server.value,
+                              tool.pluginKey,
+                              event.target.checked,
+                              allToolKeys,
+                            )
+                          }
+                        />
+                        <span className="min-w-0">
+                          <span className="block font-medium text-text-primary">{tool.name}</span>
+                          {tool.description ? (
+                            <span className="line-clamp-2 text-text-secondary">
+                              {tool.description}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
               ) : null}
-            </span>
-          </label>
-        ))}
+            </div>
+          );
+        })}
       </div>
     );
   }

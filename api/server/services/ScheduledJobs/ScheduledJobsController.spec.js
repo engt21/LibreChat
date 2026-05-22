@@ -249,6 +249,9 @@ describe('updateScheduleController', () => {
         file_search: false,
         execute_code: true,
         mcp: ['server1'],
+        mcpToolFilter: {
+          server1: ['tool2_mcp_server1'],
+        },
         artifacts: 'on',
       },
     },
@@ -290,6 +293,9 @@ describe('updateScheduleController', () => {
     const setPayload = updateCall[1].$set;
     expect(setPayload.target.ephemeralAgent.execute_code).toBe(true);
     expect(setPayload.target.ephemeralAgent.mcp).toEqual(['server1']);
+    expect(setPayload.target.ephemeralAgent.mcpToolFilter).toEqual({
+      server1: ['tool2_mcp_server1'],
+    });
     expect(setPayload.target.ephemeralAgent.artifacts).toBe('on');
     expect(setPayload.target.ephemeralAgent.web_search).toBe(false);
   });
@@ -465,9 +471,7 @@ describe('runScheduleController', () => {
     expect(body.authorization_url).toBe(
       'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc',
     );
-    expect(body.llm_instructions).toBe(
-      'Please share the authorization link with the user.',
-    );
+    expect(body.llm_instructions).toBe('Please share the authorization link with the user.');
   });
 
   it('surfaces preflight continuationMetadata with authorization_url and top-level auth fields from server oauthMetadata (VAL-MCP-004)', async () => {

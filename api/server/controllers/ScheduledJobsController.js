@@ -58,6 +58,29 @@ function normalizeNotifications(notifications = {}) {
   };
 }
 
+function normalizeMcpToolFilter(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = {};
+  for (const [serverName, toolKeys] of Object.entries(value)) {
+    const normalizedServerName = String(serverName).trim();
+    if (!normalizedServerName || !Array.isArray(toolKeys)) {
+      continue;
+    }
+
+    const normalizedToolKeys = Array.from(
+      new Set(toolKeys.map((toolKey) => String(toolKey).trim()).filter(Boolean)),
+    );
+    if (normalizedToolKeys.length > 0) {
+      normalized[normalizedServerName] = normalizedToolKeys;
+    }
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 function normalizeTarget(target = {}) {
   const rawWebSearchMode =
     typeof target.ephemeralAgent?.web_search_mode === 'string'
@@ -107,6 +130,7 @@ function normalizeTarget(target = {}) {
       mcp: Array.isArray(target.ephemeralAgent.mcp)
         ? target.ephemeralAgent.mcp.map((value) => String(value).trim()).filter(Boolean)
         : undefined,
+      mcpToolFilter: normalizeMcpToolFilter(target.ephemeralAgent.mcpToolFilter),
     };
   }
 

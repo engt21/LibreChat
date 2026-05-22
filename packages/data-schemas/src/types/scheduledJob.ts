@@ -14,6 +14,7 @@ export type ScheduledJobTarget = {
     execute_code?: boolean;
     execute_code_mode?: string;
     mcp?: string[];
+    mcpToolFilter?: Record<string, string[]>;
     artifacts?: string;
   };
 };

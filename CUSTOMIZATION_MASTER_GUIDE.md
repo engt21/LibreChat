@@ -39,7 +39,7 @@ The custom work falls into these main buckets:
 5. Google Gemini live model discovery, capability-aware settings, and grounding citations
 6. xAI custom-endpoint live discovery and capability-aware settings
 7. Ollama multi-source discovery, hosted web search, and reasoning controls
-8. MCP interoperability and OAuth hardening for OpenAI / Arcade-hosted MCP tools
+8. MCP interoperability, OAuth hardening, and per-server MCP tool filtering
 9. Local runtime, Docker, startup, observability, and worktree workflow changes
 10. Secret-handling and local git safety improvements
 11. Background audio/video transcription with persistent conversations
@@ -130,6 +130,7 @@ This area overlaps with auth, config, user creation, and route registration. Ups
 
 - Adds per-user scheduled runs for agent executions and model prompts
 - Adds manual run-now capability
+- Supports direct model prompt automation tools, including MCP servers and optional per-server MCP tool subsets
 - Supports notifications through:
   - email
   - Twilio SMS
@@ -144,6 +145,7 @@ This area overlaps with auth, config, user creation, and route registration. Ups
 - `api/models/ScheduledJob.js`
 - `api/server/routes/schedules.js`
 - `api/server/controllers/ScheduledJobsController.js`
+- `api/server/services/Tools/mcpToolFilter.js`
 - `api/server/services/ScheduledJobs/cron.js`
 - `api/server/services/ScheduledJobs/execution.js`
 - `api/server/services/ScheduledJobs/runner.js`
@@ -156,6 +158,7 @@ This area overlaps with auth, config, user creation, and route registration. Ups
 
 - `client/src/components/Nav/SettingsTabs/Data/ScheduledRuns.tsx`
 - `client/src/data-provider/Schedules/*`
+- `client/src/hooks/MCP/useMCPSelect.ts`
 - `client/public/assets/push-sw.js`
 
 #### Schema/type layer
@@ -168,6 +171,7 @@ This area overlaps with auth, config, user creation, and route registration. Ups
 - `/api/schedules` route registration
 - scheduled job runner startup in API boot flow
 - scheduled job schema and notification settings
+- nested `target.ephemeralAgent.mcp` plus optional `mcpToolFilter` preservation on create/update
 - browser push service worker support
 - notification env/config handling
 
@@ -413,12 +417,24 @@ This area is partly documented in `README.md`, but there is no single standalone
 - uses a local loopback `DOMAIN_SERVER=http://localhost:${PORT:-3080}` default in the Docker override so Arcade Microsoft OAuth can use the loopback callback exception during local runs
 - cleanly separates LibreChat MCP initialization success from downstream provider consent prompts returned by Microsoft tools
 - keeps the MCP chat-bar selector visible before first server selection when MCP permission, structured-tool support, and selectable servers are available
+- supports expanding a selected MCP server in chat and scheduled-run UIs to choose a subset of that server's tools while preserving the default all-tools selection
+- persists per-server subsets in `ephemeralAgent.mcpToolFilter`; absence of a server key means all tools remain enabled
 - configures a read-only local `internet-archive` MCP server at `http://192.168.50.4:8770/mcp` for Internet Archive and Wayback Machine research tools
 
 ### Main files
 
 - `client/src/components/Chat/Input/MCPSelect.tsx`
+- `client/src/components/Chat/Input/MCPSubMenu.tsx`
+- `client/src/components/MCP/MCPServerMenuItem.tsx`
+- `client/src/hooks/MCP/useMCPSelect.ts`
+- `client/src/hooks/MCP/useMCPServerManager.ts`
+- `client/src/store/mcp.ts`
+- `client/src/components/Nav/SettingsTabs/Data/ScheduledRuns.tsx`
 - `client/src/components/Chat/Input/MCPSelect.guards.spec.ts`
+- `api/models/Agent.js`
+- `api/models/loadAddedAgent.js`
+- `api/app/clients/tools/util/handleTools.js`
+- `api/server/services/Tools/mcpToolFilter.js`
 - `packages/api/src/mcp/zod.ts`
 - `packages/api/src/mcp/oauth/handler.ts`
 - `packages/api/src/mcp/MCPConnectionFactory.ts`
@@ -435,6 +451,8 @@ This area is partly documented in `README.md`, but there is no single standalone
 - keep the local loopback `DOMAIN_SERVER` default unless intentionally replacing it with a public HTTPS URL
 - do not misclassify provider authorization links from Arcade Microsoft tools as LibreChat MCP initialization failures
 - keep MCP selector visibility independent of `mcpValues`; do not hide it just because no server is pinned or selected
+- keep `ephemeralAgent.mcp` as the selected server list and `ephemeralAgent.mcpToolFilter` as the optional per-server subset map; missing filter entries must continue to mean all tools
+- keep `mcp_all` fallback expansion filter-aware so cold scheduled runs do not accidentally include every tool from a filtered server
 - preserve `mcpServers.internet-archive` and the `http://192.168.50.4:8770` allowed-domain entry in runtime `librechat.yaml`
 - keep the Internet Archive MCP tool surface read-only
 

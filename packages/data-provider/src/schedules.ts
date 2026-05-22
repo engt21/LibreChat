@@ -27,6 +27,7 @@ export const scheduledJobTargetSchema = z.object({
       execute_code_mode: z.nativeEnum(CodeInterpreterModes).optional(),
       artifacts: z.string().optional(),
       mcp: z.array(z.string()).optional(),
+      mcpToolFilter: z.record(z.string(), z.array(z.string())).optional(),
       image_generation: z.boolean().optional(),
     })
     .optional(),

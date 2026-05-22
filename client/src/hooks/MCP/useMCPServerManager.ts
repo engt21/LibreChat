@@ -86,11 +86,12 @@ export function useMCPServerManager({
     [availableMCPServers],
   );
 
-  const { mcpValues, setMCPValues, isPinned, setIsPinned } = useMCPSelect({
-    conversationId,
-    storageContextKey,
-    servers: selectableServers,
-  });
+  const { mcpValues, setMCPValues, mcpToolFilter, setServerToolSelection, isPinned, setIsPinned } =
+    useMCPSelect({
+      conversationId,
+      storageContextKey,
+      servers: selectableServers,
+    });
   const mcpValuesRef = useRef(mcpValues);
 
   // fixes the issue where OAuth flows would deselect all the servers except the one that is being authenticated on success
@@ -659,6 +660,8 @@ export function useMCPServerManager({
     getOAuthUrl,
     mcpValues,
     setMCPValues,
+    mcpToolFilter,
+    setServerToolSelection,
 
     isPinned,
     setIsPinned,

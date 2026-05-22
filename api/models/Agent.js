@@ -23,6 +23,10 @@ const { removeAllPermissions } = require('~/server/services/PermissionService');
 const { getMCPServerTools, cacheMCPServerTools } = require('~/server/services/Config');
 const { applyOllamaWebSearchMode } = require('~/server/services/Tools/ollama');
 const { reinitMCPServer } = require('~/server/services/Tools/mcp');
+const {
+  filterMCPServerToolKeys,
+  getRequestedMCPToolKeys,
+} = require('~/server/services/Tools/mcpToolFilter');
 const { Agent, AclEntry, User } = require('~/db/models');
 const { getMCPServersRegistry } = require('~/config');
 const { getActions } = require('./Action');
@@ -249,11 +253,22 @@ const loadEphemeralAgent = async ({ req, spec, endpoint, model_parameters: _m })
         }
       }
       if (!serverTools) {
-        tools.push(`${mcp_all}${mcp_delimiter}${mcpServer}`);
+        const requestedToolKeys = getRequestedMCPToolKeys(mcpServer, ephemeralAgent?.mcpToolFilter);
+        if (requestedToolKeys != null) {
+          tools.push(...requestedToolKeys);
+        } else {
+          tools.push(`${mcp_all}${mcp_delimiter}${mcpServer}`);
+        }
         addedServers.add(mcpServer);
         continue;
       }
-      tools.push(...Object.keys(serverTools));
+      tools.push(
+        ...filterMCPServerToolKeys({
+          serverName: mcpServer,
+          serverTools,
+          mcpToolFilter: ephemeralAgent?.mcpToolFilter,
+        }),
+      );
       addedServers.add(mcpServer);
     }
   }

@@ -2456,6 +2456,43 @@ describe('models/Agent', () => {
       }
     });
 
+    test('should restrict ephemeral MCP server tools using mcpToolFilter', async () => {
+      const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
+
+      getMCPServerTools.mockImplementation(async (_userId, server) => {
+        if (server === 'server1') {
+          return {
+            tool1_mcp_server1: {},
+            tool2_mcp_server1: {},
+          };
+        }
+        return null;
+      });
+
+      const mockReq = {
+        user: { id: 'user123' },
+        body: {
+          promptPrefix: 'Filtered MCP instructions',
+          ephemeralAgent: {
+            mcp: ['server1'],
+            mcpToolFilter: {
+              server1: ['tool2_mcp_server1'],
+            },
+          },
+        },
+      };
+
+      const result = await loadAgent({
+        req: mockReq,
+        agent_id: EPHEMERAL_AGENT_ID,
+        endpoint: 'openai',
+        model_parameters: { model: 'gpt-4' },
+      });
+
+      expect(result.tools).toContain('tool2_mcp_server1');
+      expect(result.tools).not.toContain('tool1_mcp_server1');
+    });
+
     test('should fall back to registry toolFunctions for ephemeral MCP servers when cache is empty', async () => {
       const { Constants } = require('librechat-data-provider');
       const { EPHEMERAL_AGENT_ID } = Constants;

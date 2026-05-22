@@ -6,6 +6,7 @@ import MCPServerMenuItem from '~/components/MCP/MCPServerMenuItem';
 import MCPConfigDialog from '~/components/MCP/MCPConfigDialog';
 import { useBadgeRowContext } from '~/Providers';
 import { useLocalize } from '~/hooks';
+import { useMCPToolsQuery } from '~/data-provider';
 import { cn } from '~/utils';
 
 interface MCPSubMenuProps {
@@ -27,7 +28,12 @@ const MCPSubMenu = React.forwardRef<HTMLDivElement, MCPSubMenuProps>(
       getConfigDialogProps,
       toggleServerSelection,
       getServerStatusIconProps,
+      mcpToolFilter,
+      setServerToolSelection,
     } = mcpServerManager;
+    const { data: mcpToolsData } = useMCPToolsQuery({
+      enabled: selectableServers.length > 0,
+    });
 
     const menuStore = Ariakit.useMenuStore({
       focusLoop: true,
@@ -99,7 +105,10 @@ const MCPSubMenu = React.forwardRef<HTMLDivElement, MCPSubMenuProps>(
                   connectionStatus={connectionStatus}
                   isInitializing={isInitializing}
                   statusIconProps={getServerStatusIconProps(server.serverName)}
+                  tools={mcpToolsData?.servers?.[server.serverName]?.tools ?? []}
+                  mcpToolFilter={mcpToolFilter}
                   onToggle={toggleServerSelection}
+                  onToolSelectionChange={setServerToolSelection}
                 />
               ))}
             </div>

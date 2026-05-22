@@ -9,6 +9,7 @@ import { createTabIsolatedStorage } from './jotai-utils';
  * which all share the same `LAST_MCP_new` localStorage key).
  */
 const mcpTabIsolatedStorage = createTabIsolatedStorage<string[]>();
+const mcpToolFilterTabIsolatedStorage = createTabIsolatedStorage<Record<string, string[]>>();
 
 /**
  * Creates a storage atom for MCP values per conversation
@@ -19,6 +20,24 @@ export const mcpValuesAtomFamily = atomFamily((conversationId: string | null) =>
   const storageKey = `${LocalStorageKeys.LAST_MCP_}${key}`;
 
   return atomWithStorage<string[]>(storageKey, [], mcpTabIsolatedStorage, { getOnInit: true });
+});
+
+/**
+ * Creates a storage atom for per-server MCP tool filters per conversation.
+ * Missing server keys mean all tools are selected for that server.
+ */
+export const mcpToolFilterAtomFamily = atomFamily((conversationId: string | null) => {
+  const key = conversationId ?? Constants.NEW_CONVO;
+  const storageKey = `${LocalStorageKeys.LAST_MCP_TOOL_FILTER_}${key}`;
+
+  return atomWithStorage<Record<string, string[]>>(
+    storageKey,
+    {},
+    mcpToolFilterTabIsolatedStorage,
+    {
+      getOnInit: true,
+    },
+  );
 });
 
 /**

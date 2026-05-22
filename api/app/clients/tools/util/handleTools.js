@@ -59,6 +59,7 @@ const {
 const { getMCPServerTools } = require('~/server/services/Config');
 const { getRoleByName } = require('~/models/Role');
 const { getUserKeyValues } = require('~/models');
+const { getRequestedMCPToolKeys } = require('~/server/services/Tools/mcpToolFilter');
 
 const imageGenDefaultModelOverrides = {
   [ImageGenProvider.azureOpenAI]: 'gpt-image-2',
@@ -485,13 +486,29 @@ const loadTools = async ({
         continue;
       }
       if (toolName === Constants.mcp_all) {
-        requestedMCPTools[serverName] = [
-          {
-            type: 'all',
+        const requestedToolKeys = getRequestedMCPToolKeys(
+          serverName,
+          options.req?.body?.ephemeralAgent?.mcpToolFilter,
+        );
+        if (requestedToolKeys != null) {
+          if (requestedToolKeys.length === 0) {
+            continue;
+          }
+          requestedMCPTools[serverName] = requestedToolKeys.map((toolKey) => ({
+            type: 'single',
+            toolKey,
             serverName,
             config: serverConfig,
-          },
-        ];
+          }));
+        } else {
+          requestedMCPTools[serverName] = [
+            {
+              type: 'all',
+              serverName,
+              config: serverConfig,
+            },
+          ];
+        }
         continue;
       }
 
