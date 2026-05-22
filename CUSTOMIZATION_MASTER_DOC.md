@@ -69,6 +69,7 @@ The custom work in this branch falls into these main buckets:
 18. Auth cookie and session hardening for plain-HTTP LAN deployments
 19. UX bug fixes: stop button persistence, badge row visibility, pinned model reset
 20. User-managed image generation: per-provider model discovery, settings tab, chat-bar toggle, and ephemeral-agent auto-injection
+21. Internet Archive / Wayback read-only MCP server integration
 
 ---
 
@@ -1132,7 +1133,8 @@ Three custom endpoints are defined:
 
 ##### Other runtime sections
 
-- `mcpSettings.allowedDomains` -- MCP domain allowlist for local MCP servers (`192.168.50.4:8765`, `192.168.50.4:8766`)
+- `mcpSettings.allowedDomains` -- MCP domain allowlist for local MCP servers (`192.168.50.4:8765` through `192.168.50.4:8770`; `:8770` is the Internet Archive MCP server)
+- `mcpServers.internet-archive` -- read-only Internet Archive / Wayback MCP server using streamable HTTP at `http://192.168.50.4:8770/mcp` with `timeout: 90000`
 - `memory.agent` -- memory agent using `gpt-4.1-mini` via `openAI` provider (casing matters -- must be `openAI` not `openai`)
 - `speech.stt.openai` -- Whisper-1 STT with `${OPENAI_API_KEY}`
 - `version: 1.3.5` -- config schema version
@@ -1152,6 +1154,7 @@ Three custom endpoints are defined:
 - custom endpoint split (Ollama local with `fetch: false` vs Ollama Cloud with `user_provided` key) must not be re-merged into a single endpoint
 - `memory.agent.provider` must use camelCase `openAI` (not lowercase `openai`)
 - `mcpSettings.allowedDomains` must be updated if local MCP server addresses change
+- preserve `mcpServers.internet-archive` and the `http://192.168.50.4:8770` allowlist entry when regenerating or editing runtime `librechat.yaml`
 
 #### Lessons learned
 
@@ -1386,6 +1389,42 @@ Frontend:
 
 ---
 
+### 3.21 Internet Archive / Wayback read-only MCP server integration
+
+#### What it adds
+
+- Configures the external `/pool/home/timeng/internet-archive-mcp-server` service as LibreChat MCP server `internet-archive`.
+- Exposes the server through streamable HTTP at `http://192.168.50.4:8770/mcp`.
+- Adds `http://192.168.50.4:8770` to `mcpSettings.allowedDomains`.
+- Provides read-only Internet Archive and Wayback Machine tools for archived-page lookup, CDX search, snapshot text/source fetches, snapshot comparison, archive.org item search, metadata, files, OCR/text derivatives, reviews, views, and Simple Lists.
+- Exposes 19 read-only tools: `get_server_capabilities`, `wayback_available`, `wayback_cdx_search`, `wayback_cdx_capture_summary`, `wayback_snapshot_url`, `wayback_fetch_snapshot_text`, `wayback_fetch_snapshot_source`, `wayback_compare_snapshots`, `archive_search_items`, `archive_advanced_search`, `archive_metadata`, `archive_metadata_field`, `archive_file_list`, `archive_fetch_file_text`, `archive_item_full_text`, `archive_item_reviews`, `archive_item_views`, `archive_simplelists_for_item`, and `archive_simplelist_children`.
+
+#### Key files / runtime dependencies
+
+- `librechat.yaml` (runtime, gitignored) — `mcpServers.internet-archive` and `mcpSettings.allowedDomains`.
+- `/pool/home/timeng/internet-archive-mcp-server` — external Python FastMCP service.
+- `/pool/home/timeng/internet-archive-mcp-server/src/ia_mcp/server.py` — MCP tool definitions and HTTP transport.
+- `/pool/home/timeng/internet-archive-mcp-server/src/ia_mcp/client.py` — Internet Archive / Wayback API helpers, rate limiting, text-file selection, and bounded fetches.
+- `/home/timeng/.config/systemd/user/internet-archive-mcp.service` — user service that keeps the external MCP server active on port `8770`.
+- `INTERNET_ARCHIVE_MCP.md` — focused local runbook and tool-surface reference.
+
+#### Preserve during merges / runtime changes
+
+- Keep `mcpServers.internet-archive` configured as `type: streamable-http`, `url: http://192.168.50.4:8770/mcp`, and `timeout: 90000`.
+- Keep `http://192.168.50.4:8770` in `mcpSettings.allowedDomains`.
+- Keep the MCP server read-only. Do not add Save Page Now, upload/delete, metadata-write, review-write, relationship-write, or task-submission tools without a separate security review and explicit approval.
+- Preserve the Internet Archive-compliant User-Agent, retry/`Retry-After` handling, bounded output limits, and local rate limiting.
+- Preserve the full-text derivative selection safeguards: PDFs and other binary derivatives must not be selected as text even when their IA format contains words such as `Text PDF`.
+
+#### Validation notes
+
+- External server validation passed with `ruff check`.
+- External server tests passed with `pytest` (`19 passed`).
+- Live MCP validation passed: `tools/list` returned all 19 `internet-archive` tools.
+- Stable LibreChat logs showed `internet-archive` initialized with all 19 tools after the production API restart.
+
+---
+
 ## 4. Merge-sensitive files / surfaces to watch closely
 
 When merging upstream changes, pay special attention to these areas.
@@ -1393,7 +1432,7 @@ When merging upstream changes, pay special attention to these areas.
 ### Runtime/config surface
 
 - `.env.example`
-- `librechat.yaml` (runtime, gitignored -- verify `interface`, `modelSpecs`, and endpoint config are intact after any modification)
+- `librechat.yaml` (runtime, gitignored -- verify `interface`, `modelSpecs`, endpoint config, local MCP allowlist entries through `http://192.168.50.4:8770`, and `mcpServers.internet-archive` are intact after any modification)
 - `librechat.example.yaml`
 - `api/server/routes/config.js`
 - `packages/api/src/endpoints/models.ts`

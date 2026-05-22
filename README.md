@@ -377,6 +377,7 @@ This branch includes additional MCP compatibility work beyond upstream LibreChat
 - Arcade-style OAuth refresh now uses protected-resource `authorization_servers` metadata to discover the token endpoint instead of guessing from the MCP server path.
 - MCP OAuth callbacks now resolve from `DOMAIN_SERVER` first, then forwarded/request host data. The local Docker override sets `DOMAIN_SERVER=http://localhost:${PORT:-3080}` so local Arcade Microsoft OAuth can use the loopback redirect exception.
 - Live local validation connected to Arcade `microsoft-tools`, listed 24 tools, and advanced `MicrosoftOnedrive_WhoAmI` plus `MicrosoftOnedrive_GetMyDrive` to provider authorization prompts instead of LibreChat MCP initialization errors.
+- The local runtime also configures a read-only `internet-archive` MCP server at `http://192.168.50.4:8770/mcp` for Wayback Machine and archive.org research tools; see `INTERNET_ARCHIVE_MCP.md`.
 
 For the detailed local-runtime version of these notes, see `README.local.md` and `CUSTOMIZATION_MASTER_DOC.md`.
 

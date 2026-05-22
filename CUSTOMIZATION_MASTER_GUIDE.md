@@ -44,6 +44,7 @@ The custom work falls into these main buckets:
 10. Secret-handling and local git safety improvements
 11. Background audio/video transcription with persistent conversations
 12. Google auth mode support (API key, Vertex service account, Vertex ADC)
+13. Internet Archive / Wayback read-only MCP server integration
 
 ---
 
@@ -412,6 +413,7 @@ This area is partly documented in `README.md`, but there is no single standalone
 - uses a local loopback `DOMAIN_SERVER=http://localhost:${PORT:-3080}` default in the Docker override so Arcade Microsoft OAuth can use the loopback callback exception during local runs
 - cleanly separates LibreChat MCP initialization success from downstream provider consent prompts returned by Microsoft tools
 - keeps the MCP chat-bar selector visible before first server selection when MCP permission, structured-tool support, and selectable servers are available
+- configures a read-only local `internet-archive` MCP server at `http://192.168.50.4:8770/mcp` for Internet Archive and Wayback Machine research tools
 
 ### Main files
 
@@ -422,6 +424,8 @@ This area is partly documented in `README.md`, but there is no single standalone
 - `packages/api/src/mcp/MCPConnectionFactory.ts`
 - `api/server/routes/mcp.js`
 - `docker-compose.local.override.yml`
+- `librechat.yaml` (runtime, gitignored)
+- external service: `/pool/home/timeng/internet-archive-mcp-server`
 
 ### Preserve during merges
 
@@ -431,11 +435,14 @@ This area is partly documented in `README.md`, but there is no single standalone
 - keep the local loopback `DOMAIN_SERVER` default unless intentionally replacing it with a public HTTPS URL
 - do not misclassify provider authorization links from Arcade Microsoft tools as LibreChat MCP initialization failures
 - keep MCP selector visibility independent of `mcpValues`; do not hide it just because no server is pinned or selected
+- preserve `mcpServers.internet-archive` and the `http://192.168.50.4:8770` allowed-domain entry in runtime `librechat.yaml`
+- keep the Internet Archive MCP tool surface read-only
 
 ### Supporting docs
 
 - `README.local.md`
 - `CUSTOMIZATION_MASTER_DOC.md`
+- `INTERNET_ARCHIVE_MCP.md`
 
 ---
 
@@ -643,6 +650,7 @@ These documents still matter and should not be forgotten just because this maste
 - `XAI_CUSTOM_ENDPOINTS.md`
 - `OPENAI_GEMINI_NATIVE_TOOLS.md`
 - `OPENAI_GEMINI_NATIVE_TOOLS_IMPLEMENTATION.md`
+- `INTERNET_ARCHIVE_MCP.md`
 - `PATCHED_REMOTE_IMAGE_REFERENCE.md`
 
 This guide is the top-level map. Those docs remain the deeper references.
@@ -656,6 +664,7 @@ These are the files and areas most likely to need careful manual review when mer
 ### Runtime/config surface
 
 - `.env.example`
+- `librechat.yaml` (runtime, gitignored; preserve local MCP allowlist entries and `mcpServers.internet-archive`)
 - `librechat.example.yaml`
 - `api/server/routes/config.js`
 - `packages/api/src/endpoints/models.ts`
