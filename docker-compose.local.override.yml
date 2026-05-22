@@ -16,6 +16,7 @@ services:
   api:
     image: ${LIBRECHAT_API_IMAGE:-librechat-local:latest}
     pull_policy: never
+    restart: unless-stopped
     mem_limit: ${LIBRECHAT_API_MEM_LIMIT:-1536m}
     build:
       context: .
@@ -217,6 +218,7 @@ services:
       start_period: 15s
   mongodb:
     container_name: ${LIBRECHAT_MONGO_CONTAINER_NAME:-chat-mongodb}
+    restart: unless-stopped
     mem_limit: ${LIBRECHAT_MONGO_MEM_LIMIT:-256m}
     user: "${LIBRECHAT_MONGO_USER:-999:999}"
     command: ${LIBRECHAT_MONGO_COMMAND:-mongod --auth --bind_ip_all}
@@ -224,10 +226,12 @@ services:
       - "${LIBRECHAT_MONGO_BIND_HOST:-192.168.50.4}:${LIBRECHAT_MONGO_HOST_PORT:-27017}:27017"
   meilisearch:
     container_name: ${LIBRECHAT_MEILI_CONTAINER_NAME:-chat-meilisearch}
+    restart: unless-stopped
     mem_limit: ${LIBRECHAT_MEILI_MEM_LIMIT:-256m}
     user: "0:0"
   vectordb:
     container_name: ${LIBRECHAT_VECTORDB_CONTAINER_NAME:-vectordb}
+    restart: unless-stopped
     mem_limit: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-512m}
     shm_size: ${LIBRECHAT_VECTORDB_SHM_SIZE:-64m}
     cpus: ${LIBRECHAT_VECTORDB_CPUS:-1.0}

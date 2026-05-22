@@ -44,3 +44,11 @@ systemctl --user list-timers librechat-ollama-keepwarm.timer --no-pager || true
 echo
 echo "== Ollama keep-warm service =="
 systemctl --user status librechat-ollama-keepwarm.service --no-pager || true
+
+echo
+echo "== Dev failover watchdog timer =="
+systemctl --user list-timers librechat-dev-failover.timer --no-pager || true
+
+echo
+echo "== Dev failover watchdog service =="
+systemctl --user status librechat-dev-failover.service --no-pager || true

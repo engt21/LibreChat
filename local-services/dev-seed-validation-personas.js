@@ -8,7 +8,7 @@
  * local-only manifest so automated validators can authenticate without
  * hitting rate-limit or ban walls.
  *
- * Run from the repo root with the dev Mongo exposed on 27018:
+ * Run from the repo root with an isolated dev Mongo exposed on 27018:
  *
  *   node local-services/dev-seed-validation-personas.js
  *
@@ -17,7 +17,7 @@
  *   docker restart librechat-dev-api
  *
  * The script:
- *   1. Connects to dev MongoDB at mongodb://127.0.0.1:27018/LibreChat
+ *   1. Connects to isolated dev MongoDB at mongodb://127.0.0.1:27018/LibreChat
  *   2. Drops ban, violation, and rate-limiter Keyv entries
  *   3. Creates or resets five validation personas (see PERSONAS below)
  *   4. Clears stale refresh-token sessions for those personas
@@ -25,6 +25,7 @@
  *   6. Writes .dev-validation-manifest.local.json (gitignored)
  *
  * IMPORTANT: This script must NOT be used against the stable/prod rail.
+ *            Shared stable DB seeding is refused unless explicitly overridden.
  *            The manifest file must NOT be committed.
  */
 
@@ -40,6 +41,7 @@ const { getDefaultModelPermissionsForRole } = require('../api/server/services/Mo
 // ---------------------------------------------------------------------------
 
 const DEV_MONGO_URI = process.env.DEV_MONGO_URI || 'mongodb://127.0.0.1:27018/LibreChat';
+const ALLOW_SHARED_PROD_DB_SEED = process.env.DEV_SEED_ALLOW_SHARED_PROD_DB === 'true';
 const MANIFEST_PATH = path.resolve(__dirname, '.dev-validation-manifest.local.json');
 const LIBRECHAT_YAML_PATH = path.resolve(__dirname, '..', 'librechat.yaml');
 
@@ -155,11 +157,36 @@ function defaultNonAdminModelPermissions() {
   return getDefaultModelPermissionsForRole('USER');
 }
 
+function assertSafeSeedTarget(uri) {
+  if (ALLOW_SHARED_PROD_DB_SEED) {
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    throw new Error(`Invalid DEV_MONGO_URI: ${uri}`);
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const port = parsed.port || '27017';
+  const stableHosts = new Set(['192.168.50.4', 'host.docker.internal', 'librechat-stable-mongodb']);
+
+  if (stableHosts.has(host) || port === '27017') {
+    throw new Error(
+      'Refusing to seed validation personas into a shared/stable MongoDB. ' +
+        'Use the existing test accounts for dev validation, or set DEV_SEED_ALLOW_SHARED_PROD_DB=true intentionally.',
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
+  assertSafeSeedTarget(DEV_MONGO_URI);
   console.log(`[dev-seed] Connecting to dev MongoDB: ${DEV_MONGO_URI}`);
   await mongoose.connect(DEV_MONGO_URI, { bufferCommands: false });
   console.log('[dev-seed] Connected.');
@@ -351,9 +378,7 @@ async function main() {
         Array.isArray(existingSpecs.list) &&
         existingSpecs.list.length > 0
       ) {
-        console.log(
-          `  modelSpecs already present (${existingSpecs.list.length} specs). Skipping.`,
-        );
+        console.log(`  modelSpecs already present (${existingSpecs.list.length} specs). Skipping.`);
       } else {
         config.modelSpecs = VALIDATION_MODEL_SPECS;
         const updatedYaml = yaml.dump(config, {
@@ -370,7 +395,9 @@ async function main() {
         console.log('    docker restart librechat-dev-api');
       }
     } else {
-      console.warn(`  Warning: ${LIBRECHAT_YAML_PATH} not found. Skipping modelSpecs provisioning.`);
+      console.warn(
+        `  Warning: ${LIBRECHAT_YAML_PATH} not found. Skipping modelSpecs provisioning.`,
+      );
       console.log('  Create librechat.yaml or run ensure-runtime-files.sh first.');
     }
   } catch (yamlErr) {

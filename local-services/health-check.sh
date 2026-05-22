@@ -112,7 +112,7 @@ echo
 # --- 3. Shared data mount check ---
 echo -e "${BOLD}== Shared data mount check ==${NC}"
 
-SAFE_SHARED_MOUNTS=".env librechat.yaml langfuse/.env images docker.sock logs clickhouse-memory.xml"
+SAFE_SHARED_MOUNTS=".env librechat.yaml langfuse/.env images uploads docker.sock logs clickhouse-memory.xml data/google-service-account.json"
 
 is_safe_shared_mount() {
   local mount_path="$1"

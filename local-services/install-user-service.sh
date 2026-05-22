@@ -6,6 +6,8 @@ UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 STACK_UNIT_FILE="$UNIT_DIR/librechat-stack.service"
 KEEPWARM_SERVICE_FILE="$UNIT_DIR/librechat-ollama-keepwarm.service"
 KEEPWARM_TIMER_FILE="$UNIT_DIR/librechat-ollama-keepwarm.timer"
+DEV_FAILOVER_SERVICE_FILE="$UNIT_DIR/librechat-dev-failover.service"
+DEV_FAILOVER_TIMER_FILE="$UNIT_DIR/librechat-dev-failover.timer"
 
 mkdir -p "$UNIT_DIR"
 
@@ -19,8 +21,8 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=$ROOT_DIR
-ExecStart=$ROOT_DIR/local-services/start-all.sh
-ExecStop=$ROOT_DIR/local-services/stop-all.sh
+ExecStart=$ROOT_DIR/local-services/start-all.sh stable
+ExecStop=$ROOT_DIR/local-services/stop-all.sh stable
 TimeoutStartSec=0
 
 [Install]
@@ -55,7 +57,37 @@ Unit=librechat-ollama-keepwarm.service
 WantedBy=timers.target
 EOF
 
+cat > "$DEV_FAILOVER_SERVICE_FILE" <<EOF
+[Unit]
+Description=LibreChat dev rail failover watchdog
+After=librechat-stack.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$ROOT_DIR
+ExecStart=$ROOT_DIR/local-services/dev-failover-watchdog.sh
+TimeoutStartSec=300
+EOF
+
+cat > "$DEV_FAILOVER_TIMER_FILE" <<EOF
+[Unit]
+Description=Start or stop LibreChat dev rail based on stable health
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=30s
+AccuracySec=5s
+Persistent=false
+Unit=librechat-dev-failover.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl --user daemon-reload
 echo "Installed $STACK_UNIT_FILE"
 echo "Installed $KEEPWARM_SERVICE_FILE"
 echo "Installed $KEEPWARM_TIMER_FILE"
+echo "Installed $DEV_FAILOVER_SERVICE_FILE"
+echo "Installed $DEV_FAILOVER_TIMER_FILE"

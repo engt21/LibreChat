@@ -69,31 +69,10 @@ local_rsync_down() {
   rsync -a --delete "$source_path/" "$local_path/"
 }
 
-# ---------- preflight ----------
-if [[ -z "$LOCAL_MODE" ]]; then
-  [[ -f "$SSH_KEY" ]] || fail "SSH key not found: $SSH_KEY  (set LIBRECHAT_SYNC_LOCAL=true for same-host sync)"
-  ssh_cmd "echo ok" >/dev/null 2>&1 || fail "Cannot reach $REMOTE_SSH_TARGET"
-else
-  docker inspect "$STABLE_MONGO_CONTAINER" >/dev/null 2>&1 \
-    || fail "Stable MongoDB container '$STABLE_MONGO_CONTAINER' not running"
-fi
-
-resolve_librechat_rail "$ROOT_DIR" dev
-
-# parse mongo credentials from the .env (same .env is shared by stable & dev)
-if [[ -n "$LOCAL_MODE" ]]; then
-  MONGO_URI_LINE="$(grep '^MONGO_URI=' "$REMOTE_REPO/.env" | head -1)"
-else
-  MONGO_URI_LINE="$(ssh_cmd "grep '^MONGO_URI=' $(printf '%q' "$REMOTE_REPO")/.env" | head -1)"
-fi
-USERPASS="$(echo "$MONGO_URI_LINE" | sed -n 's|.*mongodb://\([^@]*\)@.*|\1|p')"
-MUSER="$(echo "$USERPASS" | cut -d: -f1)"
-MPASS="$(echo "$USERPASS" | cut -d: -f2-)"
-[[ -n "$MUSER" ]] || fail "Could not parse MongoDB credentials from .env"
-
-# Shell-escape credentials so metacharacters in passwords don't break commands.
-MUSER_ESC="$(printf '%q' "$MUSER")"
-MPASS_ESC="$(printf '%q' "$MPASS")"
+same_real_path() {
+  local source_path="$1" local_path="$2"
+  [[ "$(realpath -m "$source_path")" == "$(realpath -m "$local_path")" ]]
+}
 
 # ---------- option parsing ----------
 SKIP_RESTART=""
@@ -107,6 +86,39 @@ while [[ $# -gt 0 ]]; do
     *) fail "Unknown flag: $1";;
   esac
 done
+
+# ---------- preflight ----------
+if [[ -z "$LOCAL_MODE" ]]; then
+  [[ -f "$SSH_KEY" ]] || fail "SSH key not found: $SSH_KEY  (set LIBRECHAT_SYNC_LOCAL=true for same-host sync)"
+  ssh_cmd "echo ok" >/dev/null 2>&1 || fail "Cannot reach $REMOTE_SSH_TARGET"
+else
+  docker inspect "$STABLE_MONGO_CONTAINER" >/dev/null 2>&1 \
+    || fail "Stable MongoDB container '$STABLE_MONGO_CONTAINER' not running"
+fi
+
+resolve_librechat_rail "$ROOT_DIR" dev
+
+if [[ "${LIBRECHAT_DEV_USE_STABLE_MONGO:-true}" == "true" && -z "$SKIP_MONGO" ]]; then
+  log "Dev rail uses stable MongoDB directly; skipping MongoDB dump/restore."
+  SKIP_MONGO=1
+fi
+
+# parse mongo credentials from the .env (same .env is shared by stable & dev)
+if [[ -z "$SKIP_MONGO" ]]; then
+  if [[ -n "$LOCAL_MODE" ]]; then
+    MONGO_URI_LINE="$(grep '^MONGO_URI=' "$REMOTE_REPO/.env" | head -1)"
+  else
+    MONGO_URI_LINE="$(ssh_cmd "grep '^MONGO_URI=' $(printf '%q' "$REMOTE_REPO")/.env" | head -1)"
+  fi
+  USERPASS="$(echo "$MONGO_URI_LINE" | sed -n 's|.*mongodb://\([^@]*\)@.*|\1|p')"
+  MUSER="$(echo "$USERPASS" | cut -d: -f1)"
+  MPASS="$(echo "$USERPASS" | cut -d: -f2-)"
+  [[ -n "$MUSER" ]] || fail "Could not parse MongoDB credentials from .env"
+
+  # Shell-escape credentials so metacharacters in passwords don't break commands.
+  MUSER_ESC="$(printf '%q' "$MUSER")"
+  MPASS_ESC="$(printf '%q' "$MPASS")"
+fi
 
 LOCAL_WAS_RUNNING=""
 if docker compose -p "$COMPOSE_PROJECT_NAME" \
@@ -198,7 +210,11 @@ fi
 if [[ -z "$SKIP_FILES" ]]; then
   log "Syncing images..."
   if [[ -n "$LOCAL_MODE" ]]; then
-    local_rsync_down "$REMOTE_REPO/images" "$ROOT_DIR/images"
+    if same_real_path "$REMOTE_REPO/images" "$ROOT_DIR/images"; then
+      log "Images already share the stable path; skipping rsync."
+    else
+      local_rsync_down "$REMOTE_REPO/images" "$ROOT_DIR/images"
+    fi
   else
     rsync_down "$REMOTE_REPO/images" "$ROOT_DIR/images"
   fi
@@ -206,9 +222,13 @@ if [[ -z "$SKIP_FILES" ]]; then
   log "Images synced: $IMG_COUNT files"
 
   log "Syncing uploads..."
-  # Stable rail uses ./uploads; local dev rail mounts .rails/dev/uploads
+  # Stable rail uses ./uploads; dev may either share that path or mount .rails/dev/uploads.
   if [[ -n "$LOCAL_MODE" ]]; then
-    local_rsync_down "$REMOTE_REPO/uploads" "$LIBRECHAT_UPLOADS_DIR"
+    if same_real_path "$REMOTE_REPO/uploads" "$LIBRECHAT_UPLOADS_DIR"; then
+      log "Uploads already share the stable path; skipping rsync."
+    else
+      local_rsync_down "$REMOTE_REPO/uploads" "$LIBRECHAT_UPLOADS_DIR"
+    fi
   else
     rsync_down "$REMOTE_REPO/uploads" "$LIBRECHAT_UPLOADS_DIR"
   fi

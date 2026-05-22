@@ -103,6 +103,79 @@ resolve_touchdown_backwards_log_dir() {
   printf '%s\n' "/pool/home/timeng/touchdown/logs_backward"
 }
 
+read_runtime_env_value() {
+  local root_dir="$1"
+  local key="$2"
+  local env_file="$root_dir/.env"
+  local line value
+
+  if [[ ! -e "$env_file" && -n "${LIBRECHAT_RUNTIME_SOURCE:-}" ]]; then
+    env_file="$LIBRECHAT_RUNTIME_SOURCE/.env"
+  fi
+
+  [[ -e "$env_file" ]] || return 1
+
+  line="$(grep -m1 -E "^${key}=" "$env_file" 2>/dev/null || true)"
+  [[ -n "$line" ]] || return 1
+
+  value="${line#*=}"
+  value="${value%$'\r'}"
+  value="${value%\"}"
+  value="${value#\"}"
+  value="${value%\'}"
+  value="${value#\'}"
+  printf '%s\n' "$value"
+}
+
+rewrite_mongo_uri_host() {
+  local mongo_uri="$1"
+  local host="$2"
+  local port="$3"
+  local scheme rest authority path_and_query userinfo
+
+  if [[ "$mongo_uri" != *"://"* ]]; then
+    return 1
+  fi
+
+  scheme="${mongo_uri%%://*}"
+  rest="${mongo_uri#*://}"
+
+  if [[ "$rest" != */* ]]; then
+    return 1
+  fi
+
+  authority="${rest%%/*}"
+  path_and_query="${rest#*/}"
+  userinfo=""
+
+  if [[ "$authority" == *"@"* ]]; then
+    userinfo="${authority%@*}@"
+  fi
+
+  printf '%s://%s%s:%s/%s\n' "$scheme" "$userinfo" "$host" "$port" "$path_and_query"
+}
+
+resolve_dev_shared_mongo_uri() {
+  local root_dir="$1"
+  local stable_uri="${LIBRECHAT_STABLE_MONGO_URI:-}"
+  local shared_host="${LIBRECHAT_DEV_SHARED_MONGO_HOST:-192.168.50.4}"
+  local shared_port="${LIBRECHAT_DEV_SHARED_MONGO_PORT:-27017}"
+
+  if [[ -z "$stable_uri" ]]; then
+    stable_uri="$(read_runtime_env_value "$root_dir" MONGO_URI || true)"
+  fi
+
+  if [[ -z "$stable_uri" ]]; then
+    echo "Could not resolve stable MONGO_URI from $root_dir/.env" >&2
+    return 1
+  fi
+
+  rewrite_mongo_uri_host "$stable_uri" "$shared_host" "$shared_port" || {
+    echo "Could not rewrite stable MONGO_URI for dev shared MongoDB" >&2
+    return 1
+  }
+}
+
 resolve_shared_service_paths() {
   local root_dir="$1"
 
@@ -201,16 +274,30 @@ resolve_librechat_rail() {
       export LIBRECHAT_LANGFUSE_MINIO_API_HOST_PORT="19190"
       export LIBRECHAT_LANGFUSE_MINIO_CONSOLE_HOST_PORT="19192"
       export LIBRECHAT_METRICS_HOST_PORT="9092"
-      export MONGO_URI="mongodb://mongodb:27017/LibreChat"
-      export LIBRECHAT_UPLOADS_DIR="$root_dir/.rails/dev/uploads"
+      export LIBRECHAT_DEV_USE_STABLE_MONGO="${LIBRECHAT_DEV_USE_STABLE_MONGO:-true}"
+      if [[ "$LIBRECHAT_DEV_USE_STABLE_MONGO" == "true" ]]; then
+        export MONGO_URI="$(resolve_dev_shared_mongo_uri "$root_dir")"
+        export LIBRECHAT_UPLOADS_DIR="${LIBRECHAT_DEV_SHARED_UPLOADS_DIR:-$root_dir/uploads}"
+        export LIBRECHAT_DEV_DATA_MODE="shared-stable"
+      else
+        export MONGO_URI="mongodb://mongodb:27017/LibreChat"
+        export LIBRECHAT_UPLOADS_DIR="$root_dir/.rails/dev/uploads"
+        export LIBRECHAT_DEV_DATA_MODE="isolated"
+      fi
       export LIBRECHAT_LOGS_DIR="$root_dir/.rails/dev/logs"
       export LIBRECHAT_MONGO_DATA_DIR="$root_dir/.rails/dev/data-node"
       export LIBRECHAT_MEILI_DATA_DIR="$root_dir/.rails/dev/meili_data_v1.35.1"
       export LOCAL_CODE_INTERPRETER_DATA_DIR="$root_dir/.rails/dev/local-code-interpreter/data"
       export LOCAL_CODE_WORKSPACE_HOST_ROOT="$root_dir/.rails/dev/local-code-interpreter/data/workspaces"
       export LOCAL_CODE_SANDBOX_PYTHON_IMAGE="librechat-local-sandbox-python-dev:latest"
-      export LIBRECHAT_API_MEM_LIMIT="1536m"
-      export LIBRECHAT_API_NODE_MAX_OLD_SPACE="1024"
+      export LIBRECHAT_DEV_PROFILE="${LIBRECHAT_DEV_PROFILE:-full}"
+      if [[ "$LIBRECHAT_DEV_PROFILE" == "failover" ]]; then
+        export LIBRECHAT_API_MEM_LIMIT="${LIBRECHAT_DEV_FAILOVER_API_MEM_LIMIT:-768m}"
+        export LIBRECHAT_API_NODE_MAX_OLD_SPACE="${LIBRECHAT_DEV_FAILOVER_API_NODE_MAX_OLD_SPACE:-512}"
+      else
+        export LIBRECHAT_API_MEM_LIMIT="${LIBRECHAT_DEV_API_MEM_LIMIT:-1024m}"
+        export LIBRECHAT_API_NODE_MAX_OLD_SPACE="${LIBRECHAT_DEV_API_NODE_MAX_OLD_SPACE:-768}"
+      fi
       export LIBRECHAT_SHARED_LANGFUSE_BASE_URL="${LIBRECHAT_SHARED_LANGFUSE_BASE_URL:-http://host.docker.internal:3000}"
       export LIBRECHAT_SHARED_LANGFUSE_UI_URL="${LIBRECHAT_SHARED_LANGFUSE_UI_URL:-http://127.0.0.1:3000}"
       export LANGFUSE_BASE_URL="$LIBRECHAT_SHARED_LANGFUSE_BASE_URL"
@@ -229,9 +316,14 @@ resolve_librechat_rail() {
       export LIBRECHAT_LANGFUSE_MINIO_MEM_LIMIT="128m"
       export LIBRECHAT_LANGFUSE_REDIS_MEM_LIMIT="64m"
       export LIBRECHAT_LANGFUSE_POSTGRES_MEM_LIMIT="96m"
-      export LIBRECHAT_RAG_MEM_LIMIT="192m"
-      export LIBRECHAT_MONGO_MEM_LIMIT="192m"
-      export LIBRECHAT_MEILI_MEM_LIMIT="128m"
+      export LIBRECHAT_RAG_MEM_LIMIT="${LIBRECHAT_DEV_RAG_MEM_LIMIT:-128m}"
+      export LIBRECHAT_RAG_CPUS="${LIBRECHAT_DEV_RAG_CPUS:-0.25}"
+      export LIBRECHAT_MONGO_MEM_LIMIT="${LIBRECHAT_DEV_MONGO_MEM_LIMIT:-128m}"
+      export LIBRECHAT_MEILI_MEM_LIMIT="${LIBRECHAT_DEV_MEILI_MEM_LIMIT:-256m}"
+      export LIBRECHAT_VECTORDB_MEM_LIMIT="${LIBRECHAT_DEV_VECTORDB_MEM_LIMIT:-256m}"
+      export LIBRECHAT_VECTORDB_CPUS="${LIBRECHAT_DEV_VECTORDB_CPUS:-0.5}"
+      export LIBRECHAT_CODE_MEM_LIMIT="${LIBRECHAT_DEV_CODE_MEM_LIMIT:-96m}"
+      export LOCAL_CODE_MEMORY_LIMIT="${LIBRECHAT_DEV_CODE_SANDBOX_MEMORY_LIMIT:-512m}"
       export LIBRECHAT_MANAGE_SHARED_SERVICES="false"
       ;;
     *)
