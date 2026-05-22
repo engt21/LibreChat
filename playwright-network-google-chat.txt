@@ -1,0 +1,48 @@
+[GET] http://127.0.0.1:3081/api/banner => [200] OK
+[GET] http://127.0.0.1:3081/api/config => [200] OK
+[POST] http://127.0.0.1:3081/api/auth/refresh => [200] OK
+[GET] http://127.0.0.1:3081/api/banner => [200] OK
+[GET] http://127.0.0.1:3081/api/config => [200] OK
+[POST] http://127.0.0.1:3081/api/auth/login => [200] OK
+  Request body: {"email":"playwright@test.local","password":"<redacted-password>"}
+[GET] http://127.0.0.1:3081/api/banner => [200] OK
+[GET] http://127.0.0.1:3081/api/config => [200] OK
+[GET] http://127.0.0.1:3081/api/endpoints => [200] OK
+[GET] http://127.0.0.1:3081/api/models => [200] OK
+[GET] http://127.0.0.1:3081/api/user/settings/favorites => [200] OK
+[GET] http://127.0.0.1:3081/api/agents/chat/active => [200] OK
+[GET] http://127.0.0.1:3081/api/convos => [200] OK
+[GET] http://127.0.0.1:3081/api/files/speech/config/get => [200] OK
+[GET] http://127.0.0.1:3081/api/mcp/servers => [200] OK
+[GET] http://127.0.0.1:3081/api/permissions/mcpServer/effective/all => [200] OK
+[GET] http://127.0.0.1:3081/api/files => [200] OK
+[GET] http://127.0.0.1:3081/api/search/enable => [200] OK
+[GET] http://127.0.0.1:3081/api/roles/user => [200] OK
+[GET] http://127.0.0.1:3081/api/user => [200] OK
+[GET] http://127.0.0.1:3081/api/balance => [404] Not Found
+[GET] http://127.0.0.1:3081/api/mcp/tools => [200] OK
+[GET] http://127.0.0.1:3081/api/mcp/connection/status => [200] OK
+[GET] http://127.0.0.1:3081/api/prompts/groups?limit=10 => [200] OK
+[GET] http://127.0.0.1:3081/api/prompts/all => [200] OK
+[GET] http://127.0.0.1:3081/api/agents?requiredPermission=1 => [200] OK
+[POST] http://127.0.0.1:3081/api/mcp/ollama_search_fetch/reinitialize => [200] OK
+[GET] http://127.0.0.1:3081/api/tags => [200] OK
+[GET] http://127.0.0.1:3081/api/balance => [404] Not Found
+[GET] http://127.0.0.1:3081/api/balance => [404] Not Found
+[GET] http://127.0.0.1:3081/api/files/config => [200] OK
+[GET] http://127.0.0.1:3081/api/keys?name=openAI => [200] OK
+[GET] http://127.0.0.1:3081/api/models => [200] OK
+[GET] http://127.0.0.1:3081/api/presets => [200] OK
+[GET] http://127.0.0.1:3081/api/balance => [404] Not Found
+[GET] http://127.0.0.1:3081/api/mcp/tools => [200] OK
+[GET] http://127.0.0.1:3081/api/mcp/servers => [200] OK
+[GET] http://127.0.0.1:3081/api/mcp/tools => [200] OK
+[GET] http://127.0.0.1:3081/api/mcp/connection/status => [200] OK
+[GET] http://127.0.0.1:3081/api/keys?name=google => [200] OK
+[POST] http://127.0.0.1:3081/api/agents/chat/google => [200] OK
+  Request body: {"text":"Reply with exactly: ok","sender":"User","clientTimestamp":"2026-04-11T21:18:13","isCreatedByUser":true,"parentMessageId":"00000000-0000-0000-0000-000000000000","messageId":"5a691ba7-9049-4cb1-8eca-89846aefec40","error":false,"endpoint":"google","model":"gemini-2.5-flash-lite","key":"never","isTemporary":false,"isRegenerate":false,"isContinued":false}
+[GET] http://127.0.0.1:3081/api/agents/chat/stream/2d9db0ad-1997-41cf-9a2b-f616f40b05d5 => [200] OK
+[GET] http://127.0.0.1:3081/api/convos/gen_title/2d9db0ad-1997-41cf-9a2b-f616f40b05d5 => [404] Not Found
+[GET] http://127.0.0.1:3081/api/convos/gen_title/2d9db0ad-1997-41cf-9a2b-f616f40b05d5 => [404] Not Found
+[GET] http://127.0.0.1:3081/api/convos/gen_title/2d9db0ad-1997-41cf-9a2b-f616f40b05d5 => [404] Not Found
+[GET] http://127.0.0.1:3081/api/convos/gen_title/2d9db0ad-1997-41cf-9a2b-f616f40b05d5

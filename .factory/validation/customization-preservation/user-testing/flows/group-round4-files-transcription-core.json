@@ -1,0 +1,288 @@
+{
+  "groupId": "group-round4-files-transcription-core",
+  "testedAt": "2026-04-10T07:10:40Z",
+  "isolation": {
+    "baseUrl": "http://127.0.0.1:3081",
+    "rail": "dev",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "assertionIds": [
+      "VAL-FILES-001",
+      "VAL-FILES-002",
+      "VAL-FILES-004",
+      "VAL-FILES-005",
+      "VAL-FILES-006",
+      "VAL-FILES-008",
+      "VAL-CROSS-004"
+    ],
+    "persona": "val-user@dev.local"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "python3+requests (API probes)",
+    "docker logs"
+  ],
+  "commandsRun": [
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25 (run at start; rerun once after temp-ban)",
+    "agent-browser --session 6cedb62c379a__b1 ... (UI flows, screenshots, errors checks)",
+    "python3 scripts using requests against /api/auth/login, /api/files, /api/files/transcribe, /api/files/transcription-reference, /api/messages",
+    "docker logs --tail ... librechat-dev-api (queue/saveConvo diagnostics)"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-FILES-001",
+      "title": "Provider-aware file search stays pinned to the originating provider",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Enable File Search in /c/new and upload provider-pin-note.txt (Upload to Provider)",
+          "expected": "File indexed for provider-aware file_search and retrievable",
+          "observed": "Chat response stated missing attachment in file-search query flow (\"I don\u2019t see any attached file in this chat\")"
+        },
+        {
+          "action": "Inspect uploaded file records via GET /api/files",
+          "expected": "metadata.ragProvider and metadata.ragModel persisted for file_search file",
+          "observed": "provider-pin-note.txt records lacked ragProvider/ragModel and had empty text/embedded metadata"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-001-file-search-upload-ui.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-001-missing-attached-file-response.png"
+        ],
+        "consoleErrors": "none (agent-browser errors returned no entries)",
+        "network": "POST /api/files + chat request via UI; API metadata probe in evidence file shows missing ragProvider/ragModel for provider-pin-note.txt",
+        "apiSnippets": "customization-preservation/group-round4-files-transcription-core/api-snippets-round4.json#providerPinFiles"
+      },
+      "issues": "Provider-pin metadata contract not met in observed user/API surface: file_search upload did not persist ragProvider/ragModel and retrieval flow reported missing attachment."
+    },
+    {
+      "id": "VAL-FILES-002",
+      "title": "Context-mode screenshots preserve both vision input and OCR text",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Disable File Search, choose Upload as Text, upload login-page.png screenshot",
+          "expected": "Image remains attached for vision and OCR text stored on same file record",
+          "observed": "Image preview attachment rendered in composer/message UI (vision input preserved)"
+        },
+        {
+          "action": "Ask model to read words from uploaded image",
+          "expected": "Readable OCR-derived content from screenshot text",
+          "observed": "Model reported corrupted PNG dump markers (IDAT/IEND) instead of OCR text"
+        },
+        {
+          "action": "Inspect file record via GET /api/files",
+          "expected": "file.text populated with OCR text",
+          "observed": "login-page.png file.text remained empty"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-002-corrupted-png-dump-response.png"
+        ],
+        "consoleErrors": "none",
+        "network": "POST /api/files (Upload as Text) then chat completion; GET /api/files shows empty text",
+        "apiSnippets": "customization-preservation/group-round4-files-transcription-core/api-snippets-round4.json#ocrContextFile"
+      },
+      "issues": "OCR-preservation portion failed: uploaded image stayed attachable, but OCR text was not persisted/injected (empty file.text; corrupted PNG marker output)."
+    },
+    {
+      "id": "VAL-FILES-004",
+      "title": "Audio/video transcription is an explicit compose-bar action creating dedicated transcript conversation",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Upload speech-main-14s.wav in /c/new",
+          "expected": "Compose-bar transcription controls appear",
+          "observed": "Inline Transcribe control rendered with model/prompt controls"
+        },
+        {
+          "action": "Click Transcribe from compose bar",
+          "expected": "Navigate to dedicated transcript conversation with request + non-error pending response",
+          "observed": "Navigated from /c/new to /c/<conversationId>; request message and Transcribing placeholder were created"
+        },
+        {
+          "action": "Re-run transcription from /c/new with transcribe-progress-probe.wav",
+          "expected": "Dedicated transcript conversation re-created and persisted",
+          "observed": "Conversation Transcript: transcribe-progress-probe created and persisted in sidebar"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-004-transcribe-action-visible.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-004-transcript-conversation-created.png"
+        ],
+        "consoleErrors": "none",
+        "network": "POST /api/files/transcribe returned 200 in UI flow; conversation route changed to /c/<id>"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-FILES-005",
+      "title": "Background transcription shows progress/completion metadata in place",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Start transcription for transcribe-progress-probe.wav",
+          "expected": "Pending response appears in-place with processing state",
+          "observed": "Assistant message rendered \"Transcribing ... Preparing audio...\" and UI notification \"Started transcribing...\""
+        },
+        {
+          "action": "Wait for runner completion",
+          "expected": "Same message updates in place to final transcript + completed metadata",
+          "observed": "Message updated to final transcript text; conversation remained normal and non-error"
+        },
+        {
+          "action": "Inspect messages/file metadata via API",
+          "expected": "transcriptionStatus lifecycle reflected in metadata and unfinished=false",
+          "observed": "/api/messages and /api/files show transcriptionStatus=completed, unfinished=false, error=false, provider/model metadata present"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-005-processing-placeholder-probe.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-005-completed-state.png"
+        ],
+        "consoleErrors": "none",
+        "network": "POST /api/files/transcribe -> 200; GET /api/messages conversationId=9d41946e-e516-49a1-a0a2-d4c38d562010 -> 200 with transcriptionStatus=completed",
+        "apiSnippets": "customization-preservation/group-round4-files-transcription-core/api-snippets-round4.json#transcribeProgressMessages"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-FILES-006",
+      "title": "Diarization mode supports named speaker clips and constraints",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Select GPT-4o Diarize model",
+          "expected": "Prompt editing disabled and speaker clip UI enabled",
+          "observed": "Add prompt became disabled; Speakers control appeared"
+        },
+        {
+          "action": "Validate speaker reference constraints",
+          "expected": "Reject non-audio and clips outside 2-10s, accept valid clips, max 4 clips",
+          "observed": "API probes: non-audio=400, short=400, long=400, valid6s=200; UI reached Speakers (4/4)"
+        },
+        {
+          "action": "Start diarization transcription from /c/new with speaker reference",
+          "expected": "Successful handoff to transcript conversation and speaker-labeled rendering in UI",
+          "observed": "UI toast: \"Audio transcription did not return a valid conversation ID.\"; API logs show saveConvo cast error for transcriptionSpeakerReferences; /c/<returned-id> rendered Conversation not found"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-006-diarize-model-prompt-disabled.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-006-speaker-ref-non-audio-rejected.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-006-speaker-limit-4-of-4.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-006-invalid-conversation-id-toast.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-006-diarized-transcript-rendering.png"
+        ],
+        "consoleErrors": "none",
+        "network": "POST /api/files/transcription-reference -> 400/400/400/200 (constraints), POST /api/files/transcribe diarize flow returned UI handoff error",
+        "apiSnippets": "customization-preservation/group-round4-files-transcription-core/api-snippets-round4.json#transcriptionReferenceProbes and #diarizationFile",
+        "queueLogs": "customization-preservation/group-round4-files-transcription-core/api-log-snippets-round4.txt"
+      },
+      "issues": "Diarization handoff from /c/new is broken with speaker references in this run: conversation save cast error leads to invalid conversation-id toast and non-renderable conversation route."
+    },
+    {
+      "id": "VAL-FILES-008",
+      "title": "Transcription started from /c/new cleans draft state and stays appendable",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Start transcription from /c/new (transcribe-progress-probe.wav)",
+          "expected": "Navigate to transcript conversation and clear /c/new draft file state",
+          "observed": "Handoff to /c/9d41946e-e516-49a1-a0a2-d4c38d562010 occurred; returning to /c/new showed no file chips and localStorage filesDraft_new=null"
+        },
+        {
+          "action": "Send follow-up message in transcript conversation",
+          "expected": "Conversation remains appendable after transcription begins/completes",
+          "observed": "Follow-up message sent and assistant responded (\"Closing thanks\")"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-008-c-new-clean-after-handoff.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-008-post-transcribe-cnew-cleared.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-CROSS-004-follow-up-chat-appendable.png"
+        ],
+        "consoleErrors": "none",
+        "network": "UI route transition /c/new -> /c/9d41946e-e516-49a1-a0a2-d4c38d562010 and successful follow-up chat completion"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "title": "Background transcription remains a persistent conversation workflow",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Upload transcribe-progress-probe.wav in /c/new and click Transcribe",
+          "expected": "Explicit user action required; persistent transcript conversation created immediately",
+          "observed": "Compose-bar Transcribe initiated new persistent transcript conversation in sidebar"
+        },
+        {
+          "action": "Observe runner lifecycle",
+          "expected": "In-place progress state then completed transcript output",
+          "observed": "UI showed Transcribing placeholder then updated to final transcript text in same conversation"
+        },
+        {
+          "action": "Continue normal chat after completion",
+          "expected": "Follow-up chat works in same persistent conversation",
+          "observed": "User follow-up and assistant reply succeeded in the transcript conversation"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-005-processing-placeholder-probe.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-FILES-005-completed-state.png",
+          "customization-preservation/group-round4-files-transcription-core/VAL-CROSS-004-follow-up-chat-appendable.png"
+        ],
+        "consoleErrors": "none",
+        "network": "POST /api/files/transcribe -> 200; GET /api/messages for conversationId=9d41946e-e516-49a1-a0a2-d4c38d562010 shows transcription metadata + normal follow-up messages"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Validation persona hit temporary-ban during mixed UI/API probing.",
+      "resolved": true,
+      "resolution": "Ran reseed+restart sequence once as instructed, then continued testing.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006",
+        "VAL-FILES-008",
+        "VAL-CROSS-004"
+      ]
+    },
+    {
+      "description": "agent-browser wait --load networkidle timed out on app pages with ongoing activity.",
+      "resolved": true,
+      "resolution": "Used explicit timed waits and state snapshots/screenshots instead.",
+      "affectedAssertions": [
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-008",
+        "VAL-CROSS-004"
+      ]
+    },
+    {
+      "description": "agent-browser network request collector did not return captured request rows in this session.",
+      "resolved": true,
+      "resolution": "Captured equivalent request/response evidence through direct API probes and persisted snippets file.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 7 assigned assertions: 4 passed (VAL-FILES-004, VAL-FILES-005, VAL-FILES-008, VAL-CROSS-004) and 3 failed (VAL-FILES-001, VAL-FILES-002, VAL-FILES-006). Core transcription start/progress/appendable behavior passed, while provider-pin metadata, OCR text preservation, and diarization handoff with speaker references failed on this run."
+}

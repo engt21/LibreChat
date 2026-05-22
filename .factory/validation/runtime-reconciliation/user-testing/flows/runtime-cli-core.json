@@ -1,0 +1,111 @@
+{
+  "groupId": "runtime-cli-core",
+  "validatorId": "user-testing-flow-validator-runtime-cli",
+  "testedAt": "2026-04-04T23:56:48-04:00",
+  "isolation": {
+    "surface": "runtime-cli",
+    "devRail": "http://127.0.0.1:3081",
+    "langfuseDev": "http://127.0.0.1:3002",
+    "stableProtection": "No stop/rebuild actions against stable rail; read-only checks only",
+    "maxConcurrency": 1
+  },
+  "toolsUsed": [
+    "shell",
+    "curl",
+    "docker compose",
+    "docker inspect",
+    "docker logs"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-RUNTIME-005",
+      "title": "Dev validation is blocked until Langfuse is healthy",
+      "status": "pass",
+      "reason": "Across a 3-sample observation window (~42s), curl to :3002 returned HTTP 200 each time, Langfuse web/worker/clickhouse/model-pricing-sync stayed running, clickhouse remained healthy, and restart counts stayed at 0.",
+      "evidence": {
+        "healthCheck": "runtime-reconciliation/runtime-cli-core/02-health-check.txt",
+        "langfuseWindow": "runtime-reconciliation/runtime-cli-core/07-langfuse-observation-window.txt",
+        "composePs": "runtime-reconciliation/runtime-cli-core/06-docker-compose-ps-dev.txt"
+      }
+    },
+    {
+      "id": "VAL-CROSS-006",
+      "title": "Dev readiness requires route, worker, and observability health, not just a listening port",
+      "status": "fail",
+      "reason": "Strict contract conditions were not met: health-check reported orphan containers present and /api/realtime/models returned HTTP 404 (critical route mount expectation not satisfied).",
+      "evidence": {
+        "statusAll": "runtime-reconciliation/runtime-cli-core/01-status-all-dev.txt",
+        "healthCheck": "runtime-reconciliation/runtime-cli-core/02-health-check.txt",
+        "adminPermissionsRoute": "runtime-reconciliation/runtime-cli-core/03-curl-admin-permissions.txt",
+        "schedulesRoute": "runtime-reconciliation/runtime-cli-core/04-curl-schedules.txt",
+        "realtimeModelsRoute": "runtime-reconciliation/runtime-cli-core/05-curl-realtime-models.txt",
+        "apiLogs": "runtime-reconciliation/runtime-cli-core/08-api-tail-logs.txt"
+      },
+      "issues": "Observed [ScheduledJobs] runner startup in API logs, but readiness contract still fails due orphan-container check failure and realtime route 404."
+    }
+  ],
+  "commands": [
+    {
+      "command": "/pool/home/timeng/LibreChat-custom/local-services/status-all.sh dev",
+      "exitCode": 0,
+      "keyObservation": "Dev stack services were up, including LibreChat API and Langfuse components.",
+      "evidencePath": "runtime-reconciliation/runtime-cli-core/01-status-all-dev.txt"
+    },
+    {
+      "command": "/pool/home/timeng/LibreChat-custom/local-services/health-check.sh",
+      "exitCode": 0,
+      "keyObservation": "Reported 2 orphan containers; shared mount check passed; dev Langfuse components reported healthy.",
+      "evidencePath": "runtime-reconciliation/runtime-cli-core/02-health-check.txt"
+    },
+    {
+      "command": "curl -i http://127.0.0.1:3081/api/admin/permissions",
+      "exitCode": 0,
+      "keyObservation": "HTTP/1.1 401 Unauthorized.",
+      "evidencePath": "runtime-reconciliation/runtime-cli-core/03-curl-admin-permissions.txt"
+    },
+    {
+      "command": "curl -i http://127.0.0.1:3081/api/schedules",
+      "exitCode": 0,
+      "keyObservation": "HTTP/1.1 401 Unauthorized.",
+      "evidencePath": "runtime-reconciliation/runtime-cli-core/04-curl-schedules.txt"
+    },
+    {
+      "command": "curl -i http://127.0.0.1:3081/api/realtime/models",
+      "exitCode": 0,
+      "keyObservation": "HTTP/1.1 404 Not Found with message 'Endpoint not found'.",
+      "evidencePath": "runtime-reconciliation/runtime-cli-core/05-curl-realtime-models.txt"
+    },
+    {
+      "command": "docker compose -p librechat-dev -f /pool/home/timeng/LibreChat-custom/docker-compose.yml -f /pool/home/timeng/LibreChat-custom/docker-compose.local.override.yml ps",
+      "exitCode": 0,
+      "keyObservation": "Dev compose services listed as Up; Langfuse web/worker/clickhouse/model-pricing-sync present.",
+      "evidencePath": "runtime-reconciliation/runtime-cli-core/06-docker-compose-ps-dev.txt"
+    },
+    {
+      "command": "3-sample Langfuse observation loop: curl -i http://127.0.0.1:3002 + docker compose ps (Langfuse services) + docker inspect restart counts",
+      "exitCode": 0,
+      "keyObservation": "All 3 samples returned HTTP 200 from :3002; all target Langfuse containers stayed running with restarts=0.",
+      "evidencePath": "runtime-reconciliation/runtime-cli-core/07-langfuse-observation-window.txt"
+    },
+    {
+      "command": "docker logs --tail 300 librechat-dev-api",
+      "exitCode": 0,
+      "keyObservation": "API startup logs include [ScheduledJobs] runner start and GenerationJobManager initialization.",
+      "evidencePath": "runtime-reconciliation/runtime-cli-core/08-api-tail-logs.txt"
+    }
+  ],
+  "frictions": [
+    {
+      "description": "docker compose ps emitted warning that LOCAL_CODE_SANDBOX_PYTHON_IMAGE is unset.",
+      "resolved": false,
+      "resolution": "No change made during validation; warning captured as runtime context.",
+      "affectedAssertions": [
+        "VAL-RUNTIME-005",
+        "VAL-CROSS-006"
+      ]
+    }
+  ],
+  "blockers": [],
+  "evidenceRoot": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence",
+  "summary": "Tested 2 assertions: VAL-RUNTIME-005 passed; VAL-CROSS-006 failed due orphan-container health-check failure and /api/realtime/models returning 404."
+}

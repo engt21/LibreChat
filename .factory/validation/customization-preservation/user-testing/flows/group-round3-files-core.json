@@ -1,0 +1,226 @@
+{
+  "groupId": "group-round3-files-core",
+  "testedAt": "2026-04-06T12:50:06Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json",
+    "stableRailUsed": false,
+    "persona": "val-user@dev.local",
+    "preRunReset": "node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "docker logs"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-FILES-001",
+      "title": "Provider-aware file search stays pinned to the originating provider",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Enable File Search in compose tools and upload r3-files-note.txt via Upload for File Search",
+          "expected": "Upload is embedded through provider-matched local RAG and file metadata persists originating provider",
+          "observed": "Upload succeeded but stored record used metadata.nativeTool=file_search without ragProvider/ragModel metadata."
+        },
+        {
+          "action": "Send a follow-up file-search query and inspect conversation/file metadata",
+          "expected": "Follow-up query reuses provider-pinned backend and conversation/file metadata reflects tracked file usage",
+          "observed": "Conversation metadata returned files_count=0 and response did not reflect expected uploaded-file context path."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-core/VAL-FILES-001-file-search-enabled.png",
+          "customization-preservation/group-round3-files-core/VAL-FILES-001-after-upload-for-file-search-attempt2.png",
+          "customization-preservation/group-round3-files-core/VAL-FILES-001-after-query-response.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-core/r3-files-browser-errors.txt)",
+        "network": "GET /api/files -> 200 (VAL-FILES-api-files-list-headers.txt, VAL-FILES-001-api-files-after-attempt2.json); GET /api/convos/7694d636-e617-461e-9f10-93ed14f1de0e -> 200 with files_count=0 (VAL-FILES-001-convo-headers.txt, VAL-FILES-001-convo.json)"
+      },
+      "issues": "Observed metadata did not persist local-RAG provider pinning (ragProvider/ragModel), so contract behavior was not confirmed."
+    },
+    {
+      "id": "VAL-FILES-002",
+      "title": "Context-mode screenshots preserve both vision input and OCR text",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Switch to context mode (File Search off), choose Upload as Text, upload r3-ocr-text.png",
+          "expected": "Image preview remains available for vision-capable handling and OCR text is stored/injected as text context",
+          "observed": "Image preview remained available (View r3-ocr-text.png), but text-context response surfaced raw PNG binary bytes instead of OCR text extraction."
+        },
+        {
+          "action": "Ask model to read uploaded image text",
+          "expected": "Model receives OCR text context (readable extracted text)",
+          "observed": "Response began with binary PNG payload bytes, indicating failed OCR-text extraction in context mode."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-core/VAL-FILES-002-context-attach-menu-no-filesearch.png",
+          "customization-preservation/group-round3-files-core/VAL-FILES-002-after-upload-as-text-ocr-image.png",
+          "customization-preservation/group-round3-files-core/VAL-FILES-002-upload-as-text-response-final.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-core/r3-files-browser-errors.txt)",
+        "network": "GET /api/files -> 200 (VAL-FILES-002-api-files-headers.txt, VAL-FILES-002-api-files-body.json); response payload evidence in VAL-FILES-002-page-text-upload-as-text-response-final.txt"
+      },
+      "issues": "Context-mode Upload-as-Text path produced binary dump instead of OCR text, so OCR-preservation contract failed."
+    },
+    {
+      "id": "VAL-FILES-003",
+      "title": "Native OpenAI, Azure, and Gemini tool routing keeps LibreChat file bookkeeping intact",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Exercise OpenAI file-search upload path and inspect file metadata",
+          "expected": "Native routing keeps coherent file bookkeeping without duplicate/mixed ingestion",
+          "observed": "OpenAI file-search record with metadata.nativeTool=file_search was observed, but full no-duplicate bookkeeping guarantees could not be conclusively proven from this run."
+        },
+        {
+          "action": "Attempt full cross-provider (Azure/Gemini) routing validation",
+          "expected": "Validate equivalent native-routing bookkeeping across OpenAI, Azure, and Gemini",
+          "observed": "Blocked by credential prerequisites: Azure configured as user_provided without executable user key path in this run; Google runtime key path unavailable/invalid in logs."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-core/VAL-FILES-001-after-upload-for-file-search-attempt2.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-core/r3-files-browser-errors.txt)",
+        "network": "Provider env snapshot: VAL-FILES-003-provider-env-snapshot.txt; OpenAI file metadata: VAL-FILES-001-api-files-after-attempt2.json; Google runtime 400s visible in VAL-FILES-005-api-log-context.txt"
+      },
+      "issues": "Cross-provider native-routing verification remained blocked by Azure/Google credential prerequisites in this environment partition."
+    },
+    {
+      "id": "VAL-FILES-004",
+      "title": "Audio and video transcription is an explicit compose-bar action that creates a dedicated transcript conversation",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Upload audio file in compose bar on /c/new",
+          "expected": "Transcribe controls become visible and user can explicitly trigger Transcribe from compose bar",
+          "observed": "Audio attachment chip appeared, but no Transcribe control surfaced in compose UI."
+        },
+        {
+          "action": "Call POST /api/files/transcribe for the uploaded file",
+          "expected": "Dedicated transcript conversation with user request + non-error transcribing placeholder",
+          "observed": "API returned 200 and created transcript conversation/messages (request + processing placeholder), but this was only achievable via API fallback because compose-bar Transcribe action was missing."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-core/VAL-FILES-004-after-audio-upload-transcribe-controls.png",
+          "customization-preservation/group-round3-files-core/VAL-FILES-004-transcript-conversation-created.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-core/r3-files-browser-errors.txt)",
+        "network": "POST /api/files/transcribe -> 200 (VAL-FILES-004-transcribe-api-headers.txt, VAL-FILES-004-transcribe-api-body.json)"
+      },
+      "issues": "Required explicit compose-bar Transcribe action did not appear after audio upload."
+    },
+    {
+      "id": "VAL-FILES-005",
+      "title": "Background transcription shows progress, completion, and failure in place",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Queue transcription job and poll message status",
+          "expected": "Placeholder updates in place through processing/completed/failed lifecycle with explicit metadata",
+          "observed": "Processing -> failed transition was observed in-place with explicit failure text, but newly queued upload failed due missing temp-file path (ENOENT)."
+        },
+        {
+          "action": "Check completed transcript path",
+          "expected": "Completed status and completed transcript text are visible in transcript conversation",
+          "observed": "Existing transcript conversation for silence.mp3 showed completed status, but current new-job path still failed and did not provide healthy progress/completion behavior for this retest batch."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-core/VAL-FILES-004-transcript-conversation-created.png",
+          "customization-preservation/group-round3-files-core/VAL-FILES-005-completed-transcript-conversation.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-core/r3-files-browser-errors.txt)",
+        "network": "POST /api/files/transcribe -> 200 (VAL-FILES-004-transcribe-api-headers.txt); poll shows failed status + ENOENT (VAL-FILES-005-transcription-status-poll.txt); completed reference conversation messages in VAL-FILES-005-silence-messages.json"
+      },
+      "issues": "New transcription job failed with ENOENT (/app/uploads/temp/... missing), so reliable progress/completion lifecycle for newly uploaded media did not hold."
+    },
+    {
+      "id": "VAL-FILES-006",
+      "title": "Diarization mode supports named speaker clips and disables prompts where unsupported",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Select GPT-4o Diarize in Speech -> Advanced",
+          "expected": "Prompt editing is disabled for diarization model",
+          "observed": "Prompt field became disabled (is enabled = false)."
+        },
+        {
+          "action": "Validate speaker reference clip constraints",
+          "expected": "Reject non-audio, reject <2s and >10s clips, accept valid 2-10s clips",
+          "observed": "nonaudio -> 400, short(1s) -> 400, long(11s) -> 400, valid(3s) -> 200."
+        },
+        {
+          "action": "Submit diarization transcription request with 5 speaker references",
+          "expected": "At most 4 named references persisted, diarization workflow remains conversation-consistent with speaker-labeled output",
+          "observed": "Speaker references were truncated to 4, but API returned conversation save error and conversation lookup returned 404; transcript output for tested clip was 'No speech was detected' (no speaker-labeled lines)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-core/VAL-FILES-006-diarize-selected-prompt-disabled.png",
+          "customization-preservation/group-round3-files-core/VAL-FILES-006-transcription-model-dropdown-open.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-core/r3-files-browser-errors.txt)",
+        "network": "Prompt disabled probe: VAL-FILES-006-prompt-enabled-state.txt; transcription-reference responses: VAL-FILES-006-transcription-reference-*-typed-headers.txt/body.json; diarize transcribe request: VAL-FILES-006-diarize-transcribe-headers.txt/body.json; convo lookup: VAL-FILES-006-diarize-convo-headers.txt (404); message status: VAL-FILES-006-diarize-messages.json"
+      },
+      "issues": "Diarization constraints partially worked, but request returned conversation-save error and final speaker-labeled transcript rendering could not be confirmed."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Attach-menu 'Upload for File Search' is not a direct HTML file input for automation.",
+      "resolved": true,
+      "resolution": "Exposed hidden input[type=file] temporarily to continue upload actions, then reset styles to avoid click interception.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-004"
+      ]
+    },
+    {
+      "description": "agent-browser network capture did not return request list for this session.",
+      "resolved": true,
+      "resolution": "Used explicit curl/API status captures and saved headers/body artifacts for request evidence.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ]
+    },
+    {
+      "description": "Bearer token from earlier artifacts expired mid-run, causing 401s on subsequent API checks.",
+      "resolved": true,
+      "resolution": "Refreshed token using in-browser login eval and resumed API checks.",
+      "affectedAssertions": [
+        "VAL-FILES-006"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Cross-provider native-routing validation is credential-gated in this isolated dev run.",
+      "affectedAssertions": [
+        "VAL-FILES-003"
+      ],
+      "quickFixAttempted": "Captured env state (AZURE_API_KEY=user_provided, AZURE_OPENAI_BASEURL=user_provided, GOOGLE_KEY empty) and attempted OpenAI-only path; Azure/Gemini executable paths remained unavailable."
+    }
+  ],
+  "summary": "Tested 6 assigned assertions on dev rail: 0 passed, 5 failed (VAL-FILES-001,002,004,005,006), 1 blocked (VAL-FILES-003). Core failures were missing compose-bar Transcribe control, OCR context-mode binary text leakage, and transcription reliability issues (ENOENT and diarize conversation-save error)."
+}

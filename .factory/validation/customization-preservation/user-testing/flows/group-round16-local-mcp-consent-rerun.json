@@ -1,0 +1,81 @@
+{
+  "groupId": "group-round16-local-mcp-consent-rerun",
+  "testedAt": "2026-04-11T21:05:46.008992Z",
+  "isolation": {
+    "surface": "web-ui-api-dev",
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": "none",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local"
+    ],
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json"
+  },
+  "toolsUsed": [
+    "python3 (urllib)",
+    "web-ui-api-dev"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Register pending-consent Arcade MCP server via POST /api/mcp/servers",
+          "expected": "Server initializes and remains usable for pending-consent validation",
+          "observed": "status=400; serverName=None; init_ok=False"
+        },
+        {
+          "action": "Inspect pre-consent tool visibility via GET /api/mcp/tools",
+          "expected": "Tools visible by live discovery or trusted persisted fallback metadata",
+          "observed": "status=200; live_tools_count=0; fallback_key=None; visibility_any=False"
+        },
+        {
+          "action": "Create + run MCP-backed schedule and inspect run failure payload",
+          "expected": "OAuth preflight failure with continuationMetadata plus top-level authorization_url and/or llm_instructions",
+          "observed": "create_status=None; run_status=None; run_is_failure=False; continuationMetadata_present=False; top_authorization_url_present=False; top_llm_instructions_present=False"
+        },
+        {
+          "action": "Cleanup created schedule/server artifacts",
+          "expected": "Artifacts removed",
+          "observed": "scheduleCleanupStatus=None; serverCleanupStatus=None"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-first validation)",
+        "network": [
+          "customization-preservation/group-round16-local-mcp-consent-rerun/api-round16-local-mcp-consent-rerun.json"
+        ],
+        "keyHttpStatuses": {
+          "GET /api/admin/permissions": 401,
+          "POST /api/auth/login": 200,
+          "POST /api/mcp/servers": 400,
+          "GET /api/mcp/tools": 200,
+          "POST /api/schedules": null,
+          "POST /api/schedules/:id/run": null
+        },
+        "salientResponseSnippets": {
+          "createServer": "{\"error\": \"MCP_INSPECTION_FAILED\", \"message\": \"Failed to connect to MCP server \\\"temp_server_name\\\"\"}",
+          "mcpTools": "{\"servers\": {\"ollama_search_fetch\": {\"name\": \"ollama_search_fetch\", \"icon\": \"https://ollama.com/public/ollama.png\", \"authenticated\": true, \"authConfig\": [], \"tools\": [{\"name\": \"web_search\", \"pluginKey\": \"web_search_mcp_ollama_search_fetch\", \"description\": \"Search the live web using Ollama hosted search. Use this for current events or when recent information matters.\"}, {\"name\": \"web_fetch\", \"pluginKey\": \"web_fetch_mcp_ollama_search_fetch\", \"description\": \"Fetch the contents of a single web page using Ollama hosted web fetch after you already have a URL.\"}]}, \"round15-mcp004-consent-rerun-cbde9d\": {\"name\": \"round15-mcp004-consent-rerun-cbde9d\", \"icon\": \"\", \"authenticated\": true, \"authConfig\": [], \"tools\": [], \"authState\": \"pending_consent\", \"oauthUrl\": \"https://cloud.arcade.dev/oauth2/authorize\"}, \"round14-mcp004-da0824\": {\"name\": \"round14-mcp004-da0824\", \"icon\": \"\", \"authenticated\": true, \"authConfig\": [], \"tools\": [], \"authState\": \"pending_consent\", \"oauthUrl\": \"https://cloud.arcade.dev/oauth2/authorize\"}, \"round14-mcp001-da0824\": {\"name\": \"round14-mcp001-da0824\", \"icon\": \"\", \"authenticated\": true, \"authConfig\": [], \"tools\": [{\"name\": \"get_server_capabilities\", \"pluginKey\": \"get_server_capabilities_mcp_temp_server_name\", \"description\": \"Return the MCP server configuration, default paths, and detected binaries.\"}, {\"name\": \"inspect_media_source\", \"pluginKey\": \"inspect_media_source_mcp_temp_server_name\", \"description\": \"Inspect a yt-dlp-compatible URL and return metadata and available formats.\"}, {\"name\": \"list_media_source_formats\", \"pluginKey\": \"list_media_source_formats_mcp_temp_server_name\", \"description\": \"Return all yt-dlp-discovered formats for a URL.\"}, {\"name\": \"download_media_best\", \"pluginKey\": \"download_media_best_mcp_temp_server_name\", \"description\": \"Downlo",
+          "createSchedule": "null",
+          "run": "null"
+        }
+      },
+      "issues": "Blocked: could not complete required API flow due to MCP registration/auth precondition failure."
+    }
+  ],
+  "frictions": [],
+  "blockers": [
+    {
+      "description": "Failed to register pending-consent Arcade MCP server via POST /api/mcp/servers",
+      "affectedAssertions": [
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Retried POST /api/mcp/servers 3 times; attempts=[{'attempt': 1, 'status': 400, 'error': 'MCP_INSPECTION_FAILED', 'message': 'Failed to connect to MCP server \"temp_server_name\"'}, {'attempt': 2, 'status': 400, 'error': 'MCP_INSPECTION_FAILED', 'message': 'Failed to connect to MCP server \"temp_server_name\"'}, {'attempt': 3, 'status': 400, 'error': 'MCP_INSPECTION_FAILED', 'message': 'Failed to connect to MCP server \"temp_server_name\"'}]"
+    }
+  ],
+  "summary": "Tested 1 assertion: 0 passed, 0 failed, 1 blocked."
+}

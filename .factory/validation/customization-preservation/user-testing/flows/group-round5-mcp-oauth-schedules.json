@@ -1,0 +1,203 @@
+{
+  "groupId": "group-round5-mcp-oauth-schedules",
+  "testedAt": "2026-04-10T13:59:10.200124+00:00",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": false,
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "python requests",
+    "docker logs"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Create local validation MCP servers for 192.168.50.4:8765 and :8766",
+          "expected": "Both servers register/reinitialize so no-input and open-object schemas can be validated",
+          "observed": "Both create calls returned 403 MCP_DOMAIN_NOT_ALLOWED; reinitialize/connection checks returned 404."
+        },
+        {
+          "action": "Run schedule probes that target the intended local MCP servers",
+          "expected": "Schedules execute with requested MCP servers bound",
+          "observed": "Stored schedule targets normalized to ephemeralAgent.mcp=[] due missing servers, so callable-path evidence is not valid for local-surface assertions."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round5-mcp-oauth-schedules/110-VAL-MCP-001-create-local-noinput-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/111-VAL-MCP-001-create-local-openobj-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/116-VAL-MCP-001-servers-after-local-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/118-VAL-MCP-001-run-schedule-noinput-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/121-VAL-MCP-001-run-schedule-openobj-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/190-api-logs-rerun.json"
+        ]
+      },
+      "issues": "Blocked by MCP domain policy rejecting both local validation servers (403 MCP_DOMAIN_NOT_ALLOWED)."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "title": "OAuth refresh prefers protected-resource authorization server metadata",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Create and reinitialize Arcade OAuth MCP server",
+          "expected": "Reach a state where expired-token refresh behavior can be exercised",
+          "observed": "Server creation/reinitialize succeeded, but OAuth status stayed PENDING with no auth-value flags."
+        },
+        {
+          "action": "Probe runtime logs for refresh prerequisites",
+          "expected": "Refresh token path becomes testable",
+          "observed": "Logs show access token missing and no refresh token available, requiring re-authentication instead of refresh."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round5-mcp-oauth-schedules/130-VAL-MCP-002-create-arcade-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/131-VAL-MCP-003-reinit-arcade-direct-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/133-VAL-MCP-002-auth-values-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/134-VAL-MCP-002-oauth-status-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/190-api-logs-rerun.json"
+        ]
+      },
+      "issues": "Blocked: no credentialed OAuth refresh-state persona/token exists in this partition (status remained PENDING)."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "title": "OAuth callback URLs preserve precedence rules across local and proxied deployments",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Reinitialize Arcade OAuth server without forwarded headers",
+          "expected": "oauthUrl callback reflects precedence chain",
+          "observed": "Direct reinitialize returned oauthUrl with redirect_uri=http://localhost:3081/api/mcp/<server>/oauth/callback."
+        },
+        {
+          "action": "Reinitialize with X-Forwarded-Host/X-Forwarded-Proto",
+          "expected": "Forwarded-header branch is observable",
+          "observed": "Forwarded reinitialize returned success:false with oauthUrl=null, so forwarded precedence could not be validated."
+        },
+        {
+          "action": "Probe /oauth/initiate directly and with forwarded headers",
+          "expected": "Initiate route confirms callback behavior",
+          "observed": "Both initiate calls returned 403 User mismatch in API-token flow."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round5-mcp-oauth-schedules/131-VAL-MCP-003-reinit-arcade-direct-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/132-VAL-MCP-003-reinit-arcade-forwarded-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/135-VAL-MCP-003-oauth-initiate-direct-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/136-VAL-MCP-003-oauth-initiate-forwarded-rerun.json"
+        ]
+      },
+      "issues": "Blocked: forwarded precedence branch did not yield usable oauthUrl evidence from available API flow state."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Initialize Arcade server in pending-consent state and inspect MCP tools surface",
+          "expected": "Server lists tools before consent",
+          "observed": "Server appeared in /api/mcp/tools but tools array was empty before consent."
+        },
+        {
+          "action": "Invoke pending-consent MCP target through scheduled execution",
+          "expected": "Continuation metadata (authorization_url and/or llm_instructions) is surfaced",
+          "observed": "Run failed with explicit OAuth-consent-required message but no authorization_url/llm_instructions metadata in response payload."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round5-mcp-oauth-schedules/151-mcp004-create-arcade-tools-check.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/152-mcp004-reinit-arcade-tools-check.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/153-mcp004-tools-surface-check.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/153b-mcp004-tools-summary.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/141-VAL-CROSS-005A-run-manual-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/190-api-logs-rerun.json"
+        ]
+      },
+      "issues": "Fail: pending-consent path now fails correctly, but required continuation metadata/tool-listing contract was not met in this user-surface run."
+    },
+    {
+      "id": "VAL-CROSS-005A",
+      "title": "Scheduled MCP and OAuth execution keeps the interactive auth contract",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Manual Run now for pending-consent Arcade MCP schedule",
+          "expected": "Durable auth failure with no success conversation",
+          "observed": "POST /run returned 500; schedule persisted lastStatus=failed with explicit OAuth-consent-required error and no conversation IDs."
+        },
+        {
+          "action": "Background scheduler run for enabled pending-consent Arcade MCP schedule",
+          "expected": "Same durable auth failure behavior in scheduler path",
+          "observed": "Background poll showed lastTriggeredBy=scheduler, lastStatus=failed, explicit OAuth-consent-required error, and no conversation IDs."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round5-mcp-oauth-schedules/140-VAL-CROSS-005A-create-manual-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/141-VAL-CROSS-005A-run-manual-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/145-VAL-CROSS-005A-bg-final-snapshot-rerun.json",
+          "customization-preservation/group-round5-mcp-oauth-schedules/190-api-logs-rerun.json"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "POST /api/mcp/:server/oauth/initiate returned 403 User mismatch for direct and forwarded probes in token-auth API flow.",
+      "resolved": true,
+      "resolution": "Used reinitialize oauthUrl payloads for callback evidence and recorded initiate mismatch as blocking context.",
+      "affectedAssertions": [
+        "VAL-MCP-003"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Local MCP validation servers (192.168.50.4:8765/:8766) are rejected by current domain policy.",
+      "affectedAssertions": [
+        "VAL-MCP-001"
+      ],
+      "quickFixAttempted": "Retried create with correct {config:{...}} payload for both domains; both returned 403 MCP_DOMAIN_NOT_ALLOWED."
+    },
+    {
+      "description": "OAuth refresh-state token path is unavailable for Arcade validation persona.",
+      "affectedAssertions": [
+        "VAL-MCP-002"
+      ],
+      "quickFixAttempted": "Created/reinitialized Arcade server, checked oauth status and auth flags, and captured logs showing no access token/refresh token."
+    },
+    {
+      "description": "Forwarded callback-precedence branch is not observable from current API-token flow state.",
+      "affectedAssertions": [
+        "VAL-MCP-003"
+      ],
+      "quickFixAttempted": "Ran direct and forwarded reinitialize plus oauth/initiate direct/forwarded; forwarded reinitialize returned oauthUrl=null and initiate returned 403 User mismatch."
+    }
+  ],
+  "summary": "Tested 5 assertions: 1 passed (VAL-CROSS-005A), 1 failed (VAL-MCP-004), 3 blocked (VAL-MCP-001/002/003)."
+}

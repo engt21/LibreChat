@@ -1,0 +1,184 @@
+{
+  "groupId": "group-round4-provider-xai-discovery",
+  "testedAt": "2026-04-10T08:03:31Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "evidenceDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/customization-preservation/group-round4-provider-xai-discovery",
+    "stableRailUsed": false,
+    "personas": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ],
+    "browserSession": "6cedb62c379a__c2"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "docker logs",
+    "python3"
+  ],
+  "commandsRun": [
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api",
+    "sleep 25",
+    "curl unauth smokes on /api/admin/permissions /api/schedules /api/realtime/models (all 401)",
+    "curl POST http://127.0.0.1:3081/api/auth/login (val-superadmin, val-user)",
+    "curl GET http://127.0.0.1:3081/api/keys?name=xai&includeValue=true /api/models /api/endpoints /api/config",
+    "agent-browser --session 6cedb62c379a__c2 UI flow for xAI model picker, key dialog, tools toggles, and send attempt",
+    "agent-browser errors and network requests export",
+    "docker logs librechat-dev-api --since 20m",
+    "python3 evidence summarizers (api-provider-summary.json, VAL-PROVIDER-009-observability-summary.json)"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-007",
+      "title": "xAI custom endpoints auto-detect and refresh live models with aliases",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open model picker on dev rail before saving any xAI user key and inspect xAI endpoint/model list.",
+          "expected": "xAI endpoint is visible and bootstrap models are selectable before key save.",
+          "observed": "xAI endpoint appeared in picker and listed bootstrap models (grok-4-0709, grok-4.20-beta-latest-non-reasoning, grok-4.20-beta-latest-reasoning, grok-3-mini, grok-code-fast-1)."
+        },
+        {
+          "action": "Probe xAI key status via authenticated API and then send xAI chat turn.",
+          "expected": "With valid saved key, runtime can refresh/execute and alias-preservation behavior can be validated end-to-end.",
+          "observed": "GET /api/keys?name=xai&includeValue=true returned 200 with {\"expiresAt\":null} for both personas; xAI turn failed with UI error 'No key found. Please provide a key and try again.'"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-007-model-picker-xai-option.png",
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-007-xai-bootstrap-models.png",
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-007-xai-send-no-key-error.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-provider-xai-discovery/group-round4-provider-xai-discovery-browser-errors.txt)",
+        "network": "api-keys-xai-superadmin-body.json + api-keys-xai-user-body.json => {\"expiresAt\":null}; VAL-PROVIDER-007-page-text-after-send.txt contains 'No key found. Please provide a key and try again.'"
+      },
+      "issues": "Blocked by missing xAI user key in this isolation partition; refresh-after-save and alias-preservation runtime verification could not be completed."
+    },
+    {
+      "id": "VAL-PROVIDER-008",
+      "title": "xAI settings stay capability-aware and sanitize unsupported runtime params",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open xAI picker/settings entrypoint (Set API Key xAI) and inspect credential dialog state.",
+          "expected": "xAI settings surface is reachable; capability/runtime checks can proceed with valid key.",
+          "observed": "xAI key dialog opened, but no key was present (API key state remained expiresAt null)."
+        },
+        {
+          "action": "Attempt xAI runtime request needed to observe unsupported-parameter sanitization.",
+          "expected": "Outbound xAI request executes so unsupported params stripping can be validated.",
+          "observed": "Runtime failed before provider execution with 'No key found. Please provide a key and try again.'"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-008-xai-setkey-entrypoint.png",
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-008-xai-key-dialog.png",
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-007-xai-send-no-key-error.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-provider-xai-discovery/group-round4-provider-xai-discovery-browser-errors.txt)",
+        "network": "api-keys-xai-superadmin-body.json => {\"expiresAt\":null}; runtime failure text captured in VAL-PROVIDER-007-page-text-after-send.txt"
+      },
+      "issues": "Blocked by missing xAI key; unsupported runtime-parameter sanitization cannot be validated without a successful xAI execution path."
+    },
+    {
+      "id": "VAL-PROVIDER-008A",
+      "title": "xAI native web search strips only the intended generic tool",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Enable xAI chat tools and attempt to turn on Search while File Search remains enabled.",
+          "expected": "xAI-native web-search path should be testable with tool selections preserved for strip-only validation.",
+          "observed": "File Search remained enabled, but enabling Search opened generic search-provider key modal (Serper/Firecrawl/Jina); Search checkbox remained unchecked afterward."
+        },
+        {
+          "action": "Attempt xAI chat execution to inspect request-level strip behavior.",
+          "expected": "Successful xAI run with Web Search enabled allows verification that only generic web_search is stripped.",
+          "observed": "Execution blocked with 'No key found. Please provide a key and try again.'; request-level strip behavior remained unobservable."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-008A-xai-tools-enabled.png",
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-008A-search-provider-modal.png",
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-007-xai-send-no-key-error.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-provider-xai-discovery/group-round4-provider-xai-discovery-browser-errors.txt)",
+        "network": "VAL-PROVIDER-008A-tool-checkbox-states.txt => search_checked=false, file_search_checked=true; xAI key remained unset in api-keys-xai-superadmin-body.json; send failure in VAL-PROVIDER-007-page-text-after-send.txt"
+      },
+      "issues": "Blocked by missing xAI key; additionally, search toggle prompted generic search-provider key modal, preventing end-to-end xAI-native strip verification in this run."
+    },
+    {
+      "id": "VAL-PROVIDER-009",
+      "title": "Ollama model discovery merges multiple sources and resolves per-model origin",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Inspect Ollama model list in UI and API (/api/models).",
+          "expected": "Merged discovered catalog is visible.",
+          "observed": "UI picker and /api/models both returned 12 Ollama models (including gptossbigctx:latest, qwen3:14b, deepseek-r1:14b, qwen2.5:latest, glm-4.7-flash:latest)."
+        },
+        {
+          "action": "Verify per-model origin routing metadata and explicit /api/tags->/models fallback diagnostics from assigned user/API surface.",
+          "expected": "Evidence should expose model-to-origin mapping and fallback path behavior.",
+          "observed": "Exposed surfaces only provided flat model IDs and endpoint-level config; no per-model origin metadata or tags-fallback diagnostics were visible."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-provider-xai-discovery/VAL-PROVIDER-009-ollama-model-list.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-provider-xai-discovery/group-round4-provider-xai-discovery-browser-errors.txt)",
+        "network": "api-models-superadmin-body.json + api-endpoints-superadmin-body.json + VAL-PROVIDER-009-observability-summary.json (contains_per_model_origin_metadata=false, contains_tags_fallback_diagnostics=false)"
+      },
+      "issues": "Blocked on observability limits from assigned user/API surface: per-model origin resolution and explicit tags-to-models fallback evidence are not exposed."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "agent-browser network capture returned no request log entries for this session.",
+      "resolved": true,
+      "resolution": "Used authenticated API probe artifacts and dev API container logs as network evidence source.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-007",
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A",
+        "VAL-PROVIDER-009"
+      ]
+    },
+    {
+      "description": "Turning on Search in xAI flow opened generic search-provider credential modal.",
+      "resolved": true,
+      "resolution": "Captured modal evidence and cancelled to continue scoped assertions without mutating provider-key state.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008A"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "xAI user key is missing for seeded personas in this dev partition.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-007",
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A"
+      ],
+      "quickFixAttempted": "Verified key status via GET /api/keys?name=xai&includeValue=true for superadmin/user (both 200 with {\"expiresAt\":null}) and retried xAI send flow; UI still returned 'No key found. Please provide a key and try again.'"
+    },
+    {
+      "description": "Ollama per-model origin and explicit /api/tags fallback diagnostics are not exposed from assigned user/API surfaces.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-009"
+      ],
+      "quickFixAttempted": "Cross-checked UI model picker, /api/models, /api/endpoints, and derived observability summary; merged model catalog was visible but origin/fallback internals remained unavailable."
+    }
+  ],
+  "summary": "Retested 4 assigned assertions on dev rail: 0 passed, 4 blocked (VAL-PROVIDER-007, VAL-PROVIDER-008, VAL-PROVIDER-008A, VAL-PROVIDER-009). xAI endpoint/bootstrap visibility is intact but all xAI execution-path assertions remain key-blocked, and Ollama origin/fallback proof remains blocked by observability limits on the allowed surface."
+}

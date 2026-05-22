@@ -1,0 +1,100 @@
+{
+  "groupId": "r2-group-auth-model",
+  "surface": "web-ui-api-dev",
+  "assertions": [
+    {
+      "id": "VAL-AUTH-001",
+      "status": "fail",
+      "reason": "Registration toggle propagated to /api/config (false), login hid Sign up, and POST /api/auth/register returned 403 'Registration is not allowed.'; however direct /register still rendered the registration form instead of redirect/disabled state, and valid-invite/LDAP branches were not exercised.",
+      "evidence": [
+        "customization-preservation/r2-group-auth-model/VAL-AUTH-001-config.json",
+        "customization-preservation/r2-group-auth-model/VAL-AUTH-001-login-registration-disabled-no-signup.png",
+        "customization-preservation/r2-group-auth-model/VAL-AUTH-001-register-route-when-disabled.png",
+        "customization-preservation/r2-group-auth-model/VAL-AUTH-001-login-registration-enabled-signup-visible.png",
+        "customization-preservation/r2-group-auth-model/VAL-AUTH-001-api.txt"
+      ]
+    },
+    {
+      "id": "VAL-MODEL-001",
+      "status": "fail",
+      "reason": "Fresh local registration/login succeeded, but first-session modelPermissions for the new non-admin user did not match the documented default allowlist; superadmin retained a larger model catalog than restricted users. Federated/auto-provisioned path was unavailable in this environment.",
+      "evidence": [
+        "customization-preservation/r2-group-auth-model/VAL-MODEL-CROSS-api.json",
+        "customization-preservation/r2-group-auth-model/final-config.json"
+      ]
+    },
+    {
+      "id": "VAL-MODEL-002",
+      "status": "pass",
+      "reason": "Superadmin successfully patched per-user modelPermissions (200) and the target user's /api/models updated immediately; invalid endpoint/model overrides returned 400; workspace-admin override attempt returned 403; superadmin-target model-access control was non-applicable (disabled in UI).",
+      "evidence": [
+        "customization-preservation/r2-group-auth-model/VAL-MODEL-CROSS-api.json",
+        "customization-preservation/r2-group-auth-model/VAL-MODEL-002-superadmin-user-model-access-controls.png",
+        "customization-preservation/r2-group-auth-model/VAL-MODEL-002-superadmin-target-no-model-access-controls.png"
+      ]
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "status": "fail",
+      "reason": "Server-side restriction was observed on filtered /api/models and blocked-model assistants chat path ('Illegal request'), but full contract coverage across config model-spec filtering plus chat/agents/assistants create-update-revert and saved preset/model-spec re-entry paths was not completed; ban/rate-limit controls also interrupted follow-up checks.",
+      "evidence": [
+        "customization-preservation/r2-group-auth-model/VAL-MODEL-CROSS-api.json",
+        "customization-preservation/r2-group-auth-model/VAL-MODEL-003-assistants-route-check.json"
+      ]
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "status": "fail",
+      "reason": "Superadmin sync check passed (/api/admin/permissions isSuperAdmin=true) and registration gating API checks passed, but direct /register still rendered form under disabled registration, invite-signup branch was not executed, and new local-user first-session model defaults did not align with documented policy.",
+      "evidence": [
+        "customization-preservation/r2-group-auth-model/VAL-AUTH-001-config.json",
+        "customization-preservation/r2-group-auth-model/VAL-AUTH-001-login-registration-disabled-no-signup.png",
+        "customization-preservation/r2-group-auth-model/VAL-AUTH-001-register-route-when-disabled.png",
+        "customization-preservation/r2-group-auth-model/VAL-MODEL-CROSS-api.json"
+      ]
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "status": "fail",
+      "reason": "Superadmin admin-console flows and per-user model-access overrides worked (including invalid-combination 400 rejection and resulting user-visible model-list change), but provider-settings update flow itself was only observed (controls visible) and not fully executed end-to-end.",
+      "evidence": [
+        "customization-preservation/r2-group-auth-model/VAL-CROSS-002-superadmin-account-menu-admin-console.png",
+        "customization-preservation/r2-group-auth-model/VAL-CROSS-002-superadmin-model-selector-provider-settings-controls.png",
+        "customization-preservation/r2-group-auth-model/VAL-MODEL-CROSS-api.json"
+      ]
+    }
+  ],
+  "toolsUsed": [
+    "agent-browser",
+    "curl"
+  ],
+  "frictions": [
+    {
+      "description": "Auth throttling/temporary bans were repeatedly triggered during high-frequency login/API probing; required rerunning dev persona seed + API restart to clear limiter/ban state.",
+      "resolved": true,
+      "resolution": "Ran node local-services/dev-seed-validation-personas.js then docker restart librechat-dev-api with ~20s wait.",
+      "affectedAssertions": [
+        "VAL-MODEL-003",
+        "VAL-CROSS-001",
+        "VAL-CROSS-002"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "No invite token flow was available within this execution path, so the valid-invite signup branch of VAL-AUTH-001 / VAL-CROSS-001 could not be directly exercised.",
+      "affectedAssertions": [
+        "VAL-AUTH-001",
+        "VAL-CROSS-001"
+      ],
+      "quickFixAttempted": "Validated no-invite registration rejection path and UI/API registration toggle effects instead."
+    },
+    {
+      "description": "Federated/auto-provisioned auth path required by VAL-MODEL-001 was unavailable in this local run (no configured external provider credentials/session flow).",
+      "affectedAssertions": [
+        "VAL-MODEL-001"
+      ],
+      "quickFixAttempted": "Executed local registration + first-login path and compared resulting model policy to documented defaults."
+    }
+  ]
+}

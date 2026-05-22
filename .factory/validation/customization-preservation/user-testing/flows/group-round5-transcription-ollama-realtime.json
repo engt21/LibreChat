@@ -1,0 +1,220 @@
+{
+  "groupId": "group-round5-transcription-ollama-realtime",
+  "testedAt": "2026-04-10T13:18:36Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json",
+    "stableRailUsed": false,
+    "personas": [
+      "val-user@dev.local",
+      "val-superadmin@dev.local"
+    ],
+    "preRunReset": "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "python3+requests",
+    "curl",
+    "docker logs"
+  ],
+  "commandsRun": [
+    "curl smokes on /api/admin/permissions, /api/schedules, /api/realtime/models (all 401)",
+    "node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25 (run twice; second time after temp-ban)",
+    "agent-browser --session round5-transcription-ollama-realtime ... (login, Ollama model/tool toggles, web-search prompts, screenshots, text captures, transcription compose-bar checks)",
+    "python requests probes: /api/auth/login, /api/convos, /api/messages, /api/files/transcription-reference, /api/files, /api/files/transcribe",
+    "docker logs --since ... librechat-dev-api (Ollama tool errors + file upload/transcribe diagnostics)"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-FILES-006",
+      "title": "Diarization mode supports named speaker clips and disables prompts where unsupported",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Upload speech-main-14s.wav in /c/new and select GPT-4o Diarize in compose-bar transcription controls",
+          "expected": "Prompt control disabled and speaker-reference control visible",
+          "observed": "UI showed Add prompt disabled and Speakers (0/4) control after selecting GPT-4o Diarize."
+        },
+        {
+          "action": "Probe /api/files/transcription-reference constraints",
+          "expected": "Reject non-audio and 2s/10s out-of-range clips; accept valid 6s clip",
+          "observed": "non_audio=400, too_short=400, too_long=400, valid_6s=200 with durationSeconds=6."
+        },
+        {
+          "action": "Run diarization transcription with named speaker references and inspect output",
+          "expected": "Diarization request succeeds with speaker-labeled transcript lines",
+          "observed": "Main audio upload via /api/files returned 500 (\"Error processing file\", server log \"No file_id provided\"); fallback diarize run against uploaded valid clip completed but transcript text was \"No speech was detected.\" with no speaker labels."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-transcription-ollama-realtime/transcription-uploaded-ui.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/transcription-model-dropdown-open.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/diarize-selected-prompt-disabled.png"
+        ],
+        "consoleErrors": "none observed (customization-preservation/group-round5-transcription-ollama-realtime/browser-errors-final.txt is empty)",
+        "network": "API artifacts: val-files-006-api-evidence-rerun.json, val-files-006-diarize-from-reference-file.json, dev-api-log-last10m-post-rerun.txt"
+      },
+      "issues": "Diarization constraints were validated, but end-to-end diarization output contract was not met in this run: /api/files main upload path failed with 500/No file_id and fallback completed transcript had no speaker-labeled lines."
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "title": "Ollama hosted web search keeps native-default and MCP-mode behavior",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Enable Ollama web search in UI and run deepseek-r1:14b web-search prompt",
+          "expected": "Hosted web_search/web_fetch execution with usable output and sources",
+          "observed": "Assistant returned explicit error: 400 registry.ollama.ai/library/deepseek-r1:14b does not support tools."
+        },
+        {
+          "action": "Switch model to qwen2.5:14b and rerun web-search prompts",
+          "expected": "Successful search turn with normal search artifacts/sources",
+          "observed": "Turns repeatedly streamed then required manual stop; persisted assistant messages had empty text/content and no sources."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-transcription-ollama-realtime/ollama-deepseek-selected.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/web-search-checkbox-on.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/ollama-websearch-after-stop.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/qwen-websearch-after-stop.png"
+        ],
+        "consoleErrors": "none observed (customization-preservation/group-round5-transcription-ollama-realtime/browser-errors-final.txt is empty)",
+        "network": "api-messages-6f7861c6-b7eb-43a9-9966-229c8769aa65.json + ollama-round5-analysis.json + dev-api-log-last15m.txt"
+      },
+      "issues": "Observed Ollama hosted web-search behavior did not satisfy contract in this run (tool-unsupported model error and empty/stalled assistant outputs without sources/artifacts)."
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "title": "Ollama reasoning none remains a real off switch",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Open Parameters and attempt to set Reasoning Effort to Off/None for Ollama qwen2.5:14b",
+          "expected": "Reasoning control reflects Off/None setting",
+          "observed": "Repeated fill/slider attempts stayed at \"Auto\"; captured slider range showed 0-4 but displayed value remained Auto."
+        },
+        {
+          "action": "Run follow-up turn to verify reasoning suppression behavior",
+          "expected": "No visible reasoning/thought blocks when off switch is active",
+          "observed": "Assistant turns were empty/stopped in this run; no successful output to confirm suppression, and none mode was not user-settable."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-transcription-ollama-realtime/qwen-reasoning-off-attempt.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/qwen-no-websearch-simple-response.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/qwen-simple-after-stop.png"
+        ],
+        "consoleErrors": "none observed (customization-preservation/group-round5-transcription-ollama-realtime/browser-errors-final.txt is empty)",
+        "network": "reasoning-effort-value.txt, reasoning-effort-slider-valuenow.txt, reasoning-effort-slider-valuemin.txt, reasoning-effort-slider-valuemax.txt, api-messages-6f7861c6-b7eb-43a9-9966-229c8769aa65.json"
+      },
+      "issues": "Reasoning off-switch behavior did not meet expectation in this run: UI value remained Auto despite off/none attempts, and resulting assistant turns did not provide stable content for suppression verification."
+    },
+    {
+      "id": "VAL-REALTIME-004",
+      "title": "Native web search exposes inline stream status instead of silent backend-only activity",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Run Ollama web-search prompts and capture early/late stream UI text",
+          "expected": "Inline status part shows \"Searching the web\u2026\" during search and resolves cleanly",
+          "observed": "No inline \"Searching the web\" text appeared in captured page text or message payloads; runs were either erroring (deepseek tools unsupported) or stalling with empty assistant payloads."
+        },
+        {
+          "action": "Inspect persisted assistant message content for web-search status parts",
+          "expected": "web-search status/update parts present in streamed/persisted content",
+          "observed": "Persisted assistant content had either error-only part or empty content arrays; no web_search_status-like parts were present."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-transcription-ollama-realtime/ollama-websearch-stream-early.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/ollama-websearch-stream-late.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/qwen-websearch-stream-early.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/qwen-websearch-stream-late.png"
+        ],
+        "consoleErrors": "none observed (customization-preservation/group-round5-transcription-ollama-realtime/browser-errors-final.txt is empty)",
+        "network": "ollama-websearch-body-before-stop.txt, ollama-websearch-body-after-stop.txt, qwen-websearch-body-before-stop.txt, qwen-websearch-body-after-stop.txt, ollama-round5-analysis.json"
+      },
+      "issues": "Expected inline web-search stream status was not observable in this run."
+    },
+    {
+      "id": "VAL-REALTIME-005",
+      "title": "Reasoning and grounded-source presentation remains merged and source-linked",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Inspect successful Ollama web-search/reasoning outputs for merged Thoughts + source-linked rendering",
+          "expected": "Coherent merged reasoning block and source-linked citations/Sources UI",
+          "observed": "No successful grounded/reasoning-rich assistant content was produced in exercised turns (deepseek produced tool error; qwen persisted empty assistant content)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-transcription-ollama-realtime/ollama-websearch-after-stop.png",
+          "customization-preservation/group-round5-transcription-ollama-realtime/qwen-websearch-after-stop.png"
+        ],
+        "consoleErrors": "none observed (customization-preservation/group-round5-transcription-ollama-realtime/browser-errors-final.txt is empty)",
+        "network": "api-messages-6f7861c6-b7eb-43a9-9966-229c8769aa65.json, ollama-round5-analysis.json"
+      },
+      "issues": "Blocked by lack of successful grounded/reasoning output in this environment run; there was no payload to validate merged-thoughts/source-link presentation behavior."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Python API probes triggered temporary-ban responses mid-run.",
+      "resolved": true,
+      "resolution": "Ran reseed + dev API restart sequence and retried with browser-like User-Agent headers.",
+      "affectedAssertions": [
+        "VAL-FILES-006"
+      ]
+    },
+    {
+      "description": "Ollama web-search turns frequently stayed in generating state and required manual stop for evidence capture.",
+      "resolved": true,
+      "resolution": "Captured early/late/after-stop screenshots + persisted message/log artifacts for each attempt.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011",
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005"
+      ]
+    },
+    {
+      "description": "agent-browser network request collector returned no captured rows in this session.",
+      "resolved": true,
+      "resolution": "Used authenticated API conversation/message artifacts and dev API logs for concrete request/result evidence.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011",
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005",
+        "VAL-FILES-006"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Ollama model/tool compatibility and runtime behavior prevented successful grounded/reasoning-rich outputs (deepseek tool unsupported; qwen turns empty/stalled).",
+      "affectedAssertions": [
+        "VAL-PROVIDER-010",
+        "VAL-REALTIME-005"
+      ],
+      "quickFixAttempted": "Retried with deepseek-r1:14b and qwen2.5:14b, toggled web search, and captured persisted message/log output; issue persisted."
+    },
+    {
+      "description": "/api/files main audio upload returned 500 (server log: \"[/files] Error processing file: No file_id provided\") during diarization API rerun.",
+      "affectedAssertions": [
+        "VAL-FILES-006"
+      ],
+      "quickFixAttempted": "Retried after persona reseed/API restart; then used existing uploaded reference clip as fallback to continue diarization-output capture."
+    }
+  ],
+  "summary": "Tested 5 assigned assertions on dev rail: 0 pass, 4 fail (VAL-FILES-006, VAL-PROVIDER-010, VAL-PROVIDER-011, VAL-REALTIME-004), 1 blocked (VAL-REALTIME-005). Diarization UI gating and clip constraints were confirmed, but speaker-labeled output contract was not achieved; Ollama web-search/reasoning flows showed tool incompatibility or empty/stalled outputs with no inline searching status/sources evidence."
+}

@@ -1,0 +1,250 @@
+{
+  "groupId": "group-files-core",
+  "surface": "web-ui-api-dev",
+  "testedAt": "2026-04-05T20:09:36Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": false,
+    "seededPersonas": ["val-user", "val-superadmin"],
+    "notes": "Used val-user browser session; superadmin API login attempt returned temporary-ban."
+  },
+  "toolsUsed": ["agent-browser", "curl"],
+  "assertions": [
+    {
+      "id": "VAL-FILES-001",
+      "title": "Provider-aware file search stays pinned to the originating provider",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Enable File Search in compose tools and open upload menu",
+          "expected": "File-search upload can proceed and produce file records/query behavior to verify provider pinning",
+          "observed": "File Search toggle and upload menu render, but uploads fail with 403 temporary-ban"
+        },
+        {
+          "action": "Probe files API with authenticated seeded persona",
+          "expected": "Read/write access to file records for pinning verification",
+          "observed": "GET /api/files -> 403 temporary-ban; upload attempts report Axios 403 in browser console"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-files-core/VAL-FILES-001-file-search-enabled.png",
+          "customization-preservation/group-files-core/VAL-FILES-001-upload-menu.png"
+        ],
+        "consoleErrors": "upload error AxiosError 403 (temporary-ban) in customization-preservation/group-files-core/14-browser-console.txt",
+        "network": "GET /api/files -> 403 (VAL-FILES-api-files-list.txt); upload attempts -> 403 (14-browser-console.txt)"
+      },
+      "issues": "Could not complete upload + follow-up file-search query cycle to confirm provider-pinned backend reuse because seeded persona became temporarily banned."
+    },
+    {
+      "id": "VAL-FILES-002",
+      "title": "Context-mode screenshots preserve both vision input and OCR text",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Attempt image upload from compose file menu",
+          "expected": "Image attaches and can be inspected for preserved image + OCR text behavior",
+          "observed": "Image upload attempts fail with 403 temporary-ban (browser console)"
+        },
+        {
+          "action": "Check post-upload compose surface",
+          "expected": "Attachment/transient state visible for OCR validation path",
+          "observed": "No successful attachment state; compose remains without uploaded image"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-files-core/VAL-FILES-002-image-upload-attempt.png"
+        ],
+        "consoleErrors": "Failed to load resource: 403 + upload error AxiosError in customization-preservation/group-files-core/14-browser-console.txt",
+        "network": "POST /api/files upload attempts -> 403 (14-browser-console.txt)"
+      },
+      "issues": "Unable to validate stored OCR+image behavior because context-mode image upload was blocked by temporary-ban responses."
+    },
+    {
+      "id": "VAL-FILES-003",
+      "title": "Native OpenAI, Azure, and Gemini tool routing keeps LibreChat file bookkeeping intact",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run model-chat turns with file_search enabled (OpenAI then Gemini)",
+          "expected": "Request/trace evidence of native routing and coherent file bookkeeping without double ingestion",
+          "observed": "Turns are interrupted with ban-type failures (abort stream returns text {\"type\":\"ban\"})"
+        },
+        {
+          "action": "Collect routing/network evidence",
+          "expected": "Concrete route/request payload trace for native routing verification",
+          "observed": "agent-browser network capture returned no requests; console shows ban failures"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-files-core/VAL-FILES-003-gemini-attempt.png",
+          "customization-preservation/group-files-core/VAL-FILES-003-gemini-stuck-stop.png"
+        ],
+        "consoleErrors": "Abort stream error payload includes {\"type\":\"ban\"}; upload and resource requests 403 (14-browser-console.txt)",
+        "network": "No captured requests from agent-browser network requests; fallback evidence in 14-browser-console.txt"
+      },
+      "issues": "Could not verify native routing/file bookkeeping because seeded persona was in temporary-ban state and request-level capture was unavailable."
+    },
+    {
+      "id": "VAL-FILES-004",
+      "title": "Audio and video transcription is an explicit compose-bar action that creates a dedicated transcript conversation",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Upload audio fixture from compose surface",
+          "expected": "Transcribe controls appear and allow explicit transcription action",
+          "observed": "Audio upload attempts fail with 403 temporary-ban; no transcribe action appears"
+        },
+        {
+          "action": "Run transcription API smoke",
+          "expected": "POST /api/files/transcribe callable for dedicated transcript conversation flow",
+          "observed": "POST /api/files/transcribe -> 403 temporary-ban"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-files-core/VAL-FILES-004-audio-upload-attempt-no-transcribe.png"
+        ],
+        "consoleErrors": "upload error AxiosError 403 in customization-preservation/group-files-core/14-browser-console.txt",
+        "network": "POST /api/files/transcribe -> 403 (VAL-FILES-004-transcribe-api-smoke.txt)"
+      },
+      "issues": "Could not validate explicit Transcribe action and transcript-conversation creation because media upload/transcribe routes were blocked by temporary-ban."
+    },
+    {
+      "id": "VAL-FILES-005",
+      "title": "Background transcription shows progress, completion, and failure in place",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Attempt to start a transcription job",
+          "expected": "Placeholder response enters processing and updates to completed/failed in place",
+          "observed": "No job can be queued because uploads/transcribe requests return 403 temporary-ban"
+        },
+        {
+          "action": "Inspect UI/console for background status events",
+          "expected": "Transcription status metadata transitions visible",
+          "observed": "No transcription placeholder/status lifecycle emitted in this run"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-files-core/VAL-FILES-004-audio-upload-attempt-no-transcribe.png"
+        ],
+        "consoleErrors": "403 upload failures logged in customization-preservation/group-files-core/14-browser-console.txt",
+        "network": "POST /api/files/transcribe -> 403 (VAL-FILES-004-transcribe-api-smoke.txt)"
+      },
+      "issues": "Background status lifecycle cannot be validated until transcription jobs can be created."
+    },
+    {
+      "id": "VAL-FILES-006",
+      "title": "Diarization mode supports named speaker clips and disables prompts where unsupported",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open Speech settings -> Advanced and select GPT-4o Diarize",
+          "expected": "Prompt editing disabled for diarization mode",
+          "observed": "Prompt field becomes disabled with helper text confirming diarized mode does not accept prompts"
+        },
+        {
+          "action": "Validate speaker-reference clip constraints and diarized transcript output via upload/transcribe",
+          "expected": "Named clip limits and duration/type validation enforce diarization rules; speaker-labeled transcript output rendered",
+          "observed": "Upload/transcribe routes blocked by temporary-ban (403), so clip-validation and output checks could not run"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-files-core/VAL-FILES-006-diarize-prompt-disabled.png",
+          "customization-preservation/group-files-core/VAL-FILES-004-audio-upload-attempt-no-transcribe.png"
+        ],
+        "consoleErrors": "403 upload failures in customization-preservation/group-files-core/14-browser-console.txt",
+        "network": "POST /api/files/transcribe -> 403 (VAL-FILES-004-transcribe-api-smoke.txt)"
+      },
+      "issues": "Only prompt-disablement was confirmed; speaker-reference upload constraints and diarized output rendering remain blocked by temporary-ban responses."
+    }
+  ],
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-FILES-001",
+      "blockedBy": "Seeded persona temporary-ban prevents file API access and upload/query cycle."
+    },
+    {
+      "id": "VAL-FILES-002",
+      "blockedBy": "Context-mode image upload requests return 403 temporary-ban."
+    },
+    {
+      "id": "VAL-FILES-003",
+      "blockedBy": "Ban responses interrupt model turns and prevent routing/file-bookkeeping verification."
+    },
+    {
+      "id": "VAL-FILES-004",
+      "blockedBy": "Media upload and /api/files/transcribe are blocked by temporary-ban (403)."
+    },
+    {
+      "id": "VAL-FILES-005",
+      "blockedBy": "No transcription job can be queued while temporary-ban responses persist."
+    },
+    {
+      "id": "VAL-FILES-006",
+      "blockedBy": "Diarization upload/transcribe checks blocked by temporary-ban despite UI prompt-disablement confirmation."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Initial API probe without browser UA triggered NON_BROWSER violation and subsequent temporary-ban responses on seeded personas.",
+      "resolved": false,
+      "resolution": "Switched to browser surface and browser-like UA for probes, but ban state persisted for file/transcription routes.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ]
+    },
+    {
+      "description": "agent-browser network requests returned no captured entries for this session.",
+      "resolved": true,
+      "resolution": "Used curl status captures and browser console logs as fallback network evidence.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Seeded validation personas returned temporary-ban responses during this run, including file and transcription surfaces.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-FILES-003",
+        "VAL-FILES-004",
+        "VAL-FILES-005",
+        "VAL-FILES-006"
+      ],
+      "quickFixAttempted": "Retried with browser session, browser-like UA, and alternate seeded persona (val-superadmin), but /api/files and /api/files/transcribe remained 403."
+    }
+  ],
+  "stateMutations": [
+    {
+      "mutation": "Changed selected chat model to Gemini during VAL-FILES-003 attempts",
+      "restored": true,
+      "restoration": "Reset selected model back to gpt-5.1"
+    },
+    {
+      "mutation": "Changed Speech->Advanced transcription model to GPT-4o Diarize during VAL-FILES-006 check",
+      "restored": true,
+      "restoration": "Reset transcription model to Default (config)"
+    }
+  ],
+  "summary": "Tested 6 assigned files/transcription core assertions on dev rail. 0 passed, 0 failed, 6 blocked. Main blocker was temporary-ban responses on seeded personas (403 on file/transcription routes), though VAL-FILES-006 prompt-disablement in diarization settings was observed before restoring settings."
+}

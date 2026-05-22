@@ -1,0 +1,139 @@
+{
+  "groupId": "group-transcription-persistence",
+  "surface": "web-ui-api-dev",
+  "testedAt": "2026-04-05T20:18:00Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": false,
+    "personasAttempted": [
+      "val-user@dev.local",
+      "val-superadmin@dev.local",
+      "val-workspace-admin@dev.local"
+    ],
+    "evidenceDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/customization-preservation/group-transcription-persistence"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-FILES-008",
+      "title": "Transcription started from /c/new cleans up draft state and stays appendable",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open /c/new unauthenticated, then login as val-user and return to /c/new",
+          "expected": "Reach draft composer state on /c/new for transcription start",
+          "observed": "Redirected to /login?redirect_to=%2Fc%2Fnew, then login succeeded and browser landed on /c/new"
+        },
+        {
+          "action": "Upload audio file from /c/new and click Transcribe",
+          "expected": "Draft file/preview state is cleared after handoff, navigates to transcript conversation, and conversation remains appendable for normal follow-up chat",
+          "observed": "Transcribe handoff navigated to /c/f3b5f9d2-b9d0-4258-9a95-257f66f8be9d with request+transcript messages visible, but auth-ban responses started immediately afterward and blocked the required follow-up checks for draft cleanup and appendable-chat verification"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-transcription-persistence/r2-VAL-FILES-008-c-new-redirect.png",
+          "customization-preservation/group-transcription-persistence/r2-VAL-CROSS-004-after-login.png",
+          "customization-preservation/group-transcription-persistence/r2-VAL-CROSS-004-transcribe-bar-visible.png",
+          "customization-preservation/group-transcription-persistence/r2-VAL-CROSS-004-after-transcribe-click.png",
+          "customization-preservation/group-transcription-persistence/r2-VAL-BLOCKER-auth-ban-login.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-transcription-persistence/r2-browser-errors.txt)",
+        "network": "POST /api/auth/login (val-user) -> 200; subsequent authenticated GET /api/files -> 403 temporary-ban"
+      },
+      "issues": "Could not complete the required post-handoff checks (source /c/new draft-file cleanup + explicit appendable follow-up chat send) because all seeded personas became temporarily banned during the same validation window."
+    },
+    {
+      "id": "VAL-FILES-009",
+      "title": "Deleting an in-flight transcript does not break later transcription jobs",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Prepare to queue transcription and delete transcript conversation/message mid-run",
+          "expected": "Delete in-flight transcript artifacts, then verify later transcription jobs still process",
+          "observed": "Could not proceed after first transcription because authenticated API/UI actions began returning temporary-ban responses"
+        },
+        {
+          "action": "Attempt alternate seeded personas for continuation",
+          "expected": "Recover authenticated session and continue in-flight deletion scenario",
+          "observed": "val-superadmin and val-workspace-admin login attempts also returned temporary-ban responses"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-transcription-persistence/r2-VAL-BLOCKER-auth-ban-login.png",
+          "customization-preservation/group-transcription-persistence/r2-VAL-CROSS-004-superadmin-login-page.png",
+          "customization-preservation/group-transcription-persistence/r2-VAL-CROSS-004-superadmin-after-login.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-transcription-persistence/r2-browser-errors.txt)",
+        "network": "GET /api/files (val-user token) -> 403 temporary-ban; POST /api/auth/login (val-workspace-admin) -> 403 temporary-ban"
+      },
+      "issues": "In-flight deletion and follow-up-job assertions were not testable because authenticated sessions could not be maintained or re-established after temporary-ban enforcement."
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "title": "Background transcription remains a persistent conversation workflow, not a one-shot upload side effect",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "From /c/new, upload audio and explicitly click Transcribe",
+          "expected": "Transcription starts only via explicit user action and immediately creates persistent conversation",
+          "observed": "Transcribe button became visible after upload and click transitioned from /c/new to /c/f3b5f9d2-b9d0-4258-9a95-257f66f8be9d with transcription messages"
+        },
+        {
+          "action": "Verify ongoing progress metadata and normal follow-up-chat continuity after completion",
+          "expected": "Background-runner progress states remain observable and conversation behaves like normal chat post-transcription",
+          "observed": "Could not finish this verification because auth-ban responses blocked subsequent authenticated checks and additional transcription cycles"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-transcription-persistence/r2-VAL-CROSS-004-after-login.png",
+          "customization-preservation/group-transcription-persistence/r2-VAL-CROSS-004-transcribe-bar-visible.png",
+          "customization-preservation/group-transcription-persistence/r2-VAL-CROSS-004-after-transcribe-click.png",
+          "customization-preservation/group-transcription-persistence/r2-VAL-BLOCKER-auth-ban-login.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-transcription-persistence/r2-browser-errors.txt)",
+        "network": "POST /api/auth/login (val-user) -> 200; GET /api/files (same session token) -> 403 temporary-ban; later persona login attempts -> 403 temporary-ban"
+      },
+      "issues": "Cross-flow was only partially observed before auth-ban enforcement prevented completion of the progress-metadata and post-completion follow-up-chat checks."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "agent-browser element refs were blocked by an open attach popup when trying to click Transcribe.",
+      "resolved": true,
+      "resolution": "Pressed Escape to dismiss the popup and retried the click successfully.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-CROSS-004"
+      ]
+    },
+    {
+      "description": "agent-browser network request capture returned 'No requests captured' even after successful login/transcribe interactions.",
+      "resolved": true,
+      "resolution": "Used curl/API probes and saved explicit status-code evidence files for request outcomes.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-FILES-009",
+        "VAL-CROSS-004"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Seeded validation personas were all rejected with temporary-ban responses during this run.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-FILES-009",
+        "VAL-CROSS-004"
+      ],
+      "quickFixAttempted": "Switched from val-user to val-superadmin and val-workspace-admin, but login remained blocked with the same temporary-ban message."
+    }
+  ],
+  "summary": "Tested 3 assigned assertions on dev rail: 0 passed, 0 failed, 3 blocked. Partial transcription workflow behavior was observed (explicit Transcribe action created a persistent conversation), but auth temporary-ban enforcement blocked completion of required persistence assertions."
+}

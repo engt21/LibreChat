@@ -1,0 +1,287 @@
+{
+  "groupId": "group-admin-rbac",
+  "testedAt": "2026-04-05T19:04:29Z",
+  "isolation": {
+    "appUrl": "http://127.0.0.1:3081",
+    "rail": "dev",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personas": [
+      "val-superadmin@dev.local",
+      "val-workspace-admin@dev.local",
+      "val-support-admin@dev.local",
+      "val-observability-admin@dev.local",
+      "val-user@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "python3 (urllib)",
+    "node"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-ADMIN-001",
+      "title": "Admin Console access requires resolved admin permissions",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /api/admin/permissions as user/workspace/support/observability/superadmin",
+          "expected": "user=403; lower-tier/superadmin=200 with resolved permissions",
+          "observed": "user=403; workspace=200; support=200; observability=200; superadmin=200"
+        },
+        {
+          "action": "Attempt invalid raw adminRoleIds patch on standard user",
+          "expected": "invalid role ids do not grant admin access",
+          "observed": "PATCH invalid adminRoleIds -> 400 (One or more admin roles are invalid); user permissions remained 403"
+        },
+        {
+          "action": "User UI checks on /c/new and /admin",
+          "expected": "no Admin Console entry and /admin blocked",
+          "observed": "User account menu had no Admin Console; /admin redirected to /c/new"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-001-user-chat.png",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-001-user-account-menu.png",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-001-user-admin-route-blocked.png",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-001-workspace-admin-account-menu-r2.png",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-001-superadmin-account-menu-r2.png"
+        ],
+        "consoleErrors": "none (VAL-ADMIN-user-flow-console-errors.txt is empty)",
+        "network": "GET /api/admin/permissions -> user 403, workspace 200, support 200, observability 200, superadmin 200",
+        "artifacts": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-API-RESULTS.json",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-user-flow-console-errors.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ADMIN-002",
+      "title": "Lower-tier RBAC permissions gate admin APIs and console sections",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Role matrix API checks (/api/admin/users, /usage, /settings, /observability, /rbac/roles)",
+          "expected": "workspace broad scope; support read-only subset; observability only observability.read; superadmin full with /rbac/roles",
+          "observed": "workspace: users/usage/settings/observability 200 and rbac roles 403; support: users/usage/settings 200, observability/rbac roles 403; observability: observability 200, users/usage/settings/rbac roles 403; superadmin: all 200 including /rbac/roles"
+        },
+        {
+          "action": "Non-superadmin PATCH role/adminRoleIds attempts",
+          "expected": "403 ADMIN_REQUIRED",
+          "observed": "workspace patch role -> 403; support patch adminRoleIds -> 403; observability patch role -> 403"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-focused)",
+        "network": "Matrix calls captured in VAL-ADMIN-API-RESULTS.json with explicit statuses and errors",
+        "artifacts": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-API-RESULTS.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ADMIN-003",
+      "title": "SUPERADMIN_EMAILS auto-promotes matching users on startup and auth flows",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Verify superadmin permissions before demotion",
+          "expected": "isSuperAdmin=true",
+          "observed": "GET /api/admin/permissions -> 200 with isSuperAdmin=true"
+        },
+        {
+          "action": "Demote allowlisted superadmin user role to USER then login again",
+          "expected": "auth flow auto-promotes back to ADMIN/superadmin",
+          "observed": "PATCH demote -> 200 (role USER); re-login returned role USER"
+        },
+        {
+          "action": "Check permissions after re-login",
+          "expected": "GET /api/admin/permissions returns isSuperAdmin=true",
+          "observed": "GET /api/admin/permissions -> 403 (no superadmin permissions)"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-focused)",
+        "network": "PATCH /api/admin/users/{superadminId} -> 200, POST /api/auth/login -> 200 role USER, GET /api/admin/permissions -> 403",
+        "artifacts": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-API-RESULTS.json",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-cleanup-seed.txt"
+        ]
+      },
+      "issues": "Auto-promotion on auth flow did not occur after demotion/relogin in this test."
+    },
+    {
+      "id": "VAL-ADMIN-004",
+      "title": "App settings preserve host-aware observability links",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET baseline /api/admin/settings and PUT localhost-style observability links",
+          "expected": "settings persist",
+          "observed": "baseline GET 200; update PUT 200"
+        },
+        {
+          "action": "GET /api/admin/settings with forwarded host/proto headers",
+          "expected": "localhost links rewritten to request host/protocol",
+          "observed": "observability links rewritten to https://dev-rbac.example.test:{ports}/"
+        },
+        {
+          "action": "Restore baseline settings",
+          "expected": "original values restored",
+          "observed": "restore PUT 200; post-restore GET 200"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-focused)",
+        "network": "GET/PUT /api/admin/settings all 200; forwarded GET returned rewritten host-aware URLs",
+        "artifacts": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-API-RESULTS.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ADMIN-005",
+      "title": "Provider settings cog remains superadmin-only and excludes My Agents",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Model selector visibility checks for superadmin/workspace/user and My Agents row",
+          "expected": "provider settings cog visible only for superadmin provider/model results and never for My Agents",
+          "observed": "Superadmin selector showed provider settings controls; workspace/user selectors did not; My Agents row had no settings control"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-005-superadmin-model-selector-r2.png",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-005-workspace-model-selector-r2.png",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-005-user-model-selector-r2.png"
+        ],
+        "consoleErrors": "none (VAL-ADMIN-ui-console-errors-r2.txt is empty)",
+        "network": "Corroborated by current-role API matrix in VAL-ADMIN-API-RESULTS.json",
+        "artifacts": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-API-RESULTS.json",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-ui-console-errors-r2.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ADMIN-006",
+      "title": "Reopening provider settings preloads saved masked values",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open provider SetKey dialog, close, reopen",
+          "expected": "saved state/masked indicators are preloaded on reopen",
+          "observed": "Saved-state indicator remained present across reopen in SetKey dialog"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-006-setkey-dialog-open-1-r2.png",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-006-setkey-dialog-open-2-r2.png"
+        ],
+        "consoleErrors": "none",
+        "network": "UI evidence; role eligibility corroborated by current API role checks",
+        "artifacts": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-API-RESULTS.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ADMIN-007",
+      "title": "Admin-driven user deletion preserves role boundaries",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Workspace admin deletes own account",
+          "expected": "400",
+          "observed": "DELETE self -> 400 (Use account settings to delete your own account)"
+        },
+        {
+          "action": "Workspace admin deletes superadmin",
+          "expected": "403",
+          "observed": "DELETE superadmin -> 403 (Only superadmins can delete superadmin accounts)"
+        },
+        {
+          "action": "Workspace admin deletes standard user",
+          "expected": "200",
+          "observed": "DELETE standard user -> 200 (User deleted)"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-focused)",
+        "network": "DELETE /api/admin/users/:id returned 400/403/200 per boundary matrix",
+        "artifacts": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-API-RESULTS.json",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-cleanup-seed.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "title": "Admin overrides preserve provider-facing behavior and valid model access",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Superadmin valid override of val-user modelPermissions",
+          "expected": "200 and user-visible model list updates immediately",
+          "observed": "PATCH valid override returned 200; val-user /api/models changed to openAI-only"
+        },
+        {
+          "action": "Superadmin invalid override attempts",
+          "expected": "400 for invalid provider/model combinations",
+          "observed": "invalid endpoint -> 400; invalid model -> 400 with explicit validation messages"
+        },
+        {
+          "action": "Restore baseline modelPermissions",
+          "expected": "original model visibility restored",
+          "observed": "PATCH restore returned 200 and val-user /api/models restored prior provider set"
+        },
+        {
+          "action": "Admin/provider UI surface spot-check",
+          "expected": "superadmin can access admin/provider setting surfaces",
+          "observed": "Superadmin admin menu and provider selector controls evidenced in linked UI captures"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-001-superadmin-account-menu-r2.png",
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-005-superadmin-model-selector-r2.png"
+        ],
+        "consoleErrors": "none",
+        "network": "PATCH /api/admin/users/{val-user} valid -> 200; invalid endpoint -> 400; invalid model -> 400; GET /api/models reflected override and restore",
+        "artifacts": [
+          "customization-preservation/group-admin-rbac/VAL-ADMIN-API-RESULTS.json"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "After API and UI login activity, browser login attempts began returning 'Too many login attempts in a short amount of time' on /login.",
+      "resolved": true,
+      "resolution": "Used current API evidence for role/permission assertions, reused same-mission r2 UI captures for superadmin/workspace model-selector/admin-menu evidence, and reseeded personas to restore baseline identities.",
+      "affectedAssertions": [
+        "VAL-ADMIN-001",
+        "VAL-ADMIN-005",
+        "VAL-ADMIN-006",
+        "VAL-CROSS-002"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 8 assigned assertions on dev rail with API + UI evidence: PASS=7 (VAL-ADMIN-001,002,004,005,006,007, VAL-CROSS-002), FAIL=1 (VAL-ADMIN-003 auto-promotion). Mutations (settings/model-permissions plus deletion/demotion probes) were restored via explicit API restores and persona reseed cleanup."
+}

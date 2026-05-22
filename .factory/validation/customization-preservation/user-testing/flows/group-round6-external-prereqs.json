@@ -1,0 +1,386 @@
+{
+  "groupId": "group-round6-external-prereqs",
+  "testedAt": "2026-04-10T19:33:38Z",
+  "surface": "web-ui-api-dev + API probes",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "evidenceDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/customization-preservation/group-round6-external-prereqs",
+    "stableRailUsed": false,
+    "personas": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ],
+    "requiredSetup": {
+      "seedCommand": "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+      "apiRestart": "docker restart librechat-dev-api && sleep 25",
+      "authSmokes": {
+        "/api/admin/permissions": 401,
+        "/api/schedules": 401,
+        "/api/realtime/models": 401
+      }
+    }
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "python3 (requests)",
+    "node",
+    "docker restart",
+    "docker logs"
+  ],
+  "commandsRun": [
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api && sleep 25",
+    "curl unauth route smokes on /api/admin/permissions /api/schedules /api/realtime/models",
+    "python requests probes for /api/keys /api/models /api/endpoints /api/realtime/models",
+    "agent-browser UI probes for Azure/Google/xAI chats, model-picker states, and realtime dialog provider states",
+    "docker logs --since 40m and --since 10m for provider error correlation"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-CROSS-003",
+      "title": "Provider-native tool flows keep model gating, file metadata, and streaming UX coherent",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Re-check provider prerequisites for OpenAI/Azure/Gemini cross-provider flow.",
+          "expected": "All provider prerequisites available for full cross-provider native-tool run.",
+          "observed": "Google runtime remains API_KEY_INVALID and Azure branch remains non-conclusive (chat/realtime stayed connecting without completed turn)."
+        },
+        {
+          "action": "Assess whether end-to-end cross-provider run is now possible.",
+          "expected": "Complete OpenAI+Azure+Gemini end-to-end flow.",
+          "observed": "Still blocked by unresolved Google credential validity and incomplete Azure execution observability."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/google-chat-after-stop.png",
+          "customization-preservation/group-round6-external-prereqs/azure-chat-after-stop.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/dev-api-log-focused-excerpts.txt + external-prereq-summary.json + realtime-dialog-azure-connect-after-wait-body.txt"
+      },
+      "issues": "Blocked: cross-provider prerequisites are still incomplete (Google API key invalid; Azure branch does not complete to a verifiable response path)."
+    },
+    {
+      "id": "VAL-FILES-003",
+      "title": "Native OpenAI, Azure, and Gemini tool routing keeps LibreChat file bookkeeping intact",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Validate provider prerequisites needed for native-tool file-routing matrix (OpenAI/Azure/Gemini).",
+          "expected": "Azure and Gemini paths available to run matrix end-to-end.",
+          "observed": "Azure credentials exist but execution path remained non-conclusive; Gemini requests fail with API_KEY_INVALID."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/azure-tools-enabled.png",
+          "customization-preservation/group-round6-external-prereqs/google-chat-after-stop.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/val-user-provider-key-status.json + dev-api-log-focused-excerpts.txt"
+      },
+      "issues": "Blocked: full Azure+Gemini native-routing coverage remains unavailable because Google credentials are invalid and Azure execution remains non-conclusive."
+    },
+    {
+      "id": "VAL-FILES-007",
+      "title": "Local managed code interpreter remains the default code-execution path for OpenAI, Azure, and Google in this fork",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Re-check Azure/Google prerequisites for three-provider code-interpreter path.",
+          "expected": "All three providers executable for comparative routing behavior.",
+          "observed": "Azure key present but Azure path did not complete; Google path fails credential validation (API_KEY_INVALID)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/azure-tools-enabled.png",
+          "customization-preservation/group-round6-external-prereqs/google-endpoint-selected.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/val-user-provider-key-status.json + dev-api-log-focused-excerpts.txt"
+      },
+      "issues": "Blocked: multi-provider code-execution assertion cannot be completed while Google credentials remain invalid and Azure execution remains non-conclusive."
+    },
+    {
+      "id": "VAL-PROVIDER-001",
+      "title": "OpenAI and Azure chat-bar toggles honor native-vs-local routing policy",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open Azure endpoint chat and enable File Search/Web Search/Code Interpreter from tools menu.",
+          "expected": "Toggles enable directly without forcing legacy auth/settings modal.",
+          "observed": "Toggles enabled directly in UI; no key modal was forced."
+        },
+        {
+          "action": "Run Azure probe turn after enabling toggles.",
+          "expected": "Turn completes so routing policy can be proven through response/network.",
+          "observed": "Turn did not complete to a verifiable response (stayed generating/required manual stop). Azure realtime connect also remained in connecting state."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/azure-endpoint-selected.png",
+          "customization-preservation/group-round6-external-prereqs/azure-tools-enabled.png",
+          "customization-preservation/group-round6-external-prereqs/azure-chat-after-stop.png",
+          "customization-preservation/group-round6-external-prereqs/realtime-dialog-azure-connect-after-wait.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/val-user-provider-key-status.json + azure-models-user-probe.json + realtime-dialog-azure-connect-after-wait-body.txt"
+      },
+      "issues": "Blocked: Azure credentials are now present (`expiresAt: never`), but execution/connect paths did not complete to a verifiable native-routing outcome in this rerun."
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "title": "Gemini native tools honor safe-request and routing gates",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run Google endpoint chat probe from UI.",
+          "expected": "Gemini request executes so routing-gate behavior can be observed.",
+          "observed": "UI request required manual stop; backend logs show Google API_KEY_INVALID."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/google-endpoint-selected.png",
+          "customization-preservation/group-round6-external-prereqs/google-chat-after-stop.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/dev-api-log-focused-excerpts.txt"
+      },
+      "issues": "Blocked by invalid Google credentials (API_KEY_INVALID)."
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "title": "Google live discovery and capability metadata stay intact",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Probe Google model/config surfaces and execute a Google chat turn.",
+          "expected": "Live discovery plus successful runtime execution with valid credentials.",
+          "observed": "Discovery surfaces are present, but runtime execution fails with API_KEY_INVALID in logs."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/google-endpoint-selected.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/external-prereq-api-checks.json + dev-api-log-focused-excerpts.txt"
+      },
+      "issues": "Blocked: Google credential validity prerequisite is still unmet (API_KEY_INVALID)."
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "title": "Gemini grounding still produces inline citations and Sources entries",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Attempt Google response generation needed for grounded citation rendering checks.",
+          "expected": "Grounded response renders inline citations and Sources.",
+          "observed": "No grounded output available because Gemini runtime fails credential validation (API_KEY_INVALID)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/google-chat-after-stop.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/dev-api-log-focused-excerpts.txt"
+      },
+      "issues": "Blocked by invalid Google credentials; grounding response contract remains unreachable."
+    },
+    {
+      "id": "VAL-PROVIDER-007",
+      "title": "xAI custom endpoints auto-detect and refresh live models with aliases",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open xAI endpoint and attempt chat turn.",
+          "expected": "With usable key, refresh and alias behavior can be validated end-to-end.",
+          "observed": "UI reports \"No key found. Please provide a key and try again.\"; key API shows expiresAt=null."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/xai-endpoint-confirmed.png",
+          "customization-preservation/group-round6-external-prereqs/xai-chat-after-send.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/val-user-provider-key-status.json + xai-chat-body-after-send.txt"
+      },
+      "issues": "Blocked by missing xAI user key for tested personas."
+    },
+    {
+      "id": "VAL-PROVIDER-008",
+      "title": "xAI settings stay capability-aware and sanitize unsupported runtime params",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open xAI endpoint and attempt runtime request.",
+          "expected": "Successful xAI runtime request enables parameter-sanitization verification.",
+          "observed": "Runtime request blocked by missing key; UI returns \"No key found. Please provide a key and try again.\""
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/xai-endpoint-confirmed.png",
+          "customization-preservation/group-round6-external-prereqs/xai-chat-after-send.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/val-user-provider-key-status.json + xai-chat-body-after-send.txt"
+      },
+      "issues": "Blocked by missing xAI key; runtime parameter-sanitization path remains unreachable."
+    },
+    {
+      "id": "VAL-PROVIDER-008A",
+      "title": "xAI native web search strips only the intended generic tool",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Prepare xAI endpoint for runtime tool-path probe.",
+          "expected": "xAI request executes so web-search strip behavior can be verified.",
+          "observed": "xAI request does not execute due missing key (\"No key found\")."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/xai-endpoint-confirmed.png",
+          "customization-preservation/group-round6-external-prereqs/xai-chat-after-send.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/val-user-provider-key-status.json + xai-chat-body-after-send.txt"
+      },
+      "issues": "Blocked by missing xAI credential; request-level strip behavior remains untestable."
+    },
+    {
+      "id": "VAL-PROVIDER-009",
+      "title": "Ollama model discovery merges multiple sources and resolves per-model origin",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Inspect user/API surfaces for Ollama model origin metadata.",
+          "expected": "Per-model source/origin data visible to prove routing back to owning source.",
+          "observed": "/api/models variants and UI picker expose only flat model IDs (strings), with no per-model origin fields."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/ollama-model-picker.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/ollama-origin-observability-summary.json + external-prereq-api-checks.json"
+      },
+      "issues": "Blocked by user-surface/API observability limits: per-model origin and tags->models fallback path remain unprovable from exposed outputs."
+    },
+    {
+      "id": "VAL-REALTIME-002",
+      "title": "Realtime provider discovery is auth-gated, credential-aware, and resilient to stale websocket query tokens",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run unauthenticated route smokes and authenticated /api/realtime/models probes.",
+          "expected": "Auth-gated behavior + provider availability metadata including requiresUserKey/reason.",
+          "observed": "Unauth route returns 401; authenticated metadata includes Azure available=true requiresUserKey=true and xAI available=false with actionable reason."
+        },
+        {
+          "action": "Attempt Azure realtime connect and inspect xAI credentialed branch state in dialog.",
+          "expected": "Credentialed branches should be fully testable.",
+          "observed": "Azure remained at Status: connecting (no completed session); xAI branch explicitly prompts to add xAI key."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-external-prereqs/realtime-dialog-provider-state.png",
+          "customization-preservation/group-round6-external-prereqs/realtime-dialog-azure-connect-after-wait.png",
+          "customization-preservation/group-round6-external-prereqs/realtime-dialog-xai-selected.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-external-prereqs/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-external-prereqs/smoke-realtime-models-headers.txt + external-prereq-summary.json + realtime-dialog-azure-connect-after-wait-body.txt + realtime-dialog-xai-body.txt"
+      },
+      "issues": "Blocked for full contract completion: xAI credentialed branch is unavailable (missing key), and Azure connect path did not complete beyond connecting state."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "agent-browser networkidle waits timed out on dev rail pages.",
+      "resolved": true,
+      "resolution": "Used fixed waits and captured body-text snapshots/screenshots instead of networkidle gating.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-PROVIDER-007",
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A",
+        "VAL-PROVIDER-009",
+        "VAL-REALTIME-002"
+      ]
+    },
+    {
+      "description": "Google and Azure chat probes often remained in long-running state without final visible assistant text.",
+      "resolved": true,
+      "resolution": "Captured pre-stop and post-stop evidence, then correlated with dev API logs and API probe artifacts.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-CROSS-003",
+        "VAL-FILES-003",
+        "VAL-FILES-007"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Google credential validity remains broken in this partition (API_KEY_INVALID).",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-CROSS-003",
+        "VAL-FILES-003",
+        "VAL-FILES-007"
+      ],
+      "quickFixAttempted": "Retried Gemini UI turn and checked recent dev API logs; errors consistently reported API_KEY_INVALID."
+    },
+    {
+      "description": "xAI user key is still missing for tested personas.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-007",
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A",
+        "VAL-REALTIME-002"
+      ],
+      "quickFixAttempted": "Validated /api/keys?name=xai (expiresAt=null) for val-user and superadmin and retried xAI chat; UI still returned missing-key error."
+    },
+    {
+      "description": "Azure prerequisite changed from missing key to present key, but end-to-end execution/connect path remained non-conclusive in this rerun.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-REALTIME-002",
+        "VAL-CROSS-003",
+        "VAL-FILES-003",
+        "VAL-FILES-007"
+      ],
+      "quickFixAttempted": "Confirmed key presence (`expiresAt: never`), retried Azure chat with tools and realtime connect; chat did not produce verifiable completion and realtime stayed connecting."
+    },
+    {
+      "description": "Ollama per-model origin/fallback telemetry is not exposed on assigned user/API surfaces.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-009"
+      ],
+      "quickFixAttempted": "Compared /api/models variants, /api/endpoints, and model-picker output; only flat model IDs were exposed, no per-model origin metadata."
+    }
+  ],
+  "summary": "Retested 12 assigned external-prereq assertions: 0 pass, 0 fail, 12 blocked. Azure user-key prerequisite is newly present (`expiresAt: never`) but Azure execution/realtime did not complete to a verifiable outcome; Google remains blocked by API_KEY_INVALID; xAI remains blocked by missing user key; and Ollama origin proof remains blocked by user/API observability limits."
+}

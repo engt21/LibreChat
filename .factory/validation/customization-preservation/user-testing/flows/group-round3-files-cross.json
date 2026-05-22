@@ -1,0 +1,231 @@
+{
+  "groupId": "group-round3-files-cross",
+  "testedAt": "2026-04-06T13:05:53Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json",
+    "stableRailUsed": false,
+    "persona": "val-user@dev.local",
+    "preRunReset": "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "python",
+    "docker exec"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-FILES-007",
+      "title": "Local managed code interpreter remains the default code-execution path for OpenAI, Azure, and Google in this fork",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run direct bridge API probes on dev rail (/v1/health, /v1/upload, /v1/exec twice with same session_id, /v1/files/{session_id}, /v1/download/{session_id}/{file_id})",
+          "expected": "Bridge endpoints are healthy and session-based code execution/file lifecycle works with warm-session reuse evidence",
+          "observed": "All probed endpoints returned 200; upload/exec/list/download succeeded; same-session exec timing improved (exec1 4.573s, exec2 2.545s)."
+        },
+        {
+          "action": "Verify dev API routing env for OpenAI/Azure/Google code interpreter",
+          "expected": "Routing defaults set to librechat-managed path",
+          "observed": "OPENAI/AZURE_OPENAI/GOOGLE_CODE_INTERPRETER_ROUTING all set to librechat with LIBRECHAT_CODE_BASEURL=http://code-interpreter-local:8000/v1."
+        },
+        {
+          "action": "Attempt user-surface model-chat validation across OpenAI/Azure/Google",
+          "expected": "Model-chat code turns validated through local bridge for all required providers",
+          "observed": "Blocked: validation user was repeatedly temp-banned during UI login attempts; Azure path unavailable (no allowed models for user), and Google/Azure executable credential paths were not available in this isolation run."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-cross/VAL-FILES-007-c-new-start.png",
+          "customization-preservation/group-round3-files-cross/VAL-R3-login-failure.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-cross/group-round3-files-cross-browser-errors.txt)",
+        "network": "CI bridge: VAL-FILES-007-ci-health-headers.txt/body.json, VAL-FILES-007-ci-upload-headers.txt/body.json, VAL-FILES-007-ci-exec1-headers.txt/body.json, VAL-FILES-007-ci-exec2-headers.txt/body.json, VAL-FILES-007-ci-files-headers.txt/body.json, VAL-FILES-007-ci-download-generated-headers.txt/.txt; routing env: VAL-FILES-007-routing-env.txt"
+      },
+      "issues": "Full OpenAI/Azure/Google model-chat user-surface coverage could not be completed due recurring temporary-ban and missing Azure/Google executable prerequisites for this persona."
+    },
+    {
+      "id": "VAL-FILES-008",
+      "title": "Transcription started from /c/new cleans up draft state and stays appendable",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "From /c/new upload audio and click Transcribe",
+          "expected": "Explicit Transcribe action navigates to dedicated transcript conversation",
+          "observed": "Transcribe action navigated to /c/5101e5b6-a11e-4d59-9df5-a35e1a0b3571 with transcript conversation created."
+        },
+        {
+          "action": "Return to /c/new after handoff",
+          "expected": "Draft file state/preview is cleared on source draft page",
+          "observed": "/c/new reopened with clean composer (no carried audio file chip)."
+        },
+        {
+          "action": "Verify transcript conversation remains appendable",
+          "expected": "Message input enabled for normal follow-up chat after transcription starts/completes",
+          "observed": "Message input stayed disabled; API showed transcription failed with \"Missing data in response from the STT API\" and follow-up chat was not appendable in UI."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-after-audio-upload.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-after-transcribe-click.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-c-new-after-handoff.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-transcript-conversation-before-followup.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-after-wait-input-state.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-cross/group-round3-files-cross-browser-errors.txt)",
+        "network": "GET /api/messages/5101e5b6-a11e-4d59-9df5-a35e1a0b3571 -> 200 with transcriptionStatus=failed (VAL-FILES-008-messages-after-reset-headers.txt/body.json); GET /api/convos/5101e5b6-a11e-4d59-9df5-a35e1a0b3571 -> 200 (VAL-FILES-008-convo-after-reset-headers.txt/.json)"
+      },
+      "issues": "Appendable-follow-up requirement failed because transcript conversation composer stayed disabled after handoff."
+    },
+    {
+      "id": "VAL-FILES-009",
+      "title": "Deleting an in-flight transcript does not break later transcription jobs",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Queue long transcription jobs from /c/new (40s and 600s audio) and capture immediate transcript conversations",
+          "expected": "Obtain in-flight processing window for deletion test",
+          "observed": "Jobs were created successfully but completed quickly in this environment before API delete attempts were executed."
+        },
+        {
+          "action": "Delete transcript conversation via API",
+          "expected": "Conversation can be removed while/after processing without crashing runner",
+          "observed": "DELETE /api/convos with body {arg:{conversationId}} returned 201 and conversation became 404 afterward."
+        },
+        {
+          "action": "Queue follow-up transcription job after deletion",
+          "expected": "Later jobs still process normally",
+          "observed": "Blocked by anti-abuse temporary-ban: POST /api/files/transcribe returned 403 temporary-ban during follow-up attempt."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-cross/VAL-FILES-009-after-upload.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-009-after-transcribe-click.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-009-600s-after-upload.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-009-600s-after-transcribe-click.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-cross/group-round3-files-cross-browser-errors.txt)",
+        "network": "Pre-delete messages: VAL-FILES-009-predelete-messages-headers.txt/.json, VAL-FILES-009-600s-predelete-messages-headers.txt/.json; successful delete: VAL-FILES-009-delete2-headers.txt/.json + VAL-FILES-009-postdelete2-convo-headers.txt; follow-up blocked: VAL-FILES-009-followup-transcribe-headers.txt/body.json (403 temporary-ban)."
+      },
+      "issues": "Could not conclusively execute the specific in-flight-delete-then-follow-up-run path because anti-abuse ban recurred during follow-up queueing."
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "title": "Provider-native tool flows keep model gating, file metadata, and streaming UX coherent",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Fetch authenticated config/models for validation user",
+          "expected": "Confirm per-user model gating context for cross-provider checks",
+          "observed": "/api/models returned openAI + google + ollama only; azureOpenAI list was empty for this user."
+        },
+        {
+          "action": "Collect native/local tool-path evidence from file/transcription/code-interpreter flows",
+          "expected": "Demonstrate coherent routing + metadata behavior across required providers",
+          "observed": "OpenAI-side file/transcription and local code-interpreter bridge evidence collected; full Azure/Gemini native-flow execution could not be exercised in this isolation run."
+        },
+        {
+          "action": "Attempt UI-native flow continuation",
+          "expected": "Complete user-surface verification with streaming/tool-status coherence",
+          "observed": "Blocked by recurring temporary-ban during login and missing executable Azure/Google credential paths."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-after-transcribe-click.png",
+          "customization-preservation/group-round3-files-cross/VAL-R3-login-failure.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-cross/group-round3-files-cross-browser-errors.txt)",
+        "network": "/api/config 200 (VAL-CROSS-003-config-headers.txt/body.json); /api/models 200 (VAL-CROSS-003-models-headers.txt/body.json); code-interpreter routing env + endpoint probes in VAL-FILES-007-* artifacts."
+      },
+      "issues": "Cross-provider native-tool contract could not be completed because Azure path was unavailable for this user and recurring temporary-ban prevented stable UI flow continuation."
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "title": "Background transcription remains a persistent conversation workflow, not a one-shot upload side effect",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "From /c/new upload audio and click Transcribe explicitly",
+          "expected": "Transcription starts only on explicit action and immediately creates persistent conversation",
+          "observed": "Observed explicit Transcribe action and navigation into dedicated transcript conversations (/c/5101e5b6-..., /c/fd2344da-..., /c/b895726b-...)."
+        },
+        {
+          "action": "Verify background metadata progression and chat continuity",
+          "expected": "Background transcription metadata updates while preserving normal follow-up chat surface",
+          "observed": "Metadata transitions were observable via /api/messages (completed and failed states), but transcript UI follow-up composer remained disabled for the VAL-FILES-008 conversation."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-after-audio-upload.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-after-transcribe-click.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-transcript-conversation-before-followup.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-008-after-wait-input-state.png",
+          "customization-preservation/group-round3-files-cross/VAL-FILES-009-600s-after-transcribe-click.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-files-cross/group-round3-files-cross-browser-errors.txt)",
+        "network": "/api/messages/5101e5b6-... 200 with failed status + error text (VAL-FILES-008-messages-after-reset.json); /api/messages/fd2344da-... and /api/messages/b895726b-... 200 with completed transcription metadata (VAL-FILES-009-predelete-messages.json, VAL-FILES-009-600s-predelete-messages.json)."
+      },
+      "issues": "Cross-flow requirement failed on the final continuity condition because the transcript conversation was not appendable in UI after transcription handling."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Attach-menu upload entries are not direct HTML file inputs for automation.",
+      "resolved": true,
+      "resolution": "Temporarily exposed hidden input[type=file] via in-page eval and used agent-browser upload on the exposed control.",
+      "affectedAssertions": [
+        "VAL-FILES-008",
+        "VAL-FILES-009",
+        "VAL-CROSS-004"
+      ]
+    },
+    {
+      "description": "Temporary-ban anti-abuse controls re-triggered multiple times during this run, including after successful partial checks.",
+      "resolved": false,
+      "resolution": "Repeatedly applied required reset sequence; ban still recurred during late-stage follow-up checks.",
+      "affectedAssertions": [
+        "VAL-FILES-007",
+        "VAL-FILES-009",
+        "VAL-CROSS-003"
+      ]
+    },
+    {
+      "description": "Initial delete attempt used wrong endpoint shape (DELETE /api/convos/:id).",
+      "resolved": true,
+      "resolution": "Used documented route DELETE /api/convos with JSON body {\"arg\":{\"conversationId\":\"...\"}}.",
+      "affectedAssertions": [
+        "VAL-FILES-009"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Recurring anti-abuse temporary-ban responses interrupted authenticated UI/API continuity for the assigned validation persona.",
+      "affectedAssertions": [
+        "VAL-FILES-007",
+        "VAL-FILES-009",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Ran dev persona reseed + docker restart librechat-dev-api + 25s wait multiple times; bans still recurred during follow-up operations."
+    },
+    {
+      "description": "Azure/Gemini cross-provider native-flow execution prerequisites were unavailable for this persona/environment partition.",
+      "affectedAssertions": [
+        "VAL-FILES-007",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Collected /api/models and routing env evidence; azureOpenAI model list remained empty and full cross-provider execution could not be completed."
+    }
+  ],
+  "summary": "Tested 5 assigned assertions: 2 failed (VAL-FILES-008, VAL-CROSS-004) and 3 blocked (VAL-FILES-007, VAL-FILES-009, VAL-CROSS-003). Explicit /c/new transcription handoff and draft cleanup were confirmed, but transcript appendability failed, and recurring temporary-ban plus missing Azure/Gemini executable prerequisites blocked full cross-provider/in-flight follow-up coverage."
+}

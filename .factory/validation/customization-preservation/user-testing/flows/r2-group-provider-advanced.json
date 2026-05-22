@@ -1,0 +1,137 @@
+{
+  "groupId": "r2-group-provider-advanced",
+  "surface": "web-ui-api-dev",
+  "testedAt": "2026-04-05T19:38:35Z",
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-008",
+      "status": "blocked",
+      "reason": "xAI endpoint/model selection is reachable, but contract coverage is blocked because runtime validation requires a working xAI key; chat attempts return \"No key found\" and backend logs show no_user_key, preventing unsupported-param sanitization verification.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-advanced/15-xai-endpoint-model-list.png",
+        "customization-preservation/r2-group-provider-advanced/16-xai-nonreasoning-parameters.png",
+        "customization-preservation/r2-group-provider-advanced/20-xai-chat-send-result.png",
+        "customization-preservation/r2-group-provider-advanced/20-xai-chat-body.txt",
+        "customization-preservation/r2-group-provider-advanced/11-key-xai.txt",
+        "customization-preservation/r2-group-provider-advanced/20-dev-api-tail-after-xai.txt",
+        "customization-preservation/r2-group-provider-advanced/34-browser-errors-final.txt"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-008A",
+      "status": "blocked",
+      "reason": "UI showed File Search and Web Search toggles for xAI and, after toggling Web Search, only File Search remained in generic toolbar (suggesting generic web_search stripping), but native execution could not be confirmed because xAI chat fails with missing key.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-advanced/17-xai-tools-menu.png",
+        "customization-preservation/r2-group-provider-advanced/18a-after-tool-toggle.png",
+        "customization-preservation/r2-group-provider-advanced/19b-after-escape.png",
+        "customization-preservation/r2-group-provider-advanced/20-xai-chat-send-result.png",
+        "customization-preservation/r2-group-provider-advanced/20-xai-chat-body.txt",
+        "customization-preservation/r2-group-provider-advanced/20-dev-api-tail-after-xai.txt"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-009",
+      "status": "blocked",
+      "reason": "Ollama discovery is partially observable (large merged model list appears and qwen2.5 responds), but full assertion needs controlled per-source origin proof and empty-on-no-live-sources behavior, which are not externally observable from assigned surface.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-advanced/api-super-api_models.txt",
+        "customization-preservation/r2-group-provider-advanced/23-ollama-model-list.png",
+        "customization-preservation/r2-group-provider-advanced/26b-ollama-model-dropdown-open.png",
+        "customization-preservation/r2-group-provider-advanced/27-ollama-qwen25-chat-body.txt",
+        "customization-preservation/r2-group-provider-advanced/27-ollama-qwen25-network.txt",
+        "customization-preservation/r2-group-provider-advanced/28-dev-api-tail-after-ollama-tests.log"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "status": "blocked",
+      "reason": "Ollama tools menu exposes Web Search and backend MCP server advertises web_search/web_fetch, but this run could not validate hidden MCP-mode switching plus artifact/source parity end-to-end under chat instability and subsequent temporary-ban interruptions.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-advanced/29-ollama-tools-menu.png",
+        "customization-preservation/r2-group-provider-advanced/30-ollama-after-web-search-toggle.png",
+        "customization-preservation/r2-group-provider-advanced/31b-current-body-text.txt",
+        "customization-preservation/r2-group-provider-advanced/31b-current-network.txt",
+        "customization-preservation/r2-group-provider-advanced/28-dev-api-tail-after-ollama-tests.log"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "status": "blocked",
+      "reason": "Reasoning-capable Ollama models are listed, but the required reasoning=none control path and deterministic before/after reasoning-output comparison were not completed before auth safety controls started returning temporary-ban responses.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-advanced/26b-ollama-model-dropdown-open.png",
+        "customization-preservation/r2-group-provider-advanced/31a-current.png",
+        "customization-preservation/r2-group-provider-advanced/31b-current-body-text.txt",
+        "customization-preservation/r2-group-provider-advanced/33-superadmin-login-after-tests.txt"
+      ]
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "status": "blocked",
+      "reason": "Cross-provider native-tool/file-metadata/streaming validation requires allowed OpenAI/Azure/Gemini runs; this environment lacks usable per-user keys (key probes return expiresAt:null), Google model fetches fail with API-key-invalid errors, and superadmin auth later hits temporary-ban.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-advanced/11-key-openai.txt",
+        "customization-preservation/r2-group-provider-advanced/11-key-azure.txt",
+        "customization-preservation/r2-group-provider-advanced/11-key-google.txt",
+        "customization-preservation/r2-group-provider-advanced/28-dev-api-tail-after-ollama-tests.log",
+        "customization-preservation/r2-group-provider-advanced/33-superadmin-login-after-tests.txt",
+        "customization-preservation/r2-group-provider-advanced/34-browser-network-final.txt"
+      ]
+    }
+  ],
+  "toolsUsed": [
+    "agent-browser",
+    "curl"
+  ],
+  "frictions": [
+    {
+      "description": "agent-browser tools popup interception intermittently blocked clicks on dismiss/send controls.",
+      "resolved": true,
+      "resolution": "Used Escape key + re-snapshot cycles before continuing.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008A",
+        "VAL-PROVIDER-010"
+      ]
+    },
+    {
+      "description": "agent-browser network capture omits HTTP status codes and request payload bodies.",
+      "resolved": true,
+      "resolution": "Captured complementary API/log evidence via curl responses and docker log tails.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A",
+        "VAL-PROVIDER-009",
+        "VAL-PROVIDER-010",
+        "VAL-CROSS-003"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "xAI per-user credential unavailable in this isolation context (chat returns \"No key found\"; backend logs no_user_key).",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A"
+      ],
+      "quickFixAttempted": "Checked /api/keys?name=xai and includeValue probes (expiresAt:null) and retried chat; failure persisted."
+    },
+    {
+      "description": "Provider credential readiness for cross-provider flows is incomplete (openAI/azure/google key probes return expiresAt:null; Google fetches log 400 API-key issues).",
+      "affectedAssertions": [
+        "VAL-CROSS-003",
+        "VAL-PROVIDER-010"
+      ],
+      "quickFixAttempted": "Ran authenticated key-status probes and inspected dev API tails for provider errors."
+    },
+    {
+      "description": "Auth safety controls activated during extended flow attempts (login returns 403 temporary-ban).",
+      "affectedAssertions": [
+        "VAL-PROVIDER-011",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Reseeded personas and restarted dev API once per mission setup guidance; ban recurred after prolonged test loop."
+    }
+  ],
+  "summary": "Tested 6 assigned assertions on dev rail: 0 passed, 0 failed, 6 blocked. Primary blockers were missing/invalid provider credentials and temporary-ban interruptions during long provider-flow runs."
+}

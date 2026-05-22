@@ -1,0 +1,251 @@
+{
+  "groupId": "group-round5-azure-google-realtime",
+  "testedAt": "2026-04-10T13:37:31.671100Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "evidenceDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/customization-preservation/group-round5-azure-google-realtime",
+    "stableRailUsed": false,
+    "personas": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ],
+    "antiAbuseReset": {
+      "seedCommand": "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+      "apiRestart": "docker restart librechat-dev-api",
+      "waitSeconds": 25,
+      "completed": true
+    }
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "node",
+    "python3",
+    "docker logs"
+  ],
+  "commandsRun": [
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api",
+    "curl auth/login + /api/keys + /api/models + /api/config + /api/endpoints + /api/realtime/models on http://127.0.0.1:3081",
+    "curl websocket stale-token handshakes (with and without cookies)",
+    "node ws session.start probes for openAI/azureOpenAI/xai",
+    "agent-browser UI checks for OpenAI/Azure/Google chat and realtime dialog",
+    "docker logs --since 25m librechat-dev-api"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-001",
+      "title": "OpenAI and Azure chat-bar toggles honor native-vs-local routing policy",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open OpenAI chat and enable Search/Code Interpreter/File Search from chat bar.",
+          "expected": "Toggles enable directly without forcing auth/settings modal.",
+          "observed": "All three toggles enabled directly (search=true, code_interpreter=true, file_search=true)."
+        },
+        {
+          "action": "Open Azure chat and run a test prompt.",
+          "expected": "Azure branch executes to validate routing behavior.",
+          "observed": "Azure turn returned \"No key found. Please provide a key and try again.\"; azure key state stayed expiresAt=null."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-001-tools-openai-menu.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-001-openai-toggles-enabled.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-001-openai-turn-result-final.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-001-azure-url-open.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-001-azure-turn-result.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-azure-google-realtime/group-round5-azure-google-realtime-browser-errors.txt)",
+        "network": "VAL-PROVIDER-001-openai-toggle-states-after-check.txt + VAL-PROVIDER-001-azure-turn-body.txt + api-keys-azure-superadmin-body.json"
+      },
+      "issues": "Blocked by missing Azure user credentials; Azure execution branch cannot be validated beyond key-gated failure."
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "title": "Azure direct /openai/v1 routes omit api-version",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Set direct and legacy Azure key payloads through /api/keys and trigger /api/models?endpoint=azureOpenAI.",
+          "expected": "Direct /openai/v1 omits api-version; legacy non-/openai/v1 preserves api-version behavior.",
+          "observed": "All key writes succeeded (201), but direct+legacy+legacy-deployment probes all normalized to /openai/v1/models with no api-version query."
+        },
+        {
+          "action": "Cleanup temporary Azure key mutation.",
+          "expected": "Azure key state restored after probe.",
+          "observed": "DELETE /api/keys/azureOpenAI returned 204 and key state returned to {\"expiresAt\":null}."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-001-azure-url-open.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-azure-google-realtime/group-round5-azure-google-realtime-browser-errors.txt)",
+        "network": "group-round5-azure-google-realtime-header-status-summary.json + VAL-PROVIDER-001A-url-shape-summary.json + azure_url_shape-log-excerpts.txt + VAL-PROVIDER-001A-posttests-cleanup-key.json"
+      },
+      "issues": "Legacy Azure api-version behavior is still mismatched (not fixed): legacy probes still route to /openai/v1/models without api-version."
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "title": "Gemini native tools honor safe-request and routing gates",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run safe Google request with Search enabled and no file.",
+          "expected": "Request executes so routing gate behavior is observable.",
+          "observed": "Backend logged GoogleGenerativeAI API_KEY_INVALID; UI turn stalled and required manual stop."
+        },
+        {
+          "action": "Run mixed request with attached file and tool toggles.",
+          "expected": "Unsafe mix fallback behavior is observable.",
+          "observed": "File attached successfully, but request failed at credential layer (API_KEY_INVALID) before routing-gate behavior was observable."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-003-google-url-open.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-003-google-safe-turn-stopped.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-003-google-file-attached.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-003-google-unsafe-turn-stopped.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-azure-google-realtime/group-round5-azure-google-realtime-browser-errors.txt)",
+        "network": "group-round5-azure-google-realtime-log-summary.json + google_api_key_invalid-log-excerpts.txt + api-keys-google-superadmin-body.json"
+      },
+      "issues": "Blocked by invalid/missing Google credentials in this partition (API_KEY_INVALID)."
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "title": "Google live discovery and capability metadata stay intact",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Inspect Google model/config surfaces with authenticated API calls.",
+          "expected": "Live discovery and capability metadata should be fully verifiable with runnable credentials.",
+          "observed": "Google model list is populated (22 models), but credentialed runtime path is unavailable (google key expiresAt=null and API_KEY_INVALID on execution)."
+        },
+        {
+          "action": "Run real Gemini execution from user surface.",
+          "expected": "Discovered model executes so capability behavior can be confirmed.",
+          "observed": "Execution failed with API_KEY_INVALID; capability behavior cannot be validated end-to-end."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-003-google-url-open.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-azure-google-realtime/group-round5-azure-google-realtime-browser-errors.txt)",
+        "network": "VAL-PROVIDER-004-google-discovery-summary.json + api-models-superadmin-body.json + api-keys-google-superadmin-body.json + google_api_key_invalid-log-excerpts.txt"
+      },
+      "issues": "Blocked by missing/invalid Google credential path; live discovery/capability runtime verification remains incomplete."
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "title": "Gemini grounding still produces inline citations and Sources entries",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Attempt grounded Gemini request in Google endpoint flow.",
+          "expected": "Grounded response renders inline citations and Sources entries.",
+          "observed": "No grounded output produced because backend failed with API_KEY_INVALID."
+        },
+        {
+          "action": "Retry with attached-file variant.",
+          "expected": "Citation rendering still observable on mixed/attached flow.",
+          "observed": "Second attempt also failed at credential layer (API_KEY_INVALID), so citation/source rendering was unreachable."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-003-google-safe-turn-stopped.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-PROVIDER-003-google-unsafe-turn-stopped.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-azure-google-realtime/group-round5-azure-google-realtime-browser-errors.txt)",
+        "network": "group-round5-azure-google-realtime-log-summary.json (google_api_key_invalid) + google_api_key_invalid-log-excerpts.txt"
+      },
+      "issues": "Blocked by Google API key failure; grounded citation/source contract cannot be exercised."
+    },
+    {
+      "id": "VAL-REALTIME-002",
+      "title": "Realtime provider discovery is auth-gated, credential-aware, and resilient to stale websocket query tokens",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Call /api/realtime/models without auth and with auth.",
+          "expected": "Unauth returns 401; auth response includes available/requiresUserKey/reason per provider.",
+          "observed": "Unauth returned 401; authenticated responses included provider metadata with Azure/xAI unavailable and actionable reasons."
+        },
+        {
+          "action": "Probe websocket with stale token (with and without cookies).",
+          "expected": "Stale token without cookie rejected; stale token + cookie fallback accepted.",
+          "observed": "No-cookie stale token returned 401; stale token with cookie returned 101 Switching Protocols."
+        },
+        {
+          "action": "Send session.start over websocket for openAI/azureOpenAI/xai.",
+          "expected": "OpenAI starts; Azure/xAI branches enforce credential/connect rules.",
+          "observed": "OpenAI returned session.started; Azure and xAI returned explicit missing-credential errors."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-azure-google-realtime/VAL-REALTIME-002-realtime-dialog-provider-state.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-REALTIME-002-realtime-dialog-azure-unavailable.png",
+          "customization-preservation/group-round5-azure-google-realtime/VAL-REALTIME-002-realtime-dialog-xai-unavailable.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-azure-google-realtime/group-round5-azure-google-realtime-browser-errors.txt)",
+        "network": "realtime-models-unauth-headers.txt + realtime-models-superadmin-body.json + realtime-ws-stale-token-no-cookie-headers.txt + realtime-ws-stale-token-with-cookie-headers.txt + realtime-session-start-cases.json + VAL-REALTIME-002-realtime-dialog-azure-body.txt + VAL-REALTIME-002-realtime-dialog-xai-body.txt"
+      },
+      "issues": "Blocked for full contract completion because Azure/xAI credentialed branches are unavailable; xAI unavailable-model rejection under a credentialed path could not be exercised."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Google UI turns stayed in long-running state even after backend credential failure, requiring manual stop actions.",
+      "resolved": true,
+      "resolution": "Captured stopped-state screenshots and used dev API logs as source-of-truth for API_KEY_INVALID evidence.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ]
+    },
+    {
+      "description": "agent-browser network request collector returned no captured requests for this session.",
+      "resolved": true,
+      "resolution": "Used curl artifacts, websocket probe outputs, and docker log excerpts as network evidence.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-REALTIME-002"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Azure user key/base URL are missing for assigned personas on dev rail.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-REALTIME-002"
+      ],
+      "quickFixAttempted": "Executed Azure chat turn and realtime session.start probes; observed \"No key found\" and explicit missing-credential realtime errors."
+    },
+    {
+      "description": "Google runtime credentials are invalid/unset (API_KEY_INVALID).",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ],
+      "quickFixAttempted": "Retried safe and attached-file Google turns; dev API logs consistently returned GoogleGenerativeAI API_KEY_INVALID."
+    }
+  ],
+  "summary": "Tested 6 assigned assertions on dev rail: 1 failed (VAL-PROVIDER-001A still mismatched), 5 blocked (VAL-PROVIDER-001, VAL-PROVIDER-003, VAL-PROVIDER-004, VAL-PROVIDER-005, VAL-REALTIME-002). Realtime auth-gating/stale-token fallback/openAI start behavior passed within VAL-REALTIME-002, but credential-gated Azure/xAI/Google branches remained unavailable."
+}

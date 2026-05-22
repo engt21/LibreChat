@@ -1,0 +1,247 @@
+{
+  "groupId": "group-schedules-execution",
+  "surface": "web-ui-api-dev",
+  "testedAt": "2026-04-05T21:00:51.923969Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": false,
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-user@dev.local",
+      "val-superadmin@dev.local",
+      "val-temp-delete-43e37fde@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "requests (API)",
+    "docker exec mongosh"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SCHED-005",
+      "title": "Run-now executes immediately and returns durable run metadata",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run schedule manually (success path)",
+          "expected": "200 with executionResult+notificationResults and persisted success metadata",
+          "observed": "HTTP 200, persisted lastStatus=succeeded, lastFinishedAt=2026-04-05T20:59:11.307Z"
+        },
+        {
+          "action": "Run schedule manually (failure path)",
+          "expected": "500 with durable failure metadata and notification results",
+          "observed": "HTTP 500, persisted lastStatus=failed, lastError=Illegal model request"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API-driven validation)",
+        "network": [
+          "customization-preservation/group-schedules-execution/VAL-SCHED-005-create-success.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-005-run-success.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-005-schedule-after-success.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-005-create-failure.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-005-run-failure.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-005-schedule-after-failure.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SCHED-006",
+      "title": "Background runner picks up due schedules and advances next run correctly",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Observe enabled due schedule under background runner",
+          "expected": "Auto-executes within poll window and advances nextRunAt",
+          "observed": "autoDetected=True; recheck confirms nextRunAt advances after completion (nextRunAdvanced=True, lastStatus=succeeded)."
+        },
+        {
+          "action": "Observe overdue disabled schedule",
+          "expected": "Disabled schedule does not auto-run",
+          "observed": "runCount=0, lastRunAt=None"
+        },
+        {
+          "action": "Manual run-now on disabled schedule",
+          "expected": "Executes once without advancing nextRunAt",
+          "observed": "HTTP 200, runCount=1, nextRunAtUnchanged=True"
+        },
+        {
+          "action": "Validate SCHEDULED_RUNNER_ENABLED=false branch",
+          "expected": "Overdue enabled schedule should stay untouched while run-now still works",
+          "observed": "Blocked: requires process env change + shared dev API restart, outside non-disruptive isolation scope"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API-driven validation)",
+        "network": [
+          "customization-preservation/group-schedules-execution/VAL-SCHED-006-create-auto-enabled.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-006-auto-after-poll.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-006-create-disabled.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-006-disabled-before-manual.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-006-disabled-manual-run.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-006-auto-advance-recheck.json"
+        ]
+      },
+      "issues": "Verified enabled/disabled/manual behavior on runner-enabled dev rail, but could not execute required SCHEDULED_RUNNER_ENABLED=false branch without disruptive shared-dev restart."
+    },
+    {
+      "id": "VAL-SCHED-007",
+      "title": "Running schedules are locked against concurrent run, edit, and delete",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Trigger run and concurrently issue second run, patch, and delete",
+          "expected": "Concurrent run/edit/delete while running return 409",
+          "observed": "attempt1={'run1': 200, 'run2': 409, 'patch': 409, 'delete': 409}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API-driven validation)",
+        "network": [
+          "customization-preservation/group-schedules-execution/VAL-SCHED-007-lock-attempts.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SCHED-008",
+      "title": "Notification delivery results are channel-specific and non-fatal",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run schedule with email+sms+push enabled",
+          "expected": "Each channel reports sent/skipped/failed and execution remains non-fatal",
+          "observed": "HTTP 200, notificationResults={'email': {'status': 'skipped', 'reason': 'Email delivery is not configured'}, 'sms': {'status': 'skipped', 'reason': 'SMS delivery is not configured'}, 'push': {'status': 'skipped', 'reason': 'Push delivery is not configured'}}"
+        },
+        {
+          "action": "Run failing schedule with channels enabled",
+          "expected": "Failure still preserves notification channel results",
+          "observed": "HTTP 500, notificationResultsPresent=True (durable channel results persisted on failure path)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API-driven validation)",
+        "network": [
+          "customization-preservation/group-schedules-execution/VAL-SCHED-008-notifications-update.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-008-notifications-capabilities.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-008-create-success.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-008-run-success.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-008-create-failure.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-008-run-failure.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-008-run-failure-recheck.json"
+        ]
+      },
+      "issues": "Channel-level sent/skipped/failed and non-fatal execution behavior were validated on success/failure paths, but delivered payload URL-root checks (/c/<conversationId> under DOMAIN_CLIENT) are not directly observable from API-only evidence in this isolation."
+    },
+    {
+      "id": "VAL-SCHED-010",
+      "title": "User deletion cleans up scheduled-run persistence",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Create temp user schedule+notifications, then delete user via admin API",
+          "expected": "Deletion removes user and scheduled jobs",
+          "observed": "deleteStatus=200, usersAfter=0, scheduledJobsAfter=0, oldTokenSchedulesStatus=401"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API-driven validation)",
+        "network": [
+          "customization-preservation/group-schedules-execution/VAL-SCHED-010-register-temp-user.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-010-login-temp-user.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-010-temp-user-notifications.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-010-temp-user-create-schedule.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-010-admin-delete-temp-user.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-010-old-token-after-delete.json",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-010-mongo-before-delete.txt",
+          "customization-preservation/group-schedules-execution/VAL-SCHED-010-mongo-after-delete.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "title": "Scheduled runs preserve the same provider and tool contract as interactive chats",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Create schedule with nested ephemeral tools",
+          "expected": "Nested ephemeralAgent fields are normalized and retained",
+          "observed": "ephRetained=True"
+        },
+        {
+          "action": "Run before policy change, then revoke model and run again",
+          "expected": "Execution revalidates model access and fails durably without success conversation",
+          "observed": "beforeHTTP=200, afterHTTP=200, lastStatus=succeeded, lastConversationId=4092a6a1-480c-4b28-bb42-f528ef436687, notificationResultsAfterPresent=True"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API-driven validation)",
+        "network": [
+          "customization-preservation/group-schedules-execution/VAL-CROSS-005-create-schedule.json",
+          "customization-preservation/group-schedules-execution/VAL-CROSS-005-created-schedule-state.json",
+          "customization-preservation/group-schedules-execution/VAL-CROSS-005-run-before-policy-change.json",
+          "customization-preservation/group-schedules-execution/VAL-CROSS-005-restrict-model-permissions.json",
+          "customization-preservation/group-schedules-execution/VAL-CROSS-005-run-after-policy-change.json",
+          "customization-preservation/group-schedules-execution/VAL-CROSS-005-after-policy-schedule-state.json",
+          "customization-preservation/group-schedules-execution/VAL-CROSS-005-restore-model-permissions.json"
+        ]
+      },
+      "issues": "Cross-policy run did not meet one or more required contract behaviors"
+    },
+    {
+      "id": "VAL-CROSS-005A",
+      "title": "Scheduled MCP and OAuth execution keeps the interactive auth contract",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Check MCP server inventory and OAuth/connection state for validation user",
+          "expected": "Need at least one authorized MCP/OAuth tool context to run scheduled auth-contract assertions",
+          "observed": "/api/mcp/servers exposed only non-OAuth ollama_search_fetch in disconnected state; no authorized OAuth-backed MCP context available for scheduled auth-contract variants."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API-driven validation)",
+        "network": [
+          "customization-preservation/group-schedules-execution/VAL-CROSS-005A-mcp-servers.json",
+          "customization-preservation/group-schedules-execution/VAL-CROSS-005A-mcp-connection-status.json"
+        ]
+      },
+      "issues": "Blocked: no authorized OAuth-backed MCP context (authorized/revoked/pending-consent variants) available for this user in the assigned dev isolation."
+    }
+  ],
+  "frictions": [],
+  "blockers": [
+    {
+      "description": "SCHEDULED_RUNNER_ENABLED=false branch requires API process env change and restart on shared dev rail, which is outside non-disruptive validator scope.",
+      "affectedAssertions": [
+        "VAL-SCHED-006"
+      ],
+      "quickFixAttempted": "Validated runner-enabled auto-execution, disabled non-auto-run behavior, and manual run-now semantics without restart; added post-completion nextRunAt advancement recheck evidence."
+    },
+    {
+      "description": "Notification payload URL-root verification requires inbox/SMS/push recipient access; API run-now responses do not include delivered message URLs.",
+      "affectedAssertions": [
+        "VAL-SCHED-008"
+      ],
+      "quickFixAttempted": "Validated channel-level statuses and durable notificationResults on both success and failure run-now paths."
+    },
+    {
+      "description": "No authorized OAuth-backed MCP context available for scheduled MCP/OAuth execution checks (only disconnected non-OAuth ollama_search_fetch server present).",
+      "affectedAssertions": [
+        "VAL-CROSS-005A"
+      ],
+      "quickFixAttempted": "Queried /api/mcp/servers and /api/mcp/connection/status to confirm available MCP auth state before attempting scheduled MCP assertions."
+    }
+  ],
+  "summary": "Tested 7 assertions: 3 passed, 1 failed, 3 blocked, 0 skipped."
+}

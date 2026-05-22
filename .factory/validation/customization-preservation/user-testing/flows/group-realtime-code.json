@@ -1,0 +1,331 @@
+{
+  "groupId": "group-realtime-code",
+  "testedAt": "2026-04-05T20:35:29Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "evidenceDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/customization-preservation/group-realtime-code",
+    "stableRailUsed": false
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "node-websocket",
+    "python",
+    "docker logs"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-FILES-007",
+      "title": "Local managed code interpreter remains the default code-execution path for OpenAI, Azure, and Google in this fork",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Validate default routing and bridge endpoints",
+          "expected": "Default compose routes OpenAI/Azure/Google Code Interpreter to local bridge and bridge endpoints are healthy",
+          "observed": "docker-compose override shows all three *_CODE_INTERPRETER_ROUTING defaults to librechat; /v1/health, /v1/upload, /v1/exec, /v1/files, /v1/download succeeded with API key"
+        },
+        {
+          "action": "Validate warm-runtime reuse and restart persistence",
+          "expected": "Repeated /v1/exec in same session is faster and generated/uploaded files survive bridge restart",
+          "observed": "run1 TIME_TOTAL=5.323886s then run2 TIME_TOTAL=2.856010s in same session; /v1/files and /v1/download remained 200 after docker restart librechat-dev-code-interpreter"
+        },
+        {
+          "action": "Run UI model-chat code interpreter turn",
+          "expected": "Chat Code Interpreter turn executes through managed path",
+          "observed": "OpenAI chat turn returned Python stdout (code-interpreter-check, 144) with Code Interpreter UI state; container logs include POST /v1/exec 200 from bridge caller"
+        },
+        {
+          "action": "Exercise Azure and Google model-chat Code Interpreter turns",
+          "expected": "Azure and Google turns also execute through local managed bridge",
+          "observed": "Not fully exercised in this run (no deterministic Azure/Google code-interpreter chat turn coverage captured)"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-realtime-code/r3-VAL-FILES-007-tools-menu.png",
+          "customization-preservation/group-realtime-code/r3-VAL-FILES-007-chat-code-interpreter-turn.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-realtime-code/r3-browser-errors-final.txt)",
+        "network": "Local bridge calls returned 200 for upload/exec/files/download in direct smokes; bridge log captured POST /v1/exec 200 from chat flow",
+        "artifacts": [
+          "customization-preservation/group-realtime-code/r3-VAL-FILES-007-routing-defaults.txt",
+          "customization-preservation/group-realtime-code/r3-code-interpreter-smokes-auth-v2.txt",
+          "customization-preservation/group-realtime-code/r3-VAL-FILES-007-chat-code-interpreter-body.txt",
+          "customization-preservation/group-realtime-code/r3-VAL-FILES-007-code-interpreter-container-filtered.log"
+        ]
+      },
+      "issues": "OpenAI path and bridge persistence/warm reuse validated; complete Azure+Google model-chat turn coverage was not established in this isolation run."
+    },
+    {
+      "id": "VAL-REALTIME-001",
+      "title": "Realtime Voice only enables microphone capture after a successful live-session connection",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Open Realtime Voice dialog before connecting",
+          "expected": "Start mic disabled before connection",
+          "observed": "Start mic button disabled while dialog shows Connect state"
+        },
+        {
+          "action": "Connect OpenAI realtime session",
+          "expected": "Start mic becomes usable only after successful connect",
+          "observed": "Dialog switched to Disconnect and Start mic became enabled after connection"
+        },
+        {
+          "action": "Check Gemini control labeling",
+          "expected": "Gemini path uses honest Stop audio label",
+          "observed": "Gemini selection showed Stop audio label (not Stop reply)"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-001-dialog-before-connect.png",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-001-dialog-openai-connected.png",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-001-dialog-after-connect-gemini.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-realtime-code/r3-browser-errors-final.txt)",
+        "network": "Realtime websocket/session APIs successfully exercised during connect flow",
+        "artifacts": [
+          "customization-preservation/group-realtime-code/r3-api-probes.json",
+          "customization-preservation/group-realtime-code/r3-ws-probes.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-REALTIME-002",
+      "title": "Realtime provider discovery is auth-gated, credential-aware, and resilient to stale websocket query tokens",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Probe realtime model discovery with and without auth",
+          "expected": "Unauthenticated 401; authenticated response includes provider availability metadata",
+          "observed": "GET /api/realtime/models returned 401 unauth; superadmin returned providers with available/requiresUserKey/reason fields; restricted user returned providers: []"
+        },
+        {
+          "action": "Probe websocket auth with stale token",
+          "expected": "Stale/missing query token rejected unless same-origin cookies authenticate session",
+          "observed": "stale token without cookie -> 401; stale token with valid refresh cookie opened websocket and returned policy error (authentication fallback worked)"
+        },
+        {
+          "action": "Probe provider/session-start guardrails",
+          "expected": "Model required for openAI/azure/google and provider-specific start behavior enforced",
+          "observed": "session.start without model for openAI/azure returned explicit error; google session.start returned session.started"
+        },
+        {
+          "action": "Validate Azure direct-connect and xAI unavailable-model rejection branch",
+          "expected": "Azure URL/connect nuances and xAI unavailable-model rejection covered",
+          "observed": "Blocked by missing Azure/xAI user credentials in this scope (xAI returned requires key/base URL)"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-001-login.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-realtime-code/r3-browser-errors-final.txt)",
+        "network": "/api/realtime/models 401 unauth then 200 auth; websocket probes captured 401 and authenticated event responses",
+        "artifacts": [
+          "customization-preservation/group-realtime-code/r3-api-probes.json",
+          "customization-preservation/group-realtime-code/r3-ws-probes.json"
+        ]
+      },
+      "issues": "Core auth-gating and stale-token cookie fallback are validated, but full provider-specific credential branches (Azure direct/xAI unavailable-model-with-valid-key) were not testable with available credentials."
+    },
+    {
+      "id": "VAL-REALTIME-003",
+      "title": "Ending a live voice session persists a normal LibreChat conversation",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Connect realtime session and send a text turn",
+          "expected": "Live session records user/assistant transcript entries",
+          "observed": "Connected session accepted text turn and produced assistant transcript"
+        },
+        {
+          "action": "Disconnect and close dialog",
+          "expected": "Session persists as normal sidebar conversation with derived title",
+          "observed": "Toast confirmed save and sidebar added 'Realtime persistence check from validator' conversation"
+        },
+        {
+          "action": "Probe persistence endpoint",
+          "expected": "POST /api/realtime/conversation auth-gated and accepts valid payload",
+          "observed": "Unauthenticated 401; authenticated calls returned 201 with conversationId/title"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-003-live-session-transcript.png",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-003-after-disconnect-sidebar.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-realtime-code/r3-browser-errors-final.txt)",
+        "network": "Realtime UI connect/send/disconnect path plus POST /api/realtime/conversation -> 201",
+        "artifacts": [
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-003-live-session-body.txt",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-003-after-disconnect-body.txt",
+          "customization-preservation/group-realtime-code/r3-api-probes.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-REALTIME-004",
+      "title": "Native web search exposes inline stream status instead of silent backend-only activity",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Run web-search chat turns with OpenAI model",
+          "expected": "Inline stream status shows 'Searching the web\u2026' during search and clears cleanly",
+          "observed": "Search-backed responses and Reuters source links appeared, but no inline 'Searching the web' status text was observed"
+        },
+        {
+          "action": "Explicitly wait for status text during stream",
+          "expected": "Status text becomes visible while request is in-flight",
+          "observed": "wait for text 'Searching the web' timed out (FOUND_SEARCHING_STATUS=false)"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-004-during-stream.png",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-004-after-stream.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-realtime-code/r3-browser-errors-final.txt)",
+        "network": "Streaming chat requests executed; browser request capture lacks status/payload granularity",
+        "artifacts": [
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-004-during-stream-body.txt",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-004-after-stream-body.txt",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-004-status-check.txt",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-004-network.txt"
+        ]
+      },
+      "issues": "Observed sourced web-search answers, but the required inline search-progress status was not visible in repeated attempts."
+    },
+    {
+      "id": "VAL-REALTIME-005",
+      "title": "Reasoning and grounded-source presentation remains merged and source-linked",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run grounded/web-search prompts and inspect rendered outputs",
+          "expected": "Grounded replies show source-linked output via existing citation/source surface",
+          "observed": "Replies included source links (Reuters) and source-linked output in chat UI"
+        },
+        {
+          "action": "Run reasoning prompt to inspect Thoughts merge behavior",
+          "expected": "Consecutive reasoning chunks appear as one coherent Thoughts block",
+          "observed": "No Thoughts/reasoning chunk UI was emitted for tested model/prompts, so merge behavior could not be validated"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-004-after-stream.png",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-005-reasoning-attempt.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-realtime-code/r3-browser-errors-final.txt)",
+        "network": "Grounded/web-search responses returned source links; reasoning-chunk stream behavior not observed",
+        "artifacts": [
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-004-after-stream-body.txt",
+          "customization-preservation/group-realtime-code/r3-VAL-REALTIME-005-reasoning-body.txt"
+        ]
+      },
+      "issues": "Source-link behavior was observed, but reasoning-chunk merge behavior remained untestable because no reasoning Thoughts stream appeared for tested prompts/models."
+    },
+    {
+      "id": "VAL-CROSS-002A",
+      "title": "Admin and default model policy propagates into realtime discovery and session start",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Establish baseline restricted user policy",
+          "expected": "Restricted user has limited /api/models and no realtime providers for disallowed policy",
+          "observed": "Baseline user had restricted modelPermissions, /api/models reduced catalog, and /api/realtime/models providers: []"
+        },
+        {
+          "action": "Apply superadmin override and re-check model/realtime discovery",
+          "expected": "Updated policy propagates to model list and realtime provider/model discovery",
+          "observed": "After superadmin patch to openAI wildcard, user /api/models openAI_count increased and /api/realtime/models exposed only openAI realtime provider/models"
+        },
+        {
+          "action": "Probe realtime session start for allowed vs tampered requests",
+          "expected": "Allowed model starts; blocked provider/model requests are explicitly rejected server-side",
+          "observed": "Allowed openAI realtime session.start returned session.started; tampered google session.start returned explicit provider-not-available error"
+        },
+        {
+          "action": "Restore mutated policy",
+          "expected": "Original user modelPermissions restored after test",
+          "observed": "Cleanup PATCH restored original google/ollama/openAI restricted rules"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-realtime-code/r3-login-success-chat.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-realtime-code/r3-browser-errors-final.txt)",
+        "network": "Admin PATCH + /api/models + /api/realtime/models and websocket session.start checks all returned expected policy-driven behavior",
+        "artifacts": [
+          "customization-preservation/group-realtime-code/r3-cross-002a-policy-wildcard.json",
+          "customization-preservation/group-realtime-code/r3-cross-002a-policy.json",
+          "customization-preservation/group-realtime-code/r3-cross-002a-config-check.json"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "agent-browser wait --load networkidle timed out on login page due continuous background activity.",
+      "resolved": true,
+      "resolution": "Switched to fixed waits and URL/text waits for deterministic flow control.",
+      "affectedAssertions": [
+        "VAL-REALTIME-001",
+        "VAL-REALTIME-003"
+      ]
+    },
+    {
+      "description": "Tools popup dismiss click was intermittently blocked by overlay stacking.",
+      "resolved": true,
+      "resolution": "Used Escape key to close popover and continue flow.",
+      "affectedAssertions": [
+        "VAL-REALTIME-004",
+        "VAL-FILES-007"
+      ]
+    },
+    {
+      "description": "Direct code-interpreter API contract required X-API-Key plus updated payload shape (upload field=file, exec payload includes lang).",
+      "resolved": true,
+      "resolution": "Adjusted probes to include X-API-Key and correct request schema; reran complete endpoint and restart-persistence checks.",
+      "affectedAssertions": [
+        "VAL-FILES-007"
+      ]
+    },
+    {
+      "description": "agent-browser network capture lacks HTTP status/payload details for some chat requests.",
+      "resolved": true,
+      "resolution": "Corroborated with API/websocket probe artifacts and container logs.",
+      "affectedAssertions": [
+        "VAL-REALTIME-002",
+        "VAL-REALTIME-004",
+        "VAL-CROSS-002A"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Azure and xAI realtime user credentials were unavailable in this isolation scope, preventing full provider-specific session-start branch coverage.",
+      "affectedAssertions": [
+        "VAL-REALTIME-002",
+        "VAL-FILES-007"
+      ],
+      "quickFixAttempted": "Used available providers (OpenAI/Gemini where possible), validated auth/policy branches, and documented untestable credential-dependent branches."
+    },
+    {
+      "description": "Reasoning Thoughts stream did not surface for tested prompts/models, so chunk-merge rendering behavior could not be directly exercised.",
+      "affectedAssertions": [
+        "VAL-REALTIME-005"
+      ],
+      "quickFixAttempted": "Ran additional reasoning-oriented prompt and inspected rendered output/body capture; no reasoning-block UI appeared."
+    }
+  ],
+  "summary": "Tested 7 assigned assertions on dev rail: 3 passed (VAL-REALTIME-001, VAL-REALTIME-003, VAL-CROSS-002A), 1 failed (VAL-REALTIME-004), and 3 blocked (VAL-FILES-007, VAL-REALTIME-002, VAL-REALTIME-005). Evidence captured for UI/API/WS flows and policy mutation cleanup restored original user model permissions."
+}

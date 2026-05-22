@@ -1,0 +1,241 @@
+{
+  "groupId": "group-round5-files-native-routing",
+  "testedAt": "2026-04-10T12:54:44Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json",
+    "persona": "val-user@dev.local",
+    "stableRailUsed": false,
+    "preRunReset": "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "python3+requests",
+    "curl-compatible HTTP probes"
+  ],
+  "commandsRun": [
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25",
+    "agent-browser --session round5-files-native-routing ... (login, tool toggles, file/image uploads, provider switching, screenshots, page text capture)",
+    "python3 requests probes against /api/auth/login, /api/files, /api/convos, /api/messages, /api/models, /api/config",
+    "python3 requests probes against http://127.0.0.1:8190/v1/{health,upload,exec,files/{session_id},download/{session_id}/{file_id}} with X-API-Key"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-FILES-001",
+      "title": "Provider-aware file search stays pinned to the originating provider",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Enable File Search + Code Interpreter on OpenAI gpt-5.4-mini, upload provider-pin-note-round5.txt via Upload for File Search, and query sentinel value",
+          "expected": "Uploaded file is retrievable through file-search flow and stays tied to the originating provider backend",
+          "observed": "Assistant returned `VAL_FILES_001_PROVIDER_PIN_SENTINEL: cobalt-owl-742` on initial and follow-up turns without re-upload."
+        },
+        {
+          "action": "Inspect file and conversation records via authenticated API",
+          "expected": "Provider-pinning metadata and conversation linkage are persisted and reusable",
+          "observed": "`/api/files` shows one file with `metadata.nativeTool=file_search` and `metadata.openai.{endpoint,model,fileId,vectorStoreId}`; `/api/convos/a78a5aa0-21d6-4605-876f-a3f786cbda7b` includes the file in `files`; file `usage` increased from 1 to 2 after follow-up."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-files-native-routing/VAL-FILES-001-after-file-search-upload.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-FILES-001-response-stopped.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-FILES-001-followup-stopped.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-files-native-routing/group-round5-files-native-routing-browser-errors.txt)",
+        "network": "POST/GET chat flow via UI; API evidence: api-files-focused-round5.json, api-files-focused-round5-followup.json, api-convo-provider-pin-sentinel-body.json, api-messages-provider-pin-sentinel-body.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-FILES-002",
+      "title": "Context-mode screenshots preserve both vision input and OCR text",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Disable file/code tools, use Upload as Text, upload login-page-round5.png, and ask model to list visible login labels",
+          "expected": "Image remains usable for vision while OCR text is stored on the same file record",
+          "observed": "Vision path worked (assistant listed labels correctly), but file record text persistence was absent."
+        },
+        {
+          "action": "Inspect uploaded image file record via `/api/files`",
+          "expected": "`file.text` (OCR text) populated for the same image record",
+          "observed": "`api-files-login-page-round5.json` showed `type=image/png` with `text` missing/empty (text length 0)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-files-native-routing/VAL-FILES-002-after-upload-as-text.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-FILES-002-ocr-response-stopped.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-files-native-routing/group-round5-files-native-routing-browser-errors.txt)",
+        "network": "UI upload + prompt; API evidence: api-files-login-page-round5.json (empty OCR text), api-messages-login-form-labels-body.json (vision response text)"
+      },
+      "issues": "OCR persistence requirement not met on observed file record (`file.text` empty) even though vision response succeeded."
+    },
+    {
+      "id": "VAL-PROVIDER-002",
+      "title": "Native OpenAI file flows stay tracked locally without duplicate file processing",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run native OpenAI file-search flow with provider-pin-note-round5.txt and follow-up query without re-upload",
+          "expected": "Native file remains tracked in LibreChat metadata and is reusable without duplicate processing",
+          "observed": "Single local file record persisted with OpenAI native metadata (`fileId`, `vectorStoreId`), conversation linked file ID, and repeat query succeeded using same file."
+        },
+        {
+          "action": "Check duplication signals in file records",
+          "expected": "No duplicate file rows for same upload",
+          "observed": "Only one `provider-pin-note-round5.txt` record present; `usage` incremented to 2 instead of creating duplicates."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-files-native-routing/VAL-FILES-001-after-file-search-upload.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-FILES-001-followup-stopped.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-files-native-routing/group-round5-files-native-routing-browser-errors.txt)",
+        "network": "api-files-focused-round5-followup.json, api-convo-provider-pin-sentinel-body.json, api-messages-provider-pin-sentinel-body.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-FILES-003",
+      "title": "Native OpenAI, Azure, and Gemini tool routing keeps LibreChat file bookkeeping intact",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Validate OpenAI native file routing branch with file_search upload and metadata inspection",
+          "expected": "OpenAI native branch keeps coherent bookkeeping",
+          "observed": "OpenAI branch behaved coherently (native metadata + conversation linkage + reusable file)."
+        },
+        {
+          "action": "Validate Azure and Gemini branches in same isolation context",
+          "expected": "Azure/Gemini branches executable for equivalent checks",
+          "observed": "Azure direct route returned `No key found. Please provide a key and try again.`; Google branch unavailable (`/api/models` shows `google: []`, and model selector had no Google option)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-files-native-routing/VAL-CROSS-003-tools-enabled-openai.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-CROSS-003-azure-direct-response.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-CROSS-003-model-selector-no-google.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-files-native-routing/group-round5-files-native-routing-browser-errors.txt)",
+        "network": "OpenAI bookkeeping: api-files-focused-round5-followup.json + api-convo-provider-pin-sentinel-body.json; Azure key gate text: VAL-CROSS-003-azure-direct-response-text.txt; Google availability: api-models-body.json"
+      },
+      "issues": "Full cross-provider assertion could not be completed because Azure user key and Google models were unavailable in this isolation context."
+    },
+    {
+      "id": "VAL-FILES-007",
+      "title": "Local managed code interpreter remains the default code-execution path for OpenAI, Azure, and Google in this fork",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run OpenAI UI code-interpreter turn that creates and reads `ci_round5.txt`",
+          "expected": "OpenAI code turn executes through managed interpreter path with file artifact",
+          "observed": "Turn succeeded; assistant executed Python, printed `round5-ci-ok`, and produced downloadable `ci_round5.txt` artifact."
+        },
+        {
+          "action": "Probe local code-interpreter service endpoints directly with API key",
+          "expected": "health/upload/exec/list/download endpoints succeed and warm session reuse is observable",
+          "observed": "`/v1/health` 200, `/v1/upload` 200, two `/v1/exec` 200, `/v1/files/{session_id}` 200, `/v1/download/{session_id}/{file_id}` 200; second exec faster by ~1.431s."
+        },
+        {
+          "action": "Validate Azure/Google code-interpreter branches",
+          "expected": "Both provider branches testable",
+          "observed": "Azure branch blocked by missing key (`No key found`); Google branch unavailable (`google: []`)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-files-native-routing/VAL-FILES-007-code-only-enabled.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-FILES-007-openai-code-response-stopped.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-CROSS-003-azure-direct-response.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-files-native-routing/group-round5-files-native-routing-browser-errors.txt)",
+        "network": "Direct CI artifacts: VAL-FILES-007-ci-summary-v2.json, VAL-FILES-007-ci-upload-v2-*, VAL-FILES-007-ci-exec1-v2-*, VAL-FILES-007-ci-exec2-v2-*, VAL-FILES-007-ci-files-v2-*, VAL-FILES-007-ci-download-v2-*; Azure/Google prerequisites from VAL-CROSS-003-azure-direct-response-text.txt + api-models-body.json"
+      },
+      "issues": "OpenAI/local bridge path passed, but full OpenAI+Azure+Google assertion remains blocked by missing Azure key and unavailable Google models."
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "title": "Provider-native tool flows keep model gating, file metadata, and streaming UX coherent",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Validate OpenAI native tool/file coherence with file_search (+ code interpreter enabled) and repeated retrieval",
+          "expected": "File metadata and user-visible behavior remain coherent without silent/duplicate issues",
+          "observed": "OpenAI flow returned expected sentinel values twice and persisted coherent native file metadata + conversation linkage."
+        },
+        {
+          "action": "Validate Azure/Gemini provider branches for cross-provider coherence",
+          "expected": "Azure/Gemini branches available for equivalent checks",
+          "observed": "Azure direct probe failed with `No key found. Please provide a key and try again.`; Google models unavailable (`google: []`, no Google endpoint option in selector)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round5-files-native-routing/VAL-CROSS-003-tools-enabled-openai.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-CROSS-003-azure-direct-response.png",
+          "customization-preservation/group-round5-files-native-routing/VAL-CROSS-003-model-selector-no-google.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round5-files-native-routing/group-round5-files-native-routing-browser-errors.txt)",
+        "network": "OpenAI coherence artifacts: api-files-focused-round5-followup.json + api-convo-provider-pin-sentinel-body.json + api-messages-provider-pin-sentinel-body.json; Azure gate text: VAL-CROSS-003-azure-direct-response-text.txt; Google availability: api-models-body.json; browser network collector: group-round5-files-native-routing-browser-network.txt"
+      },
+      "issues": "Cross-provider validation could not be completed because required Azure/Google prerequisites were unavailable in this run."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Upload menu actions still rely on a hidden file input in this UI surface.",
+      "resolved": true,
+      "resolution": "Temporarily exposed the existing hidden `input[type=file]` in-session via `agent-browser eval` and uploaded through that control.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-PROVIDER-002",
+        "VAL-FILES-003",
+        "VAL-CROSS-003"
+      ]
+    },
+    {
+      "description": "agent-browser network request collector produced no captured request rows in this session.",
+      "resolved": true,
+      "resolution": "Captured equivalent HTTP evidence through authenticated API artifacts under the evidence directory.",
+      "affectedAssertions": [
+        "VAL-FILES-001",
+        "VAL-FILES-002",
+        "VAL-PROVIDER-002",
+        "VAL-FILES-003",
+        "VAL-FILES-007",
+        "VAL-CROSS-003"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Azure direct branch in this isolation context requires a user key and returned `No key found. Please provide a key and try again.`",
+      "affectedAssertions": [
+        "VAL-FILES-003",
+        "VAL-FILES-007",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Retried on explicit `/c/new?endpoint=azureOpenAI&model=gpt-5.4` route with fresh prompt; same key-gated response persisted."
+    },
+    {
+      "description": "Google branch unavailable for this user/runtime state (`/api/models` returned `google: []`; selector showed no Google option).",
+      "affectedAssertions": [
+        "VAL-FILES-003",
+        "VAL-FILES-007",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Checked authenticated `/api/models` output and model selector endpoint list in UI; Google remained absent."
+    }
+  ],
+  "summary": "Tested 6 assigned assertions on dev rail: 2 passed (VAL-FILES-001, VAL-PROVIDER-002), 1 failed (VAL-FILES-002), and 3 blocked (VAL-FILES-003, VAL-FILES-007, VAL-CROSS-003). OpenAI native file/code paths showed coherent metadata and successful retrieval/execution, while OCR text persistence remained missing and Azure/Google prerequisite gaps prevented full cross-provider completion."
+}

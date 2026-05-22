@@ -1,0 +1,90 @@
+{
+  "groupId": "r2-group-admin-rbac",
+  "surface": "web-ui-api-dev",
+  "assertions": [
+    {
+      "id": "VAL-ADMIN-001",
+      "status": "pass",
+      "reason": "User API/UX gating and admin-positive paths matched contract: user /api/admin/permissions=403 (Admin access required), workspace-admin=200, superadmin=200 isSuperAdmin=true; stale invalid adminRoleIds test also returned 403; UI showed no Admin Console for user, Admin Console visible for workspace/superadmin, and /admin redirected user back to /c/new.",
+      "evidence": [
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-001-api.json",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-001-user-account-menu.png",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-001-user-admin-route-blocked.png",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-001-workspace-admin-account-menu.png",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-001-superadmin-account-menu.png"
+      ]
+    },
+    {
+      "id": "VAL-ADMIN-002",
+      "status": "pass",
+      "reason": "Lower-tier scope matrix matched expected permissions: workspace-admin had users/usage/settings read+write and observability (200), support-admin had users/usage/settings read only (200 with 403 on settings write, observability, delete), observability-admin had observability only (200 with 403 on users/usage/settings); /api/admin/rbac/roles and PATCH role/adminRoleIds were 403 for non-superadmins and 200 for superadmin.",
+      "evidence": [
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-002-api.json"
+      ]
+    },
+    {
+      "id": "VAL-ADMIN-003",
+      "status": "fail",
+      "reason": "Auto-promotion did not occur on auth flow in direct demotion/relogin test: superadmin demote PATCH succeeded (role->USER), subsequent login returned role USER, and /api/admin/permissions returned 403 instead of isSuperAdmin=true.",
+      "evidence": [
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-003-autopromote-confirmed.json",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-003-api.json"
+      ]
+    },
+    {
+      "id": "VAL-ADMIN-004",
+      "status": "pass",
+      "reason": "Settings persisted and observability links were host-aware: after storing localhost-style observability URLs, GET /api/admin/settings with forwarded host/proto rewrote links to https://dev-rbac.example.test:<port>; baseline settings were restored successfully.",
+      "evidence": [
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-004-api.json",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-cleanup.txt"
+      ]
+    },
+    {
+      "id": "VAL-ADMIN-005",
+      "status": "pass",
+      "reason": "Provider settings cog behavior matched role rules: superadmin model selector showed provider 'Set API Key' buttons, while workspace-admin and normal user selectors showed no provider settings buttons; My Agents row had no settings button.",
+      "evidence": [
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-005-superadmin-model-selector.png",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-005-workspace-model-selector.png",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-005-user-model-selector.png"
+      ]
+    },
+    {
+      "id": "VAL-ADMIN-006",
+      "status": "pass",
+      "reason": "Reopening provider settings preserved saved-state indicators: xAI SetKey dialog showed password field plus Revoke indicator on first open and again after close/reopen, confirming saved configuration is preloaded/recognized across reopen.",
+      "evidence": [
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-006-setkey-dialog-open-1.png",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-006-setkey-dialog-open-2.png"
+      ]
+    },
+    {
+      "id": "VAL-ADMIN-007",
+      "status": "pass",
+      "reason": "Deletion boundary checks matched contract with workspace-admin token: DELETE self=400, DELETE superadmin target=403, DELETE standard user=200.",
+      "evidence": [
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-007-api.json",
+        "customization-preservation/r2-group-admin-rbac/VAL-ADMIN-cleanup.txt"
+      ]
+    }
+  ],
+  "toolsUsed": [
+    "agent-browser",
+    "curl"
+  ],
+  "frictions": [
+    {
+      "description": "Auth limiter/temporary-ban protections trigger quickly when switching many personas; repeated UI/API login attempts required reseed + dev API restart to continue deterministic validation.",
+      "resolved": true,
+      "resolution": "Applied mandated bootstrap recovery (dev-seed-validation-personas.js + docker restart librechat-dev-api + wait ~20s) between high-login phases.",
+      "affectedAssertions": [
+        "VAL-ADMIN-001",
+        "VAL-ADMIN-003",
+        "VAL-ADMIN-005",
+        "VAL-ADMIN-006"
+      ]
+    }
+  ],
+  "blockers": []
+}

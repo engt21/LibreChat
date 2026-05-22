@@ -1,0 +1,213 @@
+{
+  "groupId": "group-round3-mcp-oauth",
+  "surface": "web-ui-api-dev",
+  "testedAt": "2026-04-06T13:19:56Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": false,
+    "accounts": [
+      "val-superadmin@dev.local"
+    ],
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Attempt to register local validation MCP servers on 192.168.50.4:8765 and :8766 to expose no-input/open-object tools",
+          "expected": "Local MCP servers register and expose no-input plus open-object schema tools for callable-path verification",
+          "observed": "Both POST /api/mcp/servers calls returned 403 MCP_DOMAIN_NOT_ALLOWED for http://192.168.50.4:8765 and :8766."
+        },
+        {
+          "action": "Probe current MCP inventory and callable tool surface",
+          "expected": "Inventory includes candidate no-input/open-object MCP tools and callable OpenAI-compatible tool path",
+          "observed": "Inventory only showed ollama_search_fetch (query/url-required tools); GET /api/agents/tools returned SSE payload `event: error {\"message\":\"Illegal request\"}` rather than a callable tool execution surface."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-mcp-oauth/mcp-settings-panel-annotated.png"
+        ],
+        "consoleErrors": "none observed on MCP panel capture",
+        "network": [
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-001-create-local-mcp-8765.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-001-create-local-mcp-8766.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-001-list-after-local-attempts.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-001-agents-tools.json"
+        ]
+      },
+      "issues": "Blocked: required no-input/open-object MCP test servers were rejected by MCP domain policy, and no equivalent callable user-surface path was available for this assertion."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "title": "OAuth refresh prefers protected-resource authorization server metadata",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Create and initialize Arcade OAuth MCP server",
+          "expected": "OAuth-capable server is available and can be put into a token-refresh test state",
+          "observed": "Arcade server creation succeeded (201, requiresOAuth=true) and reinitialize returned OAuth URL plus pending state."
+        },
+        {
+          "action": "Probe OAuth status for refresh preconditions",
+          "expected": "Have an expired/refreshable token state to validate refresh-endpoint selection behavior",
+          "observed": "OAuth status remained PENDING (no completed auth/token), so refresh path could not be exercised."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-002-create-arcade-microsoft-tools.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-002-arcade-server-details.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-002-oauth-status-before.json"
+        ]
+      },
+      "issues": "Blocked: no authorized/expired OAuth token state was available, so token refresh behavior could not be validated."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "title": "OAuth callback URLs preserve precedence rules across local and proxied deployments",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Trigger OAuth initiate route with direct and forwarded header variants",
+          "expected": "Callback URL host/protocol precedence can be observed from initiate response/redirect",
+          "observed": "Both direct and forwarded GET /api/mcp/:server/oauth/initiate returned 404 Flow not found."
+        },
+        {
+          "action": "Compare reinitialize OAuth URL behavior direct vs forwarded",
+          "expected": "Forwarded-host/proto variant should produce observable callback-host precedence behavior",
+          "observed": "Direct reinitialize returned oauthUrl with localhost callback; forwarded reinitialize returned success:false and no oauthUrl, leaving precedence unverified."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-003-oauth-initiate-direct.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-003-oauth-initiate-forwarded.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-003-reinitialize-direct.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-003-reinitialize-forwarded.json"
+        ]
+      },
+      "issues": "Blocked: callback precedence rules were not conclusively observable because initiate required missing flow state and forwarded reinitialize did not return an OAuth URL."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Initialize Arcade MCP server before consent",
+          "expected": "Server remains available and returns auth-continuation metadata rather than hard init failure",
+          "observed": "Reinitialize returned success:true and oauthUrl (`ready for OAuth authentication`), indicating continuation metadata at initialization boundary."
+        },
+        {
+          "action": "Exercise concrete tool invocation continuation payload path",
+          "expected": "Tool invocation returns authorization_url and/or llm_instructions continuation metadata when consent is pending",
+          "observed": "Concrete interactive MCP tool invocation path was not reachable in this run (agent tool endpoint returned Illegal request SSE payload and browser flow hit temporary-ban friction)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-mcp-oauth/login-temporary-ban-annotated.png"
+        ],
+        "consoleErrors": "none captured during screenshot commands",
+        "network": [
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-003-reinitialize-direct.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-004-auth-values.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-MCP-001-agents-tools.json"
+        ]
+      },
+      "issues": "Blocked: initialization continuation evidence exists, but required concrete tool-invocation continuation payload could not be captured from the available user-surface path."
+    },
+    {
+      "id": "VAL-CROSS-005A",
+      "title": "Scheduled MCP and OAuth execution keeps the interactive auth contract",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Create OAuth-required Arcade MCP server and reinitialize to pending-consent state",
+          "expected": "Server is OAuth-gated and pending authorization before schedule execution",
+          "observed": "Arcade server created (201 requiresOAuth=true), reinitialize returned oauthUrl with localhost callback, connection state showed requiresOAuth=true/connecting."
+        },
+        {
+          "action": "Create schedule targeting openAI model with ephemeralAgent.mcp=[arcade-microsoft-tools] and run now",
+          "expected": "Pending-consent MCP/OAuth should be rechecked and run should fail durably (not silent success)",
+          "observed": "Run-now returned 200 success with `lastStatus: succeeded`, conversation created, and generic assistant reply instead of explicit MCP/OAuth failure."
+        },
+        {
+          "action": "Cleanup temporary schedule and MCP server",
+          "expected": "Temporary artifacts removed",
+          "observed": "Schedule deleted (204). MCP server delete returned 200 and required a retry verification pass; final MCP inventory/connection showed only ollama_search_fetch."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round3-mcp-oauth/VAL-CROSS-005A-round3c-create-arcade-server.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-CROSS-005A-round3c-reinitialize-arcade.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-CROSS-005A-round3c-create-schedule.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-CROSS-005A-round3c-run-now.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-CROSS-005A-round3c-list-schedules-after-run.json",
+          "customization-preservation/group-round3-mcp-oauth/VAL-CROSS-005A-round3c-delete-schedule.json",
+          "customization-preservation/group-round3-mcp-oauth/cleanup-mcp-servers-after-retry.json",
+          "customization-preservation/group-round3-mcp-oauth/cleanup-mcp-connection-after-retry.json"
+        ]
+      },
+      "issues": "Fail: pending-consent OAuth MCP path did not cause explicit durable schedule failure; execution succeeded and produced a normal conversation response."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Validation personas repeatedly hit temporary-ban after multiple UI login attempts during MCP UI checks.",
+      "resolved": true,
+      "resolution": "Reran `node local-services/dev-seed-validation-personas.js`, restarted `librechat-dev-api`, and continued with API-driven probes.",
+      "affectedAssertions": [
+        "VAL-MCP-004"
+      ]
+    },
+    {
+      "description": "MCP delete responses returned 200 before stale arcade entries disappeared from immediate follow-up listing.",
+      "resolved": true,
+      "resolution": "Performed retry cleanup verification and recorded final inventory/connection state showing only ollama_search_fetch remained.",
+      "affectedAssertions": [
+        "VAL-CROSS-005A"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Local no-input/open-object MCP validation endpoints (http://192.168.50.4:8765, :8766) were rejected by current MCP domain policy.",
+      "affectedAssertions": [
+        "VAL-MCP-001"
+      ],
+      "quickFixAttempted": "Attempted POST /api/mcp/servers for both URLs; both returned 403 MCP_DOMAIN_NOT_ALLOWED."
+    },
+    {
+      "description": "OAuth initiate callback-precedence path required flow state that was not present for direct/forwarded probes.",
+      "affectedAssertions": [
+        "VAL-MCP-003"
+      ],
+      "quickFixAttempted": "Called /api/mcp/:server/oauth/initiate with direct and forwarded headers; both returned 404 Flow not found."
+    },
+    {
+      "description": "No authorized/expired OAuth token existed to execute MCP token-refresh behavior.",
+      "affectedAssertions": [
+        "VAL-MCP-002"
+      ],
+      "quickFixAttempted": "Created and reinitialized OAuth MCP server, then checked /api/mcp/oauth/status; state remained PENDING only."
+    }
+  ],
+  "summary": "Tested 5 assertions on dev rail: 0 passed, 1 failed (VAL-CROSS-005A), 4 blocked (VAL-MCP-001/002/003/004). Temporary MCP/schedule artifacts were cleaned up and final MCP inventory was restored to only ollama_search_fetch."
+}

@@ -1,0 +1,87 @@
+{
+  "groupId": "group-round15-local-mcp-consent-rerun",
+  "testedAt": "2026-04-11T09:18:05Z",
+  "isolation": {
+    "surface": "web-ui-api-dev",
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": "none",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local"
+    ],
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json"
+  },
+  "toolsUsed": [
+    "python3 (urllib)",
+    "curl (command parity)",
+    "web-ui-api-dev"
+  ],
+  "commands": [
+    "curl -i http://127.0.0.1:3081/api/admin/permissions",
+    "curl -s -X POST http://127.0.0.1:3081/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"val-superadmin@dev.local\",\"password\":\"<redacted>\"}'",
+    "curl -s -X DELETE http://127.0.0.1:3081/api/schedules/cf8a70cc-b1ae-4ced-9628-cf01d9cb4b14 -H 'Authorization: Bearer <token>'",
+    "curl -s -X POST http://127.0.0.1:3081/api/mcp/servers -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{\"config\": {\"type\": \"streamable-http\", \"url\": \"https://api.arcade.dev/mcp/microsoft-tools\", \"title\": \"Round15 MCP004 Consent Rerun 8EA19E\", \"description\": \"Round15 local rerun pending consent continuation validation\"}}'",
+    "curl -s -H 'Authorization: Bearer <token>' http://127.0.0.1:3081/api/mcp/tools",
+    "curl -s -X POST http://127.0.0.1:3081/api/schedules -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{\"name\": \"round15-mcp004-8ea19e\", \"prompt\": \"Use MCP tool MicrosoftOnedrive_WhoAmI and return only raw JSON output.\", \"enabled\": false, \"cron\": \"*/20 * * * * *\", \"timezone\": \"UTC\", \"notifications\": {\"email\": false, \"sms\": false, \"push\": false}, \"target\": {\"endpoint\": \"openAI\", \"model\": \"gpt-5.4-mini\", \"ephemeralAgent\": {\"web_search\": false, \"file_search\": false, \"execute_code\": false, \"mcp\": [\"round15-mcp004-consent-rerun-8ea19e\"]}}}'",
+    "curl -s -X POST http://127.0.0.1:3081/api/schedules/9dca7463-4ff1-4153-b88b-c6886497b311/run -H 'Authorization: Bearer <token>'",
+    "curl -s -X DELETE http://127.0.0.1:3081/api/schedules/9dca7463-4ff1-4153-b88b-c6886497b311 -H 'Authorization: Bearer <token>'",
+    "curl -s -X DELETE http://127.0.0.1:3081/api/mcp/servers/round15-mcp004-consent-rerun-8ea19e -H 'Authorization: Bearer <token>'"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Register pending-consent Arcade MCP server via POST /api/mcp/servers",
+          "expected": "Server initializes successfully and is not marked unavailable",
+          "observed": "status=201; actualServerName=round15-mcp004-consent-rerun-8ea19e; requiresOAuth=True; registered_without_unavailable=True"
+        },
+        {
+          "action": "Inspect pre-consent tool listing via GET /api/mcp/tools",
+          "expected": "Pending-consent Arcade server exposes tools before provider consent",
+          "observed": "status=200; authState=pending_consent; toolsCount=0; oauthUrlPresent=True"
+        },
+        {
+          "action": "Trigger MCP preflight via scheduled run and inspect continuation payload",
+          "expected": "Response includes authorization_url and/or llm_instructions (not only generic failure metadata)",
+          "observed": "runStatus=500; schedule.lastStatus=failed; authorization_url_present=False; llm_instructions_present=False; continuationMetadata_present=True"
+        },
+        {
+          "action": "Cleanup mutation artifacts (schedule + MCP server)",
+          "expected": "Temporary validation objects are removed",
+          "observed": "scheduleCleanupStatus=204; serverCleanupStatus=200"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round15-local-mcp-consent-rerun/api-round15-local-mcp-consent-rerun.json"
+        ],
+        "keyHttpStatuses": {
+          "GET /api/admin/permissions": 401,
+          "POST /api/auth/login": 200,
+          "POST /api/mcp/servers": 201,
+          "GET /api/mcp/tools": 200,
+          "POST /api/schedules": 201,
+          "POST /api/schedules/:id/run": 500,
+          "DELETE /api/schedules/:id (cleanup)": 204,
+          "DELETE /api/mcp/servers/:serverName (cleanup)": 200
+        },
+        "salientResponseSnippets": {
+          "createServer": "{\"serverName\":\"round15-mcp004-consent-rerun-8ea19e\",\"type\":\"streamable-http\",\"url\":\"https://api.arcade.dev/mcp/microsoft-tools\",\"title\":\"Round15 MCP004 Consent Rerun 8EA19E\",\"description\":\"Round15 local rerun pending consent continuation validation\",\"requiresOAuth\":true,\"initDuration\":93,\"updatedAt\":1775899085884,\"dbId\":\"69da11cd2bfe756233b5bff1\"}",
+          "mcpTools": "{\"servers\":{\"ollama_search_fetch\":{\"name\":\"ollama_search_fetch\",\"icon\":\"https://ollama.com/public/ollama.png\",\"authenticated\":true,\"authConfig\":[],\"tools\":[{\"name\":\"web_search\",\"pluginKey\":\"web_search_mcp_ollama_search_fetch\",\"description\":\"Search the live web using Ollama hosted search. Use this for current events or when recent information matters.\"},{\"name\":\"web_fetch\",\"pluginKey\":\"web_fetch_mcp_ollama_search_fetch\",\"description\":\"Fetch the contents of a single web page using Ollama hosted web fetch after you already have a URL.\"}]},\"round15-mcp004-consent-rerun-8ea19e\":{\"name\":\"round15-mcp004-consent-rerun-8ea19e\",\"icon\":\"\",\"authenticated\":true,\"authConfig\":[],\"tools\":[],\"authState\":\"pending_consent\",\"oauthUrl\":\"https://cloud.arcade.dev/oauth2/authorize?response_type=code&client_id=c19df000-2663-4f6a-ba67-01bb60ec0279&code_challenge=GuQ528XrsArrtsRxI2EmEBNthoswi2YhqGcqSxaVjSo&code_ch",
+          "run": "{\"message\":\"OAuth consent is required for MCP server(s): round15-mcp004-consent-rerun-8ea19e. Complete the OAuth authorization flow interactively before scheduling runs that depend on these tools.\",\"schedule\":{\"_id\":\"69da124a2bfe756233b5c08e\",\"scheduleId\":\"9dca7463-4ff1-4153-b88b-c6886497b311\",\"user\":\"69d2a04699ede9fe8e5679c0\",\"name\":\"round15-mcp004-8ea19e\",\"prompt\":\"Use MCP tool MicrosoftOnedrive_WhoAmI and return only raw JSON output.\",\"enabled\":false,\"cron\":\"*/20 * * * * *\",\"timezone\":\"UTC\",\"notifications\":{\"email\":false,\"sms\":false,\"push\":false},\"target\":{\"endpoint\":\"openAI\",\"model\":\"gpt-5.4-mini\",\"ephemeralAgent\":{\"web_search\":false,\"file_search\":false,\"execute_code\":false,\"mcp\":[\"round15-mcp004-consent-rerun-8ea19e\"]}},\"nextRunAt\":\"2026-04-11T09:20:20.000Z\",\"lastRunAt\":\"2026-04-11T09:20:10.713Z\",\"lastFinishedAt\":\"2026-04-11T09:20:15.976Z\",\"lastStatus\":\"failed\",\"lastConversationId\":null,\"lastResponseMessageId\":null,\"lastResponsePreview\":\"OAuth consent is required for MCP server(s)"
+        }
+      },
+      "issues": "Fail: VAL-MCP-004 criteria unmet. registered_without_unavailable=True, preconsent_tool_visibility=False, rich_continuation_fields=False."
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "recommendation": "VAL-MCP-004 remains failing on dev. Next step: preserve successful pending-consent registration, then expose pre-consent tools and include authorization_url and/or llm_instructions in scheduled-run OAuth-preflight failures.",
+  "summary": "Tested 1 assertion: 0 passed, 1 failed, 0 blocked."
+}

@@ -1,0 +1,272 @@
+{
+  "groupId": "group-provider-core",
+  "testedAt": "2026-04-05T19:28:42Z",
+  "surface": "web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "stableRailUsed": false,
+    "personas": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "docker logs"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-001",
+      "title": "OpenAI and Azure chat-bar toggles honor native-vs-local routing policy",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Login to dev UI as val-superadmin and open chat tools menu",
+          "expected": "Can pin/enable Search, Code Interpreter, File Search from chat bar/tools dropdown without forced key/settings dialog",
+          "observed": "Pinned all three toggles from tools dropdown; checkboxes became visible and enabled without redirect/modal"
+        },
+        {
+          "action": "Send OpenAI chat with all three toggles enabled",
+          "expected": "Observe provider-native web/file routing and configured code-interpreter policy behavior",
+          "observed": "Assistant returned provider error: \"400 Tool web_search_preview is not supported with gpt-3.5-turbo\", confirming native web-search tool payload path for OpenAI; Azure runtime path was not executable in this run"
+        },
+        {
+          "action": "Verify routing policy env flags",
+          "expected": "Code interpreter should stay LibreChat-managed when *_CODE_INTERPRETER_ROUTING=librechat",
+          "observed": "Dev API env: OPENAI_CODE_INTERPRETER_ROUTING=librechat and AZURE_OPENAI_CODE_INTERPRETER_ROUTING=librechat"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-core/r2-provider001-model-selector-open.png",
+          "customization-preservation/group-provider-core/r2-provider001-tools-menu-openai.png",
+          "customization-preservation/group-provider-core/r2-provider001-tools-pinned-openai.png",
+          "customization-preservation/group-provider-core/r2-provider001-openai-toggles-enabled.png",
+          "customization-preservation/group-provider-core/r2-provider001-openai-send-result.png",
+          "customization-preservation/group-provider-core/r2-provider001-azure-selected.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-provider-core/r2-browser-errors.txt is empty)",
+        "network": "UI body captured provider error \"400 Tool web_search_preview is not supported with gpt-3.5-turbo\" (customization-preservation/group-provider-core/r2-provider001-body-after-send.txt); env policy snapshot in customization-preservation/group-provider-core/r2-provider-env-check.txt"
+      },
+      "issues": "OpenAI native-web evidence was captured, but Azure execution path could not be completed with a valid runnable Azure credential/session in this run."
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "title": "Azure direct /openai/v1 routes omit api-version",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Set temporary per-user Azure key payload with direct /openai/v1 baseURL via /api/keys and fetch /api/models",
+          "expected": "Direct /openai/v1 model fetch path should omit api-version; fallback deployments should be honored per user",
+          "observed": "Saved payload reopened correctly; /api/models for superadmin returned fallback deployments while val-user stayed unaffected (no cache poisoning)"
+        },
+        {
+          "action": "Inspect dev API logs for failing direct-host request",
+          "expected": "Outbound direct model listing URL should be .../openai/v1/models without api-version",
+          "observed": "Log captured GET https://nonexistent-subdomain-xyz123.openai.azure.com/openai/v1/models (no api-version query)"
+        },
+        {
+          "action": "Reopen Azure settings dialog",
+          "expected": "Saved apiKey/baseURL/deployments preloaded for same user",
+          "observed": "Dialog fields prefilled with saved values and then cleaned up"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-core/r2-provider001A-azure-settings-prefilled.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-provider-core/r2-browser-errors.txt)",
+        "network": "API/status evidence in customization-preservation/group-provider-core/r2-provider001A-api.json; direct URL log in customization-preservation/group-provider-core/r2-provider001A-azure-direct-url-log.txt; prefilled dialog values in customization-preservation/group-provider-core/r2-provider001A-azure-settings-values.json"
+      },
+      "issues": "Direct /openai/v1 behavior, fallback deployments, per-user cache isolation, and settings preload were verified; legacy non-/openai/v1 api-version branch was not fully executable in this environment run."
+    },
+    {
+      "id": "VAL-PROVIDER-002",
+      "title": "Native OpenAI file flows stay tracked locally without duplicate file processing",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Attempt native file-search upload flows",
+          "expected": "Upload + chat path runs with tracked local metadata and no duplicate processing",
+          "observed": "Browser upload for file-search menu path could not complete via agent-browser file-input ref path; direct API upload attempts later returned auth/ban errors in this run"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-core/r2-provider001-tools-menu-openai.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-provider-core/r2-browser-errors.txt)",
+        "network": "Blocked API evidence: customization-preservation/group-provider-core/r2-provider002-upload-response.json and r2-provider002-upload-response-user.json (403 temporary ban on user path)"
+      },
+      "issues": "Could not complete end-to-end native OpenAI file flow validation because auth-ban controls interrupted upload/chat execution and agent-browser upload interaction was non-deterministic for this menu-triggered file picker."
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "title": "Gemini native tools honor safe-request and routing gates",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Check Gemini readiness and attempt prerequisite execution path",
+          "expected": "Run safe/unsafe Gemini tool variants (file/no-file) in authenticated chat",
+          "observed": "Google model fetch attempts in dev logs returned 400; GOOGLE_KEY is unset in dev env snapshot, so prerequisite valid Gemini credentials were not available for runtime-safe/unsafe flow verification"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-core/r2-provider006-google-selected.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-provider-core/r2-browser-errors.txt)",
+        "network": "GOOGLE_KEY/GOOGLE_MODELS status in customization-preservation/group-provider-core/r2-provider-env-check.txt; Google fetch failures in customization-preservation/group-provider-core/r2-provider001-api-log-snippet.txt"
+      },
+      "issues": "Gemini native tool routing gates could not be validated without a working Google credential path in this environment run."
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "title": "Google live discovery and capability metadata stay intact",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Verify live-discovery prerequisites and runtime signals",
+          "expected": "With GOOGLE_MODELS unset and valid credentials, /api/models + settings should reflect live Gemini discovery/capabilities",
+          "observed": "GOOGLE_MODELS is unset but GOOGLE_KEY is also unset; runtime logs show Google model fetch 400 responses, so valid-credential live discovery precondition was not met"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-core/r2-provider006-google-selected.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-provider-core/r2-browser-errors.txt)",
+        "network": "Prereq/env snapshot in customization-preservation/group-provider-core/r2-provider-env-check.txt and Google fetch failures in customization-preservation/group-provider-core/r2-provider001-api-log-snippet.txt"
+      },
+      "issues": "Could not validate live Google discovery/capability metadata end-to-end because valid Google credentials were not available in this run."
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "title": "Gemini grounding still produces inline citations and Sources entries",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Prepare grounded Gemini conversation preconditions",
+          "expected": "Execute grounded reply and verify inline citations + Sources rendering",
+          "observed": "Gemini credential/runtime readiness was unavailable (GOOGLE_KEY unset + 400 model-fetch failures), so grounded conversation path could not be executed"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-core/r2-provider006-google-selected.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-provider-core/r2-browser-errors.txt)",
+        "network": "Environment and failure evidence in customization-preservation/group-provider-core/r2-provider-env-check.txt and r2-provider001-api-log-snippet.txt"
+      },
+      "issues": "Grounded Gemini citation validation blocked by unavailable working Google runtime credentials/services in this run."
+    },
+    {
+      "id": "VAL-PROVIDER-006",
+      "title": "Capability-aware Google and OpenAI settings remain user-visible and honest",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Select Google model family (Gemma) and open Parameters panel",
+          "expected": "Unsupported Google controls become disabled with explanatory messaging",
+          "observed": "Grounding/Thinking controls were disabled; visible message captured: \"This model does not support Google Search grounding in LibreChat.\""
+        },
+        {
+          "action": "Switch to OpenAI gpt-3.5-turbo and inspect Parameters",
+          "expected": "Unsupported OpenAI reasoning controls remain visible but disabled with reason",
+          "observed": "Reasoning controls remained visible/disabled; explanatory text captured: \"This model does not expose OpenAI reasoning effort controls.\""
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-core/r2-provider006-parameters-panel-google-gemma.png",
+          "customization-preservation/group-provider-core/r2-provider006-google-grounding-disabled-tooltip.png",
+          "customization-preservation/group-provider-core/r2-provider006-openai-gpt35-selected.png",
+          "customization-preservation/group-provider-core/r2-provider006-openai-disabled-reasoning-tooltip.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-provider-core/r2-browser-errors.txt)",
+        "network": "Capability-message extracts: customization-preservation/group-provider-core/r2-provider006-google-capability-message.json and r2-provider006-openai-capability-message.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PROVIDER-007",
+      "title": "xAI custom endpoints auto-detect and refresh live models with aliases",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Check endpoint/model bootstrap visibility",
+          "expected": "xAI endpoint detected and bootstrap models visible before user key",
+          "observed": "xAI endpoint is present in /api/endpoints and xAI model list appears in /api/models snapshot"
+        },
+        {
+          "action": "Run user-key save + live /language-models refresh path",
+          "expected": "After saving key, live model refresh/alias behavior can be verified",
+          "observed": "xAI user key was absent (expiresAt null) and later auth-ban controls interrupted additional per-user runtime mutation checks"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-core/r2-provider001-model-selector-open.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-provider-core/r2-browser-errors.txt)",
+        "network": "xAI endpoint + models: customization-preservation/group-provider-core/r2-api-endpoints-superadmin.json and r2-api-models-superadmin.json; key state: r2-api-keys-xai-superadmin.json; env: r2-provider-env-check.txt"
+      },
+      "issues": "Auto-detection/bootstrap was observable, but explicit user-key-driven live refresh + alias verification could not be completed under current auth-ban interruption and missing xAI key setup."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "agent-browser network request tracker did not reliably capture /api/ask details in this environment session.",
+      "resolved": true,
+      "resolution": "Used captured UI body text and dev API container logs for request/response evidence.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005",
+        "VAL-PROVIDER-007"
+      ]
+    },
+    {
+      "description": "Menu-triggered file-picker flow (Upload for File Search) was not directly automatable via menuitem ref upload in agent-browser.",
+      "resolved": true,
+      "resolution": "Recorded the failed interaction and attempted API upload fallback; run still blocked by auth-ban controls before end-to-end native file validation completed.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-002"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Auth safety controls re-triggered during provider-core run: superadmin login returned 403 temporary-ban; val-user upload call returned 403 temporary-ban.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-002",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-005",
+        "VAL-PROVIDER-007"
+      ],
+      "quickFixAttempted": "Reused existing sessions/tokens and refresh flow where possible; some tokens expired and refresh/login paths became banned."
+    },
+    {
+      "description": "Google provider runtime preconditions were not met for live Gemini native/grounding assertions (GOOGLE_KEY unset, fetch attempts returning 400).",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ],
+      "quickFixAttempted": "Validated env/runtime state via container env snapshot and API log capture."
+    },
+    {
+      "description": "xAI explicit user-key refresh validation could not be completed due absent key plus auth-ban interruption during follow-up mutations.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-007"
+      ],
+      "quickFixAttempted": "Verified bootstrap detection and current key/model state via /api/endpoints, /api/models, and /api/keys snapshots."
+    }
+  ],
+  "summary": "Tested 8 assertions: 1 passed (VAL-PROVIDER-006), 0 failed, 7 blocked. Strongest completed evidence: capability-aware Google/OpenAI settings messaging, and Azure direct /openai/v1 behavior (no api-version in direct model URL, per-user fallback/preload) with legacy branch still incomplete."
+}

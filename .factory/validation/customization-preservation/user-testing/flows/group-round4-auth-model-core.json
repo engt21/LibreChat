@@ -1,0 +1,172 @@
+{
+  "groupId": "group-round4-auth-model-core",
+  "testedAt": "2026-04-10T06:05:45Z",
+  "isolation": {
+    "baseUrl": "http://127.0.0.1:3081",
+    "rail": "dev",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personaManifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "docker exec",
+    "node",
+    "python3"
+  ],
+  "commandsRun": [
+    {
+      "command": "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25",
+      "purpose": "Required pre-run persona/bootstrap reset",
+      "result": "completed (run at start and again once when temporary-ban recurred during model probes)"
+    },
+    {
+      "command": "curl API probes against http://127.0.0.1:3081 (auth/config/admin/models/agents/assistants)",
+      "purpose": "Auth/model assertion verification with status and payload capture",
+      "result": "captured in round4-api-auth-model-core-results.json and round4-model003-additional-probes.json"
+    },
+    {
+      "command": "docker exec librechat-dev-api node -e <createInvite(email)>",
+      "purpose": "Generate valid invite token for registration-disabled invite flow",
+      "result": "token generated (64 chars) and invite signup returned 200"
+    },
+    {
+      "command": "docker exec librechat-dev-api node -e \"require('dotenv').config({path:'/app/.env'}); ... SUPERADMIN_EMAILS ...\"",
+      "purpose": "Verify SUPERADMIN_EMAILS includes validation superadmin",
+      "result": "HAS_VAL_SUPERADMIN"
+    },
+    {
+      "command": "XDG_RUNTIME_DIR=/tmp agent-browser --session-name round4authmodelcorea1 ...",
+      "purpose": "UI evidence for /login and /register with registration disabled",
+      "result": "/register resolved to /login; screenshots + console/network artifacts captured; session closed"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "VAL-AUTH-001",
+      "status": "pass",
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-auth-model-core/VAL-AUTH-001-login-after-disable.png",
+          "customization-preservation/group-round4-auth-model-core/VAL-AUTH-001-register-after-disable.png"
+        ],
+        "consoleErrors": "none (empty files: VAL-AUTH-001-login-after-disable-errors.txt, VAL-AUTH-001-register-after-disable-errors.txt)",
+        "network": [
+          "GET /api/config -> 200 with registrationEnabled=false",
+          "POST /api/auth/register (no invite, disabled) -> 403 {\"message\":\"Registration is not allowed.\"}",
+          "POST /api/auth/register (valid invite token, disabled) -> 200",
+          "Browser direct /register resolved to URL http://127.0.0.1:3081/login"
+        ],
+        "artifacts": [
+          "customization-preservation/group-round4-auth-model-core/round4-api-auth-model-core-results.json",
+          "customization-preservation/group-round4-auth-model-core/VAL-AUTH-001-login-after-disable-body.txt",
+          "customization-preservation/group-round4-auth-model-core/VAL-AUTH-001-register-after-disable-body.txt",
+          "customization-preservation/group-round4-auth-model-core/VAL-AUTH-001-login-after-disable-url.txt",
+          "customization-preservation/group-round4-auth-model-core/VAL-AUTH-001-register-after-disable-url.txt",
+          "customization-preservation/group-round4-auth-model-core/VAL-AUTH-001-register-after-disable-network.txt"
+        ]
+      },
+      "reason": "Registration toggle behavior matched contract on this rerun: sign-up affordance hidden, /register did not expose registration form, direct signup blocked with 403, invite signup still allowed, and LDAP was disabled in /api/config."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "status": "pass",
+      "evidence": {
+        "network": [
+          "PUT /api/admin/settings registrationEnabled=false -> 200",
+          "POST /api/auth/register (no invite) -> 403",
+          "POST /api/auth/register (invite token) -> 200",
+          "POST /api/auth/login invited user -> 200 with default non-admin modelPermissions",
+          "GET /api/models invited user -> restricted default catalog (not unrestricted superadmin catalog)",
+          "GET /api/admin/permissions superadmin -> 200 {isSuperAdmin:true}",
+          "GET /api/models superadmin -> unrestricted multi-provider catalog"
+        ],
+        "artifacts": [
+          "customization-preservation/group-round4-auth-model-core/round4-api-auth-model-core-results.json",
+          "customization-preservation/group-round4-auth-model-core/VAL-AUTH-001-login-after-disable.png",
+          "customization-preservation/group-round4-auth-model-core/VAL-AUTH-001-register-after-disable.png"
+        ],
+        "envCheck": "SUPERADMIN_EMAILS contained val-superadmin@dev.local (superadmin_emails_env_check stdout: HAS_VAL_SUPERADMIN)"
+      },
+      "reason": "Invite flow remained functional with registration disabled, first invited-session policy was restricted (non-admin defaults), and allowlisted superadmin was synchronized with admin permissions + full model catalog in-session."
+    },
+    {
+      "id": "VAL-MODEL-001",
+      "status": "pass",
+      "evidence": {
+        "network": [
+          "POST /api/auth/register (local user, registration enabled) -> 200",
+          "POST /api/auth/login local user first session -> 200 with default modelPermissions",
+          "GET /api/models local user first session -> default restricted catalog",
+          "POST /api/auth/register (invited path, registration disabled + invite token) -> 200",
+          "POST /api/auth/login invited user first session -> 200 with matching default modelPermissions shape",
+          "GET /api/models invited user first session -> same default restricted policy family",
+          "GET /api/models superadmin -> unrestricted catalog"
+        ],
+        "artifacts": [
+          "customization-preservation/group-round4-auth-model-core/round4-api-auth-model-core-results.json"
+        ],
+        "notes": "Federated social logins were disabled in /api/config during this run; invite-based provisioning served as the additional auto-provisioned path."
+      },
+      "reason": "Both fresh local registration and invite-provisioned first sessions received the documented non-admin default allowlist profile, while superadmin remained unrestricted."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "status": "blocked",
+      "evidence": {
+        "network": [
+          "PATCH /api/admin/users/{val-user} restrict to openAI:gpt-5.1 -> 200",
+          "GET /api/models restricted user -> 200 filtered to openAI:gpt-5.1 only",
+          "POST /api/agents -> 400 {\"error\":\"Illegal model request\"} (blocked model create)",
+          "POST /api/assistants/v1/chat -> SSE event error {\"text\":\"Illegal model request\"}",
+          "POST /api/agents/chat/openAI -> 200 start; GET /api/agents/chat/stream/{streamId}?resume=true -> event error illegal_model_request"
+        ],
+        "artifacts": [
+          "customization-preservation/group-round4-auth-model-core/round4-api-auth-model-core-results.json",
+          "customization-preservation/group-round4-auth-model-core/round4-model003-additional-probes.json"
+        ]
+      },
+      "blockedBy": "Full contract matrix (agent update/duplicate/revert, assistant create/update, saved model-spec/preset re-entry, and explicit filtered model-spec config payload verification) was not fully completed in this isolated rerun. Assistant create probe on /api/assistants/v1 in this environment returned a client-init 500 before a model-access response, so create/update-path coverage remains inconclusive."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "agent-browser initially failed daemon startup until Chromium install + runtime/session-name workaround were applied.",
+      "resolved": true,
+      "resolution": "Ran XDG_RUNTIME_DIR=/tmp agent-browser install, used a single unique --session-name (round4authmodelcorea1), collected evidence, and closed session.",
+      "affectedAssertions": [
+        "VAL-AUTH-001",
+        "VAL-CROSS-001"
+      ]
+    },
+    {
+      "description": "Model probe sequence triggered temporary anti-abuse state once.",
+      "resolved": true,
+      "resolution": "Applied the approved one-time reseed + dev API restart flow and continued with reduced probe volume.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "VAL-MODEL-003 full matrix coverage not fully achievable in this run: assistant create/update and several advanced re-entry paths were not conclusively validated end-to-end in the assigned isolation.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ],
+      "quickFixAttempted": "Expanded probes to include /api/agents create + /api/assistants/v1/chat + /api/agents/chat stream error path; still incomplete for the entire create/update/duplicate/revert/preset matrix."
+    }
+  ],
+  "cleanup": {
+    "actions": [
+      "Restored registrationEnabled to true",
+      "Deleted temporary local and invited round4 users",
+      "Reseeded validation personas and restarted dev API to return val-user and anti-abuse state to baseline after cleanup patch validation conflict"
+    ],
+    "artifacts": [
+      "customization-preservation/group-round4-auth-model-core/round4-cleanup.json",
+      "customization-preservation/group-round4-auth-model-core/round4-cleanup-postcheck.json"
+    ]
+  },
+  "summary": "Tested 4 assigned assertions on dev rail: 3 pass (VAL-AUTH-001, VAL-CROSS-001, VAL-MODEL-001), 0 fail, 1 blocked (VAL-MODEL-003 incomplete matrix coverage). Key rerun finding: registration-disabled /register behavior now resolves to login, invite + default model policy alignment passed, and core server-side model enforcement signals were observed on multiple surfaces, but the full VAL-MODEL-003 contract matrix remains partially unverified."
+}

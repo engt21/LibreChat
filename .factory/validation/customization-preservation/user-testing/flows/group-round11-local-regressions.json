@@ -1,0 +1,118 @@
+{
+  "groupId": "group-round11-local-regressions",
+  "testedAt": "2026-04-11T03:18:18Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": "none",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "python requests",
+    "web-ui-api-dev",
+    "local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Register local non-OAuth MCP server (yt-media) at http://192.168.50.4:8766/mcp and inspect schema shape",
+          "expected": "Registration succeeds; no-input tool parameters remain object-typed and open-object schema preserves additionalProperties",
+          "observed": "POST /api/mcp returned 404 {\"message\":\"Endpoint not found\"}, so schema evidence could not be confirmed in this rerun."
+        },
+        {
+          "action": "Run a scheduled invocation targeting the non-OAuth MCP server",
+          "expected": "Run succeeds without OAuth-consent gating for requiresOAuth=false server",
+          "observed": "POST /api/schedules/:id/run returned 500 with message \"OAuth consent is required for MCP server(s): round11-mcp001-0929a3...\"."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round11-local-regressions/api-round11-validation.json"
+        ]
+      },
+      "issues": "Fail: no-input callable-path contract not met; MCP registration returned endpoint-not-found and run still applied OAuth-consent-required gating."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Register Arcade Microsoft MCP server and inspect /api/mcp/tools before consent",
+          "expected": "Server is listed with discovered tools pre-consent",
+          "observed": "POST /api/mcp returned 404 {\"message\":\"Endpoint not found\"}; /api/mcp/tools had no entry/tools for the new server name."
+        },
+        {
+          "action": "Run scheduled invocation for MicrosoftOnedrive_WhoAmI and inspect continuation fields",
+          "expected": "Run response includes continuation metadata (authorization_url and/or llm_instructions)",
+          "observed": "Run returned 500 OAuth-consent-required and continuation fields were absent (authorization_url=null, llm_instructions=null)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round11-local-regressions/api-round11-validation.json"
+        ]
+      },
+      "issues": "Fail: pending-consent continuation contract still not surfaced in the user-facing run response, and pre-consent tool discovery was not available."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "title": "Model restrictions are enforced server-side across config, chat, agents, and assistants",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Restrict val-user to openAI:gpt-5.1 and verify config/model surfaces",
+          "expected": "/api/models and /api/config reflect restricted catalog including filtered modelSpecs surface",
+          "observed": "GET /api/models returned only [\"gpt-5.1\"], but GET /api/config still omitted modelSpecs entirely."
+        },
+        {
+          "action": "Probe blocked-model enforcement on agent and assistant creation",
+          "expected": "Blocked model attempts return clear model-access errors (Illegal model request)",
+          "observed": "Agent create produced streamed error payload \"Illegal request\"; assistant v2 create returned 403 temporary-ban response, preventing a clean model-access error sample in this rerun."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round11-local-regressions/api-round11-validation.json"
+        ]
+      },
+      "issues": "Fail: config response still lacked modelSpecs surface required by contract; anti-abuse interference also contaminated assistant blocked-model probe."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Both MCP server-create probes (local /mcp and Arcade URL) returned 404 \"Endpoint not found\" from /api/mcp during this rerun, reducing schema/tool-discovery signal quality.",
+      "resolved": false,
+      "resolution": "Captured endpoint-level evidence and proceeded with run-path checks.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-004"
+      ]
+    },
+    {
+      "description": "Blocked-model probing triggered temporary-ban middleware on val-user during assistant create check.",
+      "resolved": true,
+      "resolution": "Executed dev persona reseed + API restart after the run to restore baseline state for subsequent validators.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Retested 3 assertions on dev rail: 0 passed, 3 failed (VAL-MCP-001, VAL-MCP-004, VAL-MODEL-003)."
+}

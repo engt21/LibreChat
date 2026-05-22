@@ -1,0 +1,298 @@
+{
+  "groupId": "group-round3-provider-core",
+  "testedAt": "2026-04-06T11:58:45Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json",
+    "stableRailUsed": false,
+    "personas": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "python3",
+    "docker logs"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-001",
+      "title": "OpenAI and Azure chat-bar toggles honor native-vs-local routing policy",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open OpenAI chat on dev rail, open Tools Options, pin Search/Code Interpreter/File Search, and enable toggles",
+          "expected": "Toggles can be enabled from chat bar/tools without forced settings dialog",
+          "observed": "All three toggles were pinned and enabled directly in chat UI without modal redirect."
+        },
+        {
+          "action": "Send OpenAI message with all three toggles enabled",
+          "expected": "Provider-native routing path should execute according to policy",
+          "observed": "Message completed successfully with toggles active; conversation metadata shows endpoint=openAI, model=gpt-5.4."
+        },
+        {
+          "action": "Attempt Azure path in model picker and send Azure-scoped message",
+          "expected": "Azure-native routing behavior can be exercised",
+          "observed": "Azure option appeared but execution remained on openAI endpoint in resulting conversations; Azure user key/base URL remained unset (user_provided + key expiresAt null)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-core/r3-model-selector-open.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001-tools-menu-openai.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001-tools-pinned-openai.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001-openai-toggles-enabled.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001-openai-send-result.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001-azure-selected-newchat.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001-azure-send-result.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-core/r3-browser-errors.txt)",
+        "network": "OpenAI turn body and conversation metadata: r3-provider001-openai-body-after-send.txt, r3-provider001-conversation.json, r3-provider001-azure-conversation.json; Azure/user key state: r3-provider-env-snapshot.json + r3-api-keys-azureOpenAI.json"
+      },
+      "issues": "Azure credential-dependent execution branch remained blocked: AZURE_API_KEY and AZURE_OPENAI_BASEURL are configured as user_provided and user key status remained expiresAt=null, so Azure-native runtime behavior could not be conclusively exercised."
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "title": "Azure direct /openai/v1 routes omit api-version",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Set temporary superadmin azureOpenAI user key payload with direct /openai/v1 baseURL and fallback deployment list",
+          "expected": "Direct route should use /openai/v1/models and preserve per-user fallback models",
+          "observed": "Payload saved and reopened successfully; superadmin saw fallback azureOpenAI models while val-user remained empty (no cache poisoning)."
+        },
+        {
+          "action": "Inspect dev API logs for outbound Azure model fetch URL",
+          "expected": "Direct URL should omit api-version query parameter",
+          "observed": "Logs show GET https://nonexistent-subdomain-r3b-...openai.azure.com/openai/v1/models (no api-version query string)."
+        },
+        {
+          "action": "Open Azure settings dialog after save",
+          "expected": "Saved API key/baseURL/models should preload for same user",
+          "observed": "Dialog preloaded apiKey/baseURL/models exactly as saved, then temporary key was cleaned up."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-core/r3-provider001A-azure-settings-prefilled.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-core/r3-browser-errors.txt)",
+        "network": "API mutation + model snapshots: r3-provider001A-api.json, r3-provider001A-models-superadmin-after-set.json, r3-provider001A-models-user-after-set.json; direct URL log: r3-provider001A-azure-direct-url-log.txt; preload values: r3-provider001A-azure-settings-values.json; cleanup check: r3-provider001A-post-cleanup-keycheck.json"
+      },
+      "issues": "Legacy non-/openai/v1 Azure branch (expected api-version-on-legacy verification) was not executed in this run; direct-route behavior and per-user isolation were validated."
+    },
+    {
+      "id": "VAL-PROVIDER-001B",
+      "title": "OpenAI and Azure Responses history reconstruction replays only safe reasoning context",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Create new OpenAI conversation with Search enabled and run turn 1 requiring web-search output",
+          "expected": "Initial turn returns tool-involved response",
+          "observed": "Turn 1 completed with web-search-attempt output and source URL text."
+        },
+        {
+          "action": "Send two follow-up turns referencing prior tool output",
+          "expected": "Follow-ups succeed without invalid-history errors",
+          "observed": "Both follow-ups completed successfully with coherent context carryover and no invalid-history/runtime reconstruction errors surfaced."
+        },
+        {
+          "action": "Check conversation metadata after multi-turn flow",
+          "expected": "Conversation remains healthy and appendable after tool-output turns",
+          "observed": "Conversation persisted as openAI/gpt-5.4 with completed message sequence and no replay-breakage symptoms."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-core/r3-provider001B-start-new-chat.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001B-search-only-toggles.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001B-turn1-result.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001B-turn2-result.png",
+          "customization-preservation/group-round3-provider-core/r3-provider001B-turn3-result.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-core/r3-browser-errors.txt)",
+        "network": "Turn transcripts and convo metadata: r3-provider001B-turn1-body.txt, r3-provider001B-turn2-body.txt, r3-provider001B-turn3-body.txt, r3-provider001B-conversation.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PROVIDER-002",
+      "title": "Native OpenAI file flows stay tracked locally without duplicate file processing",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Enable File Search and attempt official 'Upload for File Search' attach-menu automation",
+          "expected": "File upload path should be selectable and processable",
+          "observed": "Menuitem upload control is not an HTML input for direct setInputFiles; agent-browser upload on menuitem failed."
+        },
+        {
+          "action": "Apply DOM-level file-input workaround and upload test file, then query file in chat",
+          "expected": "Uploaded file should be available to model and tracked in conversation/file metadata",
+          "observed": "File chip appeared in composer but model replied that uploaded file content was unavailable; conversation metadata files array remained empty."
+        },
+        {
+          "action": "Attempt direct /api/files metadata read for confirmation",
+          "expected": "File metadata endpoint confirms tracked uploaded file without ban side effects",
+          "observed": "/api/files probe returned temporary-ban response in this run, forcing reseed/restart before continuing other assertions."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-core/r3-provider002-file-search-enabled.png",
+          "customization-preservation/group-round3-provider-core/r3-provider002-attach-menu-open.png",
+          "customization-preservation/group-round3-provider-core/r3-provider002-after-upload.png",
+          "customization-preservation/group-round3-provider-core/r3-provider002-chat-result.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-core/r3-browser-errors.txt)",
+        "network": "Automation failure note: r3-provider002-upload-menuitem-error.txt; model response: r3-provider002-chat-body.txt; conversation metadata: r3-provider002-conversation.json; files API ban evidence: r3-provider002-api-files-headers.txt + r3-provider002-api-files-response.txt"
+      },
+      "issues": "Could not conclusively validate native OpenAI file-tracking/no-duplicate contract because official Upload-for-File-Search UI path was not reliably automatable and metadata verification attempts triggered anti-abuse ban responses in this run."
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "title": "Gemini native tools honor safe-request and routing gates",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Select google endpoint and gemini-2.5-pro model, run safe request with Search enabled and no attached file",
+          "expected": "Safe request should execute and expose native/fallback behavior",
+          "observed": "Request failed with GoogleGenerativeAI 400 API_KEY_INVALID (API Key not found)."
+        },
+        {
+          "action": "Attach file and run unsafe mixed request (search + attached file)",
+          "expected": "Unsafe mix should force fallback behavior rather than unsafe native payload",
+          "observed": "Request again failed at provider auth stage with the same API_KEY_INVALID error before routing-gate behavior could be observed."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-core/r3-provider003-google-selected.png",
+          "customization-preservation/group-round3-provider-core/r3-provider003-google-gemini-model-selected.png",
+          "customization-preservation/group-round3-provider-core/r3-provider003-google-safe-turn-result.png",
+          "customization-preservation/group-round3-provider-core/r3-provider003-google-file-attached.png",
+          "customization-preservation/group-round3-provider-core/r3-provider003-google-unsafe-file-result.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-core/r3-browser-errors.txt)",
+        "network": "Safe/unsafe turn bodies: r3-provider003-google-safe-turn-body.txt, r3-provider003-google-unsafe-file-body.txt; google conversation metadata: r3-provider003-google-conversation.json; API log errors: r3-provider-google-api-log-tail.txt"
+      },
+      "issues": "Blocked by invalid Google runtime credential path (API_KEY_INVALID), so safe-request and mixed-payload routing gates could not be conclusively validated."
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "title": "Google live discovery and capability metadata stay intact",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Verify config/runtime preconditions for live discovery",
+          "expected": "With GOOGLE_MODELS unset and valid credentials, live discovery should provide usable model/capability metadata",
+          "observed": "GOOGLE_MODELS is unset and UI shows Google model list, but dev API logs repeatedly report failed Gemini model discovery (status 400)."
+        },
+        {
+          "action": "Attempt real google model execution to confirm discovered models are runnable",
+          "expected": "Discovered model should execute if live credentials are valid",
+          "observed": "gemini-2.5-pro execution fails with API_KEY_INVALID, so live discovery/capability correctness cannot be validated end-to-end."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-core/r3-provider003-google-selected.png",
+          "customization-preservation/group-round3-provider-core/r3-provider003-google-gemini-model-selected.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-core/r3-browser-errors.txt)",
+        "network": "Config/model snapshots: r3-api-models-superadmin-postreseed.json, r3-api-config-superadmin-postreseed.json, r3-provider004-google-discovery-summary.json; repeated discovery/runtime failures: r3-provider-google-api-log-tail.txt"
+      },
+      "issues": "Blocked by invalid Google key path: model discovery/fetch and execution both return 400/API_KEY_INVALID, preventing live-discovery capability validation."
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "title": "Gemini grounding still produces inline citations and Sources entries",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run grounded Google request in gemini-2.5-pro chat with Search enabled",
+          "expected": "Grounded response should render inline citations and Sources entries",
+          "observed": "Request failed before response generation with GoogleGenerativeAI API_KEY_INVALID error."
+        },
+        {
+          "action": "Retry with attached-file mixed request after google model selection",
+          "expected": "Grounded/citation rendering should still be inspectable",
+          "observed": "Second attempt failed with same API_KEY_INVALID error; no grounded response/citation rendering was produced."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-core/r3-provider003-google-safe-turn-result.png",
+          "customization-preservation/group-round3-provider-core/r3-provider003-google-unsafe-file-result.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-core/r3-browser-errors.txt)",
+        "network": "Failure payloads in r3-provider003-google-safe-turn-body.txt and r3-provider003-google-unsafe-file-body.txt; corresponding provider/runtime logs in r3-provider-google-api-log-tail.txt"
+      },
+      "issues": "Blocked by Google API_KEY_INVALID errors, so grounded Gemini citation rendering could not be exercised in this environment run."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Attach-menu item 'Upload for File Search' is not an HTML input element for direct agent-browser upload.",
+      "resolved": true,
+      "resolution": "Used DOM exposure of hidden input[type=file] as workaround to continue upload attempts; captured failure and workaround evidence.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-002",
+        "VAL-PROVIDER-003"
+      ]
+    },
+    {
+      "description": "Direct authenticated /api/files verification call triggered temporary-ban response mid-run.",
+      "resolved": true,
+      "resolution": "Ran required anti-abuse reset (dev-seed-validation-personas.js + docker restart librechat-dev-api + wait) and resumed tests.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-002",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ]
+    },
+    {
+      "description": "Provider switch attempts can appear to remain on OpenAI unless both endpoint and concrete model are explicitly selected.",
+      "resolved": true,
+      "resolution": "Retried with explicit Google endpoint + gemini-2.5-pro model selection; verified endpoint=google via conversation metadata.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Azure runtime branch remains credential-gated in this dev environment (user-provided Azure key/base URL not configured for executable Azure turn coverage).",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A"
+      ],
+      "quickFixAttempted": "Injected temporary per-user azureOpenAI test payload to validate direct /openai/v1 behavior and settings preload; legacy non-/openai/v1 execution branch still not exercised."
+    },
+    {
+      "description": "Google credential path is invalid at runtime: Gemini requests return API_KEY_INVALID and model fetch logs repeatedly fail with status 400.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ],
+      "quickFixAttempted": "Explicitly selected google endpoint + gemini-2.5-pro and retried safe and file-attached requests; both failed with API Key not found / API_KEY_INVALID."
+    },
+    {
+      "description": "Native OpenAI file tracking/no-duplicate contract could not be conclusively verified through official upload path plus metadata inspection in this run.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-002"
+      ],
+      "quickFixAttempted": "Attempted official attach-menu upload, then hidden-input workaround, then conversation/file metadata checks; conversation files remained empty and /api/files probe triggered temporary-ban."
+    }
+  ],
+  "summary": "Tested 7 assigned assertions: 1 passed (VAL-PROVIDER-001B) and 6 blocked (VAL-PROVIDER-001, 001A, 002, 003, 004, 005). Explicit multi-turn Responses reconstruction attempt for VAL-PROVIDER-001B succeeded across three turns after web-search tool output with no invalid-history errors."
+}

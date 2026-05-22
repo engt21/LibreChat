@@ -1,0 +1,69 @@
+{
+  "milestone": "customization-preservation",
+  "round": 11,
+  "status": "fail",
+  "scope": "round14 local-only rerun after MCP follow-up fixes; deferred OCR/provider/Ollama/MCP-refresh/push-click clusters not re-tested",
+  "assertionsSummary": {
+    "total": 2,
+    "passed": 1,
+    "failed": 1,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-MCP-001"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-MCP-004",
+      "reason": "Round14 rerun still fails: pending-consent Arcade server reports zero pre-consent tools, and scheduled OAuth failure response lacks authorization_url/llm_instructions (continuationMetadata only)."
+    }
+  ],
+  "blockedAssertions": [],
+  "deferredAssertions": [
+    "VAL-FILES-002",
+    "VAL-PROVIDER-001",
+    "VAL-PROVIDER-001A",
+    "VAL-PROVIDER-003",
+    "VAL-PROVIDER-004",
+    "VAL-PROVIDER-005",
+    "VAL-PROVIDER-007",
+    "VAL-PROVIDER-008",
+    "VAL-PROVIDER-008A",
+    "VAL-PROVIDER-009",
+    "VAL-PROVIDER-010",
+    "VAL-PROVIDER-011",
+    "VAL-REALTIME-002",
+    "VAL-REALTIME-004",
+    "VAL-REALTIME-005",
+    "VAL-MCP-002",
+    "VAL-MCP-003",
+    "VAL-SCHED-009",
+    "VAL-CROSS-003",
+    "VAL-FILES-003",
+    "VAL-FILES-007"
+  ],
+  "appliedUpdates": [
+    {
+      "target": "validation-state.json",
+      "description": "Updated VAL-MCP-001 to passed and refreshed VAL-MCP-004 failure evidence from round14 local rerun.",
+      "source": "flow-report"
+    },
+    {
+      "target": ".factory/library/user-testing.md",
+      "description": "Added round14 rerun notes covering MCP callable-path pass and remaining pending-consent continuation gap.",
+      "source": "flow-report"
+    }
+  ],
+  "flowReports": [
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round14-local-mcp-rerun.json"
+  ],
+  "toolsUsed": [
+    "python3 (urllib)",
+    "curl",
+    "node local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api",
+    "local-services/start-all.sh dev",
+    "web-ui-api-dev"
+  ],
+  "previousRound": "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/synthesis.round10.json"
+}

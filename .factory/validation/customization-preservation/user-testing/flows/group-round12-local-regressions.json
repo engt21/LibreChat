@@ -1,0 +1,119 @@
+{
+  "groupId": "group-round12-local-regressions",
+  "testedAt": "2026-04-11T04:21:14Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": "none",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "python requests",
+    "web-ui-api-dev",
+    "local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Register local non-OAuth MCP server via POST /api/mcp/servers and inspect tool schema shape",
+          "expected": "Server registers; no-input tool parameters remain object-typed and open-object schema preserves additionalProperties",
+          "observed": "POST /api/mcp/servers returned 201 with requiresOAuth=False; schema check passed (noinputObject=True, openHasAdditionalProps=True)."
+        },
+        {
+          "action": "Invoke scheduled run using non-OAuth MCP server",
+          "expected": "Scheduled invocation is callable and not OAuth-gated for requiresOAuth=false server",
+          "observed": "POST /api/schedules/:id/run returned 500 with OAuth-consent-required error for round12-mcp001-eebd10; /api/mcp/tools entry was present but tools were empty immediately after registration."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round12-local-regressions/api-round12-validation.json"
+        ]
+      },
+      "issues": "Fail: non-OAuth scheduled invocation path is still treated as OAuth-consent-required despite server creation reporting requiresOAuth=false."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Register pending-consent Arcade MCP server via POST /api/mcp/servers and inspect pre-consent /api/mcp/tools visibility",
+          "expected": "Server appears with discoverable tools pre-consent when contract requires visibility before consent",
+          "observed": "POST /api/mcp/servers returned 201 for round12-mcp004-eebd10; /api/mcp/tools entry existed but tools list was empty."
+        },
+        {
+          "action": "Run scheduled invocation and inspect continuation metadata in run-result failure state",
+          "expected": "Failure response carries continuation metadata (authorization_url and/or llm_instructions) instead of opaque init failure",
+          "observed": "POST /api/schedules/:id/run returned 500 OAuth-consent-required with continuation fields absent (authorization_url, llm_instructions, continuationMetadata all missing)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round12-local-regressions/api-round12-validation.json"
+        ]
+      },
+      "issues": "Fail: pre-consent tool discovery remained empty and scheduled failure responses still did not expose continuation metadata."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "title": "Model restrictions are enforced server-side across config, chat, agents, and assistants",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Restrict val-user model permissions and verify /api/models + /api/config surfaces",
+          "expected": "/api/models and /api/config expose filtered model access including filtered modelSpecs surface when applicable",
+          "observed": "/api/models was filtered to ['gpt-5.1']; /api/config returned modelSpecs present but empty list (count=0)."
+        },
+        {
+          "action": "Probe blocked-model attempts across chat, agent, and assistant surfaces",
+          "expected": "Blocked model attempts fail with model-access errors, not temporary-ban artifacts",
+          "observed": "Chat returned 403 Illegal model request; agent create returned 400 Illegal model request; assistant v2 create returned 400 Illegal model request; no temporary-ban responses in this run."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round12-local-regressions/api-round12-validation.json",
+          "customization-preservation/group-round12-local-regressions/post-run-reseed-verification.json"
+        ]
+      },
+      "issues": "Fail: blocked-model enforcement worked across chat/agent/assistant, but config modelSpecs list remained empty under restriction instead of presenting filtered modelSpecs content."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Direct cleanup restore of original val-user modelPermissions failed with 400 (Invalid model permissions for endpoint anthropic).",
+      "resolved": true,
+      "resolution": "Ran node local-services/dev-seed-validation-personas.js + docker restart librechat-dev-api + sleep 25, then verified val-user baseline permissions were restored.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ]
+    },
+    {
+      "description": "Immediately after MCP server creation, /api/mcp/tools showed server entries with empty tool lists for both non-OAuth and Arcade pending-consent probes.",
+      "resolved": false,
+      "resolution": "Captured evidence and continued with scheduled-run checks.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-004"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Retested 3 assertions on dev rail: 0 passed, 3 failed (VAL-MCP-001, VAL-MCP-004, VAL-MODEL-003)."
+}

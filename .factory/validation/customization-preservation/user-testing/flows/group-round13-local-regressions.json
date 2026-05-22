@@ -1,0 +1,129 @@
+{
+  "groupId": "group-round13-local-regressions",
+  "testedAt": "2026-04-11T06:12:15Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": "none",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "python (urllib)",
+    "curl",
+    "node local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api",
+    "web-ui-api-dev"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Create non-OAuth MCP server via POST /api/mcp/servers (config wrapper) and inspect tool schema shape",
+          "expected": "Server registers with requiresOAuth=false; no-input schema remains object and open-object schema keeps additionalProperties",
+          "observed": "POST /api/mcp/servers returned 201; requiresOAuth=False; noinputObject=True; openHasAdditionalProps=True."
+        },
+        {
+          "action": "Run scheduled OpenAI-target invocation using the created MCP server",
+          "expected": "Tool is callable in OpenAI-compatible flow and invocation succeeds with actual tool execution",
+          "observed": "POST /api/schedules/:id/run returned 200 with execution preview '{\"error\":\"Tool get_server_capabilities_mcp_round13-mcp001-0bac31 not found\"}'."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round13-local-regressions/api-round13-validation.json"
+        ]
+      },
+      "issues": "Fail: schema registration checks passed, but callable probe returned tool-not-found output instead of a successful MCP tool call result."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Create pending-consent Arcade MCP server and inspect pre-consent /api/mcp/tools visibility",
+          "expected": "Initialization succeeds with tools discoverable pre-consent",
+          "observed": "POST /api/mcp/servers returned 201; /api/mcp/tools entry exists but toolsListedPreConsent=False."
+        },
+        {
+          "action": "Run scheduled invocation and inspect continuation metadata",
+          "expected": "Failure response surfaces continuation payload (authorization_url and/or llm_instructions) instead of opaque init failure",
+          "observed": "POST /api/schedules/:id/run returned 500 with continuationMetadata hits=1, authorization_url hits=0, llm_instructions hits=0."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round13-local-regressions/api-round13-validation.json"
+        ]
+      },
+      "issues": "Fail: pending-consent tools were not listed pre-consent, and continuation response lacked authorization_url/llm_instructions despite continuationMetadata being present."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "title": "Model restrictions are enforced server-side across config, chat, agents, and assistants",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Restrict val-user to one OpenAI model that overlaps runtime modelSpecs and verify /api/models + /api/config",
+          "expected": "Filtered /api/models and filtered /api/config modelSpecs for the restricted user",
+          "observed": "Restriction PATCH returned 200; /api/models returned only allowed model; /api/config modelSpecs count=1."
+        },
+        {
+          "action": "Probe blocked model usage across chat, agent create, and assistant v2 create (browser-like UA reprobe after reseed)",
+          "expected": "Blocked requests fail with model-access errors (no temporary-ban contamination)",
+          "observed": "chat=403 (Illegal model request); agentCreate=400 (Illegal model request); assistantV2Create=400 (Illegal model request)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round13-local-regressions/model-round13-reprobe.json",
+          "customization-preservation/group-round13-local-regressions/post-run-reseed-verification.json"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Initial round13 model probe used a non-browser user-agent on /api/agents/chat/openAI, yielding `Illegal request` and then temporary-ban responses on subsequent blocked probes.",
+      "resolved": true,
+      "resolution": "Reseeded personas + restarted dev API, then reran VAL-MODEL-003 with a browser-like UA in a dedicated reprobe file.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ]
+    },
+    {
+      "description": "Immediately after MCP server creation, /api/mcp/tools initially showed the new non-OAuth server with an empty tools list before later reflecting populated tools.",
+      "resolved": false,
+      "resolution": "Captured timing behavior in evidence; callable outcome still failed for VAL-MCP-001 in this rerun.",
+      "affectedAssertions": [
+        "VAL-MCP-001"
+      ]
+    },
+    {
+      "description": "Immediate curl health check after one dev API restart returned connection reset during startup warm-up.",
+      "resolved": true,
+      "resolution": "Retried after additional wait; dev API returned expected auth-gated responses.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-004",
+        "VAL-MODEL-003"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 3 assertions on dev rail: 1 passed, 2 failed (VAL-MCP-001, VAL-MCP-004)."
+}

@@ -1,0 +1,240 @@
+{
+  "groupId": "group-round3-schedules-policy",
+  "surface": "web-ui-api-dev",
+  "testedAt": "2026-04-06T13:55:16.890210+00:00",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": false,
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-user@dev.local",
+      "val-superadmin@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "python requests / curl API probes",
+    "docker runtime controls (dev-only)"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SCHED-006",
+      "title": "Background runner picks up due schedules and advances next run correctly",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Create overdue-capable enabled schedule and observe scheduler path",
+          "expected": "Auto-executes within poll window and advances nextRunAt",
+          "observed": "Auto execution detected (lastTriggeredBy=scheduler, runCount=1, lastStatus=succeeded) and nextRunAt advanced."
+        },
+        {
+          "action": "Create overdue-capable disabled schedule and observe idle behavior",
+          "expected": "Disabled schedule does not auto-run",
+          "observed": "runCount remained 0 before manual run; no background execution occurred."
+        },
+        {
+          "action": "Manual Run now on disabled schedule",
+          "expected": "Executes once without advancing nextRunAt",
+          "observed": "HTTP 200; runCount incremented to 1 and nextRunAt remained unchanged."
+        },
+        {
+          "action": "Exercise SCHEDULED_RUNNER_ENABLED=false branch",
+          "expected": "Overdue enabled schedule remains untouched while manual Run now still works",
+          "observed": "Blocked: direct compose override command failed with container-name conflict (rag-api-openai-local) and could not provide an isolated API-only env override path in this environment."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API/runtime validation)",
+        "network": [
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-006-create-auto-enabled.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-006-auto-after-poll.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-006-create-disabled.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-006-disabled-before-manual.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-006-disabled-manual-run.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-006-disabled-manual-check.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-006-runner-disabled-branch-blocker.json"
+        ]
+      },
+      "issues": "SCHEDULED_RUNNER_ENABLED=false branch remains blocked by local compose/container-name conflicts during env-override attempt."
+    },
+    {
+      "id": "VAL-SCHED-008",
+      "title": "Notification delivery results are channel-specific and non-fatal",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Enable notification channels and run successful schedule",
+          "expected": "Channel-specific result objects returned without affecting execution success",
+          "observed": "HTTP 200 with notificationResults for email/sms/push (channel-level skipped reasons), plus executionResult persisted."
+        },
+        {
+          "action": "Run failing schedule with notifications enabled",
+          "expected": "Execution failure is durable and notification results remain present/non-fatal",
+          "observed": "HTTP 500 Illegal model request; schedule persisted lastStatus=failed and notificationResults remained present by channel."
+        },
+        {
+          "action": "Validate delivered conversation URL root under DOMAIN_CLIENT",
+          "expected": "Delivered payload links use DOMAIN_CLIENT /c/<conversationId>; no-conversation path omits link",
+          "observed": "Blocked: no observable email/SMS inbox sink and no successful browser-push delivery sink in this isolation; payload URL root could not be directly observed."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API-driven validation)",
+        "network": [
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-008-notifications-update.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-008-notifications-capabilities.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-008-create-success.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-008-run-success.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-008-create-failure.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-008-run-failure.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-008-run-failure-recheck.json"
+        ]
+      },
+      "issues": "Delivery payload URL-root verification is blocked by unavailable delivery-observation sinks in this environment."
+    },
+    {
+      "id": "VAL-SCHED-009",
+      "title": "Browser push subscription lifecycle persists and can be removed",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open Data controls Scheduled runs notification UI and attempt Enable on this browser",
+          "expected": "Browser subscription registers and updates subscriptionCount",
+          "observed": "UI rendered push controls, but browser permission was denied in this headless session; no subscribe request observed from UI click."
+        },
+        {
+          "action": "Retest lifecycle via subscribe/resubscribe/unsubscribe API endpoints (same endpoint re-subscribe, then remove)",
+          "expected": "Resubscribe refreshes without double-count; unsubscribe removes subscription",
+          "observed": "subscriptionCount behaved as expected for dedupe and removal in API-visible lifecycle checks."
+        },
+        {
+          "action": "Attempt stale-prune behavior via push delivery failures",
+          "expected": "404/410 failures prune stale endpoints",
+          "observed": "Push run returned failed (0/2 subscriptions) with expiredEndpoints=[]; prune was not triggered in this synthetic-endpoint attempt."
+        },
+        {
+          "action": "Validate delivered push click-open/focus behavior",
+          "expected": "Clicking delivered push notification opens/focuses linked conversation URL",
+          "observed": "Blocked: no deliverable browser notification path available in this headless permission-denied environment."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-login.png",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-after-login.png",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-settings-page.png",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-data-controls-tab.png",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-after-enable-attempt.png"
+        ],
+        "consoleErrors": "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-browser-errors.txt",
+        "network": [
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-browser-network.txt",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-browser-permission-check.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-notifications-before.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-subscribe-1.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-resubscribe-same-endpoint.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-subscribe-2.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-unsubscribe-1.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-subscribe-stale.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-notifications-pre-prune.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-create-prune-run.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-run-prune.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-SCHED-009-notifications-after-prune.json"
+        ]
+      },
+      "issues": "Headless notification permission denial blocked browser-native subscription and click-path coverage; stale-prune path did not produce 404/410-expired endpoints in synthetic testing."
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "title": "Scheduled runs preserve the same provider and tool contract as interactive chats",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Create schedule with nested ephemeralAgent tool settings",
+          "expected": "Nested settings are normalized/retained",
+          "observed": "Stored schedule retained web_search, web_search_mode, file_search, execute_code, artifacts, and mcp fields."
+        },
+        {
+          "action": "Manual Run now before policy change",
+          "expected": "Run succeeds for allowed model",
+          "observed": "HTTP 200 succeeded with conversationId/responseMessageId/preview."
+        },
+        {
+          "action": "Restrict user model policy (remove OpenAI target) and rerun manually",
+          "expected": "Execution-time revalidation fails explicitly, no success conversation, durable failure metadata, notification results preserved",
+          "observed": "HTTP 500 Illegal model request; schedule persisted lastStatus=failed, lastError set, lastConversationId null, executionResult conversationId null, and channel-level notificationResults preserved (email/sms skipped reasons)."
+        },
+        {
+          "action": "Background-run path under restricted policy",
+          "expected": "Scheduler path also revalidates and fails explicitly",
+          "observed": "Scheduler auto-run occurred (lastTriggeredBy=scheduler, runCount=1) and failed with Illegal model request; no conversation linkage persisted."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not-applicable (API-driven validation)",
+        "network": [
+          "customization-preservation/group-round3-schedules-policy/VAL-CROSS-005-create-schedule.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-CROSS-005-manual-retest-with-notifications.json",
+          "customization-preservation/group-round3-schedules-policy/VAL-CROSS-005-background-retest-after-recovery.json"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Headless agent-browser session reported Notification.permission=denied, so UI click on \"Enable on this browser\" produced no subscription request.",
+      "resolved": false,
+      "resolution": "Used API lifecycle checks to validate subscription dedupe/remove semantics where browser-native permission flow was blocked.",
+      "affectedAssertions": [
+        "VAL-SCHED-009"
+      ]
+    },
+    {
+      "description": "Direct compose env-override attempt for SCHEDULED_RUNNER_ENABLED=false hit container-name conflict (rag-api-openai-local) and destabilized dev rail until recovery.",
+      "resolved": true,
+      "resolution": "Recovered dev rail with /pool/home/timeng/LibreChat-custom/local-services/start-all.sh dev and confirmed unauth /api/schedules returned 401 afterward.",
+      "affectedAssertions": [
+        "VAL-SCHED-006"
+      ]
+    },
+    {
+      "description": "Rate-limiter bans triggered during repeated retests blocked further auth attempts.",
+      "resolved": true,
+      "resolution": "Re-ran anti-abuse reset (dev-seed-validation-personas.js + docker restart librechat-dev-api + wait) before cleanup steps.",
+      "affectedAssertions": [
+        "VAL-CROSS-005",
+        "VAL-SCHED-009"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Could not produce an isolated API-only runtime with SCHEDULED_RUNNER_ENABLED=false using direct compose override due local container-name conflict.",
+      "affectedAssertions": [
+        "VAL-SCHED-006"
+      ],
+      "quickFixAttempted": "Attempted compose env override and then recovered dev rail with start-all.sh dev; validated all runner-enabled branches and manual semantics."
+    },
+    {
+      "description": "Delivery-sink observability gap: no email/SMS inbox visibility and no deliverable browser push path in headless permission-denied context.",
+      "affectedAssertions": [
+        "VAL-SCHED-008",
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "Captured channel-level notificationResults via API and tested push subscription lifecycle/prune attempts using API probes."
+    },
+    {
+      "description": "Push stale-prune contract branch (404/410) was not reproducible with synthetic endpoints in this environment (expiredEndpoints remained empty).",
+      "affectedAssertions": [
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "Created/resubscribed/unsubscribed synthetic endpoints and executed push run; captured failure details and post-run subscription counts."
+    }
+  ],
+  "summary": "Tested 4 assertions: 1 passed, 0 failed, 3 blocked, 0 skipped."
+}

@@ -1,0 +1,315 @@
+{
+  "groupId": "group-round6-files-model-ollama",
+  "testedAt": "2026-04-10T19:09:05Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "stableRailUsed": false,
+    "personas": [
+      "val-user@dev.local",
+      "val-superadmin@dev.local"
+    ],
+    "requiredSetup": "node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25",
+    "finalReset": "node local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "python3+requests",
+    "curl",
+    "docker logs"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-FILES-002",
+      "title": "Context-mode screenshots preserve both vision input and OCR text",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Upload login-page.png in context-mode flow and ask model to read visible labels",
+          "expected": "Image remains usable for vision and response reflects screenshot text",
+          "observed": "Vision behavior worked: assistant returned form labels/button text from the uploaded screenshot."
+        },
+        {
+          "action": "Inspect latest login-page.png file record via GET /api/files",
+          "expected": "Same file record stores OCR text (file.text non-empty)",
+          "observed": "Latest file record d627c68c-a798-4577-bc20-b79a0f01fe5d had textLength=0 and empty textHead."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-files-model-ollama/VAL-FILES-002-image-uploaded.png",
+          "customization-preservation/group-round6-files-model-ollama/VAL-FILES-002-vision-response.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-files-model-ollama/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-files-model-ollama/VAL-FILES-002-api-file-probe.json + VAL-FILES-002-body-after-response.txt"
+      },
+      "issues": "OCR persistence still failed in rerun: vision output was present but file.text remained empty on the uploaded screenshot record."
+    },
+    {
+      "id": "VAL-FILES-006",
+      "title": "Diarization mode supports named speaker clips and disables prompts where unsupported",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Upload speech-main-14s.wav with Upload to Provider and select GPT-4o Diarize",
+          "expected": "Prompt control disabled and speaker controls shown",
+          "observed": "UI showed Add prompt disabled and Speakers (0/4) after GPT-4o Diarize selection."
+        },
+        {
+          "action": "Probe /api/files/transcription-reference constraints",
+          "expected": "Reject non-audio + out-of-range durations and accept valid clip",
+          "observed": "non_audio=400, too_short=400, too_long=400, valid_6s=200 with durationSeconds=6."
+        },
+        {
+          "action": "Run diarization transcription request with speaker references",
+          "expected": "Main file uploads successfully and transcript includes speaker-labeled lines",
+          "observed": "/api/files main upload returned 500 (Error processing file / No file_id provided), /api/files/transcribe returned 400 file_id is required, no speaker-labeled transcript produced."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-files-model-ollama/VAL-FILES-006-audio-uploaded-provider-mode.png",
+          "customization-preservation/group-round6-files-model-ollama/VAL-FILES-006-transcription-model-dropdown-open.png",
+          "customization-preservation/group-round6-files-model-ollama/VAL-FILES-006-diarize-selected.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-files-model-ollama/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-files-model-ollama/VAL-FILES-006-api-rerun.json + VAL-FILES-006-log-excerpts.txt"
+      },
+      "issues": "Diarization constraints passed, but end-to-end diarization output failed because main audio upload still breaks with No file_id and transcription cannot proceed."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "title": "Model restrictions are enforced server-side across config, chat, agents, and assistants",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Restrict val-user to openAI:gpt-5.1 and probe filtered surfaces",
+          "expected": "GET /api/models and config/model-spec surfaces are filtered",
+          "observed": "GET /api/models returned only openAI:[gpt-5.1] and other endpoints empty."
+        },
+        {
+          "action": "Probe blocked-model agent and assistant paths",
+          "expected": "Blocked-model attempts fail with model-access errors",
+          "observed": "Agent create/update with gpt-5.4 returned 400 Illegal model request; assistant chat returned event error Illegal model request; model chat returned 403 Illegal model request; assistant create returned 400 Endpoint models not loaded."
+        },
+        {
+          "action": "Cover full matrix branches",
+          "expected": "Duplicate/revert/assistant-update/preset-reentry blocked paths also verified",
+          "observed": "These additional branches were not fully covered in this isolated rerun."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-only assertion in this rerun)",
+        "network": "customization-preservation/group-round6-files-model-ollama/VAL-MODEL-003-round6-probe.json"
+      },
+      "issues": "Core blocked-model checks improved (normal chat now returns Illegal model request), but full contract matrix coverage remains incomplete and assistant create branch did not return a direct model-access error."
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "title": "Azure direct /openai/v1 routes omit api-version while legacy routes keep api-version behavior",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Set direct Azure baseURL and trigger model/chat probes",
+          "expected": "Direct /openai/v1 requests omit api-version",
+          "observed": "Direct-host log lines consistently used GET https://r6bdirect-1775847673.openai.azure.com/openai/v1/models with no api-version."
+        },
+        {
+          "action": "Switch to legacy non-/openai/v1 baseURL and trigger probes",
+          "expected": "Legacy host appears in outbound requests with api-version query",
+          "observed": "Legacy host produced zero outbound log lines; subsequent probe attempts still emitted direct-host /openai/v1 requests."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-files-model-ollama/azure-direct-chat-open.png",
+          "customization-preservation/group-round6-files-model-ollama/azure-direct-chat-after-stop.png",
+          "customization-preservation/group-round6-files-model-ollama/azure-legacy-chat-after-stop.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-files-model-ollama/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-files-model-ollama/VAL-PROVIDER-001A-browser-log-summary.json + VAL-PROVIDER-001A-round6-probe.json + VAL-PROVIDER-001A-round6-probe-nomodels.json"
+      },
+      "issues": "Legacy Azure branch expectation remains unmet in rerun evidence: no legacy-host request with api-version was observed; outbound requests stayed on direct /openai/v1 URL shape."
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "title": "Ollama hosted web search keeps native-default and MCP-mode behavior",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Enable Web Search in Ollama chats and run deepseek-r1:14b web-search turn",
+          "expected": "Hosted search executes with usable response/artifacts",
+          "observed": "Deepseek turn persisted as error part with empty assistant text in API message analysis."
+        },
+        {
+          "action": "Retry on qwen2.5:14b with web-search enabled",
+          "expected": "Search turn returns sources/artifacts and stable hosted-search output",
+          "observed": "UI showed a short unsourced line; API conversation payload stored empty assistant text part(s) and no source/citation/search-status signals."
+        },
+        {
+          "action": "Verify alternate mode behavior (native default + hidden MCP mode)",
+          "expected": "Both native-default and MCP-mode behavior can be demonstrated",
+          "observed": "No deterministic MCP-mode-visible behavior could be proven from exposed user/API surface in this run."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-files-model-ollama/ollama-tools-menu-open.png",
+          "customization-preservation/group-round6-files-model-ollama/ollama-parameters-websearch-toggle-attempt.png",
+          "customization-preservation/group-round6-files-model-ollama/ollama-deepseek-websearch-after-stop.png",
+          "customization-preservation/group-round6-files-model-ollama/ollama-qwen-websearch-after-stop.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-files-model-ollama/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-files-model-ollama/ollama-round6-api-analysis.json + ollama-deepseek-websearch-body-after-stop.txt + ollama-qwen-websearch-body-after-stop.txt"
+      },
+      "issues": "Hosted Ollama web-search contract still not satisfied: deepseek path errors and qwen path lacks source/search artifacts; MCP-mode behavior was not verifiable from user-visible outputs."
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "title": "Ollama reasoning none remains a real off switch",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Attempt to set Reasoning Effort to None for deepseek and qwen Ollama chats",
+          "expected": "Control should persist as none/off",
+          "observed": "Textbox value remained Auto after explicit fill attempts."
+        },
+        {
+          "action": "Inspect reasoning-control internals and response behavior",
+          "expected": "None/off should suppress reasoning output in resulting assistant turns",
+          "observed": "Slider reported min=0 now=0 max=4, but visible control still showed Auto and turns did not yield stable reasoning payloads to confirm suppression behavior."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-files-model-ollama/ollama-reasoning-state-before-chat.png",
+          "customization-preservation/group-round6-files-model-ollama/qwen-reasoning-off-attempt.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-files-model-ollama/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-files-model-ollama/ollama-reasoning-before.txt + ollama-reasoning-after-fill.txt + qwen-reasoning-before.txt + qwen-reasoning-after-fill.txt + qwen-reasoning-slider-valuenow/min/max.txt"
+      },
+      "issues": "Reasoning off-switch remains inconsistent in rerun evidence: visible control stayed Auto despite none/off attempts, and resulting payloads lacked stable reasoning content for conclusive suppression proof."
+    },
+    {
+      "id": "VAL-REALTIME-004",
+      "title": "Native web search exposes inline stream status instead of silent backend-only activity",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Capture early/late streaming UI during deepseek and qwen web-search turns",
+          "expected": "Inline status part shows Searching the web\u2026 then completes cleanly",
+          "observed": "No inline Searching the web text appeared in captured body text or message payloads."
+        },
+        {
+          "action": "Inspect persisted assistant message parts for web-search status signals",
+          "expected": "web_search_status-like parts present in streamed/persisted content",
+          "observed": "API analysis found no searching-status parts/signals in exercised Ollama conversations."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-files-model-ollama/ollama-deepseek-websearch-stream-early.png",
+          "customization-preservation/group-round6-files-model-ollama/ollama-deepseek-websearch-stream-late.png",
+          "customization-preservation/group-round6-files-model-ollama/ollama-qwen-websearch-stream-early.png",
+          "customization-preservation/group-round6-files-model-ollama/ollama-qwen-websearch-stream-late.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-files-model-ollama/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-files-model-ollama/ollama-round6-api-analysis.json + ollama-deepseek-websearch-body-early.txt + ollama-qwen-websearch-body-early.txt"
+      },
+      "issues": "Expected inline web-search status remained absent in rerun evidence."
+    },
+    {
+      "id": "VAL-REALTIME-005",
+      "title": "Reasoning and grounded-source presentation remains merged and source-linked",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Inspect successful Ollama web-search outputs for merged reasoning + source-linked rendering",
+          "expected": "Unified thoughts block and source-linked/citation output in same response surface",
+          "observed": "Exercised turns produced either error/empty payloads or a short unsourced line with no reasoning/citation structure."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round6-files-model-ollama/ollama-deepseek-websearch-after-stop.png",
+          "customization-preservation/group-round6-files-model-ollama/ollama-qwen-websearch-after-stop.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round6-files-model-ollama/browser-errors.txt)",
+        "network": "customization-preservation/group-round6-files-model-ollama/ollama-round6-api-analysis.json + ollama-qwen-websearch-body-after-stop.txt"
+      },
+      "issues": "Blocked by absence of grounded/reasoning-rich payloads needed to validate merged-thoughts + source-link presentation contract."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Temporary-ban/rate-limit responses recurred during high-volume API probing (login 429/403).",
+      "resolved": true,
+      "resolution": "Repeated approved recovery flow: dev-seed-validation-personas.js + docker restart librechat-dev-api + sleep 25.",
+      "affectedAssertions": [
+        "VAL-MODEL-003",
+        "VAL-PROVIDER-001A",
+        "VAL-FILES-006"
+      ]
+    },
+    {
+      "description": "agent-browser network request collector returned no captured requests in this session.",
+      "resolved": true,
+      "resolution": "Used authenticated API artifacts + docker log captures as concrete network evidence.",
+      "affectedAssertions": [
+        "VAL-FILES-002",
+        "VAL-FILES-006",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011",
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005"
+      ]
+    },
+    {
+      "description": "Long-running Ollama/Azure turns frequently required manual stop for evidence capture.",
+      "resolved": true,
+      "resolution": "Captured early/late/after-stop screenshots and body snapshots for each probe.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011",
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Legacy Azure host requests were not emitted after switching to legacy baseURL; probes continued logging direct-host /openai/v1 requests only.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001A"
+      ],
+      "quickFixAttempted": "Retried with models and no-models payload variants, API/config/model probes, and browser chat probes; legacy host still produced zero outbound log lines."
+    },
+    {
+      "description": "Ollama web-search runs did not produce deterministic grounded/reasoning-rich payloads needed for merged-thought/source-link validation.",
+      "affectedAssertions": [
+        "VAL-REALTIME-005"
+      ],
+      "quickFixAttempted": "Retried deepseek-r1:14b and qwen2.5:14b with Web Search enabled, captured UI + API payloads, and forced after-stop snapshots; reasoning/citation payloads remained unavailable."
+    }
+  ],
+  "cleanup": {
+    "actions": [
+      "Repeated reseed/restart cycles to clear temporary bans and restore validation personas.",
+      "Cleared temporary Azure key probes back to null-key state (GET /api/keys endpoint=azureOpenAI returned {\"expiresAt\":null}).",
+      "Final dev route smokes after final reseed: /api/admin/permissions=401, /api/schedules=401, /api/realtime/models=401."
+    ],
+    "artifacts": [
+      "customization-preservation/group-round6-files-model-ollama/final2-reseed.log",
+      "customization-preservation/group-round6-files-model-ollama/final2-reseed-restart.log",
+      "customization-preservation/group-round6-files-model-ollama/final2-post-smokes.json",
+      "customization-preservation/group-round6-files-model-ollama/VAL-PROVIDER-001A-cleanup-check.json"
+    ]
+  },
+  "summary": "Tested 8 assigned assertions on dev rail: 0 pass, 7 fail (VAL-FILES-002, VAL-FILES-006, VAL-MODEL-003, VAL-PROVIDER-001A, VAL-PROVIDER-010, VAL-PROVIDER-011, VAL-REALTIME-004), 1 blocked (VAL-REALTIME-005). OCR persistence and diarization end-to-end remain broken, Azure legacy URL-shape behavior still did not surface expected legacy/api-version evidence, and Ollama web-search/reasoning UX contracts remain unmet in the observed user/API surface."
+}

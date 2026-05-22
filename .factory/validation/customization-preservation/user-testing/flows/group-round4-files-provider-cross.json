@@ -1,0 +1,242 @@
+{
+  "groupId": "group-round4-files-provider-cross",
+  "testedAt": "2026-04-10T07:31:39Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json",
+    "persona": "val-user@dev.local",
+    "stableRailUsed": false,
+    "preRunReset": "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25",
+    "reseedRerun": "Executed once after temporary-ban was observed during API probing"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "python3+requests",
+    "code-interpreter direct API"
+  ],
+  "commandsRun": [
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25",
+    "agent-browser --session 6cedb62c379a__b2 ... (login, model/tools toggles, file uploads, transcription actions, screenshots, errors/network capture)",
+    "python3 requests scripts against /api/auth/login, /api/models, /api/config, /api/files, /api/convos/:id, /api/messages/:conversationId, /api/convos DELETE",
+    "python3 requests scripts against http://127.0.0.1:8190/v1/{health,upload,exec,files,download} with X-API-Key",
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js && docker restart librechat-dev-api && sleep 25 (rerun once after temporary-ban)"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-002",
+      "title": "Native OpenAI file flows stay tracked locally without duplicate file processing",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Enable Search + Code Interpreter + File Search, upload provider-pin-note.txt via Upload for File Search path, then query sentinel",
+          "expected": "Uploaded native file is retrievable in chat and tracked coherently",
+          "observed": "Assistant responded: \"I couldn’t access the attached file here.\" while also reporting web-search activity."
+        },
+        {
+          "action": "Inspect conversation/file metadata for the file-search turn",
+          "expected": "Conversation and file metadata preserve native file-tracking details",
+          "observed": "Conversation 7cdeaf0a-dacc-45f8-9880-65a80abf3491 has files: []; provider-pin-note file rows are local message_attachment objects without native-tool metadata."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-provider-cross/VAL-PROVIDER-002-attach-menu.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-PROVIDER-002-after-upload.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-PROVIDER-002-response-stopped.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-PROVIDER-002-conversation-open.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-files-provider-cross/group-round4-files-provider-cross-browser-errors.txt)",
+        "network": "UI text evidence in VAL-PROVIDER-002-page-text-stopped.txt; conversation metadata in api-convo-file-search-limitation-body.json; files metadata in api-files-retry-body.json"
+      },
+      "issues": "OpenAI native file flow was not coherent on user surface: file-search upload existed as local record but was not retrievable in the assistant turn, and conversation file linkage remained empty."
+    },
+    {
+      "id": "VAL-FILES-003",
+      "title": "Native OpenAI, Azure, and Gemini tool routing keeps LibreChat file bookkeeping intact",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Run OpenAI native-tools turn with Search + Code Interpreter + File Search and uploaded provider-pin-note.txt",
+          "expected": "Provider-native routing with coherent file/vector-store bookkeeping and no dual-ingest symptoms",
+          "observed": "OpenAI turn failed to consume uploaded file (\"I couldn’t access the attached file here\"), and conversation metadata still had files: []."
+        },
+        {
+          "action": "Attempt Azure/Gemini branches for cross-provider confirmation",
+          "expected": "Azure and Gemini branches execute with equivalent native-routing bookkeeping behavior",
+          "observed": "Azure path returned \"No key found. Please provide a key and try again.\"; Google model list was empty (api-models-retry-body.json google: [])."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-provider-cross/VAL-CROSS-003-tools-enabled-openai.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-PROVIDER-002-response-stopped.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-CROSS-003-model-selector-followup.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-CROSS-003-azure-direct-turn.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-files-provider-cross/group-round4-files-provider-cross-browser-errors.txt)",
+        "network": "OpenAI failure text in VAL-PROVIDER-002-page-text-stopped.txt; conversation linkage in api-convo-file-search-limitation-body.json; provider availability in api-models-retry-body.json; Azure missing-key response in VAL-CROSS-003-azure-direct-turn-text.txt"
+      },
+      "issues": "Contract failed on the OpenAI branch (incoherent file bookkeeping/retrieval). Azure and Gemini branches were additionally constrained by missing runtime prerequisites in this isolation run."
+    },
+    {
+      "id": "VAL-FILES-007",
+      "title": "Local managed code interpreter remains the default code-execution path for OpenAI, Azure, and Google in this fork",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Probe local code-interpreter bridge endpoints directly (health/upload/exec/list/download) using dev API key",
+          "expected": "Bridge endpoints healthy; upload/exec/list/download functional; warm session reuse observable",
+          "observed": "Direct bridge checks passed: health 200, upload 200, exec1 stdout=4 with generated file, exec2 stdout=15, files/list/download 200; exec timing improved (5.965s -> 2.891s)."
+        },
+        {
+          "action": "Run OpenAI UI code-interpreter turn requiring file creation",
+          "expected": "Code-interpreter turn executes successfully through managed path",
+          "observed": "UI turn returned repeated execution failures (\"HTTP error! status: 500\") and did not complete file-creation workflow successfully."
+        },
+        {
+          "action": "Attempt non-OpenAI coverage",
+          "expected": "Azure and Google model-chat code paths validated on same contract",
+          "observed": "Azure path required missing key (\"No key found\"); Google models unavailable (google: [])."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-provider-cross/VAL-FILES-007-code-only-toggles.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-FILES-007-openai-code-turn-stopped.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-CROSS-003-azure-direct-turn-stopped.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-files-provider-cross/group-round4-files-provider-cross-browser-errors.txt)",
+        "network": "Direct CI artifacts: VAL-FILES-007-ci-health-retry2-*, VAL-FILES-007-ci-upload-retry2-*, VAL-FILES-007-ci-exec1-retry3-*, VAL-FILES-007-ci-exec2-retry3-*, VAL-FILES-007-ci-files-retry3-*, VAL-FILES-007-ci-download-*-retry3.*, VAL-FILES-007-ci-warm-timing-retry3.json; UI failure text in VAL-FILES-007-openai-code-turn-text.txt"
+      },
+      "issues": "Although the local bridge APIs worked directly, the OpenAI user-surface code turn produced execution 500s, so the end-to-end contract was not satisfied; Azure/Google coverage also remained prerequisite-limited."
+    },
+    {
+      "id": "VAL-FILES-009",
+      "title": "Deleting an in-flight transcript does not break later transcription jobs",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Upload long-speech-8mb.wav from /c/new and click Transcribe",
+          "expected": "In-flight transcription conversation is created and can be deleted mid-run",
+          "observed": "UI created conversation 6bbde72a-5fd0-4049-a591-a1e6917c0202 after Transcribe action."
+        },
+        {
+          "action": "Delete that transcript conversation while job is in progress",
+          "expected": "Delete succeeds; runner does not crash",
+          "observed": "DELETE /api/convos returned 201 deletedCount=1; follow-up checks returned 404 for both /api/convos/<id> and /api/messages/<id>."
+        },
+        {
+          "action": "Queue follow-up transcription job (transcribe-progress-probe.wav) after deletion",
+          "expected": "Later transcription jobs still process normally",
+          "observed": "Follow-up conversation 69474d40-1aec-4186-8398-1e59e4263e72 completed successfully with transcriptionStatus=completed."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-provider-cross/VAL-FILES-009-upload1-ui.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-FILES-009-after-transcribe1-ui.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-FILES-009-followup-upload-ui.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-FILES-009-followup-after-transcribe-ui.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-FILES-009-followup-completed-ui.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-files-provider-cross/group-round4-files-provider-cross-browser-errors.txt)",
+        "network": "Deletion evidence: VAL-FILES-009-delete1-ui-convo-status/body + VAL-FILES-009-delete1-ui-convo-check-status + VAL-FILES-009-delete1-ui-messages-check-status/body; follow-up completion evidence: VAL-FILES-009-followup-summary-ui.json, VAL-FILES-009-followup-poll-ui-01-body.json, VAL-FILES-009-files-after-followup-body.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "title": "Provider-native tool flows keep model gating, file metadata, and streaming UX coherent",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Validate OpenAI native tool toggles with file upload and response behavior",
+          "expected": "Native flow keeps file metadata coherent and user-visible behavior accurate",
+          "observed": "With Search + Code Interpreter + File Search enabled, assistant could not access uploaded file and conversation metadata remained files: []."
+        },
+        {
+          "action": "Validate Azure/Gemini provider branches",
+          "expected": "Azure and Gemini flows execute with equivalent contract behavior",
+          "observed": "Model selector and /api/models showed no Google models; Azure direct test returned \"No key found. Please provide a key and try again.\""
+        },
+        {
+          "action": "Check user-surface status signals",
+          "expected": "No duplicate/silent behavior",
+          "observed": "Web-search completion text appeared, but file-search behavior remained incoherent in same flow."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-files-provider-cross/VAL-CROSS-003-tools-menu-open.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-CROSS-003-tools-enabled-openai.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-CROSS-003-model-selector-followup.png",
+          "customization-preservation/group-round4-files-provider-cross/VAL-CROSS-003-azure-direct-turn-stopped.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-files-provider-cross/group-round4-files-provider-cross-browser-errors.txt)",
+        "network": "OpenAI flow text: VAL-PROVIDER-002-page-text-stopped.txt; convo/file metadata: api-convo-file-search-limitation-body.json + api-files-retry-body.json; provider availability: api-models-retry-body.json; Azure missing-key text: VAL-CROSS-003-azure-direct-turn-text.txt"
+      },
+      "issues": "Cross-provider coherence contract failed on observed OpenAI flow and could not be completed for Azure/Gemini due missing runtime prerequisites in this boundary."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Attach-menu Upload-for-File-Search is not a direct HTML file input.",
+      "resolved": true,
+      "resolution": "Temporarily exposed existing hidden input[type=file] in-browser, then uploaded through the exposed control.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-002",
+        "VAL-FILES-003",
+        "VAL-CROSS-003"
+      ]
+    },
+    {
+      "description": "API probing with non-browser user-agent triggered anti-abuse behavior and temporary-ban during early attempts.",
+      "resolved": true,
+      "resolution": "Reran required reseed+restart sequence once and switched API probes to browser-like User-Agent headers.",
+      "affectedAssertions": [
+        "VAL-FILES-009",
+        "VAL-PROVIDER-002",
+        "VAL-FILES-003",
+        "VAL-CROSS-003"
+      ]
+    },
+    {
+      "description": "agent-browser network request capture returned no request rows.",
+      "resolved": true,
+      "resolution": "Captured equivalent request/response evidence via authenticated API artifacts under the evidence directory.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-002",
+        "VAL-FILES-003",
+        "VAL-FILES-007",
+        "VAL-FILES-009",
+        "VAL-CROSS-003"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Azure runtime branch required user key in this isolation context (response: \"No key found. Please provide a key and try again.\").",
+      "affectedAssertions": [
+        "VAL-FILES-003",
+        "VAL-FILES-007",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Attempted Azure selection and direct azureOpenAI URL flow in UI; request remained key-gated."
+    },
+    {
+      "description": "Gemini branch unavailable for this user in current runtime state (google model list empty).",
+      "affectedAssertions": [
+        "VAL-FILES-003",
+        "VAL-FILES-007",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Checked model selector and authenticated /api/models; google array remained empty."
+    }
+  ],
+  "summary": "Tested 5 assigned assertions on dev rail: 1 passed (VAL-FILES-009) and 4 failed (VAL-PROVIDER-002, VAL-FILES-003, VAL-FILES-007, VAL-CROSS-003). In-flight transcript deletion resilience now passes with successful follow-up transcription, while native provider/file-tool coherence and code-interpreter user-surface behavior still show contract gaps and provider-prerequisite constraints."
+}

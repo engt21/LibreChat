@@ -1,0 +1,151 @@
+{
+  "groupId": "group-round10-local-regressions",
+  "testedAt": "2026-04-11T02:13:10Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": "none",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local",
+      "val-workspace-admin@dev.local",
+      "val-support-admin@dev.local",
+      "val-observability-admin@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "python requests",
+    "web-ui API dev rail",
+    "local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Register local yt-media MCP server on /mcp and inspect returned tool schemas",
+          "expected": "No-input schemas stay object-typed and open-object schemas preserve additionalProperties",
+          "observed": "Schema preservation checks passed (no-input object and open headers additionalProperties present)."
+        },
+        {
+          "action": "Run scheduled invocation against non-OAuth local MCP server",
+          "expected": "Tool call executes without OAuth consent gating",
+          "observed": "Run failed with OAuth-consent-required error even though server reports requiresOAuth=false."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round10-local-regressions/api-round10-validation-v2.json",
+          "customization-preservation/group-round10-local-regressions/api-round10-validation-final.json"
+        ]
+      },
+      "issues": "Fail: callable path still applies OAuth gating to a non-OAuth MCP server."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Register pending-consent Arcade Microsoft MCP server and inspect /api/mcp/tools before consent",
+          "expected": "Discovered tools are listed pre-consent",
+          "observed": "Server was not surfaced with discovered tools for this pending-consent state."
+        },
+        {
+          "action": "Run scheduled invocation targeting MicrosoftOnedrive_WhoAmI",
+          "expected": "Run response includes continuation metadata (authorization_url and/or llm_instructions)",
+          "observed": "Continuation metadata fields were absent in run response."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round10-local-regressions/api-round10-validation-v2.json",
+          "customization-preservation/group-round10-local-regressions/api-round10-validation-final.json"
+        ]
+      },
+      "issues": "Fail: pending-consent tool discovery/continuation contract is still not met."
+    },
+    {
+      "id": "VAL-FILES-006",
+      "title": "Diarization mode supports named speaker clips and disables prompts where unsupported",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Probe speaker-reference constraints (non-audio, <2s, >10s, valid 6s)",
+          "expected": "Invalid files rejected and valid reference accepted",
+          "observed": "Constraint probes returned expected 400/400/400/200 outcomes."
+        },
+        {
+          "action": "Upload main audio and queue diarization transcription with speaker reference",
+          "expected": "Job queues and completes with speaker-labeled transcript lines",
+          "observed": "Rerun with long-speech fixture completed and produced speaker-labeled output (`[A]: ...`)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round10-local-regressions/api-round10-validation-v2.json",
+          "customization-preservation/group-round10-local-regressions/VAL-FILES-006-speech-rerun4.json",
+          "customization-preservation/group-round10-local-regressions/api-round10-validation-final.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "title": "Model restrictions are enforced server-side across config, chat, agents, and assistants",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Apply strict model allowlist and verify restricted model catalog",
+          "expected": "GET /api/models and config surfaces reflect filtered access including modelSpecs surface",
+          "observed": "/api/models filtered correctly, but /api/config omitted modelSpecs surface entirely."
+        },
+        {
+          "action": "Probe blocked-model enforcement across agents, assistants, assistant chat, and model chat",
+          "expected": "Blocked surfaces return model-access errors rather than success or unrelated ban errors",
+          "observed": "Agent and assistant/chat probes returned Illegal model request consistently in clean rerun without ban contamination."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round10-local-regressions/api-round10-validation-v2.json",
+          "customization-preservation/group-round10-local-regressions/VAL-MODEL-003-assistant-chat-rerun.json",
+          "customization-preservation/group-round10-local-regressions/api-round10-validation-final.json"
+        ]
+      },
+      "issues": "Fail: contract requirement for filtered modelSpecs in config response remains unmet."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Anti-abuse ban/rate-limit middleware contaminates high-volume negative-path probes with temporary-ban responses.",
+      "resolved": true,
+      "resolution": "Used seed+API-restart recovery and split blocked-model assistant/chat probes across multiple personas to capture clean model-access errors.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ]
+    },
+    {
+      "description": "Initial diarization fixture produced no detectable speech despite successful queue/execution path.",
+      "resolved": true,
+      "resolution": "Reran with long-speech fixture and obtained completed transcript with speaker label markers.",
+      "affectedAssertions": [
+        "VAL-FILES-006"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 4 assertions: 1 passed (VAL-FILES-006), 3 failed (VAL-MCP-001, VAL-MCP-004, VAL-MODEL-003)."
+}

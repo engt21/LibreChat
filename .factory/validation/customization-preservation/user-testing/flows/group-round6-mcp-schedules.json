@@ -1,0 +1,264 @@
+{
+  "groupId": "group-round6-mcp-schedules",
+  "testedAt": "2026-04-10T18:33:29.704444+00:00",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": "read-only reachability checks only",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "runtime-cli",
+    "web-ui-api-dev",
+    "python requests",
+    "local-services/dev-validate-schedule-harness.sh",
+    "docker logs"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Register local MCP validation servers at http://192.168.50.4:8765 and :8766",
+          "expected": "Servers register for no-input/open-object validation",
+          "observed": "Both calls now fail with 400 MCP_INSPECTION_FAILED (transport POST -> Not Found)."
+        },
+        {
+          "action": "Retry with non-disruptive /mcp path probe",
+          "expected": "Successful registration and schema evidence for no-input/open-object tools",
+          "observed": "/mcp registrations succeeded; returned toolFunctions include no-input get_server_capabilities with object schema and open headers schemas with additionalProperties."
+        },
+        {
+          "action": "Execute no-input tool through OpenAI-compatible scheduled flow",
+          "expected": "Run succeeds and tool is callable",
+          "observed": "Run returned 500 OAuth-consent-required error even though server was non-OAuth (requiresOAuth=false, reinitialize success)."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API/runtime-cli)",
+        "network": [
+          "customization-preservation/group-round6-mcp-schedules/20-VAL-MCP-001-create-local-noinput.json",
+          "customization-preservation/group-round6-mcp-schedules/21-VAL-MCP-001-create-local-openobj.json",
+          "customization-preservation/group-round6-mcp-schedules/93-mcp001-alt-path-probe.json",
+          "customization-preservation/group-round6-mcp-schedules/94-mcp001-callable-probe.json",
+          "customization-preservation/group-round6-mcp-schedules/95-mcp001-callable-logs.json"
+        ]
+      },
+      "issues": "Fail: registration schema checks recovered on /mcp path, but callable-path execution failed with incorrect OAuth-consent gating for a non-OAuth server."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "title": "OAuth refresh prefers protected-resource authorization server metadata",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Create/reinitialize Arcade OAuth MCP server",
+          "expected": "Reach refreshable token state to validate token-endpoint selection behavior",
+          "observed": "Server created/reinitialized into OAuth-required state with oauthUrl."
+        },
+        {
+          "action": "Inspect auth flags, flow state, and runtime logs for refresh prerequisites",
+          "expected": "Access+refresh token state available for expired-token refresh path",
+          "observed": "authValueFlags empty, oauth status remained PENDING, logs report access token missing and no refresh token available."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API/runtime-cli)",
+        "network": [
+          "customization-preservation/group-round6-mcp-schedules/40-VAL-MCP-002-create-arcade-server.json",
+          "customization-preservation/group-round6-mcp-schedules/41-VAL-MCP-003-reinit-arcade-direct.json",
+          "customization-preservation/group-round6-mcp-schedules/43-VAL-MCP-002-auth-values.json",
+          "customization-preservation/group-round6-mcp-schedules/44-VAL-MCP-002-oauth-status.json",
+          "customization-preservation/group-round6-mcp-schedules/60-mcp-api-logs-since-start.json"
+        ]
+      },
+      "issues": "Blocked: no consented/refreshable OAuth token state exists in this partition (PENDING flow only)."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "title": "OAuth callback URLs preserve precedence rules across local and proxied deployments",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Reinitialize Arcade server directly",
+          "expected": "oauthUrl callback reflects precedence chain",
+          "observed": "Direct reinitialize returned oauthUrl with redirect_uri=http://localhost:3081/.../oauth/callback (DOMAIN_SERVER-local behavior)."
+        },
+        {
+          "action": "Reinitialize with forwarded host/proto and call /oauth/initiate direct+forwarded",
+          "expected": "Forwarded/request-host precedence branches observable",
+          "observed": "Forwarded reinitialize returned success:false oauthUrl:null; direct+forwarded oauth/initiate both returned 400 Invalid flow state."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API/runtime-cli)",
+        "network": [
+          "customization-preservation/group-round6-mcp-schedules/41-VAL-MCP-003-reinit-arcade-direct.json",
+          "customization-preservation/group-round6-mcp-schedules/42-VAL-MCP-003-reinit-arcade-forwarded.json",
+          "customization-preservation/group-round6-mcp-schedules/45-VAL-MCP-003-oauth-initiate-direct.json",
+          "customization-preservation/group-round6-mcp-schedules/46-VAL-MCP-003-oauth-initiate-forwarded.json",
+          "customization-preservation/group-round6-mcp-schedules/60-mcp-api-logs-since-start.json"
+        ]
+      },
+      "issues": "Blocked: local DOMAIN_SERVER branch is visible, but forwarded/request-host precedence branches were not reachable from current flow state."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Inspect /api/mcp/tools for pending-consent Arcade server",
+          "expected": "Server lists discovered tools before consent",
+          "observed": "Arcade server appears but tools array is empty before consent."
+        },
+        {
+          "action": "Invoke pending-consent MCP schedule target",
+          "expected": "Response surfaces continuation metadata (authorization_url and/or llm_instructions)",
+          "observed": "Run returned 500 OAuth-consent-required message without structured authorization_url/llm_instructions fields in API response payload."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API/runtime-cli)",
+        "network": [
+          "customization-preservation/group-round6-mcp-schedules/47-VAL-MCP-004-tools-surface.json",
+          "customization-preservation/group-round6-mcp-schedules/48-VAL-MCP-004-create-schedule-arcade.json",
+          "customization-preservation/group-round6-mcp-schedules/49-VAL-MCP-004-run-schedule-arcade.json"
+        ]
+      },
+      "issues": "Fail: pending-consent tool discovery remained empty and continuation metadata was not surfaced in the user-facing run response."
+    },
+    {
+      "id": "VAL-SCHED-008",
+      "title": "Notification delivery results are channel-specific and non-fatal",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run harness push-payload-observe with push-enabled schedule",
+          "expected": "Channel-level push result includes delivered payload with DOMAIN_CLIENT-rooted /c/<conversationId> link",
+          "observed": "Run 200 exposed sentPayload with url=http://192.168.50.4:3080/c/<conversationId>, status=completed, and matching conversationId path."
+        },
+        {
+          "action": "Exercise no-conversation branch with invalid-model push schedule",
+          "expected": "Run failure keeps execution result and omits link cleanly (url absent/null)",
+          "observed": "Run 500 preserved notificationResults.push and executionResult; sentPayload had url:null and conversationId:null."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API/runtime-cli)",
+        "network": [
+          "customization-preservation/group-round6-mcp-schedules/73-harness-push-payload-observe-rerun.log",
+          "customization-preservation/group-round6-mcp-schedules/84-harness-push-payload-observe-run.json",
+          "customization-preservation/group-round6-mcp-schedules/85-harness-push-observed-payload.json",
+          "customization-preservation/group-round6-mcp-schedules/79-sched008-no-conversation-invalid-model.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SCHED-009",
+      "title": "Browser push subscription lifecycle persists and can be removed",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run harness push-lifecycle phase (subscribe/resubscribe/unsubscribe)",
+          "expected": "subscriptionCount increments, re-subscribe does not double-count, unsubscribe removes endpoint",
+          "observed": "Lifecycle checks passed (count 1 -> 1 -> 0)."
+        },
+        {
+          "action": "Run harness push-stale-prune with 410 mock endpoint",
+          "expected": "404/410 stale endpoint appears in expiredEndpoints and is pruned",
+          "observed": "Delivery attempt reached mock endpoint, but expiredEndpoints stayed empty and subscriptionCount did not decrease."
+        },
+        {
+          "action": "Run harness push-click-open structural verification",
+          "expected": "Delivered notification click-open/focus behavior verified end-to-end",
+          "observed": "Service-worker handlers and related tests verified, but no real browser notification click path executed in this isolation run."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (runtime-cli; no interactive browser notification delivery session)",
+        "network": [
+          "customization-preservation/group-round6-mcp-schedules/70-harness-push-lifecycle.log",
+          "customization-preservation/group-round6-mcp-schedules/81-harness-push-subscribe-response.json",
+          "customization-preservation/group-round6-mcp-schedules/82-harness-push-resubscribe-response.json",
+          "customization-preservation/group-round6-mcp-schedules/83-harness-push-unsubscribe-response.json",
+          "customization-preservation/group-round6-mcp-schedules/74-harness-push-stale-prune.log",
+          "customization-preservation/group-round6-mcp-schedules/86-harness-stale-prune-run.json",
+          "customization-preservation/group-round6-mcp-schedules/87-harness-stale-prune-push-result.json",
+          "customization-preservation/group-round6-mcp-schedules/88-harness-stale-prune-post-settings.json",
+          "customization-preservation/group-round6-mcp-schedules/89-harness-stale-endpoint-events.jsonl",
+          "customization-preservation/group-round6-mcp-schedules/75-harness-push-click-open.log",
+          "customization-preservation/group-round6-mcp-schedules/90-harness-push-sw-deployed.js"
+        ]
+      },
+      "issues": "Blocked on full contract completion: stale-endpoint pruning and real click-open behavior were not proven end-to-end in this environment."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Local MCP validation servers now reject root URLs with MCP_INSPECTION_FAILED (Not Found); /mcp path is required for successful registration.",
+      "resolved": true,
+      "resolution": "Retried MCP server registration with /mcp suffix and captured successful schema/connection evidence.",
+      "affectedAssertions": [
+        "VAL-MCP-001"
+      ]
+    },
+    {
+      "description": "Frequent auth/API probing triggered temporary throttle/ban responses during this batch.",
+      "resolved": true,
+      "resolution": "Repeated approved recovery flow (dev-seed-validation-personas.js + docker restart librechat-dev-api + wait).",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004",
+        "VAL-SCHED-008",
+        "VAL-SCHED-009"
+      ]
+    },
+    {
+      "description": "push-stale-prune phase emitted `STALE_SERVER_PID: unbound variable` after completion despite reporting exit code 0.",
+      "resolved": false,
+      "resolution": "Captured log as evidence; continued remaining assertion checks.",
+      "affectedAssertions": [
+        "VAL-SCHED-009"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "No consented Arcade refresh persona/token state available to exercise OAuth refresh endpoint-selection behavior.",
+      "affectedAssertions": [
+        "VAL-MCP-002"
+      ],
+      "quickFixAttempted": "Created/reinitialized Arcade server and checked auth-values + oauth status + logs; flow remained PENDING with no refresh token."
+    },
+    {
+      "description": "Forwarded/request-host callback-precedence branches were unreachable from current OAuth flow state.",
+      "affectedAssertions": [
+        "VAL-MCP-003"
+      ],
+      "quickFixAttempted": "Ran direct + forwarded reinitialize and direct + forwarded oauth/initiate probes; forwarded reinit returned oauthUrl null and initiate calls returned Invalid flow state."
+    },
+    {
+      "description": "Runtime stale-endpoint pruning and real browser click-open behavior were not fully reproducible end-to-end in this isolation run.",
+      "affectedAssertions": [
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "Executed push-lifecycle, push-stale-prune, and push-click-open harness phases; stale mock endpoint received requests but was not pruned, and click-open verification remained structural."
+    }
+  ],
+  "summary": "Tested 6 assertions: 1 passed (VAL-SCHED-008), 2 failed (VAL-MCP-001, VAL-MCP-004), 3 blocked (VAL-MCP-002, VAL-MCP-003, VAL-SCHED-009)."
+}

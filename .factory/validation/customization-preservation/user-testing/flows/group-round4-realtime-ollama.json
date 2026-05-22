@@ -1,0 +1,234 @@
+{
+  "groupId": "group-round4-realtime-ollama",
+  "testedAt": "2026-04-10T06:39:11Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "stableRailUsed": false,
+    "personas": [
+      "val-user@dev.local",
+      "val-superadmin@dev.local"
+    ],
+    "antiAbuseReset": {
+      "seedCommand": "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+      "apiRestart": "docker restart librechat-dev-api",
+      "waitSeconds": 25,
+      "completed": true
+    }
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "node",
+    "python3",
+    "docker logs"
+  ],
+  "commandsRun": [
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api",
+    "curl -s -o /tmp/realtime_models_unauth.out -w '%{http_code}' http://127.0.0.1:3081/api/realtime/models",
+    "curl -X POST http://127.0.0.1:3081/api/auth/login (...val-user/val-superadmin...)",
+    "curl -H 'Authorization: Bearer <token>' http://127.0.0.1:3081/api/realtime/models",
+    "curl websocket-upgrade probes against /api/realtime/ws with stale token (with/without cookies)",
+    "node ws probes sending session.start for openAI/azureOpenAI/xai over stale-token websocket",
+    "agent-browser --session 6cedb62c379a__a2 UI checks and screenshots on http://127.0.0.1:3081",
+    "docker logs --since 10m librechat-dev-api"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-REALTIME-002",
+      "title": "Realtime provider discovery is auth-gated, credential-aware, and resilient to stale websocket query tokens",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Call /api/realtime/models unauthenticated",
+          "expected": "401 auth gate",
+          "observed": "401 Unauthorized"
+        },
+        {
+          "action": "Call /api/realtime/models as val-superadmin",
+          "expected": "Provider metadata includes available/requiresUserKey/reason",
+          "observed": "openAI/google available=true; azureOpenAI/xai available=false with requiresUserKey=true and actionable reason strings"
+        },
+        {
+          "action": "Probe /api/realtime/ws with stale token",
+          "expected": "Cookie fallback succeeds while no-cookie stale token is rejected",
+          "observed": "stale token + cookie => 101 Switching Protocols; stale token without cookie => 401 Unauthorized"
+        },
+        {
+          "action": "Send websocket session.start",
+          "expected": "OpenAI branch starts; Azure/xAI branch requires usable creds and xAI unavailable-model guard can be exercised",
+          "observed": "openAI session.started received; azureOpenAI and xai returned explicit missing-credential errors"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-realtime-ollama/realtime-dialog-provider-state.png",
+          "customization-preservation/group-round4-realtime-ollama/realtime-dialog-azure-unavailable.png",
+          "customization-preservation/group-round4-realtime-ollama/realtime-dialog-xai-unavailable.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-realtime-ollama/browser-errors.txt)",
+        "network": "realtime models JSON and ws handshake/session probes: val-user-realtime-models.json, val-superadmin-realtime-models.json, realtime-ws-stale-token-with-cookie.headers.txt, realtime-ws-stale-token-no-cookie.headers.txt, realtime-session-start-cases.json, realtime-openai-session-events.json"
+      },
+      "blockedBy": "Azure and xAI credential-dependent branches remain unavailable in this isolation (both return missing key/base URL), so full provider-specific contract coverage (including xAI unavailable-model rejection under credentialed path) could not be completed."
+    },
+    {
+      "id": "VAL-REALTIME-004",
+      "title": "Native web search exposes inline stream status instead of silent backend-only activity",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Enable Ollama Web Search and send explicit web-search prompt",
+          "expected": "Inline stream part shows 'Searching the web…' during search activity",
+          "observed": "Repeated waits for 'Searching the web' timed out; no inline status text appeared"
+        },
+        {
+          "action": "Observe stream lifecycle",
+          "expected": "Search status transitions and clean completion",
+          "observed": "Turns were long-running/stalled and required manual stop in this run"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-realtime-ollama/websearch-stream-early.png",
+          "customization-preservation/group-round4-realtime-ollama/post-search-no-inline-status.png",
+          "customization-preservation/group-round4-realtime-ollama/websearch-long-running-no-status.png",
+          "customization-preservation/group-round4-realtime-ollama/web-search-attempt-stopped-no-status.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-realtime-ollama/browser-errors.txt)",
+        "network": "chat stream requests recorded to /api/agents/chat/ollama and /api/agents/chat/stream/* in browser-network-requests.txt; no rendered inline 'Searching the web' text in websearch-body-after-attempt.txt / websearch-body-after-stop.txt"
+      },
+      "reason": "Expected inline native web-search status was not observable in the tested flows."
+    },
+    {
+      "id": "VAL-REALTIME-005",
+      "title": "Reasoning and grounded-source presentation remains merged and source-linked",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run Ollama web-search/grounded turns and inspect rendered output",
+          "expected": "Merged Thoughts chunks and source-linked grounded output",
+          "observed": "No grounded/source-linked assistant output was produced in the exercised turns"
+        },
+        {
+          "action": "Inspect persisted messages",
+          "expected": "Content available for Thoughts/source-linked validation",
+          "observed": "Persisted assistant payloads for failed turns contained error entries or empty content in this run"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-realtime-ollama/websearch-long-running-no-status.png",
+          "customization-preservation/group-round4-realtime-ollama/provider011-final-attempt.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-realtime-ollama/browser-errors.txt)",
+        "network": "conversation/message payloads in ollama-convos-latest.json, ollama-messages-deepseek-websearch-error.json, ollama-messages-19plus23.json; backend failure traces in dev-api-log-last10m.txt"
+      },
+      "blockedBy": "Web-search and reasoning turns did not yield successful grounded/source-linked assistant output in this environment run, preventing direct validation of merged Thoughts and source mapping behavior."
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "title": "Ollama hosted web search keeps native-default and MCP-mode behavior",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Use Ollama with Web Search enabled and send explicit search prompts",
+          "expected": "Hosted web_search/web_fetch path executes with normal search artifacts/sources",
+          "observed": "Deepseek runs failed with provider error '...does not support tools'; alternate Ollama runs stalled without user-visible search artifacts/sources"
+        },
+        {
+          "action": "Check mode behavior",
+          "expected": "Native-default behavior plus switchable MCP mode",
+          "observed": "No successful end-to-end mode-behavior output could be observed from the tested UI run; chat requests repeatedly entered active/stalled loops"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-realtime-ollama/new-chat-websearch-on-reasoning-off.png",
+          "customization-preservation/group-round4-realtime-ollama/websearch-stream-early.png",
+          "customization-preservation/group-round4-realtime-ollama/websearch-long-running-no-status.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-realtime-ollama/browser-errors.txt)",
+        "network": "POST /api/agents/chat/ollama and stream polling captured in browser-network-requests.txt; persisted deepseek error payload in ollama-messages-deepseek-websearch-error.json; backend errors in dev-api-log-last10m.txt"
+      },
+      "reason": "Observed Ollama web-search behavior did not satisfy the hosted web-search contract in this run (tool incompatibility/stalled responses, no search artifacts/sources)."
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "title": "Ollama reasoning none remains a real off switch",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Set Reasoning Effort to off/none in Parameters",
+          "expected": "Value persists as off/none",
+          "observed": "Reasoning control repeatedly read back as 'Off' after slider update"
+        },
+        {
+          "action": "Run Ollama prompts and verify no visible thoughts output",
+          "expected": "No visible Thoughts/reasoning blocks in responses",
+          "observed": "Test turns did not produce stable assistant completions (tool incompatibility/stalled streams), so visible-suppression behavior could not be conclusively observed"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-realtime-ollama/reasoning-effort-none-confirmed.png",
+          "customization-preservation/group-round4-realtime-ollama/provider011-deepseek-selected-off.png",
+          "customization-preservation/group-round4-realtime-ollama/provider011-final-attempt.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-realtime-ollama/browser-errors.txt)",
+        "network": "Reasoning value/text captures in provider011-final-body.txt and provider011-deepseek-body.txt; persisted conversation payloads in ollama-messages-19plus23.json / ollama-messages-deepseek-websearch-error.json; backend errors in dev-api-log-last10m.txt"
+      },
+      "blockedBy": "Reasoning control persistence was confirmed, but output-suppression verification was blocked by repeated Ollama turn failures/stalls in this environment run."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Long-running Ollama chat streams frequently remained in active state and required manual stop, which made stable end-state observation difficult.",
+      "resolved": true,
+      "resolution": "Captured intermediate/final-stop screenshots and correlated with API logs/messages.",
+      "affectedAssertions": [
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005",
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011"
+      ]
+    },
+    {
+      "description": "Tools popup + control-panel focus caused frequent ref churn in agent-browser sessions.",
+      "resolved": true,
+      "resolution": "Re-snapshotted repeatedly and continued with explicit evidence captures.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Azure realtime credential branch is unavailable for the validation persona (user-provided key/base URL missing).",
+      "affectedAssertions": [
+        "VAL-REALTIME-002"
+      ],
+      "quickFixAttempted": "Verified provider metadata and attempted websocket session.start; server returned 'Azure OpenAI realtime requires both an API key and base URL.'"
+    },
+    {
+      "description": "xAI realtime credential branch is unavailable for the validation persona (user-provided key/base URL missing).",
+      "affectedAssertions": [
+        "VAL-REALTIME-002"
+      ],
+      "quickFixAttempted": "Verified provider metadata and attempted websocket session.start; server returned 'xAI realtime endpoint \"xai\" requires both an API key and base URL.'"
+    },
+    {
+      "description": "Ollama turns repeatedly failed or stalled under tested configurations (including deepseek tool incompatibility error), blocking reliable end-state rendering checks.",
+      "affectedAssertions": [
+        "VAL-REALTIME-005",
+        "VAL-PROVIDER-011"
+      ],
+      "quickFixAttempted": "Retried with multiple Ollama models, toggled chat-bar Web Search, and captured logs/messages; failures persisted in this run."
+    }
+  ],
+  "summary": "Tested 5 assigned assertions on dev rail: 0 pass, 2 fail (VAL-REALTIME-004, VAL-PROVIDER-010), 3 blocked (VAL-REALTIME-002, VAL-REALTIME-005, VAL-PROVIDER-011). Auth gating, provider metadata, and stale-token cookie fallback for realtime were confirmed, but Azure/xAI credential branches remained unavailable; Ollama web-search/reasoning flows were unstable (tool incompatibility or stalled streams), preventing full contract completion."
+}

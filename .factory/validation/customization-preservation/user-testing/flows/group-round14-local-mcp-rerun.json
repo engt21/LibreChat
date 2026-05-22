@@ -1,0 +1,74 @@
+{
+  "groupId": "group-round14-local-mcp-rerun",
+  "testedAt": "2026-04-11T07:49:24Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": "none",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local"
+    ],
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json"
+  },
+  "toolsUsed": [
+    "python3 (urllib)",
+    "curl (dev preflight parity)",
+    "web-ui-api-dev"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Create non-OAuth MCP server via POST /api/mcp/servers and inspect no-input/open-object schemas",
+          "expected": "Server registers with requiresOAuth=false; no-input schema remains object; open-object schema keeps additionalProperties",
+          "observed": "create status=201; requiresOAuth=False; noinputObject=True; openHasAdditionalProps=True."
+        },
+        {
+          "action": "Run scheduled OpenAI-compatible invocation using created MCP server",
+          "expected": "MCP tool invocation succeeds (not tool-not-found / OAuth-gated / init failure)",
+          "observed": "run status=200; lastStatus=succeeded; preview={}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round14-local-mcp-rerun/api-round14-local-mcp-rerun.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Create pending-consent Arcade server and inspect pre-consent /api/mcp/tools visibility",
+          "expected": "Initialization succeeds with pre-consent tools discoverable",
+          "observed": "create status=201; requiresOAuth=True; preConsentToolsListed=False; finalToolsCount=0."
+        },
+        {
+          "action": "Run scheduled invocation and inspect continuation payload fields",
+          "expected": "Response surfaces authorization_url and/or llm_instructions continuation metadata (and continuationMetadata presence recorded)",
+          "observed": "run status=500; authorization_url_present=False; llm_instructions_present=False; continuationMetadata_present=True."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API validation)",
+        "network": [
+          "customization-preservation/group-round14-local-mcp-rerun/api-round14-local-mcp-rerun.json"
+        ]
+      },
+      "issues": "Fail: VAL-MCP-004 criteria not met; continuation fields and/or pre-consent tool listing missing."
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 2 assertions on dev rail: 1 passed, 1 failed, 0 blocked."
+}

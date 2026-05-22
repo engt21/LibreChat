@@ -1,0 +1,233 @@
+{
+  "groupId": "group-round3-provider-advanced",
+  "testedAt": "2026-04-06T12:23:23Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "manifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json",
+    "stableRailUsed": false,
+    "personas": [
+      "val-superadmin@dev.local"
+    ],
+    "antiAbuseReset": {
+      "seedCommand": "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+      "apiRestart": "docker restart librechat-dev-api",
+      "waitSeconds": 25,
+      "completed": true
+    }
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "python3",
+    "docker logs"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-007",
+      "title": "xAI custom endpoints auto-detect and refresh live models with aliases",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open model picker and inspect xAI endpoint before saving user key",
+          "expected": "xAI appears with bootstrap models prior to user-key save",
+          "observed": "xAI endpoint was visible and selectable; model list showed grok-4-0709, grok-4.20-beta-latest-non-reasoning, grok-4.20-beta-latest-reasoning, grok-3-mini, grok-code-fast-1."
+        },
+        {
+          "action": "Send xAI turn",
+          "expected": "With key saved, runtime can refresh/execute against live xAI model path",
+          "observed": "Turn failed in UI with: 'No key found. Please provide a key and try again.'"
+        },
+        {
+          "action": "Probe xAI key status via API",
+          "expected": "Concrete key-state signal",
+          "observed": "GET /api/keys?name=xai&includeValue=true -> 200 with {\"expiresAt\":null}."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider007-model-selector-with-xai.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider007-xai-models-visible.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider007-xai-send-result.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-advanced/r3pa-browser-errors-final.txt)",
+        "network": "GET /api/keys?name=xai&includeValue=true -> 200 (r3pa-api-keys-xai-headers.txt, r3pa-api-keys-xai.json); UI error text in r3pa-provider007-xai-page-text.txt"
+      },
+      "issues": "Blocked by missing xAI user key; live refresh-after-save and alias-preservation behavior cannot be completed without a valid saved key."
+    },
+    {
+      "id": "VAL-PROVIDER-008",
+      "title": "xAI settings stay capability-aware and sanitize unsupported runtime params",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open xAI Set Key dialog and parameter surfaces",
+          "expected": "Capability-aware settings visible; unsupported runtime params verifiable",
+          "observed": "xAI set-key dialog opened; runtime-path checks could not proceed due missing key."
+        },
+        {
+          "action": "Attempt xAI runtime request for param-shaping verification",
+          "expected": "Request executes so unsupported params can be validated as stripped/sanitized",
+          "observed": "Runtime blocked with 'No key found. Please provide a key and try again.'"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider008-xai-setkey-dialog.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider008A-xai-send-after-tools.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-advanced/r3pa-browser-errors-final.txt)",
+        "network": "xAI key probe remained unset: GET /api/keys?name=xai&includeValue=true -> 200 {expiresAt:null}; runtime error text in r3pa-provider008A-xai-page-text-after-tools.txt"
+      },
+      "issues": "Blocked by missing xAI key; unsupported-runtime-parameter sanitization cannot be validated without a successful outbound xAI request path."
+    },
+    {
+      "id": "VAL-PROVIDER-008A",
+      "title": "xAI native web search strips only the intended generic tool",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Enable xAI chat-bar tools (File Search and Web Search attempts) and send prompt",
+          "expected": "Successful xAI-native web-search turn to verify strip-only behavior",
+          "observed": "Execution blocked at credential stage; UI returned 'No key found. Please provide a key and try again.'"
+        },
+        {
+          "action": "Confirm key state",
+          "expected": "If key missing, treat as blocker",
+          "observed": "xAI key endpoint remained unset ({\"expiresAt\":null})."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider008A-xai-tools-enabled.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider008A-xai-badges-visible.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider008A-xai-send-after-tools.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-advanced/r3pa-browser-errors-final.txt)",
+        "network": "GET /api/keys?name=xai&includeValue=true -> 200 {expiresAt:null}; UI runtime failure text in r3pa-provider008A-xai-page-text-after-tools.txt"
+      },
+      "issues": "Blocked: xAI-native strip behavior is not testable until a valid xAI key is saved for the user."
+    },
+    {
+      "id": "VAL-PROVIDER-009",
+      "title": "Ollama model discovery merges multiple sources and resolves per-model origin",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Inspect Ollama model list from UI and API",
+          "expected": "Discovered Ollama catalog is visible on user surface",
+          "observed": "UI showed Ollama model list (including qwen2.5:latest, gemma3:latest, deepseek-r1:14b); GET /api/models returned ollama=12 models."
+        },
+        {
+          "action": "Validate source-merge dedupe and per-model origin mapping",
+          "expected": "User-surface proof for multi-source merge, /api/tags->/models fallback, and model->origin routing",
+          "observed": "No per-model origin metadata or fallback-path diagnostics were exposed on tested UI/API surfaces."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider009-ollama-model-list-open.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider009-selected-qwen25latest.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-advanced/r3pa-browser-errors-final.txt)",
+        "network": "GET /api/models -> 200 (r3pa-api-models-headers.txt, r3pa-api-models-summary.json); endpoint metadata in r3pa-api-endpoints.json"
+      },
+      "issues": "Blocked on observability: per-model origin resolution and explicit /api/tags-to-/models fallback behavior were not inspectable from assigned user-surface isolation."
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "title": "Ollama hosted web search keeps native-default and MCP-mode behavior",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Select Ollama qwen2.5:latest and enable Search from chat-bar tools",
+          "expected": "Web-search-enabled Ollama turn should use hosted search behavior and surface search artifacts/sources",
+          "observed": "Turn completed but assistant responded it had no internet access; no Sources/search artifacts were rendered."
+        },
+        {
+          "action": "Inspect parameters and runtime context",
+          "expected": "Mode behavior should be verifiable for native-default and hidden MCP-mode expectations",
+          "observed": "Parameters panel showed Web Search switch but no visible mode control; logs showed MCP ollama_search_fetch tools (web_search, web_fetch) initialized, yet user-visible output remained non-search."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider010-ollama-web-search-enabled.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider010-ollama-parameters-panel.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider010-ollama-web-search-completed.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-advanced/r3pa-browser-errors-final.txt)",
+        "network": "Conversation/message API: /api/convos?limit=10 -> 200 and /api/messages/c1fbdfde-d632-458e-9f8c-d31b42fc2f96 -> 200 (r3pa-provider010-convo.json, r3pa-provider010-messages.json) showing qwen2.5 response without search artifacts; MCP tool init logs in r3pa-dev-api-log-tail-provider-filtered.txt"
+      },
+      "issues": "Observed behavior did not satisfy contract expectations for hosted web-search output/signals on tested Ollama flow."
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "title": "Ollama reasoning none remains a real off switch",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Switch to deepseek-r1:14b and set Reasoning Effort textbox to 'none'",
+          "expected": "Reasoning off-switch accepted as none",
+          "observed": "Reasoning Effort readback remained 'Auto' after set attempt (not 'none')."
+        },
+        {
+          "action": "Run deepseek prompt with tools disabled",
+          "expected": "No visible reasoning/thoughts output when off-switch is active",
+          "observed": "Response rendered visible 'Thoughts' UI and message payload included content type 'think' with reasoning text."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider011-selected-deepseek.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider011-reasoning-set-none.png",
+          "customization-preservation/group-round3-provider-advanced/r3pa-provider011-thoughts-visible-no-tools.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round3-provider-advanced/r3pa-browser-errors-final.txt)",
+        "network": "Reasoning value files show Auto after set attempt (r3pa-provider011-reasoning-value-after-set.txt, r3pa-provider011-reasoning-value-after-no-tools-response.txt); /api/messages/c1fbdfde-d632-458e-9f8c-d31b42fc2f96 -> 200 includes Deepseek content [{type:'think'}, {type:'text'}] in r3pa-provider011-messages-final.json"
+      },
+      "issues": "Reasoning off-switch behavior failed: 'none' did not persist and visible reasoning output still appeared."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Long-running Ollama turns occasionally caused transient agent-browser daemon busy errors ('Resource temporarily unavailable').",
+      "resolved": true,
+      "resolution": "Recovered by re-snapshotting and continuing once turn completion settled; captured final outputs after retries.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011"
+      ]
+    },
+    {
+      "description": "Disabling Search from chat bar opened search-provider key modal (Serper/Firecrawl/Jina) mid-flow.",
+      "resolved": true,
+      "resolution": "Cancelled modal and continued with tool-state cleanup/checks.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-011"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "xAI user key is still missing for validation persona.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-007",
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A"
+      ],
+      "quickFixAttempted": "Verified key status via GET /api/keys?name=xai&includeValue=true (200 {expiresAt:null}) and retried xAI turns; all remained blocked with 'No key found'."
+    },
+    {
+      "description": "Per-model origin/fallback diagnostics for Ollama discovery were not exposed on tested user/API surface.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-009"
+      ],
+      "quickFixAttempted": "Validated visible model catalog via UI and /api/models, and checked endpoint metadata/logs; origin mapping and explicit /api/tags->/models fallback proof remained unavailable in-scope."
+    }
+  ],
+  "summary": "Retested 6 provider-advanced assertions on dev rail: 0 pass, 2 fail (VAL-PROVIDER-010, VAL-PROVIDER-011), 4 blocked (VAL-PROVIDER-007, VAL-PROVIDER-008, VAL-PROVIDER-008A, VAL-PROVIDER-009). xAI assertions remain credential-blocked with concrete key-status evidence, and Ollama retries with qwen2.5/deepseek produced reproducible contract failures for hosted web-search output and reasoning-none off-switch behavior."
+}

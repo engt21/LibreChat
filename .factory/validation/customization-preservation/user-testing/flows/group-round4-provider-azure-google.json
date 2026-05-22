@@ -1,0 +1,220 @@
+{
+  "groupId": "group-round4-provider-azure-google",
+  "testedAt": "2026-04-10T07:50:55Z",
+  "surface": "web-ui-api-dev",
+  "guidance": "Flow Validator Guidance: web-ui-api-dev",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "evidenceDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386/evidence/customization-preservation/group-round4-provider-azure-google",
+    "stableRailUsed": false,
+    "personas": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ],
+    "browserSession": "6cedb62c379a__c1"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "docker logs",
+    "python3"
+  ],
+  "commandsRun": [
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api",
+    "sleep 25",
+    "curl -X POST http://127.0.0.1:3081/api/auth/login (val-superadmin, val-user)",
+    "agent-browser --session 6cedb62c379a__c1 open http://127.0.0.1:3081/login",
+    "agent-browser UI flow for OpenAI/Azure/Google provider toggles and chat attempts",
+    "curl GET http://127.0.0.1:3081/api/models,/api/config,/api/endpoints,/api/keys",
+    "curl PUT http://127.0.0.1:3081/api/keys (azureOpenAI direct/legacy payload probes)",
+    "docker logs librechat-dev-api --since 2m/15m/30m"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-001",
+      "title": "OpenAI and Azure chat-bar toggles honor native-vs-local routing policy",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open OpenAI chat and pin/enable Search + Code Interpreter + File Search directly from Tools UI.",
+          "expected": "Toggles enable in chat bar/tools without forced settings/auth modal.",
+          "observed": "OpenAI toggles were pinned and checked directly in chat UI; OpenAI turn returned \"OK\"."
+        },
+        {
+          "action": "Attempt Azure-scoped chat turn from /c/new?endpoint=azureOpenAI&model=gpt-4.1 with toggles enabled.",
+          "expected": "Azure branch executes so native-vs-local runtime behavior can be observed.",
+          "observed": "Azure turn failed with \"No key found. Please provide a key and try again.\"; per-user azure key expiry remained null."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-001-tools-openai-menu.png",
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-001-openai-toggles-checked.png",
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-001-openai-turn-result.png",
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-001-azure-url-open.png",
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-001-azure-turn-result.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-provider-azure-google/group-round4-provider-azure-google-browser-errors.txt)",
+        "network": "api-keys-azure-superadmin-body.json + api-keys-azure-user-body.json show {\"expiresAt\":null}; VAL-PROVIDER-001-azure-turn-body.txt contains \"No key found. Please provide a key and try again.\""
+      },
+      "issues": "Blocked by missing Azure user credentials on dev rail; Azure execution branch could not be validated beyond key-gated failure."
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "title": "Azure direct /openai/v1 routes omit api-version",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Save Azure key payloads via /api/keys with direct /openai/v1 and legacy-style baseURL variants, then fetch /api/models to trigger outbound model discovery.",
+          "expected": "Direct /openai/v1 requests omit api-version; legacy non-/openai/v1 requests include api-version.",
+          "observed": "Direct and legacy payloads saved (201), but both outbound attempts logged GET .../openai/v1/models without api-version (legacy branch did not preserve api-version behavior)."
+        },
+        {
+          "action": "Verify per-user key isolation and cleanup after test mutation.",
+          "expected": "Only superadmin key mutates; val-user key remains unchanged; cleanup restores null expiry.",
+          "observed": "val-user key remained {\"expiresAt\":null}; cleanup returned superadmin key to {\"expiresAt\":null}."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-001-azure-selector-open.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-provider-azure-google/group-round4-provider-azure-google-browser-errors.txt)",
+        "network": "VAL-PROVIDER-001A-valid-summary.json + VAL-PROVIDER-001A-legacy-deployments-summary.json show legacy_contains_api_version=false while legacy samples still hit /openai/v1/models; key isolation in VAL-PROVIDER-001A-key-user-after-direct-valid.json; cleanup in VAL-PROVIDER-001A-posttests-cleanup-key.json"
+      },
+      "issues": "Contract mismatch observed: legacy non-/openai/v1 probe still normalized to /openai/v1/models and did not append api-version."
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "title": "Gemini native tools honor safe-request and routing gates",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run safe Google request (gemini-2.5-pro, search enabled, no attachment).",
+          "expected": "Safe request should execute so native vs fallback routing can be observed.",
+          "observed": "Backend returned GoogleGenerativeAI 400 API_KEY_INVALID (API Key not found); routing-gate behavior could not be inspected."
+        },
+        {
+          "action": "Run unsafe mixed request with attached file (val-provider-003.txt) plus search/file-search toggles.",
+          "expected": "Mixed payload should demonstrate fallback gate behavior.",
+          "observed": "Attached-file flow executed, but request again failed at Google credential layer with API_KEY_INVALID before routing gate outcome was observable."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-003-google-url-open.png",
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-003-google-file-attached.png",
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-003-google-safe-turn-result-final.png",
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-003-google-unsafe-turn-result-final.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-provider-azure-google/group-round4-provider-azure-google-browser-errors.txt)",
+        "network": "VAL-PROVIDER-003-google-api-key-errors.txt contains repeated GoogleGenerativeAI API_KEY_INVALID errors at 07:44:08 and 07:46:29; api-keys-google-superadmin-body.json shows {\"expiresAt\":null}"
+      },
+      "issues": "Blocked by invalid/missing Google credentials in this environment partition (API_KEY_INVALID)."
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "title": "Google live discovery and capability metadata stay intact",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Inspect Google provider model availability and key state via /api/models and /api/keys.",
+          "expected": "With valid credentials and GOOGLE_MODELS unset, live discovery/capability metadata should be verifiably runnable.",
+          "observed": "Model list is present but user google key remains unset (expiresAt null); runtime execution attempts fail with API_KEY_INVALID."
+        },
+        {
+          "action": "Run real Gemini execution from UI to validate discovered model viability.",
+          "expected": "Discovered model should execute if discovery credentials are valid.",
+          "observed": "Execution failed with GoogleGenerativeAI API_KEY_INVALID, so live discovery/capability integrity could not be validated end-to-end."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-model-selector-open.png",
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-003-google-url-open.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-provider-azure-google/group-round4-provider-azure-google-browser-errors.txt)",
+        "network": "api-models-superadmin-body.json + api-keys-google-superadmin-body.json + VAL-PROVIDER-003-google-api-key-errors.txt (400/API_KEY_INVALID)"
+      },
+      "issues": "Blocked by missing/invalid Google credential path; live-discovery behavior cannot be confirmed without runnable Google auth."
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "title": "Gemini grounding still produces inline citations and Sources entries",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Attempt grounded Gemini request in google endpoint flow.",
+          "expected": "Grounded response should render inline citations and Sources entries.",
+          "observed": "Request failed before grounded output due GoogleGenerativeAI API_KEY_INVALID."
+        },
+        {
+          "action": "Retry via attached-file mixed request to inspect citation rendering path.",
+          "expected": "Grounding/citation rendering remains inspectable across variants.",
+          "observed": "Second request again failed at credential layer (API_KEY_INVALID), producing no grounded citation payload to render."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-003-google-safe-turn-result-final.png",
+          "customization-preservation/group-round4-provider-azure-google/VAL-PROVIDER-003-google-unsafe-turn-result-final.png"
+        ],
+        "consoleErrors": "none (customization-preservation/group-round4-provider-azure-google/group-round4-provider-azure-google-browser-errors.txt)",
+        "network": "VAL-PROVIDER-003-google-api-key-errors.txt + group-round4-provider-azure-google-dev-api-log-tail-late.txt show API_KEY_INVALID blocking grounded generation."
+      },
+      "issues": "Blocked by Google API credential failure; grounded response/citation UI was not reachable."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Initial /api/keys azureOpenAI mutation using expiresAt=\"never\" returned 500.",
+      "resolved": true,
+      "resolution": "Retried with expiresAt omitted; subsequent direct/legacy key writes returned 201 and testing continued.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001A"
+      ]
+    },
+    {
+      "description": "Attach File Options is not a direct input element for upload automation.",
+      "resolved": true,
+      "resolution": "Exposed hidden input[type=file] via DOM eval and uploaded /tmp/val-provider-003.txt through surfaced Choose File control.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003"
+      ]
+    },
+    {
+      "description": "Browser network request collector returned \"No requests captured\" for this session.",
+      "resolved": true,
+      "resolution": "Used dev API container logs + API response files as network/request evidence source.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Azure execution branch remains credential-gated for user-provided Azure settings in this dev partition.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001"
+      ],
+      "quickFixAttempted": "Attempted Azure-scoped turn on /c/new?endpoint=azureOpenAI&model=gpt-4.1; UI returned \"No key found\" and /api/keys showed expiresAt null."
+    },
+    {
+      "description": "Google runtime credential path invalid (GoogleGenerativeAI API_KEY_INVALID).",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ],
+      "quickFixAttempted": "Retried safe and attached-file mixed Gemini requests; both logged API_KEY_INVALID in dev API logs."
+    }
+  ],
+  "summary": "Tested 5 assigned assertions: 1 failed (VAL-PROVIDER-001A), 4 blocked (VAL-PROVIDER-001, VAL-PROVIDER-003, VAL-PROVIDER-004, VAL-PROVIDER-005). OpenAI toggle UX worked, but Azure remained key-gated and Google execution remained blocked by API_KEY_INVALID."
+}

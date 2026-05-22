@@ -1,0 +1,202 @@
+{
+  "groupId": "group-round5-schedules-model",
+  "testedAt": "2026-04-10T14:16:56Z",
+  "isolation": {
+    "milestone": "customization-preservation",
+    "rail": "dev",
+    "appUrl": "http://127.0.0.1:3081",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "repo": "/pool/home/timeng/LibreChat-custom"
+  },
+  "toolsUsed": [
+    "runtime-cli",
+    "web-ui-api-dev",
+    "python3",
+    "curl",
+    "docker"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SCHED-006",
+      "title": "Background runner picks up due schedules and advances next run correctly",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run dev schedule harness (all phases) and capture runner-disabled behavior",
+          "expected": "Runner-disabled branch evidence captured for SCHEDULED_RUNNER_ENABLED=false",
+          "observed": "Harness runner-disabled phase had log-tail miss, so branch was re-validated manually with explicit evidence capture."
+        },
+        {
+          "action": "Toggle SCHEDULED_RUNNER_ENABLED=false in dev API, restart, and inspect logs",
+          "expected": "Logs show scheduler disabled and no automatic run during disabled window",
+          "observed": "Log contained \"Scheduler disabled by configuration\"; runCount stayed unchanged during >1 poll interval."
+        },
+        {
+          "action": "Execute POST /api/schedules/{id}/run while runner disabled",
+          "expected": "Manual run executes once without advancing nextRunAt",
+          "observed": "Run-now returned 200; runCount incremented; nextRunAt remained unchanged."
+        },
+        {
+          "action": "Restore SCHEDULED_RUNNER_ENABLED=true and restart dev API",
+          "expected": "Scheduler runner starts again",
+          "observed": "Log contained \"Starting scheduler runner ...\" after restore."
+        }
+      ],
+      "evidence": {
+        "network": "POST /api/schedules/71d6e789-f9cc-4300-8e9f-ca997e46fac0/run -> 200 while runner disabled",
+        "artifacts": [
+          "customization-preservation/group-round5-schedules-model/VAL-SCHED-006-runner-disabled-manual.json",
+          "customization-preservation/group-round5-schedules-model/VAL-SCHED-006-disabled-logs.txt",
+          "customization-preservation/group-round5-schedules-model/VAL-SCHED-006-restored-logs.txt",
+          "customization-preservation/group-round5-schedules-model/schedule-harness-all.log"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SCHED-008",
+      "title": "Notification delivery results are channel-specific and non-fatal",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run harness push-payload phase with push-enabled schedule",
+          "expected": "Push channel result recorded with channel-specific status and schedule execution preserved",
+          "observed": "Run-now returned 200; notificationResults.push.status=failed with provider/destination/details; executionResult had conversationId."
+        },
+        {
+          "action": "Inspect payload/delivery evidence for URL-root and no-conversation omission branches",
+          "expected": "Direct evidence of DOMAIN_CLIENT-rooted /c/<conversationId> link and clean omission when no conversation exists",
+          "observed": "API-visible run metadata confirms conversation linkage but does not expose delivered payload URL body; no-conversation payload branch not directly exercised in this run."
+        }
+      ],
+      "evidence": {
+        "network": "POST /api/schedules/71d6e789-f9cc-4300-8e9f-ca997e46fac0/run -> 200; notificationResults.push.status=failed, details.sentCount=0, failedCount=1",
+        "artifacts": [
+          "customization-preservation/group-round5-schedules-model/schedule-harness-push-payload-rerun.log",
+          "customization-preservation/group-round5-schedules-model/push-payload-run-result.json",
+          "customization-preservation/group-round5-schedules-model/push-payload-channel-result.json",
+          "customization-preservation/group-round5-schedules-model/push-settings-enabled.json"
+        ]
+      },
+      "issues": "Blocked on direct delivery-sink observability for payload URL root verification and on no-conversation payload branch coverage in this environment."
+    },
+    {
+      "id": "VAL-SCHED-009",
+      "title": "Browser push subscription lifecycle persists and can be removed",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run harness push-lifecycle phase (subscribe, resubscribe, unsubscribe)",
+          "expected": "subscriptionCount increments, idempotent refresh does not double-count, unsubscribe decrements",
+          "observed": "Subscribe 200 with count 1; resubscribe preserved count 1; unsubscribe 200 lowered count to 0."
+        },
+        {
+          "action": "Attempt stale-endpoint pruning/clickthrough coverage",
+          "expected": "404/410 endpoints pruned and click behavior verified",
+          "observed": "Synthetic endpoint produced failed delivery without expiredEndpoints; browser-native clickthrough flow not reproducible in runtime-cli isolation."
+        }
+      ],
+      "evidence": {
+        "network": "POST /api/schedules/notifications/push/subscribe -> 200; re-subscribe -> 200 (count unchanged); unsubscribe -> 200 (count decreased)",
+        "artifacts": [
+          "customization-preservation/group-round5-schedules-model/schedule-harness-all.log",
+          "customization-preservation/group-round5-schedules-model/push-subscribe-response.json",
+          "customization-preservation/group-round5-schedules-model/push-resubscribe-response.json",
+          "customization-preservation/group-round5-schedules-model/push-unsubscribe-response.json",
+          "customization-preservation/group-round5-schedules-model/push-notification-settings.json"
+        ]
+      },
+      "issues": "Blocked on runtime reproduction of 404/410 stale-endpoint pruning and browser notification click-open behavior."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "title": "Model restrictions are enforced server-side across config, chat, agents, and assistants",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Restrict val-user to openAI:gpt-5.1 via PATCH /api/admin/users/{id}",
+          "expected": "Restricted user model catalog and config surfaces are filtered server-side",
+          "observed": "GET /api/models for val-user returned only openAI:gpt-5.1 (others empty); superadmin retained full catalog."
+        },
+        {
+          "action": "Probe blocked-model agent create/update",
+          "expected": "Blocked model attempts rejected with model-access errors",
+          "observed": "POST /api/agents with gpt-5.4 -> 400 Illegal model request; PATCH existing agent to gpt-5.4 -> 400 Illegal model request."
+        },
+        {
+          "action": "Probe assistant create/chat with blocked model",
+          "expected": "Blocked model attempts rejected with model-access errors",
+          "observed": "POST /api/assistants/v1/chat emitted Illegal model request; POST /api/assistants/v1 create returned 500 client-init error before model-access response."
+        },
+        {
+          "action": "Probe normal model-chat blocked path",
+          "expected": "Blocked model path surfaces illegal_model_request style model-access error",
+          "observed": "POST /api/agents/chat/openAI started stream, but stream ended with \"Cannot set headers after they are sent to the client\" instead of model-access error payload."
+        }
+      ],
+      "evidence": {
+        "network": "PATCH /api/admin/users/{val-user} -> 200; GET /api/models (restricted) -> 200; POST /api/agents (blocked model) -> 400; PATCH /api/agents/{id} (blocked model) -> 400; POST /api/assistants/v1/chat -> event error Illegal model request; POST /api/assistants/v1 -> 500; POST /api/agents/chat/openAI + stream -> non-contract stream error",
+        "artifacts": [
+          "customization-preservation/group-round5-schedules-model/VAL-MODEL-003-matrix-probe.json",
+          "customization-preservation/group-round5-schedules-model/VAL-MODEL-003-assistant-chat-response.txt",
+          "customization-preservation/group-round5-schedules-model/VAL-MODEL-003-model-chat-stream.txt"
+        ]
+      },
+      "issues": "Fail signal: normal chat blocked-model probe did not return a model-access error and assistant create path returned 500 before model-access validation. Additional contract branches (blocked-model duplicate/revert, assistant update, preset/model-spec re-entry) remain unverified in this isolated run."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Harness runner-disabled phase uses sed -i in container /app/.env and hit \"Resource busy\" during restore in this environment.",
+      "resolved": true,
+      "resolution": "Switched to in-place Node fs write for SCHEDULED_RUNNER_ENABLED toggles and manually verified restore logs.",
+      "affectedAssertions": [
+        "VAL-SCHED-006"
+      ]
+    },
+    {
+      "description": "High-volume blocked-model probes can trigger temporary ban/rate-limit state on validation personas.",
+      "resolved": true,
+      "resolution": "Repeated approved recovery flow: dev-seed-validation-personas.js + docker restart librechat-dev-api + wait.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "No controllable push endpoint/browser permission flow available to force 404/410 pruning and click-open assertions end-to-end.",
+      "affectedAssertions": [
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "Used harness synthetic push endpoints plus push-enabled schedule rerun; observed lifecycle and channel result paths but not 404/410 prune or click branch."
+    },
+    {
+      "description": "Delivered push payload URL body (DOMAIN_CLIENT-rooted /c/<id>) is not directly observable from available API response surface in this isolation.",
+      "affectedAssertions": [
+        "VAL-SCHED-008"
+      ],
+      "quickFixAttempted": "Ran harness push-payload phase with successful conversation-producing schedule and captured channel/result metadata."
+    },
+    {
+      "description": "Full VAL-MODEL-003 matrix branches requiring blocked-model duplicate/revert history and assistant create/update success path were not fully reproducible in this environment.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ],
+      "quickFixAttempted": "Expanded probes across /api/models, /api/config, /api/agents create/update/duplicate/revert, /api/assistants create/chat, and /api/agents/chat stream."
+    }
+  ],
+  "cleanup": {
+    "actions": [
+      "Deleted temporary round5 schedules and agents created for validation probes.",
+      "Disabled push in val-superadmin notification settings after push-phase tests.",
+      "Reseeded validation personas and restarted dev API to clear temporary bans/locks and restore baseline."
+    ],
+    "artifacts": [
+      "customization-preservation/group-round5-schedules-model/cleanup-round5-state.json",
+      "customization-preservation/group-round5-schedules-model/final-reseed.log",
+      "customization-preservation/group-round5-schedules-model/post-cleanup-smokes.json"
+    ]
+  },
+  "summary": "Tested 4 assigned assertions on dev rail: 1 pass (VAL-SCHED-006), 1 fail (VAL-MODEL-003), 2 blocked (VAL-SCHED-008, VAL-SCHED-009). Schedule harness validation is materially improved with concrete lifecycle and runner-disabled evidence; remaining schedule blockers are delivery-observability branches. Model-restriction matrix still has a gap: normal chat blocked-model probe did not yield a model-access error and assistant-create blocked-model path still returns a pre-validation 500 in this environment."
+}

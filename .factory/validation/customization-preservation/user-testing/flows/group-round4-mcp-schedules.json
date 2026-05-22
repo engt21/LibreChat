@@ -1,0 +1,347 @@
+{
+  "groupId": "group-round4-mcp-schedules",
+  "surface": "web-ui-api-dev",
+  "testedAt": "2026-04-10T08:19:13.502129+00:00",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": false,
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "node",
+    "docker",
+    "python requests (REST API)"
+  ],
+  "commandsRun": [
+    "node /pool/home/timeng/LibreChat-custom/local-services/dev-seed-validation-personas.js",
+    "docker restart librechat-dev-api && sleep 25",
+    "python3 - <<'PY' ... (initial round4 API evidence batch to group-round4-mcp-schedules)",
+    "python3 - <<'PY' ... (MCP rerun with valid titles and corrected serverName handling)",
+    "python3 - <<'PY' ... (leftover artifact cleanup: schedules + arcade-microsoft-tools-round4)",
+    "python3 - <<'PY' ... (dedicated VAL-CROSS-005A background poll-until-complete rerun)",
+    "python3 - <<'PY' ... (VAL-SCHED-008 superadmin success/failure rerun + cleanup)"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Register local no-input and open-object MCP validation servers on 192.168.50.4:8765 and :8766",
+          "expected": "Both servers register so no-input/open-object tool-call behavior can be validated",
+          "observed": "Both create requests returned 403 MCP_DOMAIN_NOT_ALLOWED."
+        },
+        {
+          "action": "Inspect current MCP tool surface",
+          "expected": "Surface includes candidate no-input/open-object tools for callable-path validation",
+          "observed": "Only ollama_search_fetch tools were present in /api/mcp/tools."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round4-mcp-schedules/71-VAL-MCP-001-create-local-noinput-valid-title.json",
+          "customization-preservation/group-round4-mcp-schedules/72-VAL-MCP-001-create-local-openobj-valid-title.json",
+          "customization-preservation/group-round4-mcp-schedules/73-VAL-MCP-001-servers-after-valid-title-attempts.json",
+          "customization-preservation/group-round4-mcp-schedules/13-VAL-MCP-001-tools-surface.json"
+        ]
+      },
+      "issues": "Blocked by MCP domain allowlist rejecting required local validation servers."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "title": "OAuth refresh prefers protected-resource authorization server metadata",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Create OAuth Arcade MCP server and reinitialize",
+          "expected": "Server enters OAuth flow and can be driven to refresh-token branch",
+          "observed": "Server created and reinitialize returned oauthUrl with oauthRequired=true."
+        },
+        {
+          "action": "Check OAuth flow status for refresh preconditions",
+          "expected": "Expired/refreshable token state available for refresh-endpoint validation",
+          "observed": "Flow state remained PENDING (no completed token), so refresh path was unreachable."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round4-mcp-schedules/74-arcade-create-rerun.json",
+          "customization-preservation/group-round4-mcp-schedules/77-VAL-MCP-003-reinitialize-direct-rerun.json",
+          "customization-preservation/group-round4-mcp-schedules/79-VAL-MCP-002-oauth-status-rerun.json"
+        ]
+      },
+      "issues": "Blocked: no authorized/expired OAuth token state available to exercise refresh behavior."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "title": "OAuth callback URLs preserve precedence rules across local and proxied deployments",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Reinitialize OAuth server directly",
+          "expected": "Callback URL generated from precedence chain",
+          "observed": "oauthUrl was returned with redirect_uri on localhost:3081 (consistent with DOMAIN_SERVER-local loopback behavior)."
+        },
+        {
+          "action": "Retry with forwarded host/proto and explicit oauth/initiate direct+forwarded probes",
+          "expected": "Forwarded-header precedence behavior observable",
+          "observed": "Forwarded reinitialize returned success:false without oauthUrl, and both oauth/initiate calls returned 400 Invalid flow state."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round4-mcp-schedules/77-VAL-MCP-003-reinitialize-direct-rerun.json",
+          "customization-preservation/group-round4-mcp-schedules/78-VAL-MCP-003-reinitialize-forwarded-rerun.json",
+          "customization-preservation/group-round4-mcp-schedules/80-VAL-MCP-003-oauth-initiate-direct-rerun.json",
+          "customization-preservation/group-round4-mcp-schedules/81-VAL-MCP-003-oauth-initiate-forwarded-rerun.json"
+        ]
+      },
+      "issues": "Blocked: direct local loopback callback observed, but forwarded/request-host precedence branches were not conclusively observable from available flow state."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Create/reinitialize Arcade server in pending-consent state",
+          "expected": "Initialization succeeds with OAuth continuation metadata",
+          "observed": "Reinitialize returned success:true with oauthRequired=true and oauthUrl."
+        },
+        {
+          "action": "Invoke MCP-backed scheduled run before consent",
+          "expected": "Tool invocation should surface auth continuation metadata (authorization_url/llm_instructions) instead of normal success",
+          "observed": "Scheduled invocation completed successfully and returned normal OneDrive-like JSON output while consent remained pending."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round4-mcp-schedules/113-cross005a-bg-reinitialize.json",
+          "customization-preservation/group-round4-mcp-schedules/84-VAL-CROSS-005A-run-manual-rerun.json",
+          "customization-preservation/group-round4-mcp-schedules/116-cross005a-bg-final-complete-snapshot.json"
+        ]
+      },
+      "issues": "Fail: pending-consent path produced successful tool output rather than auth-continuation response metadata."
+    },
+    {
+      "id": "VAL-CROSS-005A",
+      "title": "Scheduled MCP and OAuth execution keeps the interactive auth contract",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Create OAuth-required Arcade MCP server and leave consent pending",
+          "expected": "Schedule execution should recheck pending MCP/OAuth auth state",
+          "observed": "Server reinitialize reported oauthRequired=true with oauthUrl (pending-consent state)."
+        },
+        {
+          "action": "Manual Run now on schedule targeting ephemeralAgent.mcp",
+          "expected": "Manual run fails durably with explicit auth failure; no success conversation",
+          "observed": "Manual run returned 200 succeeded with conversationId and OneDrive-like JSON preview."
+        },
+        {
+          "action": "Background runner on enabled due schedule targeting same pending-consent MCP server",
+          "expected": "Background run also fails durably with explicit auth failure",
+          "observed": "Background run completed with lastStatus=succeeded, lastTriggeredBy=scheduler, and conversation linkage present."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round4-mcp-schedules/113-cross005a-bg-reinitialize.json",
+          "customization-preservation/group-round4-mcp-schedules/84-VAL-CROSS-005A-run-manual-rerun.json",
+          "customization-preservation/group-round4-mcp-schedules/85-VAL-CROSS-005A-manual-after-run-rerun.json",
+          "customization-preservation/group-round4-mcp-schedules/116-cross005a-bg-final-complete-snapshot.json"
+        ]
+      },
+      "issues": "Fail: pending-consent OAuth MCP scheduled runs still succeed on both manual and background paths instead of durable auth failure."
+    },
+    {
+      "id": "VAL-SCHED-006",
+      "title": "Background runner picks up due schedules and advances next run correctly",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Create overdue enabled schedule and wait for runner poll",
+          "expected": "Auto execution occurs and nextRunAt advances",
+          "observed": "Runner picked up schedule (lastTriggeredBy=scheduler, runCount=1) and nextRunAt advanced; execution failed with res.clearCookie error but scheduling semantics advanced."
+        },
+        {
+          "action": "Create disabled schedule and run manually",
+          "expected": "Disabled schedule does not auto-run; manual run executes once without advancing nextRunAt",
+          "observed": "Disabled schedule stayed idle until manual run; manual runCount incremented and nextRunAt remained unchanged."
+        },
+        {
+          "action": "Validate SCHEDULED_RUNNER_ENABLED=false branch",
+          "expected": "Overdue enabled schedule remains untouched while manual Run now still works",
+          "observed": "Not executed in shared dev rail because toggling runner env mode is disruptive without an isolated runtime instance."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round4-mcp-schedules/40-VAL-SCHED-006-create-auto-enabled.json",
+          "customization-preservation/group-round4-mcp-schedules/41-VAL-SCHED-006-auto-after-poll.json",
+          "customization-preservation/group-round4-mcp-schedules/42-VAL-SCHED-006-create-disabled.json",
+          "customization-preservation/group-round4-mcp-schedules/43-VAL-SCHED-006-disabled-before-manual.json",
+          "customization-preservation/group-round4-mcp-schedules/44-VAL-SCHED-006-disabled-manual-run.json",
+          "customization-preservation/group-round4-mcp-schedules/46-VAL-SCHED-006-manual-nextRunAt-compare.json",
+          "customization-preservation/group-round4-mcp-schedules/47-VAL-SCHED-006-runner-disabled-branch-blocker.json"
+        ]
+      },
+      "issues": "Blocked on mandatory SCHEDULED_RUNNER_ENABLED=false branch due lack of non-disruptive isolated env toggle in this shared validation rail."
+    },
+    {
+      "id": "VAL-SCHED-008",
+      "title": "Notification delivery results are channel-specific and non-fatal",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run successful scheduled execution with email/sms/push channels enabled",
+          "expected": "Execution succeeds and per-channel notification results are returned",
+          "observed": "Run succeeded (200) with conversationId and channel-level notificationResults (email/sms/push each skipped with explicit reasons)."
+        },
+        {
+          "action": "Run failing scheduled execution with same channels enabled",
+          "expected": "Execution fails durably while keeping per-channel notification results",
+          "observed": "Run failed (500 Illegal model request) and still returned channel-level notificationResults plus durable schedule failure metadata."
+        },
+        {
+          "action": "Verify delivered payload URL root/click path when conversation exists",
+          "expected": "Delivered channel payload links use DOMAIN_CLIENT/c/<conversationId>; no-conversation path omits link",
+          "observed": "All channels were skipped (local delivery providers not configured), so delivered payload URL root could not be directly observed."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round4-mcp-schedules/123-sched008-superadmin-notifications-after-update.json",
+          "customization-preservation/group-round4-mcp-schedules/125-sched008-superadmin-run-success.json",
+          "customization-preservation/group-round4-mcp-schedules/126-sched008-superadmin-success-after-run.json",
+          "customization-preservation/group-round4-mcp-schedules/128-sched008-superadmin-run-failure.json",
+          "customization-preservation/group-round4-mcp-schedules/129-sched008-superadmin-failure-after-run.json"
+        ]
+      },
+      "issues": "Blocked on delivery-link verification because no deliverable email/SMS/push sink is configured in this dev environment."
+    },
+    {
+      "id": "VAL-SCHED-009",
+      "title": "Browser push subscription lifecycle persists and can be removed",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Subscribe, resubscribe same endpoint, add second endpoint, then unsubscribe first endpoint",
+          "expected": "Resubscribe refreshes without double-count and unsubscribe removes target endpoint",
+          "observed": "subscriptionCount stayed 1 on same-endpoint resubscribe, increased to 2 after second endpoint, then returned to 1 after unsubscribe."
+        },
+        {
+          "action": "Run push-notification schedule with synthetic stale endpoint",
+          "expected": "404/410 push failures prune expired endpoints",
+          "observed": "Push result reported failed 0/2 with expiredEndpoints=[] and subscriptionCount remained 2 (no prune triggered)."
+        },
+        {
+          "action": "Validate browser permission + delivered-notification click behavior",
+          "expected": "Delivered push opens/focuses linked conversation URL",
+          "observed": "Not validated in this API-only run; no browser delivery/click-path evidence collected."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-driven)",
+        "network": [
+          "customization-preservation/group-round4-mcp-schedules/61-VAL-SCHED-009-subscribe-1.json",
+          "customization-preservation/group-round4-mcp-schedules/62-VAL-SCHED-009-resubscribe-same-endpoint.json",
+          "customization-preservation/group-round4-mcp-schedules/63-VAL-SCHED-009-subscribe-2.json",
+          "customization-preservation/group-round4-mcp-schedules/64-VAL-SCHED-009-unsubscribe-1.json",
+          "customization-preservation/group-round4-mcp-schedules/68-VAL-SCHED-009-run-prune.json",
+          "customization-preservation/group-round4-mcp-schedules/69-VAL-SCHED-009-notifications-after-prune-run.json"
+        ]
+      },
+      "issues": "Blocked: API lifecycle semantics verified, but browser-native delivery/click behavior and 404/410 prune branch were not reproducible in this environment."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Initial local MCP create attempts failed due title regex validation before domain-policy checks.",
+      "resolved": true,
+      "resolution": "Reran MCP-001 with title values containing only letters/numbers/spaces to reach domain-policy response.",
+      "affectedAssertions": [
+        "VAL-MCP-001"
+      ]
+    },
+    {
+      "description": "MCP serverName normalization differed from requested value in one run, causing reinitialize probes to target a non-existent name.",
+      "resolved": true,
+      "resolution": "Added rerun using serverName returned by create response and regenerated MCP evidence.",
+      "affectedAssertions": [
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004",
+        "VAL-CROSS-005A"
+      ]
+    },
+    {
+      "description": "A background schedule delete initially returned 409 because the run was still executing.",
+      "resolved": true,
+      "resolution": "Performed later cleanup pass once the run completed.",
+      "affectedAssertions": [
+        "VAL-CROSS-005A"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "MCP domain policy rejects local validation servers at 192.168.50.4:8765 and :8766 needed for no-input/open-object contract checks.",
+      "affectedAssertions": [
+        "VAL-MCP-001"
+      ],
+      "quickFixAttempted": "Retried create calls with valid title format; both returned MCP_DOMAIN_NOT_ALLOWED."
+    },
+    {
+      "description": "No OAuth token reached authorized+expired state; flow remained pending-consent only.",
+      "affectedAssertions": [
+        "VAL-MCP-002"
+      ],
+      "quickFixAttempted": "Created and reinitialized OAuth server, then polled /api/mcp/oauth/status/<flowId>; status stayed PENDING."
+    },
+    {
+      "description": "Callback precedence branches beyond local DOMAIN_SERVER loopback could not be observed due invalid-flow and forwarded reinitialize failure responses.",
+      "affectedAssertions": [
+        "VAL-MCP-003"
+      ],
+      "quickFixAttempted": "Probed reinitialize direct/forwarded and oauth/initiate direct/forwarded; forwarded branch did not return usable oauthUrl and initiate returned Invalid flow state."
+    },
+    {
+      "description": "Runner-disabled branch of SCHED-006 requires toggling SCHEDULED_RUNNER_ENABLED=false, which is disruptive in this shared dev rail.",
+      "affectedAssertions": [
+        "VAL-SCHED-006"
+      ],
+      "quickFixAttempted": "Validated all runner-enabled and disabled/manual semantics via API; captured explicit blocker record for env-toggle branch."
+    },
+    {
+      "description": "Delivery sink observability gap: no configured email/SMS providers and no browser-delivered push path for link-root/click assertions.",
+      "affectedAssertions": [
+        "VAL-SCHED-008",
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "Validated channel-level result payloads and subscription lifecycle via API, including synthetic push-failure runs."
+    }
+  ],
+  "summary": "Tested 8 assertions: 0 passed, 2 failed (VAL-MCP-004, VAL-CROSS-005A), 6 blocked (VAL-MCP-001/002/003, VAL-SCHED-006/008/009). Pending-consent OAuth MCP scheduled runs still succeeded on both manual and background paths instead of failing durably."
+}

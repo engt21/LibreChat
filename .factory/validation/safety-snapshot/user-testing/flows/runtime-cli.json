@@ -1,0 +1,262 @@
+{
+  "groupId": "runtime-cli",
+  "testedAt": "2026-04-04T20:50:31Z",
+  "isolation": {
+    "surface": "runtime-cli",
+    "concurrency": 1,
+    "stableProtection": "No stop/rebuild on stable; only status/curl checks used.",
+    "rails": {
+      "stable": "http://127.0.0.1:3080",
+      "dev": "http://127.0.0.1:3081"
+    },
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386"
+  },
+  "toolsUsed": [
+    "runtime-cli(shell)",
+    "curl",
+    "docker"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-RUNTIME-001",
+      "title": "Runtime prerequisites auto-resolve or fail fast",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run /pool/home/timeng/LibreChat-custom/local-services/ensure-runtime-files.sh",
+          "expected": "Required runtime files/dirs are linked/resolved or command exits with explicit missing-runtime error",
+          "observed": "Command exited 0 with no missing-runtime error"
+        },
+        {
+          "action": "Check required runtime paths",
+          "expected": "Required files/dirs present after ensure step",
+          "observed": ".env/librechat.yaml/langfuse/.env present; data-node symlinked; images/uploads/logs/meili paths present"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "safety-snapshot/runtime-cli/01-ensure-runtime-files.log",
+          "safety-snapshot/runtime-cli/18-runtime-prereqs-state.log"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-RUNTIME-002",
+      "title": "Stable and dev rails stay isolated",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run /pool/home/timeng/LibreChat-custom/local-services/status-all.sh all",
+          "expected": "Stable/dev show isolated compose resources (ports, images, volumes, mounts) and are reachable",
+          "observed": "Isolation artifacts confirmed (stable 3080, dev 3081, distinct image tags, volume names, bind mounts), but dev HTTP reachability checks failed during runtime checks"
+        },
+        {
+          "action": "Curl both rails and protected routes",
+          "expected": "3080 and 3081 reachable; protected routes return auth-protected statuses",
+          "observed": "Stable returned 200 and expected 401 responses; dev returned connection reset/empty reply (status 000) in checks while runtime was unstable"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "safety-snapshot/runtime-cli/02-status-all-initial.log",
+          "safety-snapshot/runtime-cli/04-curl-initial.log",
+          "safety-snapshot/runtime-cli/17-rail-isolation-docker-artifacts.log"
+        ],
+        "network": "curl stable: 200/401/401/401, curl dev: 000 (connection reset/empty reply)"
+      },
+      "issues": "Could not validate the 'dev remains reachable' portion due 3081 connection resets/empty replies during sampled checks."
+    },
+    {
+      "id": "VAL-RUNTIME-003",
+      "title": "Dev operations do not disrupt stable",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run /pool/home/timeng/LibreChat-custom/local-services/stop-all.sh dev",
+          "expected": "Only dev rail is stopped",
+          "observed": "Dev containers stopped; stable services remained running"
+        },
+        {
+          "action": "Re-check stable status and curl",
+          "expected": "Stable still serves on 3080",
+          "observed": "Stable remained up with 3080 root=200 and protected route=401 after dev stop"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "safety-snapshot/runtime-cli/06-stop-dev.log",
+          "safety-snapshot/runtime-cli/07-status-all-after-stop.log",
+          "safety-snapshot/runtime-cli/08-curl-after-stop.log",
+          "safety-snapshot/runtime-cli/13-status-all-final.log",
+          "safety-snapshot/runtime-cli/14-curl-final.log"
+        ],
+        "network": "http://127.0.0.1:3080 => 200; /api/admin/permissions => 401 after dev stop"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-RUNTIME-004",
+      "title": "Startup surfaces runtime hazards immediately",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run /pool/home/timeng/LibreChat-custom/local-services/health-check.sh",
+          "expected": "Explicit hazard/degradation output (orphans/duplicates/mount conflicts/memory pressure) instead of silent success",
+          "observed": "Health check explicitly reported orphan containers and memory/swap pressure, returned exit_code=1"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "safety-snapshot/runtime-cli/03-health-check-initial.log"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-RUNTIME-006",
+      "title": "Dev bundle export is quiesced and restorable",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run export while dev services are active",
+          "expected": "Export should refuse with clear quiesce error",
+          "observed": "Command refused with 'Dev rail must be stopped before exporting or importing state.' (exit 1)"
+        },
+        {
+          "action": "Run export after dev stop",
+          "expected": "Successful export writes metadata/hashes plus declared bind+volume archives",
+          "observed": "Multiple attempts (60s timeout, 600s timeout, long background run) produced only partial bundles without metadata.env completion and incomplete volume set"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "safety-snapshot/runtime-cli/05-export-while-dev-active.log",
+          "safety-snapshot/runtime-cli/09-export-bundle-success.log",
+          "safety-snapshot/runtime-cli/10-export-bundle-success.log",
+          "safety-snapshot/runtime-cli/10c-export-bundle-bg-command.log",
+          "safety-snapshot/runtime-cli/11-export-attempt-status.log",
+          "safety-snapshot/runtime-cli/16-process-cleanup-check.log"
+        ]
+      },
+      "issues": "Long-running ClickHouse volume archival prevented completion in this session window; successful restorable bundle could not be confirmed."
+    },
+    {
+      "id": "VAL-RUNTIME-007",
+      "title": "Bundle apply prevents stale overwrite",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run remote apply with bundle candidate",
+          "expected": "Stale bundle should return remote_newer/conflict archive instead of overwrite",
+          "observed": "Timed apply attempt exited 124 after 120s with no stale/accepted status emitted"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "safety-snapshot/runtime-cli/15-remote-apply-attempt.log",
+          "safety-snapshot/runtime-cli/16-process-cleanup-check.log"
+        ]
+      },
+      "issues": "remote-apply path did not complete within bounded window (authoritative refresh/export path remained long-running), so stale-overwrite decision could not be observed."
+    },
+    {
+      "id": "VAL-RUNTIME-007A",
+      "title": "Fresh dev bundles restore cleanly",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Export fresh bundle from stopped dev",
+          "expected": "Fresh bundle should complete with metadata and all declared artifacts",
+          "observed": "Fresh export attempts remained partial/incomplete (metadata missing)"
+        },
+        {
+          "action": "Apply fresh bundle",
+          "expected": "Apply should return accepted and align token/hash metadata",
+          "observed": "Timed apply attempt did not complete to accepted/rejected status"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "safety-snapshot/runtime-cli/10c-export-bundle-bg-command.log",
+          "safety-snapshot/runtime-cli/11-export-attempt-status.log",
+          "safety-snapshot/runtime-cli/15-remote-apply-attempt.log"
+        ]
+      },
+      "issues": "Could not obtain a completed fresh bundle or completed apply transaction in-session."
+    },
+    {
+      "id": "VAL-RUNTIME-008",
+      "title": "Stable-to-dev refresh seeds migration validation without stopping production",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Run /pool/home/timeng/LibreChat-custom/local-services/sync-from-stable.sh",
+          "expected": "Sync copies stable data into dev-side state while stable remains serving",
+          "observed": "Command failed immediately: FATAL SSH key not found: /home/timeng/.ssh/id_rsa (exit 1)"
+        },
+        {
+          "action": "Re-check stable rail after sync attempt",
+          "expected": "Stable still reachable",
+          "observed": "Stable remained up with 3080 root=200 and protected routes=401"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "safety-snapshot/runtime-cli/12-sync-from-stable.log",
+          "safety-snapshot/runtime-cli/13-status-all-final.log",
+          "safety-snapshot/runtime-cli/14-curl-final.log"
+        ],
+        "network": "http://127.0.0.1:3080 remained reachable after failed sync"
+      },
+      "issues": "Blocked by missing SSH credential prerequisite for sync-from-stable."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Dev API checks on 3081 produced connection reset/empty reply during runtime sampling, while stable checks were healthy.",
+      "resolved": false,
+      "resolution": "No remediation done in this flow; recorded as runtime instability affecting reachability validation.",
+      "affectedAssertions": [
+        "VAL-RUNTIME-002"
+      ]
+    },
+    {
+      "description": "ClickHouse volume export step ran for an extended period and did not finish to metadata write within bounded execution windows.",
+      "resolved": true,
+      "resolution": "Stopped orphan helper containers/processes after timed runs to restore test isolation.",
+      "affectedAssertions": [
+        "VAL-RUNTIME-006",
+        "VAL-RUNTIME-007",
+        "VAL-RUNTIME-007A"
+      ]
+    },
+    {
+      "description": "sync-from-stable requires default SSH key /home/timeng/.ssh/id_rsa, which is absent in this environment.",
+      "resolved": false,
+      "resolution": "Recorded blocker from command output; no credential changes performed.",
+      "affectedAssertions": [
+        "VAL-RUNTIME-008"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Could not complete a fresh dev bundle export to metadata/hashes completion due prolonged ClickHouse archive operation in this session.",
+      "affectedAssertions": [
+        "VAL-RUNTIME-006",
+        "VAL-RUNTIME-007",
+        "VAL-RUNTIME-007A"
+      ],
+      "quickFixAttempted": "Retried export with longer windows (60s, 600s, then ~24m background run) and cleanup of orphan helper containers."
+    },
+    {
+      "description": "sync-from-stable preflight failed because default SSH key path was missing.",
+      "affectedAssertions": [
+        "VAL-RUNTIME-008"
+      ],
+      "quickFixAttempted": "Executed sync command directly and captured fatal preflight output; no disruptive key/config changes attempted."
+    }
+  ],
+  "summary": "Tested 8 runtime assertions: 3 passed (VAL-RUNTIME-001, 003, 004), 0 failed, 5 blocked (VAL-RUNTIME-002, 006, 007, 007A, 008). Stable rail stayed reachable throughout tested dev-side operations."
+}

@@ -1,0 +1,234 @@
+{
+  "groupId": "group-provider-advanced",
+  "testedAt": "2026-04-05T19:43:56Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "repo": "/pool/home/timeng/LibreChat-custom",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "personasUsed": [
+      "val-superadmin",
+      "val-user"
+    ],
+    "stableRailUsed": false
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-008",
+      "title": "xAI settings stay capability-aware and sanitize unsupported runtime params",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Login as val-superadmin and open xAI endpoint/model selection + xAI set-key dialog",
+          "expected": "Capability-aware xAI settings surface with unsupported controls read-only and explicit reasons",
+          "observed": "xAI endpoint/models are visible, but set-key dialog only exposes API-key field and no testable unsupported-control reason text"
+        },
+        {
+          "action": "Attempt xAI runtime request",
+          "expected": "Runtime request executes so unsupported params can be verified as sanitized",
+          "observed": "xAI request path is blocked by missing per-user key; UI returns 'No key found. Please provide a key and try again.'"
+        },
+        {
+          "action": "Probe key status via API",
+          "expected": "Resolved credential or masked saved key state",
+          "observed": "GET /api/keys?name=xai&includeValue=true -> 200 with {\"expiresAt\":null}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-008-xai-selected.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-008-xai-setkey-dialog.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-008A-xai-send-no-key-result.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-provider-advanced/52-agent-browser-errors-final.txt)",
+        "network": "GET /api/keys?name=xai&includeValue=true -> 200; UI runtime attempt returned 'No key found'"
+      },
+      "issues": "Cannot validate runtime parameter sanitization without working xAI credentials and a successful outbound request path."
+    },
+    {
+      "id": "VAL-PROVIDER-008A",
+      "title": "xAI native web search strips only the intended generic tool",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Open xAI tools menu and toggle tool selections (File Search + Web Search controls)",
+          "expected": "Web Search routes natively while unrelated generic tools remain intact",
+          "observed": "Tool menu is visible, but runtime verification is blocked by missing xAI key"
+        },
+        {
+          "action": "Send xAI chat turn after tool toggles",
+          "expected": "Successful xAI-native web-search turn enabling strip-behavior verification",
+          "observed": "xAI turn fails with 'No key found. Please provide a key and try again.'"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-008A-xai-tools-menu-open-2.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-008A-xai-file-and-web-badges.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-008A-xai-send-no-key-result.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-provider-advanced/52-agent-browser-errors-final.txt)",
+        "network": "xAI execution blocked at credential stage ('No key found'), so strip-only runtime behavior could not be observed"
+      },
+      "issues": "Native-strip assertion requires successful xAI execution; environment lacks xAI key."
+    },
+    {
+      "id": "VAL-PROVIDER-009",
+      "title": "Ollama model discovery merges multiple sources and resolves per-model origin",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Inspect Ollama endpoint in UI/API",
+          "expected": "Merged discovery results available for selection",
+          "observed": "Large Ollama model catalog is exposed in model picker and /api/models"
+        },
+        {
+          "action": "Validate per-model origin routing and multi-source merge semantics",
+          "expected": "Deterministic proof of merged source dedupe and model->origin resolution",
+          "observed": "No source-origin metadata is surfaced in UI/API responses for black-box confirmation"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-009-ollama-endpoint-selected-with-model-list.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-provider-advanced/52-agent-browser-errors-final.txt)",
+        "network": "GET /api/models -> 200 (ollama models present); source-origin resolution not exposed"
+      },
+      "issues": "Could not prove per-model origin resolution or /api/tags->/models fallback behavior from assigned user-surface isolation."
+    },
+    {
+      "id": "VAL-PROVIDER-010",
+      "title": "Ollama hosted web search keeps native-default and MCP-mode behavior",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Select Ollama model and enable Web Search in Parameters",
+          "expected": "Native-default web-search path and visible MCP-mode switch behavior",
+          "observed": "Web Search toggle is available and enabled; no explicit MCP-mode selector surfaced in tested UI path"
+        },
+        {
+          "action": "Run Ollama chat with web-search enabled",
+          "expected": "Completed response with normal search artifacts/sources",
+          "observed": "POST /api/agents/chat/ollama starts but response repeatedly stalled until manual abort; no usable source-artifact completion observed"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-010-ollama-web-search-enabled-parameters.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-010-ollama-web-search-chat-result-after-long-wait.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-010-ollama-stop-generating.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-provider-advanced/52-agent-browser-errors-final.txt)",
+        "network": "POST /api/agents/chat/ollama observed in network log (customization-preservation/group-provider-advanced/55-agent-browser-network-requests-with-xai.txt) with repeated abort/retry behavior"
+      },
+      "issues": "Hosted web-search behavior could not be fully validated because web-search-enabled Ollama turns did not complete deterministically in this environment."
+    },
+    {
+      "id": "VAL-PROVIDER-011",
+      "title": "Ollama reasoning none remains a real off switch",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Select deepseek-r1:14b and set Reasoning Effort to 'none'",
+          "expected": "Reasoning none accepted as explicit off setting",
+          "observed": "Reasoning field persisted as 'Auto' (not 'none')"
+        },
+        {
+          "action": "Run chat after attempting reasoning-none",
+          "expected": "Completed response with no visible reasoning output",
+          "observed": "Deepseek turn did not produce complete assistant text before manual abort, preventing reasoning-visibility confirmation"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-011-reasoning-effort-set-none.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-011-reasoning-none-after-wait.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-011-reasoning-none-after-stop.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-provider-advanced/52-agent-browser-errors-final.txt)",
+        "network": "Reasoning field value file shows 'Auto' (customization-preservation/group-provider-advanced/42-reasoning-effort-value.txt); deepseek turn stalled until abort"
+      },
+      "issues": "Could not confirm the explicit 'none' off-switch behavior due UI value normalization to Auto and non-completing deepseek response."
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "title": "Provider-native tool flows keep model gating, file metadata, and streaming UX coherent",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Validate model gating for non-admin user",
+          "expected": "Restricted model visibility aligned with policy",
+          "observed": "val-user model catalog is restricted (openAI_count=1, google_count=2, xai_count=0, azureOpenAI_count=0)"
+        },
+        {
+          "action": "Attempt provider-native advanced runtime checks across OpenAI/Azure/Gemini/xAI with file/streaming semantics",
+          "expected": "End-to-end confirmation of native routing + file metadata + coherent streaming UX",
+          "observed": "Azure/xAI keys missing, Google key unresolved in this environment, and request-level metadata for native file bookkeeping could not be confirmed from available network/user surface"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-ADV-dashboard-after-login.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-008A-xai-send-no-key-result.png",
+          "customization-preservation/group-provider-advanced/VAL-PROVIDER-010-ollama-web-search-chat-result-after-long-wait.png"
+        ],
+        "consoleErrors": "none (empty file: customization-preservation/group-provider-advanced/52-agent-browser-errors-final.txt)",
+        "network": "Model gating summary: customization-preservation/group-provider-advanced/50-api-models-val-user-summary.txt; chat route evidence: customization-preservation/group-provider-advanced/55-agent-browser-network-requests-with-xai.txt"
+      },
+      "issues": "Cross-provider native-tool + file-metadata contract could not be completed with missing provider credentials and insufficient request-level metadata exposure in this isolation run."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "agent-browser network capture was initially sparse and required a later explicit export pass to capture chat routes.",
+      "resolved": true,
+      "resolution": "Captured final network log in customization-preservation/group-provider-advanced/55-agent-browser-network-requests-with-xai.txt.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008A",
+        "VAL-PROVIDER-010",
+        "VAL-CROSS-003"
+      ]
+    },
+    {
+      "description": "Multiple Ollama turns remained in a long-running state and required manual abort to proceed.",
+      "resolved": true,
+      "resolution": "Used Stop generating to unblock flow and recorded stalled behavior evidence.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Provider credentials unavailable for xAI (and similarly unresolved for Azure/Google in this environment) prevented successful native runtime verification.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-008",
+        "VAL-PROVIDER-008A",
+        "VAL-CROSS-003"
+      ],
+      "quickFixAttempted": "Verified auth and key status via /api/keys probes; xai key remained unset (expiresAt null)."
+    },
+    {
+      "description": "Ollama advanced web-search/reasoning flows did not complete deterministically in this run, preventing full behavior confirmation.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-010",
+        "VAL-PROVIDER-011"
+      ],
+      "quickFixAttempted": "Retried with different Ollama models and waited extended windows; aborted stalled requests and captured evidence."
+    },
+    {
+      "description": "Per-model origin metadata needed for deterministic multi-source origin proof is not exposed on the tested user/API surface.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-009"
+      ],
+      "quickFixAttempted": "Validated visible merged model catalog via UI and /api/models, but no source-origin mapping was available to assert contract completion."
+    }
+  ],
+  "summary": "Tested 6 assigned assertions on dev rail. 0 passed, 0 failed, 6 blocked. Primary blockers were missing provider credentials for xAI/other advanced native paths and non-deterministic completion for Ollama advanced web-search/reasoning flows in the current environment."
+}

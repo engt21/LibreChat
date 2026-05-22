@@ -1,0 +1,217 @@
+{
+  "groupId": "group-schedules-settings",
+  "surface": "web-ui-api-dev",
+  "testedAt": "2026-04-05T20:44:16Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": false,
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "accountsUsed": [
+      "val-user@dev.local",
+      "val-support-admin@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "python3-urllib-http",
+    "agent-browser"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SCHED-001",
+      "title": "Auth-gated routes and tenant isolation cover schedules and notifications",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Call all listed schedule/notification routes without auth",
+          "expected": "Every listed route returns 401",
+          "observed": "All 9 route checks returned 401 Unauthorized."
+        },
+        {
+          "action": "Create schedule as user A, then access it as user B",
+          "expected": "User B cannot see schedule and receives 404 on patch/delete/run",
+          "observed": "User B list excluded scheduleId; PATCH/DELETE/POST run each returned 404 Scheduled run not found."
+        },
+        {
+          "action": "Delete tenant-isolation fixture schedule as owner",
+          "expected": "Cleanup succeeds",
+          "observed": "Owner DELETE returned 204."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-only)",
+        "network": "customization-preservation/group-schedules-settings/r3-VAL-SCHED-001-auth-tenant.json; customization-preservation/group-schedules-settings/r3-VAL-SCHED-001-cross-tenant.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SCHED-002",
+      "title": "Notification settings expose runtime capabilities and persist per user",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /api/schedules/notifications as authenticated user",
+          "expected": "Capability matrix and current per-user settings returned",
+          "observed": "200 with capabilities.email=false, capabilities.sms=false, capabilities.smsProviders.twilio=false, capabilities.smsProviders.carrierGateway=false, capabilities.push=false."
+        },
+        {
+          "action": "PUT valid notification settings and GET again",
+          "expected": "Enabled flags and destinations persist",
+          "observed": "200 on PUT and follow-up GET; email/sms/push settings persisted as submitted."
+        },
+        {
+          "action": "Submit invalid email/phone/gateway/provider payloads",
+          "expected": "Each invalid payload rejected with 400",
+          "observed": "All invalid cases returned 400 with validation messages."
+        },
+        {
+          "action": "Restore baseline notification enabled flags",
+          "expected": "Test mutation cleanup",
+          "observed": "PUT restore returned 200."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-only)",
+        "network": "customization-preservation/group-schedules-settings/r3-VAL-SCHED-002-notification-settings.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SCHED-003",
+      "title": "Users can create valid schedules for both model and agent targets",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Create valid model-target schedule",
+          "expected": "201 with scheduleId, nextRunAt, notifications preserved, isRunning false",
+          "observed": "201; response included scheduleId, computed nextRunAt, notifications echo, and isRunning=false."
+        },
+        {
+          "action": "Create valid agent-target schedule",
+          "expected": "201 with scheduleId, nextRunAt, notifications preserved, isRunning false",
+          "observed": "201; response included scheduleId, computed nextRunAt, notifications echo, and isRunning=false."
+        },
+        {
+          "action": "Submit invalid required-fields/cron/timezone payloads",
+          "expected": "400 for invalid inputs",
+          "observed": "Missing name, bad cron, and invalid timezone all returned 400."
+        },
+        {
+          "action": "Delete created schedule fixtures",
+          "expected": "Cleanup succeeds",
+          "observed": "Both cleanup deletes returned 204."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-only)",
+        "network": "customization-preservation/group-schedules-settings/r3-VAL-SCHED-003-create-validation.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SCHED-004",
+      "title": "Partial edits preserve nested ephemeral-agent tool settings",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Create schedule with target.ephemeralAgent populated (mcp/execute_code/file_search/artifacts/web_search/web_search_mode)",
+          "expected": "Schedule stores nested ephemeralAgent fields",
+          "observed": "201 create response contained all nested ephemeralAgent fields."
+        },
+        {
+          "action": "PATCH only target.ephemeralAgent.web_search=false",
+          "expected": "Patch merges nested object and preserves existing fields",
+          "observed": "200 patch response kept web_search_mode, file_search, execute_code, artifacts, and mcp while updating only web_search to false."
+        },
+        {
+          "action": "Delete merge fixture schedule",
+          "expected": "Cleanup succeeds",
+          "observed": "Cleanup delete returned 204."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-only)",
+        "network": "customization-preservation/group-schedules-settings/r3-VAL-SCHED-004-ephemeral-merge.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SCHED-009",
+      "title": "Browser push subscription lifecycle persists and can be removed",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Check push capability matrix and attempt push lifecycle checks",
+          "expected": "With VAPID configured, push capability true and full lifecycle testable",
+          "observed": "GET notifications returned capabilities.push=false (push not configured in env)."
+        },
+        {
+          "action": "Exercise subscribe/resubscribe/unsubscribe API lifecycle",
+          "expected": "Subscription count increases, re-subscribe deduplicates, unsubscribe removes",
+          "observed": "API behavior validated (200 responses; count 1 -> 1 -> 2 -> 1 -> 0), but this does not satisfy VAPID-required delivery assertions."
+        },
+        {
+          "action": "Access Settings \u2192 Data in browser for UI evidence",
+          "expected": "Authenticated settings surface available for push UX checks",
+          "observed": "Browser login flow hit auth throttle (429) and remained on /login during this UI pass."
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-schedules-settings/r3-VAL-SCHED-009-login-page.png",
+          "customization-preservation/group-schedules-settings/r3-VAL-SCHED-009-settings-data.png"
+        ],
+        "consoleErrors": "customization-preservation/group-schedules-settings/r3-browser-console.txt; customization-preservation/group-schedules-settings/r3-browser-errors.txt",
+        "network": "customization-preservation/group-schedules-settings/r3-VAL-SCHED-009-push-lifecycle.json; customization-preservation/group-schedules-settings/r3-browser-current-url.txt"
+      },
+      "issues": "Blocked for full contract coverage because WEB_PUSH_VAPID is not configured (capabilities.push=false), so delivered-push click behavior and 404/410 stale-prune behavior could not be validated end-to-end."
+    }
+  ],
+  "passedAssertions": [
+    "VAL-SCHED-001",
+    "VAL-SCHED-002",
+    "VAL-SCHED-003",
+    "VAL-SCHED-004"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-SCHED-009",
+      "blockedBy": "Push capability disabled in active env (capabilities.push=false), preventing end-to-end VAPID-based delivery validation."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Scheduled cron validation requires 6-field cron syntax (seconds included). Initial 5-field payloads failed with \"Invalid cron expression, expected 6 fields\".",
+      "resolved": true,
+      "resolution": "Retested create/edit flows with 6-field cron expressions (e.g., \"0 */15 * * * *\").",
+      "affectedAssertions": [
+        "VAL-SCHED-001",
+        "VAL-SCHED-003",
+        "VAL-SCHED-004"
+      ]
+    },
+    {
+      "description": "Browser login attempts during UI evidence capture triggered 429 auth throttle and prevented authenticated settings-page interaction in that pass.",
+      "resolved": false,
+      "resolution": "Captured browser evidence for the blocked state and relied on authenticated API evidence for assertion coverage where applicable.",
+      "affectedAssertions": [
+        "VAL-SCHED-009"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Push notifications are not configured on dev rail (capabilities.push=false; no VAPID public/private keys exposed to schedules capability matrix).",
+      "affectedAssertions": [
+        "VAL-SCHED-009"
+      ],
+      "quickFixAttempted": "Executed API subscribe/resubscribe/unsubscribe lifecycle checks to validate persistence portions, but full delivery/click contract remains untestable without VAPID-enabled push delivery."
+    }
+  ],
+  "summary": "Tested 5 assigned assertions on dev rail: 4 passed (VAL-SCHED-001/002/003/004), 0 failed, 1 blocked (VAL-SCHED-009 due push capability disabled and no end-to-end VAPID delivery path)."
+}

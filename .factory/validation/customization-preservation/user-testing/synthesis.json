@@ -1,29 +1,19 @@
 {
   "milestone": "customization-preservation",
-  "round": 7,
+  "round": 12,
   "status": "fail",
-  "scope": "round10 local-only rerun per user override; deferred OCR/provider/Ollama/MCP-refresh/push-click clusters not re-tested",
+  "scope": "round15 local-only rerun focused on pending-consent Arcade tool visibility and rich continuation fields for VAL-MCP-004",
   "assertionsSummary": {
-    "total": 4,
-    "passed": 1,
-    "failed": 3,
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
     "blocked": 0
   },
-  "passedAssertions": [
-    "VAL-FILES-006"
-  ],
+  "passedAssertions": [],
   "failedAssertions": [
     {
-      "id": "VAL-MCP-001",
-      "reason": "Schema normalization checks pass, but callable execution for requiresOAuth=false local MCP servers still fails with OAuth-consent-required gating."
-    },
-    {
       "id": "VAL-MCP-004",
-      "reason": "Pending-consent Arcade run still lacks pre-consent tool discovery and continuation metadata (authorization_url/llm_instructions)."
-    },
-    {
-      "id": "VAL-MODEL-003",
-      "reason": "Blocked-model enforcement passes across chat/agent/assistant probes, but /api/config still omits filtered modelSpecs required by contract."
+      "reason": "Round15 rerun still fails: pending-consent Arcade server initializes, but pre-consent tool visibility remains empty and scheduled OAuth preflight omits authorization_url and llm_instructions (continuationMetadata only)."
     }
   ],
   "blockedAssertions": [],
@@ -53,23 +43,23 @@
   "appliedUpdates": [
     {
       "target": "validation-state.json",
-      "description": "Applied round10 assertion outcomes for VAL-MCP-001, VAL-MCP-004, VAL-FILES-006, and VAL-MODEL-003 from local regression rerun evidence.",
-      "source": "flow-report"
-    },
-    {
-      "target": ".factory/library/user-testing.md",
-      "description": "Added round-10 rerun notes capturing local-only scope, assertion outcomes, and remaining deferred clusters.",
+      "description": "Refreshed VAL-MCP-004 failure evidence from the round15 pending-consent Arcade rerun.",
       "source": "flow-report"
     }
   ],
   "flowReports": [
-    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round10-local-regressions.json"
+    "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/flows/group-round15-local-mcp-consent-rerun.json"
   ],
   "toolsUsed": [
-    "python requests",
-    "web-ui API dev rail",
-    "local-services/dev-seed-validation-personas.js",
-    "docker restart librechat-dev-api"
+    "curl",
+    "curl (command parity)",
+    "docker restart librechat-dev-api",
+    "local-services/health-check.sh",
+    "local-services/start-all.sh dev",
+    "local-services/status-all.sh dev",
+    "node local-services/dev-seed-validation-personas.js",
+    "python3 (urllib)",
+    "web-ui-api-dev"
   ],
-  "previousRound": "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/synthesis.round6.json"
+  "previousRound": "/pool/home/timeng/LibreChat-custom/.factory/validation/customization-preservation/user-testing/synthesis.round11.json"
 }

@@ -1,0 +1,23 @@
+{
+  "milestone": "runtime-reconciliation",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 2,
+    "passed": 1,
+    "failed": 1,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-RUNTIME-005"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-CROSS-006",
+      "reason": "Strict contract conditions were not met: health-check reported orphan containers present and /api/realtime/models returned HTTP 404 (critical route mount expectation not satisfied)."
+    }
+  ],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null
+}

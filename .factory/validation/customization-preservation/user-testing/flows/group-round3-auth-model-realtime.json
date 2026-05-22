@@ -1,0 +1,382 @@
+{
+  "groupId": "group-round3-auth-model-realtime",
+  "testedAt": "2026-04-06T11:35:02Z",
+  "isolation": {
+    "repoRoot": "/pool/home/timeng/LibreChat-custom",
+    "missionDir": "/home/timeng/.factory/missions/600d928c-35f7-4111-b9ce-1265dff7c386",
+    "appUrl": "http://127.0.0.1:3081",
+    "rail": "dev",
+    "personaManifest": "/pool/home/timeng/LibreChat-custom/local-services/.dev-validation-manifest.local.json"
+  },
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "python3 (requests)",
+    "node (ws)",
+    "docker exec"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-AUTH-001",
+      "title": "Registration toggle controls both UI affordance and registration API",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "PUT /api/admin/settings registrationEnabled=false, then GET /api/config",
+          "expected": "/api/config shows registrationEnabled=false",
+          "observed": "registrationEnabled=false confirmed in round3-ui-registration-disable.json and round3-api-auth-model-admin-results.json"
+        },
+        {
+          "action": "Open /login in browser after disabling registration",
+          "expected": "Sign-up affordance hidden",
+          "observed": "Login page showed only Email/Password/Continue (no Sign up link) in VAL-AUTH-001-login-after-disable.png"
+        },
+        {
+          "action": "Open /register directly after disabling registration",
+          "expected": "Redirect or disabled-registration state",
+          "observed": "Full registration form remained accessible (VAL-AUTH-001-register-after-disable.png)"
+        },
+        {
+          "action": "POST /api/auth/register without invite token while disabled",
+          "expected": "403 with \"Registration is not allowed.\"",
+          "observed": "403 with {\"message\":\"Registration is not allowed.\"}"
+        },
+        {
+          "action": "Create valid invite token + POST /api/auth/register with token while disabled",
+          "expected": "Invite signup still allowed",
+          "observed": "Invite registration returned 200 and invited user login succeeded"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-auth-model-realtime/VAL-AUTH-001-login-after-disable.png",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-AUTH-001-register-after-disable.png"
+        ],
+        "consoleErrors": "none (VAL-AUTH-001-login-after-disable-errors.txt and VAL-AUTH-001-register-after-disable-errors.txt are empty)",
+        "network": "GET /api/config -> registrationEnabled=false; POST /api/auth/register (no invite) -> 403; POST /api/auth/register (invite token) -> 200",
+        "artifacts": [
+          "customization-preservation/group-round3-auth-model-realtime/round3-ui-registration-disable.json",
+          "customization-preservation/group-round3-auth-model-realtime/round3-api-auth-model-admin-results.json",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-AUTH-001-login-after-disable-body.txt",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-AUTH-001-register-after-disable-body.txt"
+        ]
+      },
+      "issues": "/register still renders the full registration form when registration is disabled."
+    },
+    {
+      "id": "VAL-ADMIN-003",
+      "title": "SUPERADMIN_EMAILS auto-promotes matching users on startup and auth flows",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Check SUPERADMIN_EMAILS env in dev API container",
+          "expected": "Allowlist configured and includes validation superadmin email",
+          "observed": "Env reported SET and contained val-superadmin@dev.local"
+        },
+        {
+          "action": "PATCH val-superadmin role to USER",
+          "expected": "Demotion applies before auth-flow retest",
+          "observed": "PATCH succeeded with role USER"
+        },
+        {
+          "action": "Re-login val-superadmin",
+          "expected": "Allowlisted auth flow auto-promotes back to ADMIN",
+          "observed": "Re-login returned role ADMIN"
+        },
+        {
+          "action": "GET /api/admin/permissions after re-login",
+          "expected": "isSuperAdmin=true",
+          "observed": "200 with isSuperAdmin=true and superadmin permissions"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-focused)",
+        "network": "PATCH /api/admin/users/{superadminId} -> 200; POST /api/auth/login -> 200 role ADMIN; GET /api/admin/permissions -> 200 isSuperAdmin=true",
+        "artifacts": [
+          "customization-preservation/group-round3-auth-model-realtime/round3-superadmin-env-check.txt",
+          "customization-preservation/group-round3-auth-model-realtime/round3-api-auth-model-admin-results.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-MODEL-001",
+      "title": "New non-admin users receive the documented default model allowlist",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Create fresh local non-admin account via /api/auth/register and login first session",
+          "expected": "Documented default allowlist (README: openAI gpt-5.1, google gemini-3-flash-preview+gemini-2.5-flash-lite, ollama all)",
+          "observed": "Fresh local user received broader defaults (openAI gpt-5.4 mini/nano + anthropic + azureOpenAI + xAI + ollama)"
+        },
+        {
+          "action": "Invite-signup non-admin while registration disabled, then first login",
+          "expected": "Same documented default restricted allowlist",
+          "observed": "Invited user also received broader defaults matching local registration (not documented default list)"
+        },
+        {
+          "action": "Compare with superadmin catalog",
+          "expected": "Admin remains unrestricted",
+          "observed": "Superadmin /api/models retained full multi-provider catalog"
+        },
+        {
+          "action": "Check federated/auto-provisioned path availability",
+          "expected": "At least one federated path testable for parity",
+          "observed": "All social/federated login flags were false in /api/config, so federated branch was unavailable in this environment"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-focused)",
+        "network": "POST /api/auth/register (local) -> 200; POST /api/auth/login (fresh local/invited) -> 200; GET /api/models (fresh users) -> 200 with broader non-documented defaults",
+        "artifacts": [
+          "customization-preservation/group-round3-auth-model-realtime/round3-model001-local-registration.json",
+          "customization-preservation/group-round3-auth-model-realtime/round3-api-auth-model-admin-results.json"
+        ]
+      },
+      "issues": "Observed first-login non-admin model defaults do not match the documented default allowlist; federated path was also unavailable (all social flags disabled)."
+    },
+    {
+      "id": "VAL-MODEL-003",
+      "title": "Model restrictions are enforced server-side across config, chat, agents, and assistants",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Restrict val-user modelPermissions to openAI:gpt-5.1 and fetch /api/models + /api/config",
+          "expected": "Filtered model visibility in both config/models surfaces",
+          "observed": "/api/models filtered correctly to openAI:gpt-5.1 and other endpoints empty; config fetched under restricted session"
+        },
+        {
+          "action": "Probe blocked model on assistants surface (/api/assistants/v1/chat with gpt-5.4)",
+          "expected": "Blocked model rejected with model-access error",
+          "observed": "Received event error \"Illegal model request\""
+        },
+        {
+          "action": "Probe blocked model on agents surface (/api/agents/chat/openAI with gpt-5.4)",
+          "expected": "Blocked model explicitly rejected server-side",
+          "observed": "Returned stream start payload (conversation started); no conclusive model-access rejection captured in this run"
+        },
+        {
+          "action": "Restore original val-user modelPermissions",
+          "expected": "State cleanup completed",
+          "observed": "Restore PATCH returned 200"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API-focused)",
+        "network": "PATCH modelPermissions restrict/restore -> 200; GET /api/models restricted -> 200 filtered; POST /api/assistants/v1/chat blocked -> event error Illegal model request; POST /api/agents/chat/openAI blocked -> stream started response",
+        "artifacts": [
+          "customization-preservation/group-round3-auth-model-realtime/round3-api-auth-model-admin-results.json"
+        ]
+      },
+      "issues": "Could not conclusively verify the full chat+agents+assistants enforcement matrix in this pass; agent blocked-model probe did not yield a definitive model-access denial artifact."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "title": "Registration gating, super-admin sync, and default model restrictions stay aligned",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Disable registration, then run invite signup flow",
+          "expected": "Invite signup remains functional while direct signup is blocked",
+          "observed": "Direct register returned 403; invite-based register returned 200 and user could login"
+        },
+        {
+          "action": "Check invited user first authenticated model catalog",
+          "expected": "Immediate default restricted model list alignment",
+          "observed": "Invited user first-session model catalog was broader than documented default restrictions"
+        },
+        {
+          "action": "Validate allowlisted superadmin behavior in same session",
+          "expected": "Allowlisted user isSuperAdmin=true with unrestricted catalog",
+          "observed": "val-superadmin permissions 200 with isSuperAdmin=true and unrestricted /api/models catalog"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-auth-model-realtime/VAL-AUTH-001-login-after-disable.png",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-AUTH-001-register-after-disable.png"
+        ],
+        "consoleErrors": "none for UI checks",
+        "network": "POST /api/auth/register direct->403, invite->200; GET /api/admin/permissions superadmin->200 isSuperAdmin=true; GET /api/models invited user->broader defaults",
+        "artifacts": [
+          "customization-preservation/group-round3-auth-model-realtime/round3-api-auth-model-admin-results.json",
+          "customization-preservation/group-round3-auth-model-realtime/round3-superadmin-env-check.txt"
+        ]
+      },
+      "issues": "Invite path and superadmin sync both worked, but ordinary invited-user first-session model restrictions were not aligned with documented defaults."
+    },
+    {
+      "id": "VAL-REALTIME-002",
+      "title": "Realtime provider discovery is auth-gated, credential-aware, and resilient to stale websocket query tokens",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "GET /api/realtime/models unauthenticated and authenticated",
+          "expected": "401 unauth + authenticated provider metadata with availability/credential reasons",
+          "observed": "Unauth 401; superadmin 200 with providers including available/requiresUserKey/reason fields; restricted user returned providers: []"
+        },
+        {
+          "action": "WebSocket stale token probes (with and without same-origin cookies)",
+          "expected": "Stale token alone rejected; stale token with valid cookie falls back to session auth",
+          "observed": "stale token no cookie -> 401; stale token + superadmin cookie -> websocket opened and session.started succeeded"
+        },
+        {
+          "action": "Provider-specific session starts",
+          "expected": "OpenAI start succeeds with configured transcription; unavailable providers rejected explicitly",
+          "observed": "OpenAI start succeeded via stale-cookie fallback; user blocked-model probe returned explicit unavailable-model error; Azure/xAI starts returned explicit credential-required errors"
+        },
+        {
+          "action": "Azure credentialed GA URL/deployment mapping branch",
+          "expected": "Azure credentialed start path validated",
+          "observed": "Blocked by missing Azure user credentials/base URL in assigned dev environment"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (API/WS-focused)",
+        "network": "/api/realtime/models: 401 unauth, 200 auth; WS: stale token 401 without cookie, session.start accepted with cookie fallback, explicit provider errors for unavailable/credential-missing starts",
+        "artifacts": [
+          "customization-preservation/group-round3-auth-model-realtime/round3-realtime-002-api-ws-results.json"
+        ]
+      },
+      "issues": "Core auth-gating and stale-token cookie fallback passed, but Azure credentialed provider-specific connect branch could not be executed in this isolation environment."
+    },
+    {
+      "id": "VAL-REALTIME-004",
+      "title": "Native web search exposes inline stream status instead of silent backend-only activity",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Run web-search-capable chat turn on gpt-4o-search-preview and capture during-stream UI",
+          "expected": "Inline status part shows \"Searching the web\u2026\" while search is in progress",
+          "observed": "No inline \"Searching the web\" status visible in during-stream capture"
+        },
+        {
+          "action": "Run explicit UI text wait for \"Searching the web\"",
+          "expected": "Status text appears at least once during active stream",
+          "observed": "wait --text timed out; FOUND_SEARCHING_STATUS=false"
+        },
+        {
+          "action": "Capture completed response output",
+          "expected": "Search-backed response finishes cleanly with sources",
+          "observed": "Completed response included source-linked output (theguardian.com links) but still no inline searching status evidence"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-004-during-stream-search-preview.png",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-004-after-stream-search-preview.png"
+        ],
+        "consoleErrors": "none (browser-errors-final.txt empty)",
+        "network": "POST /api/agents/chat/openAI + stream route observed in browser-network-final.txt; status-text probe timed out",
+        "artifacts": [
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-004-searching-status-check.txt",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-004-during-stream-search-preview-body.txt",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-004-after-stream-search-preview-body.txt",
+          "customization-preservation/group-round3-auth-model-realtime/browser-network-final.txt"
+        ]
+      },
+      "issues": "Inline \"Searching the web\u2026\" stream status was not observed; explicit text wait timed out despite source-linked completion output."
+    },
+    {
+      "id": "VAL-REALTIME-005",
+      "title": "Reasoning and grounded-source presentation remains merged and source-linked",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Verify grounded/source-linked presentation using web-search response output",
+          "expected": "Grounded output maps to inline citations/source links in existing UI",
+          "observed": "Source-linked response content rendered with external citation links (e.g., theguardian.com) in chat output"
+        },
+        {
+          "action": "Run reasoning-oriented prompts on gpt-5.4 and o3 and inspect for Thoughts block behavior",
+          "expected": "Reasoning chunks appear as coherent merged Thoughts block",
+          "observed": "No explicit Thoughts block/chunk-merge UI surfaced; outputs appeared as normal text/step-by-step content"
+        },
+        {
+          "action": "Capture during/after screenshots for reasoning attempts",
+          "expected": "Visual evidence of reasoning UI state",
+          "observed": "Captured reasoning attempts but no dedicated Thoughts block was present in screenshots/text snapshots"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-005-reasoning-during-stream.png",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-005-reasoning-after-stream.png",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-005-o3-during-stream.png",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-005-o3-after-stream.png"
+        ],
+        "consoleErrors": "none (browser-errors-final.txt empty)",
+        "network": "Reasoning turns executed via /api/agents/chat/openAI stream routes in browser-network-final.txt",
+        "artifacts": [
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-005-reasoning-after-stream-body.txt",
+          "customization-preservation/group-round3-auth-model-realtime/VAL-REALTIME-005-o3-after-stream-body.txt",
+          "customization-preservation/group-round3-auth-model-realtime/browser-network-final.txt"
+        ]
+      },
+      "issues": "Grounded/source-linked output was observed, but Thoughts chunk-merge behavior remained unobservable in tested prompts/models."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Realtime API/WS probe pass initially hit login 429 throttles after earlier auth-heavy checks.",
+      "resolved": true,
+      "resolution": "Reran approved anti-abuse reset (dev-seed-validation-personas.js + docker restart librechat-dev-api + wait) and retried probes successfully.",
+      "affectedAssertions": [
+        "VAL-REALTIME-002"
+      ]
+    },
+    {
+      "description": "Tools popup and selector overlays intermittently blocked click targets during browser flow.",
+      "resolved": true,
+      "resolution": "Used Escape to dismiss overlays and re-snapshot refs before continuing.",
+      "affectedAssertions": [
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005"
+      ]
+    },
+    {
+      "description": "Model selector requires filtering in combobox and selecting option rows; endpoint list and model list share the same popover and caused initial mis-targeted clicks.",
+      "resolved": true,
+      "resolution": "Filtered selector input explicitly (gpt-4o-search-preview, gpt-5.4, o3), selected concrete option refs, then verified chosen model labels via get text.",
+      "affectedAssertions": [
+        "VAL-REALTIME-004",
+        "VAL-REALTIME-005"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Federated/auto-provisioned login path unavailable in this dev isolation (all social/federated login flags false in /api/config).",
+      "affectedAssertions": [
+        "VAL-MODEL-001"
+      ],
+      "quickFixAttempted": "Confirmed config flags in round3-api-auth-model-admin-results.json; no in-scope credentials/config to enable federated flow."
+    },
+    {
+      "description": "Azure realtime credentialed branch unavailable (requires user key + base URL).",
+      "affectedAssertions": [
+        "VAL-REALTIME-002"
+      ],
+      "quickFixAttempted": "Executed azure session.start probe; received explicit \"requires both an API key and base URL\" error."
+    },
+    {
+      "description": "Full agents/chat/assistants blocked-model enforcement matrix did not produce conclusive agents-surface denial evidence in this pass.",
+      "affectedAssertions": [
+        "VAL-MODEL-003"
+      ],
+      "quickFixAttempted": "Captured restricted /api/models + assistants blocked-model denial + agent blocked probe response, then restored modelPermissions to baseline."
+    },
+    {
+      "description": "Reasoning Thoughts chunk stream did not surface as dedicated Thoughts UI block in tested prompts/models.",
+      "affectedAssertions": [
+        "VAL-REALTIME-005"
+      ],
+      "quickFixAttempted": "Retested with both gpt-5.4 and o3 reasoning prompts and captured during/after evidence; only plain text reasoning output appeared."
+    }
+  ],
+  "summary": "Retested 8 assigned assertions on dev rail: 1 pass (VAL-ADMIN-003), 4 fail (VAL-AUTH-001, VAL-MODEL-001, VAL-CROSS-001, VAL-REALTIME-004), and 3 blocked (VAL-MODEL-003, VAL-REALTIME-002, VAL-REALTIME-005). Temporary mutations (registration toggle, model-permissions changes, temporary users) were restored/cleaned up, and post-run state confirms registrationEnabled=true with val-superadmin restored as ADMIN."
+}

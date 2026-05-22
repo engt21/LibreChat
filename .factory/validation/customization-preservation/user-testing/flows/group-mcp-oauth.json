@@ -1,0 +1,183 @@
+{
+  "groupId": "group-mcp-oauth",
+  "surface": "web-ui-api-dev",
+  "testedAt": "2026-04-05T19:54:23Z",
+  "isolation": {
+    "rail": "dev",
+    "baseUrl": "http://127.0.0.1:3081",
+    "stableRailUsed": false,
+    "accounts": [
+      "val-superadmin@dev.local",
+      "val-user@dev.local"
+    ]
+  },
+  "toolsUsed": [
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-MCP-001",
+      "title": "Bare no-input MCP object schemas remain callable for OpenAI-compatible tool use",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Create and initialize allowed local MCP servers (192.168.50.4:8765, :8766) and inspect registered tool schemas",
+          "expected": "A no-input tool schema and an explicitly open-object schema are both registered without collapsing open-object definitions",
+          "observed": "`local-mcp-8766` registered no-input `get_server_capabilities` with `parameters: {type: object}` and open-object `headers` schema preserved with `additionalProperties`; both servers reinitialized successfully and reported connected"
+        },
+        {
+          "action": "Validate actual OpenAI-compatible callable path for MCP tools",
+          "expected": "OpenAI-compatible user-surface tool execution path callable for the no-input tool",
+          "observed": "Agent tool execution surface was not usable: `GET /api/agents/tools` returned 403 temporary-ban message; no successful OpenAI-compatible MCP tool call could be executed"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-only validation)",
+        "network": "POST /api/mcp/servers (local-mcp-8765, local-mcp-8766) -> 201; POST /api/mcp/local-mcp-8765/reinitialize -> 200; POST /api/mcp/local-mcp-8766/reinitialize -> 200; GET /api/mcp/connection/status/local-mcp-8765 -> 200 connected; GET /api/mcp/connection/status/local-mcp-8766 -> 200 connected; GET /api/agents/tools -> 403 temporary-ban"
+      },
+      "issues": "Could not complete the OpenAI-compatible callable check because the available agent tool execution surface returned temporary-ban responses."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "title": "OAuth refresh prefers protected-resource authorization server metadata",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Attempt to add Arcade OAuth MCP server for refresh-path validation",
+          "expected": "Arcade-style OAuth MCP server available to create expired-token refresh scenario",
+          "observed": "Creation blocked by MCP domain allowlist: `MCP_DOMAIN_NOT_ALLOWED` for `https://api.arcade.dev`"
+        },
+        {
+          "action": "Probe available MCP servers for OAuth flow/token state",
+          "expected": "OAuth-backed server and flow state available for refresh behavior checks",
+          "observed": "All available servers reported `requiresOAuth: false`; `/api/mcp/oauth/status/<flowId>` probes returned 404 flow not found"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-only validation)",
+        "network": "POST /api/mcp/servers (https://api.arcade.dev/mcp/microsoft-tools) -> 403 MCP_DOMAIN_NOT_ALLOWED; GET /api/mcp/connection/status -> 200 (all requiresOAuth=false); GET /api/mcp/oauth/status/<flowId> -> 404"
+      },
+      "issues": "No OAuth-refresh-capable MCP resource/token state was available in this isolated dev environment."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "title": "OAuth callback URLs preserve precedence rules across local and proxied deployments",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Call `/api/mcp/:server/oauth/initiate` with authenticated direct-host request",
+          "expected": "Initiation output/redirect available to inspect callback URL precedence",
+          "observed": "Returned 404 `Flow not found` because no valid OAuth flow state existed"
+        },
+        {
+          "action": "Repeat initiate call with `X-Forwarded-Host` and `X-Forwarded-Proto` headers",
+          "expected": "Forwarded-host/proto precedence observable in callback URL",
+          "observed": "Returned same 404 `Flow not found`; callback URL generation path not reachable without valid OAuth flow"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-only validation)",
+        "network": "GET /api/mcp/local-mcp-8765/oauth/initiate?userId=<id>&flowId=<missing> -> 404 (direct); same request with X-Forwarded-* headers -> 404; /api/config serverDomain observed as http://localhost:3081"
+      },
+      "issues": "No OAuth flow could be generated in-scope, so callback precedence behavior could not be observed on live initiate redirects."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "title": "Arcade provider-consent prompts are surfaced as auth continuation, not MCP init failure",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Attempt to configure Arcade Microsoft MCP endpoint and initialize tools",
+          "expected": "Arcade server initializes and lists tools before provider consent",
+          "observed": "Arcade endpoint creation blocked by domain allowlist (`MCP_DOMAIN_NOT_ALLOWED`)"
+        },
+        {
+          "action": "Attempt to reach user-surface agent tool execution path for continuation payload verification",
+          "expected": "A concrete tool invocation can surface `authorization_url`/`llm_instructions` continuation metadata",
+          "observed": "Agent tool path unavailable in this run: `GET /api/agents/tools` returned 403 temporary-ban message"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (API-only validation)",
+        "network": "POST /api/mcp/servers (Arcade URL) -> 403 MCP_DOMAIN_NOT_ALLOWED; GET /api/agents/tools -> 403 temporary-ban; GET /api/mcp/connection/status -> 200 with no OAuth-required server"
+      },
+      "issues": "Required Arcade/provider-consent integration surface was unavailable due allowlist restrictions and agent execution surface temporary-ban responses."
+    }
+  ],
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-MCP-001",
+      "blockedBy": "No usable OpenAI-compatible agent tool execution path (`/api/agents/tools` returned 403 temporary-ban), despite successful MCP registration/reinit checks."
+    },
+    {
+      "id": "VAL-MCP-002",
+      "blockedBy": "OAuth-refresh scenario unavailable: Arcade domain blocked by MCP allowlist and no in-scope OAuth-backed MCP flow/token state present."
+    },
+    {
+      "id": "VAL-MCP-003",
+      "blockedBy": "OAuth initiate route remained unreachable for precedence observation because no valid flowId existed (404 Flow not found for direct and forwarded variants)."
+    },
+    {
+      "id": "VAL-MCP-004",
+      "blockedBy": "Arcade consent continuation path unavailable (domain allowlist block + temporary-ban on agent tool execution surface)."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "MCP server title validation rejected hyphenated titles during setup.",
+      "resolved": true,
+      "resolution": "Retried with titles containing only letters/numbers/spaces.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004"
+      ]
+    },
+    {
+      "description": "Validation required temporary user-scoped MCP server creation to probe schema and connection behavior.",
+      "resolved": true,
+      "resolution": "Created `local-mcp-8765` and `local-mcp-8766`, collected evidence, then deleted both servers to restore prior state.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Arcade endpoint required for OAuth/consent assertions is disallowed by current MCP domain allowlist.",
+      "affectedAssertions": [
+        "VAL-MCP-002",
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Tried creating `https://api.arcade.dev/mcp/microsoft-tools`; API returned 403 MCP_DOMAIN_NOT_ALLOWED."
+    },
+    {
+      "description": "No OAuth-capable MCP flow was available in-scope (all visible servers reported requiresOAuth=false).",
+      "affectedAssertions": [
+        "VAL-MCP-002",
+        "VAL-MCP-003",
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Created/initialized both allowed local MCP servers, then probed `/api/mcp/oauth/status/*` and `/oauth/initiate` with direct+forwarded headers; flow state remained unavailable (404)."
+    },
+    {
+      "description": "Agent tool execution user surface returned temporary-ban responses.",
+      "affectedAssertions": [
+        "VAL-MCP-001",
+        "VAL-MCP-004"
+      ],
+      "quickFixAttempted": "Checked with superadmin token (`GET /api/agents/tools` -> 403) and attempted `val-user` login (`POST /api/auth/login` -> 403 temporary-ban)."
+    }
+  ],
+  "summary": "Tested 4 MCP/OAuth assertions on dev rail: 0 passed, 0 failed, 4 blocked. MCP server registration/reinitialize and schema checks succeeded on allowed local domains, but OAuth/Arcade continuation and OpenAI-compatible callable validation were blocked by domain allowlist + missing OAuth flow state + temporary-ban responses on agent tool surfaces. Cleanup completed: temporary MCP servers removed."
+}

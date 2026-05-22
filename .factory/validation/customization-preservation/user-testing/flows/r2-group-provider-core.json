@@ -1,0 +1,128 @@
+{
+  "groupId": "r2-group-provider-core",
+  "surface": "web-ui-api-dev",
+  "assertions": [
+    {
+      "id": "VAL-PROVIDER-001",
+      "status": "blocked",
+      "reason": "OpenAI chat-bar toggles were user-visible and clickable, but full assertion requires Azure + native-vs-local routing confirmation (including request-level routing evidence). Azure path returned 'No key found', and browser network capture returned no request trace.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-001-openai-tools-toggled.png",
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-001-openai-chat-with-tool-badges.png",
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-001A-azure-no-key-error.png",
+        "customization-preservation/r2-group-provider-core/agent-browser-network-requests.txt",
+        "customization-preservation/r2-group-provider-core/api-super-api_endpoints.txt"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-001A",
+      "status": "blocked",
+      "reason": "Could not validate direct /openai/v1 api-version omission vs legacy Azure behavior because per-user Azure credentials/base URL were not configured (key status null; runtime showed 'No key found').",
+      "evidence": [
+        "customization-preservation/r2-group-provider-core/api-super-api_endpoints.txt",
+        "customization-preservation/r2-group-provider-core/api-super-api_keys-azureOpenAI.txt",
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-001A-azure-no-key-error.png",
+        "customization-preservation/r2-group-provider-core/dev-api-tail.log"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-002",
+      "status": "blocked",
+      "reason": "Native OpenAI file lifecycle + duplicate-processing checks were not verifiable in this run because request-level native-routing capture was unavailable from agent-browser network tracing and no deterministic native file metadata probe was established from the assigned surface.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-001-openai-tools-toggled.png",
+        "customization-preservation/r2-group-provider-core/agent-browser-network-requests.txt"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-003",
+      "status": "blocked",
+      "reason": "Gemini safe/unsafe routing assertions were blocked by invalid Google credentials; Gemini generation requests failed with API_KEY_INVALID.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-005-gemini-grounding-api-key-invalid.png",
+        "customization-preservation/r2-group-provider-core/gemini-grounding-body.txt",
+        "customization-preservation/r2-group-provider-core/dev-api-tail.log",
+        "customization-preservation/r2-group-provider-core/api-super-api_keys-google.txt"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-004",
+      "status": "blocked",
+      "reason": "Google live discovery precondition (valid credentials) was not met; backend logs show repeated Gemini model-fetch 400 errors, so live discovery integrity could not be confirmed end-to-end.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-core/api-super-api_models.txt",
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-004-google-capability-controls.png",
+        "customization-preservation/r2-group-provider-core/dev-api-tail.log"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-005",
+      "status": "blocked",
+      "reason": "Grounded Gemini response could not be validated for citations/sources because grounded request failed with API_KEY_INVALID before a grounded answer rendered.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-005-gemini-grounding-api-key-invalid.png",
+        "customization-preservation/r2-group-provider-core/gemini-grounding-body.txt",
+        "customization-preservation/r2-group-provider-core/dev-api-tail.log"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-006",
+      "status": "fail",
+      "reason": "Capability gating was present (controls disabled per model family), but explanatory text for disabled controls was not observed in rendered UI text for tested OpenAI and Google cases.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-006-openai-gpt35-disabled-controls.png",
+        "customization-preservation/r2-group-provider-core/openai-gpt35-parameters-body.txt",
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-004-google-capability-controls.png",
+        "customization-preservation/r2-group-provider-core/google-parameters-body.txt"
+      ]
+    },
+    {
+      "id": "VAL-PROVIDER-007",
+      "status": "blocked",
+      "reason": "xAI endpoint recognition/bootstrap model visibility was observed, but post-save personal-key refresh/alias validation could not be completed because no user xAI key was configured and runtime returned 'No key found'.",
+      "evidence": [
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-007-xai-model-list.png",
+        "customization-preservation/r2-group-provider-core/VAL-PROVIDER-007-xai-no-key-error.png",
+        "customization-preservation/r2-group-provider-core/xai-chat-body.txt",
+        "customization-preservation/r2-group-provider-core/api-super-api_keys-xai.txt",
+        "customization-preservation/r2-group-provider-core/api-super-api_endpoints.txt"
+      ]
+    }
+  ],
+  "toolsUsed": [
+    "agent-browser",
+    "curl",
+    "docker logs",
+    "API probes"
+  ],
+  "frictions": [
+    {
+      "description": "Login flow initially hit temporary auth limiter ('Too many login attempts in a short amount of time').",
+      "resolved": true,
+      "resolution": "Restarted dev API container (docker restart librechat-dev-api) and retried login successfully."
+    },
+    {
+      "description": "agent-browser network capture returned 'No requests captured' for /api/* filter during chat send.",
+      "resolved": false,
+      "resolution": "Used API probes + backend log tail as fallback evidence."
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Google provider credential invalid (API_KEY_INVALID / 400) blocks Gemini runtime assertions.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-003",
+        "VAL-PROVIDER-004",
+        "VAL-PROVIDER-005"
+      ]
+    },
+    {
+      "description": "Per-user key missing for Azure and xAI endpoints ('No key found' / no_user_key) blocks Azure direct-route and xAI post-save refresh checks.",
+      "affectedAssertions": [
+        "VAL-PROVIDER-001",
+        "VAL-PROVIDER-001A",
+        "VAL-PROVIDER-007"
+      ]
+    }
+  ]
+}
