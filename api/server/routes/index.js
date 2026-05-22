@@ -29,6 +29,7 @@ const keys = require('./keys');
 const user = require('./user');
 const mcp = require('./mcp');
 const imageGeneration = require('./imageGeneration');
+const modelSteering = require('./modelSteering');
 
 module.exports = {
   mcp,
@@ -62,4 +63,5 @@ module.exports = {
   staticRoute,
   accessPermissions,
   imageGeneration,
+  modelSteering,
 };

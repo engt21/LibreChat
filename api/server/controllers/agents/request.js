@@ -35,6 +35,23 @@ function createCloseHandler(abortController) {
   };
 }
 
+async function reservePendingRequest(userId, isSteering = false) {
+  let result = await checkAndIncrementPendingRequest(userId);
+  if (result.allowed || !isSteering) {
+    return result;
+  }
+
+  for (let attempt = 0; attempt < 15; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    result = await checkAndIncrementPendingRequest(userId);
+    if (result.allowed) {
+      return result;
+    }
+  }
+
+  return result;
+}
+
 /**
  * Resumable Agent Controller - Generation runs independently of HTTP connection.
  * Returns streamId immediately, client subscribes separately via SSE.
@@ -54,7 +71,10 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
 
   const userId = req.user.id;
 
-  const { allowed, pendingRequests, limit } = await checkAndIncrementPendingRequest(userId);
+  const { allowed, pendingRequests, limit } = await reservePendingRequest(
+    userId,
+    req.body?.isSteering === true,
+  );
   if (!allowed) {
     const violationInfo = getViolationInfo(pendingRequests, limit);
     await logViolation(req, res, ViolationTypes.CONCURRENT, violationInfo, violationInfo.score);

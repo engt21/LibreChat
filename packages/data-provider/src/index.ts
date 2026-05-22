@@ -15,6 +15,7 @@ export * from './parsers';
 export * from './generate';
 export * from './google';
 export * from './imageGeneration';
+export * from './modelSteering';
 export * from './models';
 export * from './openai';
 export * from './schedules';

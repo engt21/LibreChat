@@ -1,11 +1,15 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { QueryKeys, isAssistantsEndpoint } from 'librechat-data-provider';
+import { Constants, QueryKeys, isAssistantsEndpoint } from 'librechat-data-provider';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRecoilState, useResetRecoilState, useSetRecoilState } from 'recoil';
+import { useRecoilState, useRecoilValue, useResetRecoilState, useSetRecoilState } from 'recoil';
 import type { TMessage } from 'librechat-data-provider';
-import type { ActiveJobsResponse } from '~/data-provider';
+import {
+  useAbortStreamMutation,
+  useGetStartupConfig,
+  useGetUserQuery,
+  type ActiveJobsResponse,
+} from '~/data-provider';
 import useChatFunctions from '~/hooks/Chat/useChatFunctions';
-import { useAbortStreamMutation } from '~/data-provider';
 import useNewConvo from '~/hooks/useNewConvo';
 import store from '~/store';
 
@@ -17,6 +21,8 @@ export default function useChatHelpers(index = 0, paramId?: string) {
 
   const queryClient = useQueryClient();
   const abortMutation = useAbortStreamMutation();
+  const { data: startupConfig } = useGetStartupConfig();
+  const { data: user } = useGetUserQuery();
 
   const { newConversation } = useNewConvo(index);
   const { useCreateConversationAtom } = store;
@@ -30,6 +36,7 @@ export default function useChatHelpers(index = 0, paramId?: string) {
   const resetLatestMessage = useResetRecoilState(store.latestMessageFamily(index));
   const [isSubmitting, setIsSubmitting] = useRecoilState(store.isSubmittingFamily(index));
   const [latestMessage, setLatestMessage] = useRecoilState(store.latestMessageFamily(index));
+  const showStopButton = useRecoilValue(store.showStopButtonByIndex(index));
 
   const latestMessageId = latestMessage?.messageId;
   const latestMessageDepth = latestMessage?.depth;
@@ -139,14 +146,19 @@ export default function useChatHelpers(index = 0, paramId?: string) {
     });
 
     // For non-assistants endpoints (using resumable streams), call abort endpoint first
-    if (conversationId && !isAssistants) {
+    const targetConversationId =
+      conversationId && conversationId !== Constants.NEW_CONVO
+        ? conversationId
+        : latestMessageRef.current?.conversationId;
+
+    if (targetConversationId && !isAssistants) {
       queryClient.setQueryData<ActiveJobsResponse>([QueryKeys.activeJobs], (old) => ({
-        activeJobIds: (old?.activeJobIds ?? []).filter((id) => id !== conversationId),
+        activeJobIds: (old?.activeJobIds ?? []).filter((id) => id !== targetConversationId),
       }));
 
       try {
-        console.log('[useChatHelpers] Calling abort mutation for:', conversationId);
-        await abortMutation.mutateAsync({ conversationId });
+        console.log('[useChatHelpers] Calling abort mutation for:', targetConversationId);
+        await abortMutation.mutateAsync({ conversationId: targetConversationId });
         console.log('[useChatHelpers] Abort mutation succeeded');
         // The SSE will receive a `done` event with `aborted: true` and clean up
         // We still clear submissions as a fallback
@@ -193,6 +205,52 @@ export default function useChatHelpers(index = 0, paramId?: string) {
     [continueGeneration, setSiblingIdx],
   );
 
+  const actualEndpoint = endpointType ?? endpoint;
+  const steeringConversationId =
+    conversationId && conversationId !== Constants.NEW_CONVO
+      ? conversationId
+      : latestMessage?.conversationId;
+
+  const canSteerGeneration =
+    startupConfig?.modelSteeringEnabled === true &&
+    user?.modelSteeringPrefs?.enabled !== false &&
+    isSubmitting &&
+    showStopButton &&
+    !!actualEndpoint &&
+    !isAssistantsEndpoint(actualEndpoint) &&
+    !!steeringConversationId &&
+    steeringConversationId !== Constants.NEW_CONVO;
+
+  const steerGeneration = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      const currentLatest = latestMessageRef.current;
+      const targetConversationId =
+        conversationId && conversationId !== Constants.NEW_CONVO
+          ? conversationId
+          : currentLatest?.conversationId;
+
+      if (!trimmed || !targetConversationId || targetConversationId === Constants.NEW_CONVO) {
+        return false;
+      }
+
+      ask(
+        {
+          text: trimmed,
+          conversationId: targetConversationId,
+          parentMessageId: currentLatest?.messageId ?? null,
+        },
+        {
+          isSteering: true,
+          overrideMessages: getMessages() ?? [],
+        },
+      );
+      setSiblingIdx(0);
+      return true;
+    },
+    [ask, conversationId, getMessages, setSiblingIdx],
+  );
+
   const [preset, setPreset] = useRecoilState(store.presetByIndex(index));
   const [showPopover, setShowPopover] = useRecoilState(store.showPopoverFamily(index));
   const [abortScroll, setAbortScroll] = useRecoilState(store.abortScrollFamily(index));
@@ -219,6 +277,8 @@ export default function useChatHelpers(index = 0, paramId?: string) {
       handleStopGenerating,
       handleRegenerate,
       handleContinue,
+      canSteerGeneration,
+      steerGeneration,
       showPopover,
       setShowPopover,
       abortScroll,
@@ -252,6 +312,8 @@ export default function useChatHelpers(index = 0, paramId?: string) {
       handleStopGenerating,
       handleRegenerate,
       handleContinue,
+      canSteerGeneration,
+      steerGeneration,
       showPopover,
       setShowPopover,
       abortScroll,

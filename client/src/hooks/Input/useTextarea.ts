@@ -42,7 +42,8 @@ export default function useTextarea({
   const checkHealth = useInteractionHealthCheck();
   const enterToSend = useRecoilValue(store.enterToSend);
 
-  const { index, conversation, isSubmitting, filesLoading, setFilesLoading } = useChatContext();
+  const { index, conversation, isSubmitting, filesLoading, setFilesLoading, canSteerGeneration } =
+    useChatContext();
   const latestMessage = useRecoilValue(store.latestMessageFamily(index));
   const [activePrompt, setActivePrompt] = useRecoilState(store.activePromptByIndex(index));
 
@@ -77,6 +78,9 @@ export default function useTextarea({
     const getPlaceholderText = () => {
       if (disabled) {
         return localize('com_endpoint_config_placeholder');
+      }
+      if (canSteerGeneration) {
+        return localize('com_ui_model_steering_placeholder');
       }
       const currentEndpoint = conversation?.endpoint ?? '';
       const currentAgentId = conversation?.agent_id ?? '';
@@ -133,6 +137,7 @@ export default function useTextarea({
     textAreaRef,
     isAssistant,
     assistantMap,
+    canSteerGeneration,
     conversation,
     latestMessage,
     isNotAppendable,
@@ -144,7 +149,7 @@ export default function useTextarea({
         const scrollable = checkIfScrollable(textAreaRef.current);
         scrollable && setIsScrollable(scrollable);
       }
-      if (e.key === 'Enter' && isSubmitting) {
+      if (e.key === 'Enter' && isSubmitting && !canSteerGeneration) {
         return;
       }
 
@@ -168,6 +173,7 @@ export default function useTextarea({
         e.key === 'Enter' &&
         !enterToSend &&
         !isCtrlEnter &&
+        !canSteerGeneration &&
         textAreaRef.current &&
         !isComposingInput
       ) {
@@ -188,6 +194,7 @@ export default function useTextarea({
     },
     [
       isSubmitting,
+      canSteerGeneration,
       checkHealth,
       filesLoading,
       enterToSend,

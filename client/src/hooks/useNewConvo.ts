@@ -99,16 +99,17 @@ const useNewConvo = (index = 0) => {
           typeof storedConvoSetup === 'object' &&
           storedConvoSetup.endpoint != null &&
           !storedConvoSetup.spec;
+        const isPinnedDefaultPreset = defaultPreset?.defaultPreset === true;
 
         const activePreset =
           // use default preset only when it's defined,
           // preset is not provided,
-          // user hasn't manually selected a different (non-spec) model,
+          // user hasn't manually selected a different (non-spec) model unless the default is pinned,
           // endpoint matches or is null (to allow endpoint change),
           // and buildDefaultConversation is true
           defaultPreset &&
           !preset &&
-          !userHasManualModelSelection &&
+          (isPinnedDefaultPreset || !userHasManualModelSelection) &&
           (defaultPreset.endpoint === endpoint || !endpoint) &&
           buildDefaultConversation
             ? defaultPreset
@@ -119,6 +120,12 @@ const useNewConvo = (index = 0) => {
           (activePreset?.presetId != null &&
             activePreset.presetId &&
             activePreset.presetId === defaultPreset?.presetId);
+
+        applyModelSpecEffects({
+          startupConfig,
+          specName: activePreset?.spec,
+          convoId: conversation.conversationId,
+        });
 
         if (buildDefaultConversation) {
           let defaultEndpoint = getDefaultEndpoint({
@@ -264,7 +271,15 @@ const useNewConvo = (index = 0) => {
           state: disableFocus ? {} : { focusChat: true },
         });
       },
-    [endpointsConfig, defaultPreset, assistantsListMap, modelsQuery.data, hasAgentAccess],
+    [
+      endpointsConfig,
+      defaultPreset,
+      assistantsListMap,
+      modelsQuery.data,
+      hasAgentAccess,
+      applyModelSpecEffects,
+      startupConfig,
+    ],
   );
 
   const newConversation = useCallback(
@@ -313,8 +328,10 @@ const useNewConvo = (index = 0) => {
       let preset = _preset;
       const result = getDefaultModelSpec(startupConfig);
       const defaultModelSpec = result?.default ?? result?.last;
+      const hasPinnedDefaultPreset = defaultPreset?.defaultPreset === true;
       if (
         !preset &&
+        !hasPinnedDefaultPreset &&
         startupConfig &&
         (startupConfig.modelSpecs?.prioritize === true ||
           (startupConfig.interface?.modelSelect ?? true) !== true ||
@@ -323,12 +340,6 @@ const useNewConvo = (index = 0) => {
       ) {
         preset = getModelSpecPreset(defaultModelSpec);
       }
-
-      applyModelSpecEffects({
-        startupConfig,
-        specName: preset?.spec,
-        convoId: conversation.conversationId,
-      });
 
       if (conversation.conversationId === Constants.NEW_CONVO && !modelsData) {
         const filesToDelete = Array.from(files.values())
@@ -374,10 +385,10 @@ const useNewConvo = (index = 0) => {
       mutateAsync,
       resetBadges,
       startupConfig,
+      defaultPreset,
       saveBadgesState,
       pauseGlobalAudio,
       switchToConversation,
-      applyModelSpecEffects,
     ],
   );
 

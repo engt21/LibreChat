@@ -17,6 +17,7 @@ import type {
   TImageGenerationPrefs,
   TImageGenerationPrefsUpdate,
 } from './imageGeneration';
+import type { TModelSteeringPrefs, TModelSteeringPrefsUpdate } from './modelSteering';
 import * as config from './config';
 import request from './request';
 import * as s from './schemas';
@@ -348,6 +349,12 @@ export const updateImageGenerationPrefs = async (
   payload: TImageGenerationPrefsUpdate,
 ): Promise<{ prefs: TImageGenerationPrefs }> => {
   return request.patch(endpoints.imageGenerationPrefs(), payload);
+};
+
+export const updateModelSteeringPrefs = async (
+  payload: TModelSteeringPrefsUpdate,
+): Promise<{ prefs: TModelSteeringPrefs }> => {
+  return request.patch(endpoints.modelSteeringPrefs(), payload);
 };
 
 /* Assistants */

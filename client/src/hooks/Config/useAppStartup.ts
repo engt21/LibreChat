@@ -59,7 +59,7 @@ export default function useAppStartup({
 
   /** Set the default spec's preset as default */
   useEffect(() => {
-    if (defaultPreset && defaultPreset.spec != null) {
+    if (defaultPreset) {
       return;
     }
 

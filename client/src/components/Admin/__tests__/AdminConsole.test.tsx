@@ -332,6 +332,7 @@ describe('AdminConsole – platform prompt settings', () => {
     mockAdminSettingsQuery.data = {
       settingsId: 'global',
       registrationEnabled: true,
+      modelSteeringEnabled: false,
       platformPrompt: 'Existing platform policy',
       observability: {
         langfuseUrl: '',

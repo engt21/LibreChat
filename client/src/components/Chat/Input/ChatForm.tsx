@@ -97,6 +97,7 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
     filesLoading,
     newConversation,
     handleStopGenerating,
+    canSteerGeneration,
   } = useChatContext();
   const {
     generateConversation,
@@ -377,16 +378,30 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
                 currentModel={conversation?.model}
               />
               <div className={`${isRTL ? 'ml-2' : 'mr-2'}`}>
-                {isSubmitting && showStopButton ? (
-                  <StopButton stop={handleStopGenerating} setShowStopButton={setShowStopButton} />
-                ) : (
-                  endpoint && (
+                {isSubmitting && showStopButton && canSteerGeneration && (
+                  <div className="flex items-center gap-1">
+                    <StopButton stop={handleStopGenerating} setShowStopButton={setShowStopButton} />
                     <SendButton
                       ref={submitButtonRef}
                       control={methods.control}
-                      disabled={filesLoading || isSubmitting || disableInputs || isNotAppendable}
+                      disabled={filesLoading || disableInputs || isNotAppendable}
                     />
-                  )
+                  </div>
+                )}
+                {isSubmitting && showStopButton && !canSteerGeneration && (
+                  <StopButton stop={handleStopGenerating} setShowStopButton={setShowStopButton} />
+                )}
+                {(!isSubmitting || !showStopButton) && endpoint && (
+                  <SendButton
+                    ref={submitButtonRef}
+                    control={methods.control}
+                    disabled={
+                      filesLoading ||
+                      (!canSteerGeneration && isSubmitting) ||
+                      disableInputs ||
+                      isNotAppendable
+                    }
+                  />
                 )}
               </div>
             </div>

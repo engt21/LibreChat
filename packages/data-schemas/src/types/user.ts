@@ -20,6 +20,10 @@ export interface IUserImageGenerationPrefs {
   models?: Record<string, string>;
 }
 
+export interface IUserModelSteeringPrefs {
+  enabled?: boolean;
+}
+
 export interface IUserPushSubscription {
   endpoint: string;
   expirationTime?: number | null;
@@ -91,6 +95,7 @@ export interface IUser extends Document {
   };
   modelPermissions?: IUserModelPermissions;
   imageGenerationPrefs?: IUserImageGenerationPrefs;
+  modelSteeringPrefs?: IUserModelSteeringPrefs;
   favorites?: Array<{
     agentId?: string;
     model?: string;
@@ -132,6 +137,7 @@ export interface UpdateUserRequest {
   };
   modelPermissions?: IUserModelPermissions;
   imageGenerationPrefs?: IUserImageGenerationPrefs;
+  modelSteeringPrefs?: IUserModelSteeringPrefs;
   notifications?: IUserNotifications;
 }
 

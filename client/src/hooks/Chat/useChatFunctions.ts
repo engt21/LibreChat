@@ -90,6 +90,7 @@ export default function useChatFunctions({
       editedMessageId = null,
       isRegenerate = false,
       isContinued = false,
+      isSteering = false,
       isEdited = false,
       overrideMessages,
       overrideFiles,
@@ -100,7 +101,7 @@ export default function useChatFunctions({
     resetLatestMultiMessage();
 
     text = text.trim();
-    if (!!isSubmitting || text === '') {
+    if ((!isSteering && !!isSubmitting) || text === '') {
       return;
     }
 
@@ -326,6 +327,7 @@ export default function useChatFunctions({
       messages: currentMessages,
       isEdited: isEditOrContinue,
       isContinued,
+      isSteering,
       isRegenerate,
       initialResponse,
       isTemporary,

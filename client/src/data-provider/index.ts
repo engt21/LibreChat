@@ -4,6 +4,7 @@ export * from './Admin';
 export * from './Endpoints';
 export * from './Files';
 export * from './ImageGeneration';
+export * from './ModelSteering';
 /* Memories */
 export * from './Memories';
 export * from './Messages';

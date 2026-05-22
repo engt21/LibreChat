@@ -20,6 +20,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const CHAT_FORM_PATH = path.resolve(__dirname, 'ChatForm.tsx');
+const USE_TEXTAREA_PATH = path.resolve(__dirname, '../../../hooks/Input/useTextarea.ts');
+const USE_SUBMIT_MESSAGE_PATH = path.resolve(
+  __dirname,
+  '../../../hooks/Messages/useSubmitMessage.ts',
+);
+const USE_CHAT_HELPERS_PATH = path.resolve(__dirname, '../../../hooks/Chat/useChatHelpers.ts');
 
 describe('ChatForm.tsx -- BadgeRow super-admin gate guard', () => {
   let source: string;
@@ -72,5 +78,45 @@ describe('ChatForm.tsx -- BadgeRow super-admin gate guard', () => {
     // if it IS imported, ensure the result is used for at least one non-BadgeRow node
     const usagesOfIsSuperAdmin = (source.match(/\bisSuperAdmin\b/g) ?? []).length;
     expect(usagesOfIsSuperAdmin).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('ChatForm.tsx -- model steering input guard', () => {
+  let source: string;
+
+  beforeAll(() => {
+    source = fs.readFileSync(CHAT_FORM_PATH, 'utf8');
+  });
+
+  it('does not add a separate steering textarea', () => {
+    expect(source).not.toMatch(/\bsteeringText\b/);
+    expect(source).not.toMatch(/\bsubmitSteering\b/);
+  });
+
+  it('keeps Stop and Send controls available while steering is enabled', () => {
+    expect(source).toMatch(/isSubmitting\s*&&\s*showStopButton\s*&&\s*canSteerGeneration/);
+    expect(source).toMatch(/<StopButton[\s\S]*<SendButton/);
+  });
+});
+
+describe('normal chat bar steering guards', () => {
+  it('allows Enter to submit while generating when steering is enabled', () => {
+    const source = fs.readFileSync(USE_TEXTAREA_PATH, 'utf8');
+    expect(source).toMatch(/isSubmitting\s*&&\s*!canSteerGeneration/);
+    expect(source).toMatch(/!enterToSend[\s\S]*!canSteerGeneration[\s\S]*insertTextAtCursor/);
+  });
+
+  it('routes normal chat submissions to steering when an active generation can be steered', () => {
+    const source = fs.readFileSync(USE_SUBMIT_MESSAGE_PATH, 'utf8');
+    expect(source).toMatch(/if\s*\(\s*canSteerGeneration\s*\)/);
+    expect(source).toMatch(/steerGeneration\(data\.text\)/);
+    expect(source).toMatch(/setValue\('text', '', \{ shouldValidate: true \}\)/);
+    expect(source).toMatch(/setDraft\(\{ id: `\$\{Constants\.PENDING_CONVO\}`, value: '' \}\)/);
+  });
+
+  it('can steer first-message streams once the latest assistant message has a conversation id', () => {
+    const source = fs.readFileSync(USE_CHAT_HELPERS_PATH, 'utf8');
+    expect(source).toContain('latestMessage?.conversationId');
+    expect(source).toContain('currentLatest?.conversationId');
   });
 });

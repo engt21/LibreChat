@@ -159,6 +159,8 @@ export const imageGenerationModels = () => `${BASE_URL}/api/image-generation/mod
 
 export const imageGenerationPrefs = () => `${BASE_URL}/api/image-generation/prefs`;
 
+export const modelSteeringPrefs = () => `${BASE_URL}/api/model-steering/prefs`;
+
 export const realtimeConversation = () => `${BASE_URL}/api/realtime/conversation`;
 
 export const tokenizer = () => `${BASE_URL}/api/tokenizer`;

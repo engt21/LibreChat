@@ -64,6 +64,14 @@ describe('Admin app settings service', () => {
     expect(settings.platformPrompt).toBe('Platform policy');
   });
 
+  it('defaults model steering to disabled when no setting is stored', async () => {
+    mockFindOneDoc(null);
+
+    const settings = await getEffectiveAppSettings();
+
+    expect(settings.modelSteeringEnabled).toBe(false);
+  });
+
   it('normalizes empty or non-string platform prompt updates to null', () => {
     expect(normalizePlatformPrompt('  ')).toBeNull();
     expect(normalizePlatformPrompt(null)).toBeNull();
@@ -90,5 +98,27 @@ describe('Admin app settings service', () => {
       expect.objectContaining({ upsert: true, new: true, lean: true }),
     );
     expect(settings.platformPrompt).toBe('Platform policy');
+  });
+
+  it('persists model steering updates', async () => {
+    mockFindOneDoc({ settingsId: 'global' });
+    mockFindOneAndUpdate.mockResolvedValue({
+      settingsId: 'global',
+      modelSteeringEnabled: true,
+      observability: {},
+    });
+
+    const settings = await updateAppSettings({ modelSteeringEnabled: true });
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { settingsId: 'global' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          modelSteeringEnabled: true,
+        }),
+      }),
+      expect.objectContaining({ upsert: true, new: true, lean: true }),
+    );
+    expect(settings.modelSteeringEnabled).toBe(true);
   });
 });

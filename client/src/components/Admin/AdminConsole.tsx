@@ -53,6 +53,7 @@ import {
 const DEFAULT_SETTINGS: TAdminSettings = {
   settingsId: 'global',
   registrationEnabled: false,
+  modelSteeringEnabled: false,
   platformPrompt: null,
   observability: {
     langfuseUrl: '',
@@ -441,6 +442,7 @@ export default function AdminConsole() {
   const handleSaveSettings = async () => {
     await updateSettingsMutation.mutateAsync({
       registrationEnabled: settingsForm.registrationEnabled,
+      modelSteeringEnabled: settingsForm.modelSteeringEnabled,
       platformPrompt: settingsForm.platformPrompt?.trim() ? settingsForm.platformPrompt : null,
       observability: settingsForm.observability,
       mcpDomainFilterMode: settingsForm.mcpDomainFilterMode ?? 'denylist',
@@ -964,6 +966,25 @@ export default function AdminConsole() {
                   }
                   disabled={!canWriteSettings}
                   aria-label={localize('com_admin_registration_enabled')}
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-border-light bg-surface-primary p-4">
+                <div>
+                  <div className="font-medium text-text-primary">
+                    {localize('com_admin_model_steering_enabled')}
+                  </div>
+                  <div className="text-sm text-text-secondary">
+                    {localize('com_admin_model_steering_enabled_desc')}
+                  </div>
+                </div>
+                <Switch
+                  checked={settingsForm.modelSteeringEnabled}
+                  onCheckedChange={(checked) =>
+                    setSettingsForm((current) => ({ ...current, modelSteeringEnabled: checked }))
+                  }
+                  disabled={!canWriteSettings}
+                  aria-label={localize('com_admin_model_steering_enabled')}
                 />
               </div>
 

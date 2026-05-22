@@ -48,7 +48,7 @@ export default function usePresets(index = 0) {
     }
 
     const { data: presets } = presetsQuery;
-    if (_defaultPreset || !presets || hasLoaded.current) {
+    if (_defaultPreset?.defaultPreset === true || !presets || hasLoaded.current) {
       return;
     }
 
@@ -57,14 +57,14 @@ export default function usePresets(index = 0) {
       return;
     }
 
-    const defaultPreset = presets.find((p) => p.defaultPreset);
-    if (!defaultPreset) {
+    const pinnedDefaultPreset = presets.find((p) => p.defaultPreset);
+    if (!pinnedDefaultPreset) {
       hasLoaded.current = true;
       return;
     }
-    setDefaultPreset(defaultPreset);
+    setDefaultPreset(pinnedDefaultPreset);
     if (!conversationId || conversationId === 'new') {
-      newConversation({ preset: defaultPreset, modelsData, disableParams: true });
+      newConversation({ preset: pinnedDefaultPreset, modelsData, disableParams: true });
     }
     hasLoaded.current = true;
     // dependencies are stable and only needed once

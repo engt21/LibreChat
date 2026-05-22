@@ -7,6 +7,7 @@ export default function createPayload(submission: t.TSubmission) {
     isEdited,
     addedConvo,
     userMessage,
+    isSteering,
     isContinued,
     isTemporary,
     isRegenerate,
@@ -23,6 +24,9 @@ export default function createPayload(submission: t.TSubmission) {
 
   const endpoint = _e as s.EModelEndpoint;
   let server = `${EndpointURLs[s.EModelEndpoint.agents]}/${endpoint}`;
+  if (isSteering) {
+    server = `${EndpointURLs[s.EModelEndpoint.agents]}/steer`;
+  }
   if (s.isAssistantsEndpoint(endpoint)) {
     server =
       EndpointURLs[(endpointType ?? endpoint) as 'assistants' | 'azureAssistants'] +
@@ -38,6 +42,7 @@ export default function createPayload(submission: t.TSubmission) {
     isRegenerate,
     editedContent,
     conversationId,
+    isSteering,
     isContinued: !!(isEdited && isContinued),
     ephemeralAgent: s.isAssistantsEndpoint(endpoint) ? undefined : ephemeralAgent,
   };

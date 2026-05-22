@@ -350,6 +350,7 @@ export type TOptions = {
   editedText?: string | null;
   isRegenerate?: boolean;
   isContinued?: boolean;
+  isSteering?: boolean;
   isEdited?: boolean;
   overrideMessages?: t.TMessage[];
   /** This value is only true when the user submits a message with "Save & Submit" for a user-created message */

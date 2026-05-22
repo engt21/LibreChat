@@ -164,6 +164,7 @@ export const platformPromptSchema = z.string().max(20000).nullable();
 export const adminSettingsSchema = z.object({
   settingsId: z.string(),
   registrationEnabled: z.boolean(),
+  modelSteeringEnabled: z.boolean(),
   platformPrompt: platformPromptSchema,
   observability: observabilityLinksSchema,
   mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),
@@ -174,6 +175,7 @@ export type TAdminSettings = z.infer<typeof adminSettingsSchema>;
 
 export const adminSettingsUpdateSchema = z.object({
   registrationEnabled: z.boolean().optional(),
+  modelSteeringEnabled: z.boolean().optional(),
   platformPrompt: platformPromptSchema.optional(),
   observability: observabilityLinksSchema.partial().optional(),
   mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),

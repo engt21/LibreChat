@@ -1,19 +1,48 @@
 import { useCallback } from 'react';
 import { useRecoilValue, useSetRecoilState } from 'recoil';
-import { replaceSpecialVars } from 'librechat-data-provider';
+import { Constants, replaceSpecialVars } from 'librechat-data-provider';
 import { useChatContext, useChatFormContext, useAddedChatContext } from '~/Providers';
 import { useAuthContext } from '~/hooks/AuthContext';
+import { mainTextareaId } from '~/common';
+import { setDraft } from '~/utils';
 import store from '~/store';
 
 export default function useSubmitMessage() {
   const { user } = useAuthContext();
   const methods = useChatFormContext();
   const { conversation: addedConvo } = useAddedChatContext();
-  const { ask, index, getMessages, setMessages } = useChatContext();
+  const {
+    ask,
+    index,
+    conversation,
+    getMessages,
+    setMessages,
+    canSteerGeneration,
+    steerGeneration,
+  } = useChatContext();
   const latestMessage = useRecoilValue(store.latestMessageFamily(index));
 
   const autoSendPrompts = useRecoilValue(store.autoSendPrompts);
   const setActivePrompt = useSetRecoilState(store.activePromptByIndex(index));
+
+  const clearMessageInput = useCallback(
+    (conversationId?: string | null) => {
+      methods.reset({ text: '' });
+      methods.setValue('text', '', { shouldValidate: true });
+      setDraft({ id: `${Constants.PENDING_CONVO}`, value: '' });
+      setDraft({ id: `${Constants.NEW_CONVO}`, value: '' });
+      if (conversationId && conversationId !== Constants.NEW_CONVO) {
+        setDraft({ id: conversationId, value: '' });
+      }
+
+      const textarea = document.getElementById(mainTextareaId) as HTMLTextAreaElement | null;
+      if (textarea) {
+        textarea.value = '';
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    },
+    [methods],
+  );
 
   const submitMessage = useCallback(
     (data?: { text: string }) => {
@@ -28,6 +57,13 @@ export default function useSubmitMessage() {
         setMessages([...(rootMessages || []), latestMessage]);
       }
 
+      if (canSteerGeneration) {
+        if (steerGeneration(data.text)) {
+          clearMessageInput(latestMessage?.conversationId ?? conversation?.conversationId);
+        }
+        return;
+      }
+
       ask(
         {
           text: data.text,
@@ -36,9 +72,19 @@ export default function useSubmitMessage() {
           addedConvo: addedConvo ?? undefined,
         },
       );
-      methods.reset();
+      clearMessageInput(conversation?.conversationId);
     },
-    [ask, methods, addedConvo, setMessages, getMessages, latestMessage],
+    [
+      ask,
+      clearMessageInput,
+      addedConvo,
+      setMessages,
+      getMessages,
+      latestMessage,
+      conversation?.conversationId,
+      canSteerGeneration,
+      steerGeneration,
+    ],
   );
 
   const submitPrompt = useCallback(

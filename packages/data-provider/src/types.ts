@@ -14,6 +14,7 @@ import type { ContentTypes } from './types/runs';
 import type { Agent } from './types/assistants';
 import type { WebSearchModes } from './config';
 import type { CodeInterpreterModes } from './config';
+import type { TModelSteeringPrefs } from './modelSteering';
 
 export * from './admin';
 export * from './schedules';
@@ -115,6 +116,7 @@ export type TPayload = Partial<TMessage> &
   Partial<TEndpointOption> & {
     isContinued: boolean;
     isRegenerate?: boolean;
+    isSteering?: boolean;
     conversationId: string | null;
     messages?: TMessages;
     isTemporary: boolean;
@@ -140,6 +142,7 @@ export type TSubmission = {
   userMessage: TMessage;
   isEdited?: boolean;
   isContinued?: boolean;
+  isSteering?: boolean;
   isTemporary: boolean;
   messages: TMessage[];
   isRegenerate?: boolean;
@@ -216,6 +219,7 @@ export type TUser = {
   personalization?: {
     memories?: boolean;
   };
+  modelSteeringPrefs?: TModelSteeringPrefs;
   createdAt: string;
   updatedAt: string;
 };

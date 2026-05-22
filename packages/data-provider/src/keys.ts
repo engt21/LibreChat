@@ -77,6 +77,7 @@ export enum QueryKeys {
   /* Image generation */
   imageGenerationModels = 'imageGenerationModels',
   imageGenerationPrefs = 'imageGenerationPrefs',
+  modelSteeringPrefs = 'modelSteeringPrefs',
 }
 
 // Dynamic query keys that require parameters
@@ -115,4 +116,5 @@ export enum MutationKeys {
   verifyTwoFactor = 'verifyTwoFactor',
   updateMemoryPreferences = 'updateMemoryPreferences',
   updateImageGenerationPrefs = 'updateImageGenerationPrefs',
+  updateModelSteeringPrefs = 'updateModelSteeringPrefs',
 }

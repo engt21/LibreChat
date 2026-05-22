@@ -18,6 +18,7 @@ function toEffectiveAppSettings(doc) {
   return {
     settingsId: doc?.settingsId || DEFAULT_SETTINGS_ID,
     registrationEnabled: doc?.registrationEnabled ?? isEnabled(process.env.ALLOW_REGISTRATION),
+    modelSteeringEnabled: doc?.modelSteeringEnabled ?? false,
     platformPrompt:
       typeof doc?.platformPrompt === 'string' && doc.platformPrompt.trim()
         ? doc.platformPrompt.trim()
@@ -71,6 +72,9 @@ async function updateAppSettings(updates, settingsId = DEFAULT_SETTINGS_ID) {
   const persistedUpdates = {
     ...(updates?.registrationEnabled !== undefined
       ? { registrationEnabled: updates.registrationEnabled }
+      : {}),
+    ...(updates?.modelSteeringEnabled !== undefined
+      ? { modelSteeringEnabled: updates.modelSteeringEnabled }
       : {}),
     ...(updates?.platformPrompt !== undefined
       ? { platformPrompt: normalizePlatformPrompt(updates.platformPrompt) }

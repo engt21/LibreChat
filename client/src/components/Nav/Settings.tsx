@@ -38,7 +38,8 @@ export default function Settings({ open, onOpenChange }: TDialogProps) {
   const localize = useLocalize();
   const [activeTab, setActiveTab] = useState(SettingsTabValues.GENERAL);
   const tabRefs = useRef({});
-  const { hasAnyPersonalizationFeature, hasMemoryOptOut } = usePersonalizationAccess();
+  const { hasAnyPersonalizationFeature, hasMemoryOptOut, hasModelSteering } =
+    usePersonalizationAccess();
   const hasImageGenAccess = useHasAccess({
     permissionType: PermissionTypes.IMAGE_GEN,
     permission: Permissions.USE,
@@ -260,6 +261,7 @@ export default function Settings({ open, onOpenChange }: TDialogProps) {
                       <Tabs.Content value={SettingsTabValues.PERSONALIZATION} tabIndex={-1}>
                         <Personalization
                           hasMemoryOptOut={hasMemoryOptOut}
+                          hasModelSteering={hasModelSteering}
                           hasAnyPersonalizationFeature={hasAnyPersonalizationFeature}
                         />
                       </Tabs.Content>

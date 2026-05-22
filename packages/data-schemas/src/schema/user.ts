@@ -69,6 +69,16 @@ const ImageGenerationPrefsSchema = new Schema(
   { _id: false },
 );
 
+const ModelSteeringPrefsSchema = new Schema(
+  {
+    enabled: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  { _id: false },
+);
+
 const PushSubscriptionKeysSchema = new Schema(
   {
     p256dh: {
@@ -309,6 +319,10 @@ const userSchema = new Schema<IUser>(
     imageGenerationPrefs: {
       type: ImageGenerationPrefsSchema,
       default: () => ({ enabledByDefault: true, preferredProvider: null, models: {} }),
+    },
+    modelSteeringPrefs: {
+      type: ModelSteeringPrefsSchema,
+      default: () => ({ enabled: true }),
     },
     favorites: {
       type: [

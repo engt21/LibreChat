@@ -169,6 +169,7 @@ const startServer = async () => {
   app.use('/api/tags', routes.tags);
   app.use('/api/mcp', routes.mcp);
   app.use('/api/image-generation', routes.imageGeneration);
+  app.use('/api/model-steering', routes.modelSteering);
 
   /** 404 for unmatched API routes */
   app.use('/api', apiNotFound);
