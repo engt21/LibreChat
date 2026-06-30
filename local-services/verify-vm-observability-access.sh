@@ -46,21 +46,26 @@ NODE
 host=$TAILSCALE_HOSTNAME
 ip=$TAILSCALE_IP
 curl --resolve "$host:8443:$ip" -fsS "https://$host:8443/api/config" >/dev/null
-curl --resolve "$host:8444:$ip" -fsS "https://$host:8444/api/auth/providers" | grep -Fq "https://$host:8444/api/auth/callback/credentials"
-curl --resolve "$host:8445:$ip" -fsS "https://$host:8445/api/health" | grep -Fq '"database": "ok"'
+response=$(curl --resolve "$host:8444:$ip" -fsS "https://$host:8444/api/auth/providers")
+grep -Fq "https://$host:8444/api/auth/callback/credentials" <<<"$response"
+response=$(curl --resolve "$host:8445:$ip" -fsS "https://$host:8445/api/health")
+grep -Fq '"database": "ok"' <<<"$response"
 if curl --resolve "$host:8445:$ip" -fsS "https://$host:8445/api/user" >/dev/null 2>&1; then
   echo 'Grafana anonymous user access is enabled' >&2
   exit 1
 fi
 test -f /opt/librechat_exporter/grafana-loki-stable/grafana/dashboards/loki-log-explorer.json
 node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync("/opt/librechat_exporter/grafana-loki-stable/grafana/dashboards/loki-log-explorer.json","utf8"));if(d.uid!=="loki-all-logs"||d.panels?.length<4)process.exit(1)'
-curl -fsSG http://127.0.0.1:3100/loki/api/v1/query_range \
+response=$(curl -fsSG http://127.0.0.1:3100/loki/api/v1/query_range \
   --data-urlencode 'query={job=~".+"}' \
   --data-urlencode 'limit=1' \
   --data-urlencode "start=$(date -d '1 hour ago' +%s%N)" \
-  --data-urlencode "end=$(date +%s%N)" | grep -Fq '"status":"success"'
-curl --resolve "$host:8446:$ip" -fsS "https://$host:8446/-/ready" | grep -Fq 'Ready'
-curl --resolve "$host:8447:$ip" -fsS "https://$host:8447/metrics" | grep -Fq '# HELP'
+  --data-urlencode "end=$(date +%s%N)")
+grep -Fq '"status":"success"' <<<"$response"
+response=$(curl --resolve "$host:8446:$ip" -fsS "https://$host:8446/-/ready")
+grep -Fq 'Ready' <<<"$response"
+response=$(curl --resolve "$host:8447:$ip" -fsS "https://$host:8447/metrics")
+grep -Fq '# HELP' <<<"$response"
 
 actual_links=$(docker exec -i LibreChat node <<'NODE'
 const mongoose = require('mongoose');
