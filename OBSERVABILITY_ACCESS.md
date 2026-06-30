@@ -1,0 +1,70 @@
+# VM Observability Access
+
+LibreChat observability runs entirely on the production VM `timeng@192.168.50.104`. No observability UI or API is exposed through Tailscale Funnel or the public internet. Tailscale Serve terminates HTTPS on the VM and proxies only to loopback-bound service ports.
+
+## Tailnet URLs
+
+| Surface | Tailnet HTTPS URL | VM upstream | Access model |
+| --- | --- | --- | --- |
+| LibreChat | `https://librechatvm.tail6e13ff.ts.net:8443` | `127.0.0.1:3080` | LibreChat login and MFA |
+| Langfuse tracing | `https://librechatvm.tail6e13ff.ts.net:8444` | `127.0.0.1:3000` | Existing Langfuse credentials; `NEXTAUTH_URL` uses the HTTPS URL |
+| Grafana dashboards and Loki logs | `https://librechatvm.tail6e13ff.ts.net:8445` | `127.0.0.1:3001` | Anonymous Viewer inside the tailnet; editing/admin login remains disabled by the current Grafana policy |
+| Prometheus query UI | `https://librechatvm.tail6e13ff.ts.net:8446` | `127.0.0.1:9092` | No application auth; protected by tailnet membership |
+| LibreChat metrics exporter | `https://librechatvm.tail6e13ff.ts.net:8447` | `127.0.0.1:9091` | No application auth; protected by tailnet membership |
+
+Grafana is the supported logging UI. Loki `3100`, Promtail `9080`, and Blackbox Exporter `9115` remain VM-loopback-only and do not receive separate Tailscale URLs.
+
+## VM ownership
+
+- `/opt/LibreChat-custom` and compose project `librechat-stable` own LibreChat, Langfuse, and the metrics exporter.
+- `/opt/librechat_exporter/grafana-loki-stable` and compose project `grafana-loki-stable` own Grafana, Loki, and Promtail.
+- `/opt/librechat_exporter/prometheus-stable` and compose project `prometheus-stable` own Prometheus and Blackbox Exporter.
+- Prometheus uses the persistent `prometheus-stable_data` volume and retains 90 days of data.
+
+All host-published observability ports bind to `127.0.0.1`. Tailscale Serve is the only remote access path. The emergency LAN address must not expose ports `3000`, `3001`, `3100`, `9080`, `9091`, `9092`, or `9115`.
+
+## LibreChat admin links
+
+The persisted global application settings contain explicit tailnet HTTPS URLs:
+
+```json
+{
+  "langfuseUrl": "https://librechatvm.tail6e13ff.ts.net:8444",
+  "grafanaUrl": "https://librechatvm.tail6e13ff.ts.net:8445",
+  "prometheusUrl": "https://librechatvm.tail6e13ff.ts.net:8446",
+  "metricsUrl": "https://librechatvm.tail6e13ff.ts.net:8447"
+}
+```
+
+`GET /api/admin/observability` returns these same URLs to the Admin Console quick-link cards. These are deliberately stored as explicit HTTPS URLs rather than legacy `localhost` URLs because each service now has a distinct Tailscale HTTPS port.
+
+## Validation
+
+From the source checkout:
+
+```bash
+./local-services/verify-vm-observability-access.sh
+```
+
+Manual VM checks:
+
+```bash
+ssh timeng@192.168.50.104 'sudo tailscale serve status'
+ssh timeng@192.168.50.104 'sudo ss -ltnp | grep -E ":(3000|3001|3100|9080|9091|9092|9115) "'
+```
+
+## Rollback
+
+The pre-change snapshot is stored on the VM at:
+
+```text
+/opt/LibreChat-custom/.rollback/observability-exposure-20260630-222823
+```
+
+An earlier Tailscale-only snapshot is also available at:
+
+```text
+/opt/LibreChat-custom/.rollback/observability-tailscale-20260630-222703
+```
+
+The rollback directories contain the Tailscale Serve configuration, Langfuse environment, Grafana/Loki compose file, Prometheus compose file, and prior LibreChat observability settings. A stopped legacy Prometheus container was retained with a `prometheus-stable-prometheus-vm-rollback-*` name during the managed Compose migration.

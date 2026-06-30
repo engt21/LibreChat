@@ -25,7 +25,7 @@ Read-only checks confirmed on 2026-06-08:
 - VM `DOMAIN_SERVER`: `https://librechatvm.tail6e13ff.ts.net:8443`
 - VM stable stack includes API/UI, MongoDB, Meilisearch, pgvector, `code-interpreter-local`, three provider RAG APIs, Langfuse, and metrics
 - VM observability is split across compose projects: `librechat-stable` owns Langfuse and the LibreChat metrics exporter, `grafana-loki-stable` owns Grafana/Loki/Promtail, and `prometheus-stable` owns the app Prometheus/Blackbox stack
-- VM admin-console observability links should be stored as `localhost` service URLs so `AdminController.resolveObservabilityLinks()` rewrites them to the request host dynamically: Langfuse `3000`, Grafana `3001`, metrics exporter `9091`, and app Prometheus `9092`
+- VM admin-console observability links use explicit tailnet HTTPS URLs: Langfuse `https://librechatvm.tail6e13ff.ts.net:8444`, Grafana/Loki `:8445`, Prometheus `:8446`, and the metrics exporter `:8447`. Raw VM ports bind to loopback only; see `OBSERVABILITY_ACCESS.md`.
 - Admin quick-link cards should use `/api/admin/observability`, which returns actual browser-clickable URLs for the current request host; the settings edit form should keep raw stored `localhost` values and normalize same-host saves back to `localhost`
 - Random Docker names using the `llm-sandbox` image are Code Interpreter child runtimes; they are not compose services
 - A direct VM Code Interpreter smoke on 2026-06-08 created a new `llm-sandbox` child, returned `stdout: "7"` from `/v1/exec`, and the synthetic child container was removed afterward
