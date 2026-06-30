@@ -2058,3 +2058,11 @@ Future changes in this customization branch should follow this rule:
 - All underlying observability host ports bind to `127.0.0.1`; Tailscale Serve is the sole remote path. The legacy unmanaged Prometheus container was replaced by the `prometheus-stable` Compose service using the same configuration, 90-day retention, and persistent `prometheus-stable_data` volume.
 - LibreChat global app settings store the explicit HTTPS URLs so `/api/admin/observability` and the Admin Console cards open the correct tailnet endpoints.
 - `OBSERVABILITY_ACCESS.md` is the focused access/authentication/rollback runbook, and `local-services/verify-vm-observability-access.sh` verifies listeners, Serve routes, HTTPS health, Langfuse callbacks, and persisted admin links.
+
+### Observability credential reset and Loki explorer (2026-06-30)
+
+- Grafana anonymous access and signup are disabled; the local login form/basic authentication are enabled, the admin password was reset, and existing Grafana sessions/tokens were removed.
+- Both existing Langfuse owner passwords were reset and all Langfuse sessions were revoked. Temporary credentials are delivered only through an external mode-`0600` handoff file and are never committed.
+- The installed Grafana OSS/Langfuse local auth surfaces have no native local first-login TOTP or durable `mustChangePassword` flag. Tailscale remains the enforced MFA/network boundary; Grafana and Langfuse passwords provide defense in depth.
+- `observability/grafana/dashboards/loki-log-explorer.json` provisions `Loki Log Explorer — All Logs` inside the existing Grafana stack, with filters for service, level, filename, source, rail, free-text/regex, time range, log volume, and all matching log lines.
+- `local-services/verify-vm-observability-access.sh` fails if Grafana anonymous user access returns, the Loki explorer disappears, Loki queries fail, raw ports stop being loopback-only, or Tailscale Serve/admin links drift.

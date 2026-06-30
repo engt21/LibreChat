@@ -5,7 +5,12 @@ VM_HOST="${LIBRECHAT_VM_HOST:-timeng@192.168.50.104}"
 TAILSCALE_HOSTNAME="${LIBRECHAT_TAILSCALE_HOSTNAME:-librechatvm.tail6e13ff.ts.net}"
 TAILSCALE_IP="${LIBRECHAT_TAILSCALE_IP:-100.95.190.45}"
 
-ssh "$VM_HOST" "TAILSCALE_HOSTNAME='$TAILSCALE_HOSTNAME' TAILSCALE_IP='$TAILSCALE_IP' bash -s" <<'REMOTE'
+if [[ "${1:-}" == "--local" ]]; then
+  shift
+  exec env TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME" TAILSCALE_IP="$TAILSCALE_IP" bash -s -- "$@" <<'REMOTE'
+else
+  exec ssh "$VM_HOST" "TAILSCALE_HOSTNAME='$TAILSCALE_HOSTNAME' TAILSCALE_IP='$TAILSCALE_IP' bash -s" <<'REMOTE'
+fi
 set -euo pipefail
 
 expected_links='{"langfuseUrl":"https://librechatvm.tail6e13ff.ts.net:8444","grafanaUrl":"https://librechatvm.tail6e13ff.ts.net:8445","prometheusUrl":"https://librechatvm.tail6e13ff.ts.net:8446","metricsUrl":"https://librechatvm.tail6e13ff.ts.net:8447"}'
@@ -46,6 +51,17 @@ ip=$TAILSCALE_IP
 curl --resolve "$host:8443:$ip" -fsS "https://$host:8443/api/config" >/dev/null
 curl --resolve "$host:8444:$ip" -fsS "https://$host:8444/api/auth/providers" | grep -Fq "https://$host:8444/api/auth/callback/credentials"
 curl --resolve "$host:8445:$ip" -fsS "https://$host:8445/api/health" | grep -Fq '"database": "ok"'
+if curl --resolve "$host:8445:$ip" -fsS "https://$host:8445/api/user" >/dev/null 2>&1; then
+  echo 'Grafana anonymous user access is enabled' >&2
+  exit 1
+fi
+test -f /opt/librechat_exporter/grafana-loki-stable/grafana/dashboards/loki-log-explorer.json
+node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync("/opt/librechat_exporter/grafana-loki-stable/grafana/dashboards/loki-log-explorer.json","utf8"));if(d.uid!=="loki-all-logs"||d.panels?.length<4)process.exit(1)'
+curl -fsSG http://127.0.0.1:3100/loki/api/v1/query_range \
+  --data-urlencode 'query={job=~".+"}' \
+  --data-urlencode 'limit=1' \
+  --data-urlencode "start=$(date -d '1 hour ago' +%s%N)" \
+  --data-urlencode "end=$(date +%s%N)" | grep -Fq '"status":"success"'
 curl --resolve "$host:8446:$ip" -fsS "https://$host:8446/-/ready" | grep -Fq 'Ready'
 curl --resolve "$host:8447:$ip" -fsS "https://$host:8447/metrics" | grep -Fq '# HELP'
 
