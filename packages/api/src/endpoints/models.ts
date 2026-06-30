@@ -811,17 +811,23 @@ export async function getXAIModelCapabilities({
   return Object.keys(xaiModelCapabilities).length > 0 ? xaiModelCapabilities : undefined;
 }
 
-async function fetchGoogleModelCapabilities(): Promise<
-  Record<string, TGoogleModelCapabilities> | undefined
-> {
-  const apiKey = process.env.GOOGLE_KEY;
+async function fetchGoogleModelCapabilities({
+  googleApiKey,
+  cacheKey = GOOGLE_MODEL_CAPABILITIES_CACHE_KEY,
+  forceRefresh = false,
+}: {
+  googleApiKey?: string;
+  cacheKey?: string;
+  forceRefresh?: boolean;
+} = {}): Promise<Record<string, TGoogleModelCapabilities> | undefined> {
+  const apiKey = googleApiKey ?? process.env.GOOGLE_KEY;
 
   if (!apiKey || isUserProvided(apiKey)) {
     return undefined;
   }
 
   const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);
-  const cachedCapabilities = await modelsCache.get(GOOGLE_MODEL_CAPABILITIES_CACHE_KEY);
+  const cachedCapabilities = forceRefresh ? null : await modelsCache.get(cacheKey);
 
   if (cachedCapabilities) {
     return cachedCapabilities as Record<string, TGoogleModelCapabilities>;
@@ -845,7 +851,7 @@ async function fetchGoogleModelCapabilities(): Promise<
     const response = await axios.get<GoogleModelsResponse>(url.toString(), options);
     const googleModelCapabilities = buildGoogleModelCapabilitiesMap(response.data.models ?? []);
 
-    await modelsCache.set(GOOGLE_MODEL_CAPABILITIES_CACHE_KEY, googleModelCapabilities);
+    await modelsCache.set(cacheKey, googleModelCapabilities);
 
     return googleModelCapabilities;
   } catch (error) {
@@ -1384,7 +1390,14 @@ export async function getGoogleModelCapability({
  * Gets Google models from environment, API, or defaults.
  * @returns Array of model IDs
  */
-export async function getGoogleModels(): Promise<string[]> {
+export async function getGoogleModels(
+  opts: {
+    googleApiKey?: string;
+    cacheKey?: string;
+    forceRefresh?: boolean;
+    userProvidedGoogle?: boolean;
+  } = {},
+): Promise<string[]> {
   let models = defaultModels[EModelEndpoint.google];
 
   if (process.env.GOOGLE_MODELS) {
@@ -1393,7 +1406,10 @@ export async function getGoogleModels(): Promise<string[]> {
       const merged = await unionWithLiveDiscovery({
         envModels,
         liveFetcher: async () => {
-          const capabilities = await fetchGoogleModelCapabilities();
+          if (opts.userProvidedGoogle && !opts.googleApiKey) {
+            return [];
+          }
+          const capabilities = await fetchGoogleModelCapabilities(opts);
           return capabilities ? Object.keys(capabilities) : [];
         },
       });
@@ -1402,7 +1418,11 @@ export async function getGoogleModels(): Promise<string[]> {
     return envModels;
   }
 
-  const googleModelCapabilities = await fetchGoogleModelCapabilities();
+  if (opts.userProvidedGoogle && !opts.googleApiKey) {
+    return models;
+  }
+
+  const googleModelCapabilities = await fetchGoogleModelCapabilities(opts);
 
   if (googleModelCapabilities && Object.keys(googleModelCapabilities).length > 0) {
     models = Object.keys(googleModelCapabilities);

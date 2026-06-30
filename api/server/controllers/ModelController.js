@@ -2,6 +2,7 @@ const { logger } = require('@librechat/data-schemas');
 const {
   CacheKeys,
   EModelEndpoint,
+  AuthKeys,
   KnownEndpoints,
   extractEnvVariable,
   isXAIEndpointCandidate,
@@ -127,7 +128,40 @@ const mergeEndpointModels = (baseConfig, endpointNames, nextConfig) =>
     return acc;
   }, {});
 
-const getAzureModelLoadState = async ({ req, appConfig, fallbackModels = [] }) => {
+const getRawUserKey = async (req, name) => {
+  if (!req.user?.id) {
+    return null;
+  }
+
+  const value = await Promise.resolve(
+    getUserKey({
+      userId: req.user.id,
+      name,
+    }),
+  ).catch(() => null);
+
+  return typeof value === 'string' && value.trim() ? value : null;
+};
+
+const parseUserKeyValues = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const getAzureModelLoadState = async ({
+  req,
+  appConfig,
+  fallbackModels = [],
+  forceRefresh = false,
+}) => {
   if (appConfig?.endpoints?.[EModelEndpoint.azureOpenAI]) {
     return {
       models: fallbackModels,
@@ -141,27 +175,27 @@ const getAzureModelLoadState = async ({ req, appConfig, fallbackModels = [] }) =
   const userProvidesKey = isUserProvided(azureApiKey);
   const userProvidesURL = isUserProvided(azureBaseURL);
 
-  let userValues = null;
-  if ((userProvidesKey || userProvidesURL) && req.user?.id) {
-    userValues = await getUserKeyValues({
-      userId: req.user.id,
-      name: EModelEndpoint.azureOpenAI,
-    }).catch(() => null);
-  }
+  const rawUserKey = await getRawUserKey(req, EModelEndpoint.azureOpenAI);
+  const userValues = parseUserKeyValues(rawUserKey);
+  const hasUserApiKey = !!userValues?.apiKey;
+  const hasUserBaseURL = !!userValues?.baseURL;
+  const hasUserModels = !!userValues?.models;
+  const useUserApiKey = hasUserApiKey || userProvidesKey;
+  const useUserBaseURL = hasUserBaseURL || userProvidesURL;
+  const isUserScopedDiscovery = useUserApiKey || useUserBaseURL || hasUserModels;
 
   const directAzureConfig = resolveAzureOpenAIDirectConfig({
-    apiKey: userProvidesKey ? userValues?.apiKey : azureApiKey,
-    baseURL: userProvidesURL ? userValues?.baseURL : azureBaseURL,
+    apiKey: useUserApiKey ? userValues?.apiKey : azureApiKey,
+    baseURL: useUserBaseURL ? userValues?.baseURL : azureBaseURL,
     models: userValues?.models,
   });
 
   const azureApiVersion =
     directAzureConfig.azureOptions?.azureOpenAIApiVersion || process.env.AZURE_OPENAI_API_VERSION;
 
-  const cacheKey =
-    userProvidesKey || userProvidesURL
-      ? `${EModelEndpoint.azureOpenAI}:${req.user?.id ?? 'anonymous'}:${directAzureConfig.baseURL ?? 'default'}`
-      : (directAzureConfig.baseURL ?? EModelEndpoint.azureOpenAI);
+  const cacheKey = isUserScopedDiscovery
+    ? `${EModelEndpoint.azureOpenAI}:${req.user?.id ?? 'anonymous'}:${directAzureConfig.baseURL ?? 'default'}`
+    : (directAzureConfig.baseURL ?? EModelEndpoint.azureOpenAI);
 
   const models = await getOpenAIModels({
     user: req.user?.id,
@@ -171,20 +205,19 @@ const getAzureModelLoadState = async ({ req, appConfig, fallbackModels = [] }) =
     manualModels: directAzureConfig.manualModels,
     azureApiVersion,
     cacheKey,
+    forceRefresh,
     userProvidedOpenAI:
-      (userProvidesKey || userProvidesURL) &&
-      (!directAzureConfig.apiKey || !directAzureConfig.baseURL),
+      isUserScopedDiscovery && (!directAzureConfig.apiKey || !directAzureConfig.baseURL),
   }).catch(() => fallbackModels);
 
-  const cacheableModels =
-    userProvidesKey || userProvidesURL
-      ? await getOpenAIModels({ azure: true, userProvidedOpenAI: true }).catch(() => fallbackModels)
-      : models;
+  const cacheableModels = isUserScopedDiscovery
+    ? await getOpenAIModels({ azure: true, userProvidedOpenAI: true }).catch(() => fallbackModels)
+    : models;
 
   return {
     models,
     cacheableModels,
-    isUserProvided: userProvidesKey || userProvidesURL,
+    isUserProvided: isUserScopedDiscovery,
   };
 };
 
@@ -243,10 +276,9 @@ const getOpenAIModelLoadState = async ({ req, fallbackModels = [], forceRefresh 
       (!openAIApiKey && !apiKey && !canDiscoverWithoutKey),
   }).catch(() => fallbackModels);
 
-  const cacheableModels =
-    isUserScopedDiscovery
-      ? await getOpenAIModels({ userProvidedOpenAI: true }).catch(() => fallbackModels)
-      : models;
+  const cacheableModels = isUserScopedDiscovery
+    ? await getOpenAIModels({ userProvidedOpenAI: true }).catch(() => fallbackModels)
+    : models;
 
   return {
     models,
@@ -265,17 +297,12 @@ const getAnthropicModelLoadState = async ({
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
   const userProvidesKey = isUserProvided(anthropicApiKey);
 
-  let userApiKey = null;
-  if (userProvidesKey && req.user?.id) {
-    userApiKey = await getUserKey({
-      userId: req.user.id,
-      name: EModelEndpoint.anthropic,
-    }).catch(() => null);
-  }
+  const userApiKey = await getRawUserKey(req, EModelEndpoint.anthropic);
+  const useUserApiKey = !!userApiKey || userProvidesKey;
 
-  const apiKey = userProvidesKey ? userApiKey : anthropicApiKey;
+  const apiKey = useUserApiKey ? userApiKey : anthropicApiKey;
   const baseURL = process.env.ANTHROPIC_REVERSE_PROXY;
-  const cacheKey = userProvidesKey
+  const cacheKey = useUserApiKey
     ? `${EModelEndpoint.anthropic}:${req.user?.id ?? 'anonymous'}:${baseURL ?? 'default'}`
     : undefined;
 
@@ -286,10 +313,10 @@ const getAnthropicModelLoadState = async ({
     baseURL,
     cacheKey,
     forceRefresh,
-    userProvidedAnthropic: userProvidesKey && !apiKey,
+    userProvidedAnthropic: useUserApiKey && !apiKey,
   }).catch(() => fallbackModels);
 
-  const cacheableModels = userProvidesKey
+  const cacheableModels = useUserApiKey
     ? await getAnthropicModels({ vertexModels, userProvidedAnthropic: true }).catch(
         () => fallbackModels,
       )
@@ -298,7 +325,37 @@ const getAnthropicModelLoadState = async ({
   return {
     models,
     cacheableModels,
-    isUserProvided: userProvidesKey,
+    isUserProvided: useUserApiKey,
+  };
+};
+
+const getGoogleModelLoadState = async ({ req, fallbackModels = [], forceRefresh = false }) => {
+  const googleApiKey = process.env.GOOGLE_KEY;
+  const userProvidesKey = isUserProvided(googleApiKey);
+  const rawUserKey = await getRawUserKey(req, EModelEndpoint.google);
+  const userValues = parseUserKeyValues(rawUserKey);
+  const userApiKey = userValues?.[AuthKeys.GOOGLE_API_KEY] ?? (userValues ? null : rawUserKey);
+  const useUserApiKey = !!userApiKey || userProvidesKey;
+  const apiKey = useUserApiKey ? userApiKey : googleApiKey;
+  const cacheKey = useUserApiKey
+    ? `${EModelEndpoint.google}:${req.user?.id ?? 'anonymous'}:capabilities`
+    : undefined;
+
+  const models = await getGoogleModels({
+    googleApiKey: apiKey,
+    cacheKey,
+    forceRefresh,
+    userProvidedGoogle: useUserApiKey && !apiKey,
+  }).catch(() => fallbackModels);
+
+  const cacheableModels = useUserApiKey
+    ? await getGoogleModels({ userProvidedGoogle: true }).catch(() => fallbackModels)
+    : models;
+
+  return {
+    models,
+    cacheableModels,
+    isUserProvided: useUserApiKey,
   };
 };
 
@@ -348,9 +405,15 @@ async function loadModels(req) {
       cacheableModels: cachedModelsConfig[EModelEndpoint.anthropic] ?? [],
       isUserProvided: false,
     }));
-    const googleModels = await getGoogleModels().catch(
-      () => cachedModelsConfig[EModelEndpoint.google],
-    );
+    const googleModelLoadState = await getGoogleModelLoadState({
+      req,
+      fallbackModels: cachedModelsConfig[EModelEndpoint.google] ?? [],
+      forceRefresh: shouldForceStartupModelRefresh,
+    }).catch(() => ({
+      models: cachedModelsConfig[EModelEndpoint.google] ?? [],
+      cacheableModels: cachedModelsConfig[EModelEndpoint.google] ?? [],
+      isUserProvided: false,
+    }));
     const assistantModels = shouldForceStartupModelRefresh
       ? await getOpenAIModels({ assistants: true, forceRefresh: true }).catch(
           () => cachedModelsConfig[EModelEndpoint.assistants] ?? [],
@@ -360,6 +423,7 @@ async function loadModels(req) {
       req,
       appConfig,
       fallbackModels: cachedModelsConfig[EModelEndpoint.azureOpenAI] ?? [],
+      forceRefresh: shouldForceStartupModelRefresh,
     }).catch(() => ({
       models: cachedModelsConfig[EModelEndpoint.azureOpenAI] ?? [],
       cacheableModels: cachedModelsConfig[EModelEndpoint.azureOpenAI] ?? [],
@@ -401,6 +465,13 @@ async function loadModels(req) {
       anthropicModelLoadState.isUserProvided &&
       JSON.stringify(cachedModelsConfig[EModelEndpoint.anthropic] ?? []) !==
         JSON.stringify(anthropicModelLoadState.models ?? []);
+    const hasGoogleModelChanges =
+      JSON.stringify(cachedModelsConfig[EModelEndpoint.google] ?? []) !==
+      JSON.stringify(googleModelLoadState.cacheableModels ?? []);
+    const hasUserSpecificGoogleChanges =
+      googleModelLoadState.isUserProvided &&
+      JSON.stringify(cachedModelsConfig[EModelEndpoint.google] ?? []) !==
+        JSON.stringify(googleModelLoadState.models ?? []);
     const hasAssistantModelChanges =
       JSON.stringify(cachedModelsConfig[EModelEndpoint.assistants] ?? []) !==
       JSON.stringify(assistantModels ?? []);
@@ -417,7 +488,7 @@ async function loadModels(req) {
       [EModelEndpoint.openAI]: openAIModelLoadState.models ?? [],
       [EModelEndpoint.anthropic]: anthropicModelLoadState.models ?? [],
       [EModelEndpoint.assistants]: assistantModels ?? [],
-      [EModelEndpoint.google]: googleModels ?? [],
+      [EModelEndpoint.google]: googleModelLoadState.models ?? [],
       [EModelEndpoint.azureOpenAI]: azureModelLoadState.models ?? [],
       ...mergeEndpointModels(cachedModelsConfig, dynamicEndpointNames, dynamicConfigModels),
     };
@@ -426,8 +497,7 @@ async function loadModels(req) {
       hasOpenAIModelChanges ||
       hasAnthropicModelChanges ||
       hasAssistantModelChanges ||
-      JSON.stringify(cachedModelsConfig[EModelEndpoint.google] ?? []) !==
-        JSON.stringify(googleModels ?? []) ||
+      hasGoogleModelChanges ||
       hasDynamicModelChanges ||
       hasAzureModelChanges
     ) {
@@ -436,7 +506,7 @@ async function loadModels(req) {
         [EModelEndpoint.openAI]: openAIModelLoadState.cacheableModels ?? [],
         [EModelEndpoint.anthropic]: anthropicModelLoadState.cacheableModels ?? [],
         [EModelEndpoint.assistants]: assistantModels ?? [],
-        [EModelEndpoint.google]: googleModels ?? [],
+        [EModelEndpoint.google]: googleModelLoadState.cacheableModels ?? [],
         [EModelEndpoint.azureOpenAI]: azureModelLoadState.cacheableModels ?? [],
         ...mergeEndpointModels(
           cachedModelsConfig,
@@ -450,7 +520,8 @@ async function loadModels(req) {
         hasUserSpecificDynamicChanges ||
         hasUserSpecificAzureChanges ||
         hasUserSpecificOpenAIChanges ||
-        hasUserSpecificAnthropicChanges
+        hasUserSpecificAnthropicChanges ||
+        hasUserSpecificGoogleChanges
       ) {
         return completeStartupModelRefresh(responseModelsConfig);
       }
@@ -462,7 +533,8 @@ async function loadModels(req) {
       hasUserSpecificDynamicChanges ||
       hasUserSpecificAzureChanges ||
       hasUserSpecificOpenAIChanges ||
-      hasUserSpecificAnthropicChanges
+      hasUserSpecificAnthropicChanges ||
+      hasUserSpecificGoogleChanges
     ) {
       return completeStartupModelRefresh(responseModelsConfig);
     }
@@ -482,6 +554,7 @@ async function loadModels(req) {
     req,
     appConfig,
     fallbackModels: defaultModelsConfig[EModelEndpoint.azureOpenAI] ?? [],
+    forceRefresh: shouldForceStartupModelRefresh,
   }).catch(() => ({
     models: defaultModelsConfig[EModelEndpoint.azureOpenAI] ?? [],
     cacheableModels: defaultModelsConfig[EModelEndpoint.azureOpenAI] ?? [],
@@ -506,9 +579,19 @@ async function loadModels(req) {
     cacheableModels: defaultModelsConfig[EModelEndpoint.anthropic] ?? [],
     isUserProvided: false,
   }));
+  const googleModelLoadState = await getGoogleModelLoadState({
+    req,
+    fallbackModels: defaultModelsConfig[EModelEndpoint.google] ?? [],
+    forceRefresh: shouldForceStartupModelRefresh,
+  }).catch(() => ({
+    models: defaultModelsConfig[EModelEndpoint.google] ?? [],
+    cacheableModels: defaultModelsConfig[EModelEndpoint.google] ?? [],
+    isUserProvided: false,
+  }));
 
   defaultModelsConfig[EModelEndpoint.openAI] = openAIModelLoadState.cacheableModels ?? [];
   defaultModelsConfig[EModelEndpoint.anthropic] = anthropicModelLoadState.cacheableModels ?? [];
+  defaultModelsConfig[EModelEndpoint.google] = googleModelLoadState.cacheableModels ?? [];
   defaultModelsConfig[EModelEndpoint.azureOpenAI] = azureModelLoadState.cacheableModels ?? [];
 
   const modelConfig = { ...defaultModelsConfig, ...customModelsConfig };
@@ -530,6 +613,7 @@ async function loadModels(req) {
       ...modelConfig,
       [EModelEndpoint.openAI]: openAIModelLoadState.models ?? [],
       [EModelEndpoint.anthropic]: anthropicModelLoadState.models ?? [],
+      [EModelEndpoint.google]: googleModelLoadState.models ?? [],
       [EModelEndpoint.azureOpenAI]: azureModelLoadState.models ?? [],
       ...mergeEndpointModels(modelConfig, dynamicEndpointNames, dynamicConfigModels),
     };
@@ -538,6 +622,7 @@ async function loadModels(req) {
       ...modelConfig,
       [EModelEndpoint.openAI]: openAIModelLoadState.models ?? [],
       [EModelEndpoint.anthropic]: anthropicModelLoadState.models ?? [],
+      [EModelEndpoint.google]: googleModelLoadState.models ?? [],
       [EModelEndpoint.azureOpenAI]: azureModelLoadState.models ?? [],
     };
   }

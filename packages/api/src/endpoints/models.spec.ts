@@ -1457,6 +1457,46 @@ describe('getGoogleModels', () => {
     );
   });
 
+  it('uses a supplied Google key and user-scoped cache for model discovery', async () => {
+    delete process.env.GOOGLE_MODELS;
+    process.env.GOOGLE_KEY = 'shared-google-key';
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          {
+            name: 'models/gemini-3.1-pro-preview',
+            supportedGenerationMethods: ['generateContent', 'countTokens'],
+          },
+        ],
+      },
+    });
+
+    const models = await getGoogleModels({
+      googleApiKey: 'user-google-key',
+      cacheKey: 'google:user-1:capabilities',
+      forceRefresh: true,
+    });
+
+    expect(models).toEqual(['gemini-3.1-pro-preview']);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://generativelanguage.googleapis.com/v1beta/models?key=user-google-key',
+      expect.objectContaining({ timeout: 5000 }),
+    );
+    expect(mockCacheData.get('google:user-1:capabilities')).toEqual(
+      expect.objectContaining({ 'gemini-3.1-pro-preview': expect.any(Object) }),
+    );
+  });
+
+  it('does not use the shared Google key when user credentials are required but absent', async () => {
+    delete process.env.GOOGLE_MODELS;
+    process.env.GOOGLE_KEY = 'shared-google-key';
+
+    const models = await getGoogleModels({ userProvidedGoogle: true });
+
+    expect(models).toEqual(defaultModels[EModelEndpoint.google]);
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
   it('returns normalized Google model capabilities for text-compatible models', async () => {
     delete process.env.GOOGLE_MODELS;
     process.env.GOOGLE_KEY = 'test-google-key';

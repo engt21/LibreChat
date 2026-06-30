@@ -6,13 +6,17 @@ jest.mock('@librechat/data-schemas', () => ({
   },
 }));
 
-jest.mock('@librechat/api', () => ({
-  getAnthropicModels: jest.fn(),
-  getGoogleModels: jest.fn(),
-  getOpenAIModels: jest.fn(),
-  resolveAzureOpenAIDirectConfig: jest.fn(),
-  isUserProvided: jest.fn((value) => value === 'user_provided'),
-}), { virtual: true });
+jest.mock(
+  '@librechat/api',
+  () => ({
+    getAnthropicModels: jest.fn(),
+    getGoogleModels: jest.fn(),
+    getOpenAIModels: jest.fn(),
+    resolveAzureOpenAIDirectConfig: jest.fn(),
+    isUserProvided: jest.fn((value) => value === 'user_provided'),
+  }),
+  { virtual: true },
+);
 
 jest.mock('~/server/services/Config', () => ({
   loadDefaultModels: jest.fn(),
@@ -73,6 +77,7 @@ describe('ModelController loadModels', () => {
     };
     getLogStores.mockReturnValue(mockCache);
     getAppConfig.mockResolvedValue({});
+    getUserKey.mockRejectedValue(new Error('missing user key'));
     getAnthropicModels.mockResolvedValue([]);
     getOpenAIModels.mockResolvedValue([]);
     resolveAzureOpenAIDirectConfig.mockReturnValue({
@@ -150,7 +155,10 @@ describe('ModelController loadModels', () => {
       ollama: ['gptossbigctx:latest'],
     });
     getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
-    getOpenAIModels.mockImplementation(({ assistants, forceRefresh }) => {
+    getOpenAIModels.mockImplementation(({ azure, assistants, forceRefresh }) => {
+      if (azure) {
+        return Promise.resolve([]);
+      }
       if (assistants) {
         return Promise.resolve(forceRefresh ? ['gpt-5-mini'] : ['gpt-4o']);
       }
@@ -242,11 +250,17 @@ describe('ModelController loadModels', () => {
       azureOpenAI: ['shared-deployment'],
     });
     getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
-    getUserKeyValues.mockResolvedValue({
-      apiKey: 'azure-user-key',
-      baseURL: 'https://example.openai.azure.com',
-      models: 'user-deployment',
-    });
+    getUserKey.mockImplementation(({ name }) =>
+      name === 'azureOpenAI'
+        ? Promise.resolve(
+            JSON.stringify({
+              apiKey: 'azure-user-key',
+              baseURL: 'https://example.openai.azure.com',
+              models: 'user-deployment',
+            }),
+          )
+        : Promise.reject(new Error('missing user key')),
+    );
     // resolveAzureOpenAIDirectConfig no longer normalises the URL – the bare
     // root is preserved so downstream helpers can distinguish explicit /openai/v1
     // from legacy shapes.
@@ -275,7 +289,7 @@ describe('ModelController loadModels', () => {
 
     const result = await loadModels(mockReq);
 
-    expect(getUserKeyValues).toHaveBeenCalledWith({
+    expect(getUserKey).toHaveBeenCalledWith({
       userId: 'user-1',
       name: 'azureOpenAI',
     });
@@ -443,6 +457,82 @@ describe('ModelController loadModels', () => {
     expect(result.openAI).toEqual(['gpt-5.6-sol', 'mercury-alpha']);
   });
 
+  it('prefers a saved Anthropic key over a configured shared key for discovery', async () => {
+    process.env.ANTHROPIC_API_KEY = 'shared-anthropic-key';
+    mockCache.get.mockResolvedValue({
+      anthropic: ['claude-shared'],
+      assistants: [],
+      google: ['gemini-2.5-flash'],
+      openAI: [],
+      azureOpenAI: [],
+    });
+    getUserKey.mockImplementation(({ name }) =>
+      name === 'anthropic'
+        ? Promise.resolve('user-anthropic-key')
+        : Promise.reject(new Error('missing user key')),
+    );
+    getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
+    getAnthropicModels.mockImplementation(({ anthropicApiKey, userProvidedAnthropic }) => {
+      if (userProvidedAnthropic) {
+        return Promise.resolve(['claude-shared']);
+      }
+      return Promise.resolve(
+        anthropicApiKey === 'user-anthropic-key' ? ['claude-user-only'] : ['claude-shared'],
+      );
+    });
+    loadConfigModels.mockResolvedValue({});
+
+    const result = await loadModels(mockReq);
+
+    expect(getAnthropicModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: 'user-1',
+        anthropicApiKey: 'user-anthropic-key',
+        cacheKey: 'anthropic:user-1:default',
+        forceRefresh: true,
+      }),
+    );
+    expect(result.anthropic).toEqual(['claude-user-only']);
+    expect(mockCache.set).not.toHaveBeenCalled();
+  });
+
+  it('prefers a saved Google API key over a configured shared key for discovery', async () => {
+    process.env.GOOGLE_KEY = 'shared-google-key';
+    mockCache.get.mockResolvedValue({
+      anthropic: [],
+      assistants: [],
+      google: ['gemini-shared'],
+      openAI: [],
+      azureOpenAI: [],
+    });
+    getUserKey.mockImplementation(({ name }) =>
+      name === 'google'
+        ? Promise.resolve(JSON.stringify({ GOOGLE_API_KEY: 'user-google-key' }))
+        : Promise.reject(new Error('missing user key')),
+    );
+    getGoogleModels.mockImplementation(({ googleApiKey, userProvidedGoogle } = {}) => {
+      if (userProvidedGoogle) {
+        return Promise.resolve(['gemini-shared']);
+      }
+      return Promise.resolve(
+        googleApiKey === 'user-google-key' ? ['gemini-user-only'] : ['gemini-shared'],
+      );
+    });
+    loadConfigModels.mockResolvedValue({});
+
+    const result = await loadModels(mockReq);
+
+    expect(getGoogleModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        googleApiKey: 'user-google-key',
+        cacheKey: 'google:user-1:capabilities',
+        forceRefresh: true,
+      }),
+    );
+    expect(result.google).toEqual(['gemini-user-only']);
+    expect(mockCache.set).not.toHaveBeenCalled();
+  });
+
   it('refreshes the shared cache when direct Azure models change', async () => {
     mockCache.get.mockResolvedValue({
       anthropic: [],
@@ -501,16 +591,22 @@ describe('ModelController loadModels', () => {
       azureOpenAI: [],
     });
     getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
-    getUserKeyValues.mockResolvedValue({
-      apiKey: JSON.stringify({
-        azureOpenAIApiKey: 'azure-key',
-        azureOpenAIApiInstanceName: 'example.models.ai.azure.com',
-        azureOpenAIApiDeploymentName: 'gpt-4-dep',
-        azureOpenAIApiVersion: '2024-10-21',
-      }),
-      baseURL: 'https://example.models.ai.azure.com/v1',
-      models: 'gpt-4-dep',
-    });
+    getUserKey.mockImplementation(({ name }) =>
+      name === 'azureOpenAI'
+        ? Promise.resolve(
+            JSON.stringify({
+              apiKey: JSON.stringify({
+                azureOpenAIApiKey: 'azure-key',
+                azureOpenAIApiInstanceName: 'example.models.ai.azure.com',
+                azureOpenAIApiDeploymentName: 'gpt-4-dep',
+                azureOpenAIApiVersion: '2024-10-21',
+              }),
+              baseURL: 'https://example.models.ai.azure.com/v1',
+              models: 'gpt-4-dep',
+            }),
+          )
+        : Promise.reject(new Error('missing user key')),
+    );
     resolveAzureOpenAIDirectConfig.mockReturnValue({
       apiKey: 'azure-key',
       baseURL: 'https://example.models.ai.azure.com/v1',
