@@ -5,12 +5,9 @@ VM_HOST="${LIBRECHAT_VM_HOST:-timeng@192.168.50.104}"
 TAILSCALE_HOSTNAME="${LIBRECHAT_TAILSCALE_HOSTNAME:-librechatvm.tail6e13ff.ts.net}"
 TAILSCALE_IP="${LIBRECHAT_TAILSCALE_IP:-100.95.190.45}"
 
-if [[ "${1:-}" == "--local" ]]; then
-  shift
-  exec env TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME" TAILSCALE_IP="$TAILSCALE_IP" bash -s -- "$@" <<'REMOTE'
-else
-  exec ssh "$VM_HOST" "TAILSCALE_HOSTNAME='$TAILSCALE_HOSTNAME' TAILSCALE_IP='$TAILSCALE_IP' bash -s" <<'REMOTE'
-fi
+check_script=$(mktemp)
+trap 'rm -f "$check_script"' EXIT
+cat > "$check_script" <<'CHECKS'
 set -euo pipefail
 
 expected_links='{"langfuseUrl":"https://librechatvm.tail6e13ff.ts.net:8444","grafanaUrl":"https://librechatvm.tail6e13ff.ts.net:8445","prometheusUrl":"https://librechatvm.tail6e13ff.ts.net:8446","metricsUrl":"https://librechatvm.tail6e13ff.ts.net:8447"}'
@@ -92,4 +89,10 @@ for (const [key, value] of Object.entries(expected)) {
 NODE
 
 echo 'VM observability tailnet access: PASS'
-REMOTE
+CHECKS
+
+if [[ "${1:-}" == "--local" ]]; then
+  TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME" TAILSCALE_IP="$TAILSCALE_IP" bash "$check_script"
+else
+  ssh "$VM_HOST" "TAILSCALE_HOSTNAME='$TAILSCALE_HOSTNAME' TAILSCALE_IP='$TAILSCALE_IP' bash -s" < "$check_script"
+fi
