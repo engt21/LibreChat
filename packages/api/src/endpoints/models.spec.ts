@@ -15,7 +15,10 @@ import {
   resolveModelsListMode,
   unionWithLiveDiscovery,
   getOpenAIModelVersionScore,
+  getOpenAIModelReleaseScore,
   sortOpenAIModelsByVersion,
+  normalizeOpenAIChatModels,
+  isOpenAIAlphaModel,
   getAnthropicModelVersionScore,
   sortAnthropicModelsByVersion,
   getGoogleModelVersionScore,
@@ -752,27 +755,29 @@ describe('getOpenAIModels', () => {
   });
 
   it('returns `OPENAI_MODELS` with no flags (and fetch fails)', async () => {
-    process.env.OPENAI_MODELS = 'openai-model,openai-model-2';
+    process.env.OPENAI_MODELS = 'gpt-4o,gpt-5';
     const models = await getOpenAIModels({});
-    expect(models).toEqual(expect.arrayContaining(['openai-model', 'openai-model-2']));
+    expect(models).toEqual(['gpt-5', 'gpt-4o']);
   });
 
-  it('returns all OpenAI-discovered models while keeping newly discovered GPT-5 variants first', async () => {
+  it('returns only chat-compatible OpenAI-discovered models in release order', async () => {
     process.env.OPENAI_API_KEY = 'mockedApiKey';
     mockedAxios.get.mockResolvedValueOnce({
       data: {
         data: [
+          { id: 'text-embedding-3-small' },
           { id: 'gpt-5-mini' },
           { id: 'gpt-5-nano' },
           { id: 'gpt-image-1' },
           { id: 'gpt-4o-realtime-preview' },
+          { id: 'chat-latest' },
         ],
       },
     });
 
     const models = await getOpenAIModels({ user: 'user456', forceRefresh: true });
 
-    expect(models).toEqual(['gpt-5-mini', 'gpt-5-nano', 'gpt-4o-realtime-preview', 'gpt-image-1']);
+    expect(models).toEqual(['chat-latest', 'gpt-5-mini', 'gpt-5-nano']);
   });
 
   it('bypasses cached OpenAI discovery when forceRefresh is enabled', async () => {
@@ -795,7 +800,7 @@ describe('getOpenAIModels', () => {
 
     const models = await getOpenAIModels({ user: 'user456', forceRefresh: true });
 
-    expect(models).toEqual(defaultModels[EModelEndpoint.openAI]);
+    expect(models).toEqual(normalizeOpenAIChatModels(defaultModels[EModelEndpoint.openAI]));
     expect(mockedAxios.get).not.toHaveBeenCalled();
   });
 
@@ -822,13 +827,57 @@ describe('filterOpenAITextCompatibleModels', () => {
   it('keeps chat-capable OpenAI models and drops non-chat catalogs', () => {
     expect(
       filterOpenAITextCompatibleModels([
+        'chat-latest',
+        'gpt-chat-latest',
+        'gpt-5.4-chat-latest',
+        'gpt-5.5',
+        'gpt-5.5-2026-04-23',
+        'gpt-4-1106-preview',
+        'gpt-4-0613',
+        'gpt-3.5-turbo-0125',
         'gpt-5-mini',
         'gpt-5-nano',
+        'sol',
+        'luna',
+        'iris-preview',
+        'kepler-alpha',
+        'mercury-alpha',
+        'o4-mini-alpha-2025-07-11',
+        'o4-mini-alpha-responses-2025-07-11',
+        'babbage-002',
+        'davinci-002',
         'gpt-image-1',
+        'gpt-image-alpha',
+        'sora-2',
         'gpt-4o-realtime-preview',
         'text-embedding-3-small',
+        'whisper-1',
+        'gpt-4o-transcribe',
+        'gpt-realtime-2',
+        'omni-moderation-latest',
+        'o3-deep-research',
+        'computer-use-preview',
       ]),
-    ).toEqual(['gpt-5-mini', 'gpt-5-nano']);
+    ).toEqual([
+      'chat-latest',
+      'gpt-chat-latest',
+      'gpt-5.4-chat-latest',
+      'gpt-5.5',
+      'gpt-5-mini',
+      'gpt-5-nano',
+      'sol',
+      'luna',
+      'iris-preview',
+      'kepler-alpha',
+      'mercury-alpha',
+      'o4-mini-alpha-2025-07-11',
+      'o4-mini-alpha-responses-2025-07-11',
+    ]);
+  });
+
+  it('detects OpenAI alpha model ids', () => {
+    expect(isOpenAIAlphaModel('gpt-5.6-alpha')).toBe(true);
+    expect(isOpenAIAlphaModel('gpt-5.6')).toBe(false);
   });
 });
 
@@ -856,21 +905,76 @@ describe('getOpenAIModels sorting behavior', () => {
     jest.clearAllMocks();
   });
 
-  it('puts higher-version models first and sinks instruct to the bottom', async () => {
+  it('puts chat-latest first and sorts known chat models by release order', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [
+          { id: 'gpt-4-turbo' },
+          { id: 'o3' },
+          { id: 'gpt-5.4' },
+          { id: 'sol' },
+          { id: 'luna' },
+          { id: 'kepler-alpha' },
+          { id: 'gpt-5.4-2026-03-05' },
+          { id: 'gpt-chat-latest' },
+          { id: 'gpt-5.3-chat-latest' },
+          { id: 'chat-latest' },
+          { id: 'gpt-3.5-turbo-instruct' },
+        ],
+      },
+    });
+
     const models = await getOpenAIModels({ user: 'user456' });
 
-    // Highest score first (gpt-4 > gpt-3.5), instruct always last regardless
-    // of its score.
-    const expectedOrder = [
-      'gpt-4-0314',
-      'gpt-4-turbo-preview',
-      'gpt-3.5-turbo',
-      'gpt-3.5-turbo-instruct-0914',
-      'gpt-3.5-turbo-instruct',
-    ];
-    expect(models).toEqual(expectedOrder);
+    expect(models).toEqual([
+      'chat-latest',
+      'gpt-5.4',
+      'o3',
+      'gpt-4-turbo',
+      'sol',
+      'luna',
+      'kepler-alpha',
+    ]);
+    expect(getOpenAIModelReleaseScore('gpt-5.4')).toBeGreaterThan(getOpenAIModelReleaseScore('o3'));
+    expect(getOpenAIModelReleaseScore('o3')).toBeGreaterThan(
+      getOpenAIModelReleaseScore('gpt-4-turbo'),
+    );
+  });
 
-    expect(models[models.length - 1]).toMatch(/instruct/);
+  it('normalizes duplicate raw OpenAI chat catalogs for the picker', () => {
+    expect(
+      normalizeOpenAIChatModels([
+        'gpt-5.5-2026-04-23',
+        'gpt-5.5',
+        'gpt-5.5',
+        'text-embedding-3-small',
+        'gpt-chat-latest',
+        'gpt-5.6-chat-latest',
+        'chat-latest',
+      ]),
+    ).toEqual(['chat-latest', 'gpt-5.5']);
+  });
+
+  it('uses gpt-chat-latest before versioned chat-latest when chat-latest is absent', () => {
+    expect(
+      normalizeOpenAIChatModels([
+        'gpt-5.6-chat-latest',
+        'gpt-5.5',
+        'gpt-chat-latest',
+        'gpt-5.5-mini',
+      ]),
+    ).toEqual(['gpt-chat-latest', 'gpt-5.5', 'gpt-5.5-mini']);
+  });
+
+  it('uses the highest versioned chat-latest when short aliases are absent', () => {
+    expect(
+      normalizeOpenAIChatModels([
+        'gpt-5.3-chat-latest',
+        'gpt-5.5',
+        'gpt-5.4-chat-latest',
+        'gpt-5.5-mini',
+      ]),
+    ).toEqual(['gpt-5.4-chat-latest', 'gpt-5.5', 'gpt-5.5-mini']);
   });
 });
 
@@ -1505,9 +1609,9 @@ describe('getOpenAIModels merge mode', () => {
     jest.clearAllMocks();
   });
 
-  it('unions OPENAI_MODELS with all live discovery ids and sorts version-descending', async () => {
+  it('treats OPENAI_MODELS as a fallback seed and filters chat picker ids', async () => {
     process.env.OPENAI_MODELS = 'gpt-4o,gpt-5';
-    process.env.OPENAI_MODELS_MODE = 'merge';
+    delete process.env.OPENAI_MODELS_MODE;
     process.env.OPENAI_API_KEY = 'mockedApiKey';
 
     mockedAxios.get.mockResolvedValueOnce({
@@ -1524,16 +1628,7 @@ describe('getOpenAIModels merge mode', () => {
 
     const models = await getOpenAIModels({ user: 'user-merge', forceRefresh: true });
 
-    // Sorted by version descending: gpt-5.5* (505) > gpt-5 (500) > gpt-4o (400).
-    // Provider-returned non-chat ids remain visible instead of being filtered.
-    expect(models).toEqual([
-      'gpt-5.5',
-      'gpt-5.5-pro',
-      'gpt-5',
-      'gpt-4o',
-      'gpt-image-1',
-      'text-embedding-3-small',
-    ]);
+    expect(models).toEqual(['gpt-5.5', 'gpt-5.5-pro', 'gpt-5', 'gpt-4o']);
   });
 
   it('falls back to OPENAI_MODELS (still version-sorted) when live discovery throws', async () => {
@@ -1549,7 +1644,7 @@ describe('getOpenAIModels merge mode', () => {
     expect(models).toEqual(['gpt-5', 'gpt-4o']);
   });
 
-  it('returns OPENAI_MODELS verbatim in override mode (default)', async () => {
+  it('does not let OPENAI_MODELS override live native OpenAI discovery', async () => {
     process.env.OPENAI_MODELS = 'gpt-4o,gpt-5';
     delete process.env.OPENAI_MODELS_MODE;
     process.env.OPENAI_API_KEY = 'mockedApiKey';
@@ -1559,7 +1654,31 @@ describe('getOpenAIModels merge mode', () => {
     });
 
     const models = await getOpenAIModels({ user: 'user-override', forceRefresh: true });
-    expect(models).toEqual(['gpt-4o', 'gpt-5']);
+    expect(models).toEqual(['gpt-5.5', 'gpt-5.5-pro', 'gpt-5', 'gpt-4o']);
+  });
+
+  it('preserves OPENAI_MODELS override behavior for reverse proxy catalogs', async () => {
+    process.env.OPENAI_MODELS = 'llama-3.1-70b-instruct,gpt-4o';
+    process.env.OPENAI_REVERSE_PROXY = 'https://openai-compatible.example/v1';
+    process.env.OPENAI_API_KEY = 'mockedApiKey';
+
+    const models = await getOpenAIModels({ user: 'user-proxy', forceRefresh: true });
+
+    expect(models).toEqual(['llama-3.1-70b-instruct', 'gpt-4o']);
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
+  it('does not normalize reverse proxy live discovery ids', async () => {
+    process.env.OPENAI_REVERSE_PROXY = 'https://openai-compatible.example/v1';
+    process.env.OPENAI_API_KEY = 'mockedApiKey';
+
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { data: [{ id: 'llama-3.1-70b-instruct' }, { id: 'gpt-image-1' }] },
+    });
+
+    const models = await getOpenAIModels({ user: 'user-proxy', forceRefresh: true });
+
+    expect(models).toEqual(['llama-3.1-70b-instruct', 'gpt-image-1']);
   });
 
   it('skips live discovery in user-provided context even when merge mode is on', async () => {
@@ -1575,7 +1694,7 @@ describe('getOpenAIModels merge mode', () => {
       user: 'user-byok',
       userProvidedOpenAI: true,
     });
-    expect(models).toEqual(['gpt-4o', 'gpt-5']);
+    expect(models).toEqual(['gpt-5', 'gpt-4o']);
     expect(mockedAxios.get).not.toHaveBeenCalled();
   });
 
@@ -1623,10 +1742,10 @@ describe('getOpenAIModels merge mode', () => {
 
     const indexOf = (id: string) => models.indexOf(id);
 
-    // Every gpt-5.X model must come BEFORE every gpt-4* and gpt-3.5* model.
+    // Every stable gpt-5.X model must come BEFORE every gpt-4* and gpt-3.5* model.
     expect(indexOf('gpt-5.5')).toBeLessThan(indexOf('gpt-4'));
-    expect(indexOf('gpt-5.5-pro-2026-04-23')).toBeLessThan(indexOf('gpt-4'));
-    expect(indexOf('gpt-5.5-2026-04-23')).toBeLessThan(indexOf('gpt-4-0613'));
+    expect(models).not.toContain('gpt-5.5-pro-2026-04-23');
+    expect(models).not.toContain('gpt-5.5-2026-04-23');
     expect(indexOf('gpt-5.4')).toBeLessThan(indexOf('gpt-4o'));
     expect(indexOf('gpt-5.4')).toBeLessThan(indexOf('gpt-3.5-turbo'));
 
@@ -1771,53 +1890,56 @@ describe('getOpenAIModelVersionScore', () => {
 });
 
 describe('sortOpenAIModelsByVersion', () => {
-  it('places higher gpt-X.Y versions first and sinks instruct to the end', () => {
+  it('places chat-latest and known recent chat models first', () => {
     const sorted = sortOpenAIModelsByVersion([
       'gpt-3.5-turbo',
-      'gpt-3.5-turbo-instruct',
       'gpt-4',
       'gpt-4-turbo-preview',
       'gpt-5',
       'gpt-5.5-pro-2026-04-23',
       'gpt-5.5',
+      'gpt-chat-latest',
+      'gpt-5.6-chat-latest',
+      'chat-latest',
     ]);
     expect(sorted).toEqual([
-      'gpt-5.5-pro-2026-04-23',
+      'chat-latest',
+      'gpt-chat-latest',
+      'gpt-5.6-chat-latest',
       'gpt-5.5',
+      'gpt-5.5-pro-2026-04-23',
       'gpt-5',
-      'gpt-4',
       'gpt-4-turbo-preview',
       'gpt-3.5-turbo',
-      'gpt-3.5-turbo-instruct',
+      'gpt-4',
     ]);
   });
 
-  it('keeps the curated env-list order stable within a single version', () => {
+  it('uses preferred variant order within a single release family', () => {
     const sorted = sortOpenAIModelsByVersion([
       'gpt-5.4',
       'gpt-5.4-mini',
       'gpt-5.4-nano',
       'gpt-5.4-pro',
     ]);
-    expect(sorted).toEqual(['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.4-pro']);
+    expect(sorted).toEqual(['gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano']);
   });
 
-  it('mixes o-series with gpt by score (o4-mini ≈ gpt-4)', () => {
+  it('orders o-series by release position relative to GPT families', () => {
     const sorted = sortOpenAIModelsByVersion(['gpt-3.5-turbo', 'o4-mini', 'gpt-5', 'o1', 'gpt-4o']);
-    // gpt-5 (500) → [o4-mini, gpt-4o] (both 400) → o1 (100) → gpt-3.5-turbo (305)
     expect(sorted[0]).toBe('gpt-5');
     expect(sorted.indexOf('o4-mini')).toBeLessThan(sorted.indexOf('gpt-3.5-turbo'));
-    expect(sorted.indexOf('gpt-4o')).toBeLessThan(sorted.indexOf('o1'));
+    expect(sorted.indexOf('o1')).toBeLessThan(sorted.indexOf('gpt-4o'));
   });
 
-  it('puts unknown models above instruct but below known versions', () => {
+  it('puts unknown models below known versions', () => {
     const sorted = sortOpenAIModelsByVersion([
       'gpt-3.5-turbo',
       'gpt-3.5-turbo-instruct',
       'davinci-002',
       'gpt-5',
     ]);
-    expect(sorted).toEqual(['gpt-5', 'gpt-3.5-turbo', 'davinci-002', 'gpt-3.5-turbo-instruct']);
+    expect(sorted).toEqual(['gpt-5', 'gpt-3.5-turbo', 'gpt-3.5-turbo-instruct', 'davinci-002']);
   });
 });
 

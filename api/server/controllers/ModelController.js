@@ -188,26 +188,48 @@ const getAzureModelLoadState = async ({ req, appConfig, fallbackModels = [] }) =
   };
 };
 
+const getOpenAIUserValues = async (req) => {
+  if (!req.user?.id) {
+    return null;
+  }
+
+  const params = {
+    userId: req.user.id,
+    name: EModelEndpoint.openAI,
+  };
+
+  const values = await Promise.resolve(getUserKeyValues(params)).catch(() => null);
+  if (values && typeof values === 'object') {
+    return values;
+  }
+
+  const apiKey = await Promise.resolve(getUserKey(params)).catch(() => null);
+  if (typeof apiKey === 'string' && apiKey.trim()) {
+    return { apiKey };
+  }
+
+  return null;
+};
+
 const getOpenAIModelLoadState = async ({ req, fallbackModels = [], forceRefresh = false }) => {
   const openAIApiKey = process.env.OPENAI_API_KEY;
   const openAIBaseURL = process.env.OPENAI_REVERSE_PROXY;
   const userProvidesKey = isUserProvided(openAIApiKey);
   const userProvidesURL = isUserProvided(openAIBaseURL);
 
-  let userValues = null;
-  if ((userProvidesKey || userProvidesURL) && req.user?.id) {
-    userValues = await getUserKeyValues({
-      userId: req.user.id,
-      name: EModelEndpoint.openAI,
-    }).catch(() => null);
-  }
+  const userValues = await getOpenAIUserValues(req);
 
-  const apiKey = userProvidesKey ? userValues?.apiKey : openAIApiKey;
-  const baseURL = userProvidesURL ? userValues?.baseURL : openAIBaseURL;
-  const cacheKey =
-    userProvidesKey || userProvidesURL
-      ? `${EModelEndpoint.openAI}:${req.user?.id ?? 'anonymous'}:${baseURL ?? 'default'}`
-      : undefined;
+  const hasUserApiKey = !!userValues?.apiKey;
+  const hasUserBaseURL = !!userValues?.baseURL;
+  const useUserApiKey = hasUserApiKey || userProvidesKey;
+  const useUserBaseURL = hasUserBaseURL || userProvidesURL;
+  const isUserScopedDiscovery = useUserApiKey || useUserBaseURL;
+  const apiKey = useUserApiKey ? userValues?.apiKey : openAIApiKey;
+  const baseURL = useUserBaseURL ? userValues?.baseURL : openAIBaseURL;
+  const canDiscoverWithoutKey = !!baseURL && !userProvidesURL;
+  const cacheKey = isUserScopedDiscovery
+    ? `${EModelEndpoint.openAI}:${req.user?.id ?? 'anonymous'}:${baseURL ?? 'default'}`
+    : undefined;
 
   const models = await getOpenAIModels({
     user: req.user?.id,
@@ -215,18 +237,21 @@ const getOpenAIModelLoadState = async ({ req, fallbackModels = [], forceRefresh 
     baseURL,
     cacheKey,
     forceRefresh,
-    userProvidedOpenAI: (userProvidesKey && !apiKey) || (userProvidesURL && !baseURL),
+    userProvidedOpenAI:
+      (userProvidesKey && !apiKey) ||
+      (userProvidesURL && !baseURL) ||
+      (!openAIApiKey && !apiKey && !canDiscoverWithoutKey),
   }).catch(() => fallbackModels);
 
   const cacheableModels =
-    userProvidesKey || userProvidesURL
+    isUserScopedDiscovery
       ? await getOpenAIModels({ userProvidedOpenAI: true }).catch(() => fallbackModels)
       : models;
 
   return {
     models,
     cacheableModels,
-    isUserProvided: userProvidesKey || userProvidesURL,
+    isUserProvided: isUserScopedDiscovery,
   };
 };
 

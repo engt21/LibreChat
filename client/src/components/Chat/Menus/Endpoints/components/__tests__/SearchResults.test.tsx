@@ -45,7 +45,8 @@ jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
 }));
 
-const localize = (key: string) => key;
+const localize = (key: string) =>
+  key === 'com_endpoint_openai_alpha_models' ? 'OpenAI alpha' : key;
 
 const anthropicEndpoint: Endpoint = {
   value: 'anthropic',
@@ -68,6 +69,14 @@ const agentsEndpoint: Endpoint = {
   hasModels: true,
   models: [{ name: 'agent-1' }],
   agentNames: { 'agent-1': 'Agent One' },
+  icon: null,
+};
+
+const openAIEndpoint: Endpoint = {
+  value: 'openAI',
+  label: 'OpenAI',
+  hasModels: true,
+  models: [{ name: 'chat-latest' }, { name: 'gpt-5.6-alpha' }],
   icon: null,
 };
 
@@ -161,5 +170,15 @@ describe('SearchResults', () => {
     expect(
       screen.queryByRole('button', { name: 'com_endpoint_config_key My Agents' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('labels OpenAI alpha matches separately in search results', () => {
+    mockSelectedValues = { endpoint: 'openAI', model: '', modelSpec: '' };
+
+    render(<SearchResults results={[openAIEndpoint]} localize={localize} searchValue="gpt" />);
+
+    expect(screen.getByText('OpenAI')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI alpha')).toBeInTheDocument();
+    expect(screen.getByText('gpt-5.6-alpha')).toBeInTheDocument();
   });
 });

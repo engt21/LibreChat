@@ -6,6 +6,7 @@ const {
   normalizeModelPermissions,
   filterModelsConfigForUser,
   filterModelSpecsConfig,
+  isOpenAIAlphaModel,
   validateModelPermissions,
   validateModelAccess,
 } = require('./ModelAccess');
@@ -167,7 +168,7 @@ describe('ModelAccess', () => {
     it('keeps every synced OpenAI model for default non-admin users', () => {
       const result = filterModelsConfigForUser(
         {
-          openAI: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-4o', 'o5-mini'],
+          openAI: ['gpt-5.5', 'gpt-5.5-alpha', 'gpt-5.5-pro', 'gpt-4o', 'o5-mini'],
           initial: [],
         },
         {
@@ -177,7 +178,50 @@ describe('ModelAccess', () => {
       );
 
       expect(result).toEqual({
-        openAI: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-4o', 'o5-mini'],
+        openAI: ['gpt-5.5', 'gpt-5.5-alpha', 'gpt-5.5-pro', 'gpt-4o', 'o5-mini'],
+        initial: [],
+      });
+    });
+
+    it('detects OpenAI alpha model ids', () => {
+      expect(isOpenAIAlphaModel('gpt-5.6-alpha')).toBe(true);
+      expect(isOpenAIAlphaModel('gpt-5.6')).toBe(false);
+    });
+
+    it('keeps OpenAI alpha models visible for admins', () => {
+      const result = filterModelsConfigForUser(
+        {
+          openAI: ['gpt-5.6-alpha', 'gpt-5.5'],
+          initial: [],
+        },
+        {
+          role: SystemRoles.ADMIN,
+        },
+      );
+
+      expect(result).toEqual({
+        openAI: ['gpt-5.6-alpha', 'gpt-5.5'],
+        initial: [],
+      });
+    });
+
+    it('keeps OpenAI alpha models visible for non-admin wildcard rules', () => {
+      const result = filterModelsConfigForUser(
+        {
+          openAI: ['gpt-5.6-alpha', 'gpt-5.5'],
+          initial: [],
+        },
+        {
+          role: SystemRoles.USER,
+          modelPermissions: {
+            enabled: true,
+            rules: [{ endpoint: 'openAI', models: ['*'] }],
+          },
+        },
+      );
+
+      expect(result).toEqual({
+        openAI: ['gpt-5.6-alpha', 'gpt-5.5'],
         initial: [],
       });
     });

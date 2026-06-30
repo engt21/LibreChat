@@ -32,6 +32,7 @@ jest.mock('~/cache', () => ({
 }));
 
 jest.mock('~/models', () => ({
+  getUserKey: jest.fn(),
   getUserKeyValues: jest.fn(),
 }));
 
@@ -46,6 +47,7 @@ describe('ModelController loadModels', () => {
   let loadConfigModels;
   let getAppConfig;
   let getLogStores;
+  let getUserKey;
   let getUserKeyValues;
   let loadModels;
 
@@ -63,7 +65,7 @@ describe('ModelController loadModels', () => {
     ({ loadConfigModels } = require('~/server/services/Config'));
     ({ getAppConfig } = require('~/server/services/Config/app'));
     ({ getLogStores } = require('~/cache'));
-    ({ getUserKeyValues } = require('~/models'));
+    ({ getUserKey, getUserKeyValues } = require('~/models'));
     ({ loadModels } = require('./ModelController'));
     mockCache = {
       get: jest.fn(),
@@ -285,6 +287,160 @@ describe('ModelController loadModels', () => {
       openAI: [],
       azureOpenAI: ['user-deployment'],
     });
+  });
+
+  it('uses a saved OpenAI user key for discovery when no shared OpenAI key is configured', async () => {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_REVERSE_PROXY;
+
+    mockCache.get.mockResolvedValue({
+      anthropic: [],
+      assistants: [],
+      google: ['gemini-2.5-flash'],
+      openAI: ['gpt-5-mini'],
+      azureOpenAI: [],
+    });
+    getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
+    getUserKeyValues.mockResolvedValue({
+      apiKey: 'openai-user-key',
+    });
+    getOpenAIModels.mockImplementation(
+      ({ azure, assistants, openAIApiKey, userProvidedOpenAI }) => {
+        if (azure || assistants) {
+          return Promise.resolve([]);
+        }
+
+        if (userProvidedOpenAI) {
+          return Promise.resolve(['gpt-5-mini']);
+        }
+
+        if (openAIApiKey === 'openai-user-key') {
+          return Promise.resolve(['gpt-5.6', 'kepler-alpha']);
+        }
+
+        return Promise.resolve([]);
+      },
+    );
+    loadConfigModels.mockResolvedValue({});
+
+    const result = await loadModels(mockReq);
+
+    expect(getUserKeyValues).toHaveBeenCalledWith({
+      userId: 'user-1',
+      name: 'openAI',
+    });
+    expect(getOpenAIModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: 'user-1',
+        openAIApiKey: 'openai-user-key',
+        cacheKey: 'openAI:user-1:default',
+        forceRefresh: true,
+      }),
+    );
+    expect(mockCache.set).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      anthropic: [],
+      assistants: [],
+      google: ['gemini-2.5-flash'],
+      openAI: ['gpt-5.6', 'kepler-alpha'],
+      azureOpenAI: [],
+    });
+  });
+
+  it('prefers a saved OpenAI user key over a configured shared OpenAI key for discovery', async () => {
+    process.env.OPENAI_API_KEY = 'shared-openai-key';
+
+    mockCache.get.mockResolvedValue({
+      anthropic: [],
+      assistants: [],
+      google: ['gemini-2.5-flash'],
+      openAI: ['gpt-5-mini'],
+      azureOpenAI: [],
+    });
+    getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
+    getUserKeyValues.mockResolvedValue({
+      apiKey: 'openai-user-key',
+    });
+    getOpenAIModels.mockImplementation(
+      ({ azure, assistants, openAIApiKey, userProvidedOpenAI }) => {
+        if (azure || assistants) {
+          return Promise.resolve([]);
+        }
+
+        if (userProvidedOpenAI) {
+          return Promise.resolve(['gpt-5-mini']);
+        }
+
+        if (openAIApiKey === 'openai-user-key') {
+          return Promise.resolve(['gpt-5.6', 'kepler-alpha']);
+        }
+
+        return Promise.resolve(['shared-only-model']);
+      },
+    );
+    loadConfigModels.mockResolvedValue({});
+
+    const result = await loadModels(mockReq);
+
+    expect(getOpenAIModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: 'user-1',
+        openAIApiKey: 'openai-user-key',
+        cacheKey: 'openAI:user-1:default',
+        forceRefresh: true,
+      }),
+    );
+    expect(mockCache.set).not.toHaveBeenCalled();
+    expect(result.openAI).toEqual(['gpt-5.6', 'kepler-alpha']);
+  });
+
+  it('uses a plain saved OpenAI key for model discovery when JSON key values are unavailable', async () => {
+    process.env.OPENAI_API_KEY = 'shared-openai-key';
+
+    mockCache.get.mockResolvedValue({
+      anthropic: [],
+      assistants: [],
+      google: ['gemini-2.5-flash'],
+      openAI: ['gpt-5-mini'],
+      azureOpenAI: [],
+    });
+    getGoogleModels.mockResolvedValue(['gemini-2.5-flash']);
+    getUserKeyValues.mockRejectedValue(new Error('invalid json key'));
+    getUserKey.mockResolvedValue('plain-openai-user-key');
+    getOpenAIModels.mockImplementation(
+      ({ azure, assistants, openAIApiKey, userProvidedOpenAI }) => {
+        if (azure || assistants) {
+          return Promise.resolve([]);
+        }
+
+        if (userProvidedOpenAI) {
+          return Promise.resolve(['gpt-5-mini']);
+        }
+
+        if (openAIApiKey === 'plain-openai-user-key') {
+          return Promise.resolve(['gpt-5.6-sol', 'mercury-alpha']);
+        }
+
+        return Promise.resolve(['shared-only-model']);
+      },
+    );
+    loadConfigModels.mockResolvedValue({});
+
+    const result = await loadModels(mockReq);
+
+    expect(getUserKey).toHaveBeenCalledWith({
+      userId: 'user-1',
+      name: 'openAI',
+    });
+    expect(getOpenAIModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: 'user-1',
+        openAIApiKey: 'plain-openai-user-key',
+        cacheKey: 'openAI:user-1:default',
+        forceRefresh: true,
+      }),
+    );
+    expect(result.openAI).toEqual(['gpt-5.6-sol', 'mercury-alpha']);
   });
 
   it('refreshes the shared cache when direct Azure models change', async () => {

@@ -115,6 +115,7 @@ The custom work falls into these main buckets:
 - `AppSettings.platformPrompt` schema/zod/UI handling and prompt-prepend ordering
 - `AppSettings.modelSteeringEnabled`, `user.modelSteeringPrefs.enabled`, `/api/model-steering/prefs`, and `/api/agents/chat/steer` gates
 - model steering normal-chat-bar UX: no separate input, Stop + Send coexist while steerable, Enter submits steering, first-message streams fall back to `latestMessage.conversationId`, and steering drafts/input are cleared after submit
+- native OpenAI model-directory discovery must prefer a signed-in user's saved OpenAI key over platform credentials when present, support both JSON `{ apiKey, baseURL }` and older plain saved keys, and keep BYOK discovery results user-scoped instead of writing them into shared model caches
 - host-aware observability URLs
 - super-admin-only model-picker API-key settings access
 

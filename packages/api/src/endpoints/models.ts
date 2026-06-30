@@ -38,9 +38,53 @@ import { standardCache } from '~/cache';
 const GOOGLE_MODEL_CAPABILITIES_CACHE_KEY = `${EModelEndpoint.google}:capabilities`;
 const OLLAMA_MODEL_SOURCES_CACHE_KEY_PREFIX = `${KnownEndpoints.ollama}:sources:`;
 const XAI_MODEL_CAPABILITIES_CACHE_KEY_PREFIX = `${KnownEndpoints.xai}:capabilities:`;
-const OPENAI_TEXT_MODEL_REGEX = /^(?:text-davinci-003|chatgpt-|gpt-\d|o\d)/i;
+const OPENAI_CHAT_LATEST_MODEL = 'chat-latest';
+const OPENAI_CHAT_LATEST_ALIASES = new Set([OPENAI_CHAT_LATEST_MODEL, 'gpt-chat-latest']);
+const OPENAI_TEXT_MODEL_REGEX = /^(?:chat-latest$|gpt-chat-latest$|chatgpt-|gpt-\d|o\d)/i;
 const OPENAI_EXCLUDED_MODEL_REGEX =
-  /(?:audio|realtime|image|embedding|moderation|transcribe|tts|whisper)/i;
+  /(?:audio|realtime|image|embedding|moderation|transcribe|transcription|translate|tts|whisper|dall-e|deep-research|computer-use|search-preview|vision|video|sora|codex|instruct)/i;
+const OPENAI_DATED_SNAPSHOT_REGEX = /(?:-\d{4}-\d{2}-\d{2}|-\d{4}(?:-[a-z]+)?)$/;
+const OPENAI_VERSIONED_CHAT_LATEST_REGEX =
+  /^gpt-\d+(?:\.\d+)?-chat-latest(?:-\d{4}-\d{2}-\d{2})?$/i;
+const OPENAI_CODENAME_MODEL_REGEX = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/i;
+const OPENAI_LEGACY_BASE_MODEL_REGEX = /^(?:ada|babbage|curie|davinci)(?:-|$)/i;
+
+const OPENAI_RELEASE_ORDER = [
+  OPENAI_CHAT_LATEST_MODEL,
+  'gpt-chat-latest',
+  'gpt-5.5',
+  'gpt-5.5-pro',
+  'gpt-5.4',
+  'gpt-5.4-pro',
+  'gpt-5.4-mini',
+  'gpt-5.4-nano',
+  'gpt-5.2',
+  'gpt-5.2-pro',
+  'gpt-5.1',
+  'gpt-5',
+  'gpt-5-mini',
+  'gpt-5-nano',
+  'o4-mini',
+  'o3',
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'o1-pro',
+  'gpt-4.5-preview',
+  'o3-mini',
+  'o1',
+  'o1-mini',
+  'o1-preview',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'gpt-4-turbo',
+  'gpt-3.5-turbo',
+  'gpt-4',
+];
+
+const OPENAI_RELEASE_ORDER_SCORES = new Map(
+  OPENAI_RELEASE_ORDER.map((model, index) => [model, 900_000_000 - index * 10_000]),
+);
 
 interface GoogleModelsResponse {
   models?: TGoogleModelCapabilities[];
@@ -277,16 +321,117 @@ export function splitAndTrim(input: string | null | undefined): string[] {
 
 export function isOpenAITextCompatibleModel(model: string | null | undefined): boolean {
   const normalizedModel = (model ?? '').trim();
+  const isAlphaModel = isOpenAIAlphaModel(normalizedModel);
+  const isCodenameModel =
+    OPENAI_CODENAME_MODEL_REGEX.test(normalizedModel) &&
+    !OPENAI_LEGACY_BASE_MODEL_REGEX.test(normalizedModel);
 
   return (
     normalizedModel !== '' &&
-    OPENAI_TEXT_MODEL_REGEX.test(normalizedModel) &&
-    !OPENAI_EXCLUDED_MODEL_REGEX.test(normalizedModel)
+    !OPENAI_EXCLUDED_MODEL_REGEX.test(normalizedModel) &&
+    (isAlphaModel ||
+      (!isOpenAIDatedSnapshotModel(normalizedModel) &&
+        (OPENAI_TEXT_MODEL_REGEX.test(normalizedModel) || isCodenameModel)))
   );
 }
 
 export function filterOpenAITextCompatibleModels(models: string[]): string[] {
   return models.filter((model) => isOpenAITextCompatibleModel(model));
+}
+
+export function isOpenAIAlphaModel(model: string | null | undefined): boolean {
+  return (model ?? '').toLowerCase().includes('-alpha');
+}
+
+export function isOpenAIDatedSnapshotModel(model: string | null | undefined): boolean {
+  return OPENAI_DATED_SNAPSHOT_REGEX.test((model ?? '').trim());
+}
+
+function getOpenAIStableModelId(model: string): string {
+  return model.trim().replace(OPENAI_DATED_SNAPSHOT_REGEX, '');
+}
+
+function isOpenAIChatLatestModel(model: string): boolean {
+  const lower = getOpenAIStableModelId(model).toLowerCase();
+  return OPENAI_CHAT_LATEST_ALIASES.has(lower) || OPENAI_VERSIONED_CHAT_LATEST_REGEX.test(lower);
+}
+
+function getOpenAIVariantRank(model: string): number {
+  const lower = getOpenAIStableModelId(model).toLowerCase();
+
+  if (isOpenAIChatLatestModel(lower)) {
+    return 0;
+  }
+  if (/^gpt-\d+(?:\.\d+)?$/.test(lower)) {
+    return 1;
+  }
+  if (/(?:^|-)pro(?:$|-)/.test(lower)) {
+    return 2;
+  }
+  if (/(?:^|-)mini(?:$|-)/.test(lower)) {
+    return 3;
+  }
+  if (/(?:^|-)nano(?:$|-)/.test(lower)) {
+    return 4;
+  }
+  if (isOpenAIAlphaModel(lower)) {
+    return 8;
+  }
+  return 6;
+}
+
+export function getOpenAIModelReleaseScore(model: string): number {
+  if (!model || typeof model !== 'string') {
+    return -1;
+  }
+
+  const lower = getOpenAIStableModelId(model).toLowerCase();
+  if (OPENAI_CHAT_LATEST_ALIASES.has(lower)) {
+    return lower === OPENAI_CHAT_LATEST_MODEL ? 2_000_000_100 : 2_000_000_000;
+  }
+  if (OPENAI_VERSIONED_CHAT_LATEST_REGEX.test(lower)) {
+    return 1_000_000_000 + getOpenAIModelVersionScore(lower);
+  }
+
+  const knownScore = OPENAI_RELEASE_ORDER_SCORES.get(lower);
+  if (knownScore != null) {
+    return knownScore;
+  }
+
+  for (const [knownModel, score] of OPENAI_RELEASE_ORDER_SCORES) {
+    if (lower.startsWith(`${knownModel}-`)) {
+      return score;
+    }
+  }
+
+  const versionScore = getOpenAIModelVersionScore(lower);
+  if (versionScore > getOpenAIModelVersionScore('gpt-5.5')) {
+    return 950_000_000 + versionScore;
+  }
+
+  return versionScore;
+}
+
+export function normalizeOpenAIChatModels(models: string[]): string[] {
+  const filteredModels = filterOpenAITextCompatibleModels(models);
+  const chatLatestCandidates = filteredModels.filter(isOpenAIChatLatestModel);
+  const chatLatest =
+    chatLatestCandidates.find(
+      (model) => getOpenAIStableModelId(model).toLowerCase() === OPENAI_CHAT_LATEST_MODEL,
+    ) ||
+    chatLatestCandidates.find(
+      (model) => getOpenAIStableModelId(model).toLowerCase() === 'gpt-chat-latest',
+    ) ||
+    sortOpenAIModelsByVersion(chatLatestCandidates)[0];
+  const collapsedModels = [
+    ...(chatLatest ? [chatLatest] : []),
+    ...filteredModels.filter((model) => !isOpenAIChatLatestModel(model)),
+  ];
+  return sortOpenAIModelsByVersion(Array.from(new Set(collapsedModels)));
+}
+
+function usesNativeOpenAIModelCatalog(opts: GetOpenAIModelsOptions): boolean {
+  return !opts.azure && !opts.assistants && !(opts.baseURL ?? process.env.OPENAI_REVERSE_PROXY);
 }
 
 /**
@@ -383,14 +528,13 @@ export function getOpenAIModelVersionScore(model: string): number {
 }
 
 /**
- * Stable sort that puts higher-version OpenAI models first. Within the same
- * numeric score, original order is preserved (so curated env-list ordering
- * survives) and `*-instruct` always sinks to the very bottom.
+ * Stable sort that puts current/recent OpenAI chat models first. The primary
+ * order is maintained from OpenAI's published chat/responses model order, with
+ * `chat-latest` pinned above dated families and a semantic fallback for future
+ * GPT/o-series ids.
  *
- * Applied to the live `/v1/models` response AND to the union of env+live in
- * merge mode, so newly-released models (e.g. `gpt-5.5-pro-2026-04-23`)
- * automatically rank near the top of the picker rather than appended below
- * legacy gpt-3.5/gpt-4 entries the live API happens to return earlier.
+ * Applied to live discovery and env+live unions so newly-released frontier ids
+ * rank near the top of the picker instead of following provider API order.
  */
 export function sortOpenAIModelsByVersion(models: string[]): string[] {
   const indexMap = new Map<string, number>();
@@ -399,13 +543,13 @@ export function sortOpenAIModelsByVersion(models: string[]): string[] {
   });
 
   return models.slice().sort((a, b) => {
-    const aInstruct = a.toLowerCase().includes('instruct') ? 1 : 0;
-    const bInstruct = b.toLowerCase().includes('instruct') ? 1 : 0;
-    if (aInstruct !== bInstruct) return aInstruct - bInstruct;
-
-    const va = getOpenAIModelVersionScore(a);
-    const vb = getOpenAIModelVersionScore(b);
+    const va = getOpenAIModelReleaseScore(a);
+    const vb = getOpenAIModelReleaseScore(b);
     if (va !== vb) return vb - va;
+
+    const variantA = getOpenAIVariantRank(a);
+    const variantB = getOpenAIVariantRank(b);
+    if (variantA !== variantB) return variantA - variantB;
 
     return (indexMap.get(a) ?? 0) - (indexMap.get(b) ?? 0);
   });
@@ -925,10 +1069,12 @@ export async function fetchOpenAIModels(
 
   const modelsCache = standardCache(CacheKeys.MODEL_QUERIES);
   const cacheKey = opts.cacheKey ?? baseURL;
+  const shouldNormalizeOpenAIChatModels = usesNativeOpenAIModelCatalog(opts);
 
   const cachedModels = opts.forceRefresh ? null : await modelsCache.get(cacheKey);
   if (cachedModels) {
-    return cachedModels as string[];
+    const cached = cachedModels as string[];
+    return shouldNormalizeOpenAIChatModels ? normalizeOpenAIChatModels(cached) : cached;
   }
 
   if (baseURL || opts.azure) {
@@ -944,17 +1090,11 @@ export async function fetchOpenAIModels(
   }
 
   if (models.length === 0) {
-    return _models;
+    return shouldNormalizeOpenAIChatModels ? normalizeOpenAIChatModels(_models) : _models;
   }
 
-  if (!opts.azure && baseURL === openaiBaseURL) {
-    /**
-     * Version-descending sort puts the highest gpt-X.Y / oN models at the top
-     * of the picker (e.g. gpt-5.5 before gpt-4). The live API returns models
-     * in roughly chronological-by-creation order, so without this sort newly
-     * released frontier models appear far below older 3.5/4 entries.
-     */
-    models = sortOpenAIModelsByVersion(models);
+  if (shouldNormalizeOpenAIChatModels) {
+    models = normalizeOpenAIChatModels(models);
   }
 
   await modelsCache.set(cacheKey, models);
@@ -992,7 +1132,9 @@ export async function getOpenAIModels(opts: GetOpenAIModelsOptions = {}): Promis
 
   if (process.env[key] && !(opts.azure && opts.manualModels && opts.manualModels.length > 0)) {
     const envModels = splitAndTrim(process.env[key]);
-    if (resolveModelsListMode(key) === 'merge') {
+    const shouldAlwaysMergeNativeOpenAI =
+      key === 'OPENAI_MODELS' && usesNativeOpenAIModelCatalog(opts);
+    if (shouldAlwaysMergeNativeOpenAI || resolveModelsListMode(key) === 'merge') {
       // Skip live fetch when the user only supplies their own credentials
       // upstream; fetchOpenAIModels would just hit the shared key anyway and
       // leak admin-curated discovery into a user-provided context.
@@ -1000,7 +1142,7 @@ export async function getOpenAIModels(opts: GetOpenAIModelsOptions = {}): Promis
         (opts.userProvidedOpenAI || usesUserProvidedOpenAISentinel) &&
         (!opts.openAIApiKey || (opts.azure && !opts.baseURL))
       ) {
-        return envModels;
+        return shouldAlwaysMergeNativeOpenAI ? normalizeOpenAIChatModels(envModels) : envModels;
       }
 
       const merged = await unionWithLiveDiscovery({
@@ -1010,12 +1152,7 @@ export async function getOpenAIModels(opts: GetOpenAIModelsOptions = {}): Promis
         // built-in defaults into the merged list.
         liveFetcher: () => fetchOpenAIModels(opts, []),
       });
-      // Re-sort the merged list so newly-discovered frontier models (gpt-5.5,
-      // gpt-5.5-pro-2026-04-23, ...) bubble above older live entries instead
-      // of being appended after legacy gpt-4/3.5 ids the env list never
-      // referenced. Skipped for Azure so admin-curated deployment ordering is
-      // preserved.
-      return opts.azure ? merged : sortOpenAIModelsByVersion(merged);
+      return opts.azure || opts.assistants ? merged : normalizeOpenAIChatModels(merged);
     }
     return envModels;
   }
@@ -1024,7 +1161,7 @@ export async function getOpenAIModels(opts: GetOpenAIModelsOptions = {}): Promis
     (opts.userProvidedOpenAI || usesUserProvidedOpenAISentinel) &&
     (!opts.openAIApiKey || (opts.azure && !opts.baseURL))
   ) {
-    return models;
+    return !opts.azure && !opts.assistants ? normalizeOpenAIChatModels(models) : models;
   }
 
   return await fetchOpenAIModels(opts, models);

@@ -1,12 +1,13 @@
 import React, { Fragment } from 'react';
 import { VisuallyHidden } from '@ariakit/react';
 import { CheckCircle2, EarthIcon } from 'lucide-react';
-import { isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
+import { EModelEndpoint, isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
 import type { TModelSpec } from 'librechat-data-provider';
 import type { Endpoint } from '~/common';
 import { useModelSelectorContext } from '../ModelSelectorContext';
 import { CustomMenuItem as MenuItem } from '../CustomMenu';
 import { EndpointSettingsButton, canShowEndpointSettingsButton } from './EndpointSettingsButton';
+import { partitionOpenAIModelsForDisplay } from '../utils';
 import SpecIcon from './SpecIcon';
 import { cn } from '~/utils';
 
@@ -132,6 +133,68 @@ export function SearchResults({ results, localize, searchValue }: SearchResultsP
               return null; // skip if no models match
             }
 
+            const filteredModelNames = filteredModels.map((model) => model.name);
+            const { standardModels, alphaModels } =
+              endpoint.value === EModelEndpoint.openAI
+                ? partitionOpenAIModelsForDisplay(endpoint, filteredModelNames)
+                : { standardModels: filteredModelNames, alphaModels: [] };
+
+            const renderModelItem = (modelId: string) => {
+              let isGlobal = false;
+              let modelName = modelId;
+              if (
+                isAgentsEndpoint(endpoint.value) &&
+                endpoint.agentNames &&
+                endpoint.agentNames[modelId]
+              ) {
+                modelName = endpoint.agentNames[modelId];
+                const modelInfo = endpoint?.models?.find((m) => m.name === modelId);
+                isGlobal = modelInfo?.isGlobal ?? false;
+              } else if (
+                isAssistantsEndpoint(endpoint.value) &&
+                endpoint.assistantNames &&
+                endpoint.assistantNames[modelId]
+              ) {
+                modelName = endpoint.assistantNames[modelId];
+              }
+
+              const isModelSelected =
+                !selectedSpec && selectedEndpoint === endpoint.value && selectedModel === modelId;
+              return (
+                <MenuItem
+                  key={`${endpoint.value}-${modelId}-search-${i}`}
+                  onClick={() => handleSelectModel(endpoint, modelId)}
+                  aria-selected={isModelSelected || undefined}
+                  className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 pl-6 text-sm"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    {endpoint.modelIcons?.[modelId] && (
+                      <div className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full">
+                        <img
+                          src={endpoint.modelIcons[modelId]}
+                          alt={modelName}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                    )}
+                    <span className="truncate">{modelName}</span>
+                  </div>
+                  <div className="ml-2 flex shrink-0 items-center gap-2">
+                    {isGlobal && <EarthIcon className="size-4 text-green-400" aria-hidden="true" />}
+                    {isModelSelected && (
+                      <>
+                        <CheckCircle2
+                          className="size-4 shrink-0 text-text-primary"
+                          aria-hidden="true"
+                        />
+                        <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
+                      </>
+                    )}
+                  </div>
+                </MenuItem>
+              );
+            };
+
             return (
               <Fragment key={`endpoint-${endpoint.value}-search-${i}`}>
                 <div className="flex items-center justify-between gap-2 px-3 py-1 text-sm font-medium">
@@ -151,67 +214,13 @@ export function SearchResults({ results, localize, searchValue }: SearchResultsP
                     />
                   )}
                 </div>
-                {filteredModels.map((model) => {
-                  const modelId = model.name;
-
-                  let isGlobal = false;
-                  let modelName = modelId;
-                  if (
-                    isAgentsEndpoint(endpoint.value) &&
-                    endpoint.agentNames &&
-                    endpoint.agentNames[modelId]
-                  ) {
-                    modelName = endpoint.agentNames[modelId];
-                    const modelInfo = endpoint?.models?.find((m) => m.name === modelId);
-                    isGlobal = modelInfo?.isGlobal ?? false;
-                  } else if (
-                    isAssistantsEndpoint(endpoint.value) &&
-                    endpoint.assistantNames &&
-                    endpoint.assistantNames[modelId]
-                  ) {
-                    modelName = endpoint.assistantNames[modelId];
-                  }
-
-                  const isModelSelected =
-                    !selectedSpec &&
-                    selectedEndpoint === endpoint.value &&
-                    selectedModel === modelId;
-                  return (
-                    <MenuItem
-                      key={`${endpoint.value}-${modelId}-search-${i}`}
-                      onClick={() => handleSelectModel(endpoint, modelId)}
-                      aria-selected={isModelSelected || undefined}
-                      className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 pl-6 text-sm"
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        {endpoint.modelIcons?.[modelId] && (
-                          <div className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full">
-                            <img
-                              src={endpoint.modelIcons[modelId]}
-                              alt={modelName}
-                              className="h-full w-full object-cover"
-                            />
-                          </div>
-                        )}
-                        <span className="truncate">{modelName}</span>
-                      </div>
-                      <div className="ml-2 flex shrink-0 items-center gap-2">
-                        {isGlobal && (
-                          <EarthIcon className="size-4 text-green-400" aria-hidden="true" />
-                        )}
-                        {isModelSelected && (
-                          <>
-                            <CheckCircle2
-                              className="size-4 shrink-0 text-text-primary"
-                              aria-hidden="true"
-                            />
-                            <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
-                          </>
-                        )}
-                      </div>
-                    </MenuItem>
-                  );
-                })}
+                {standardModels.map(renderModelItem)}
+                {alphaModels.length > 0 && (
+                  <div className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
+                    {localize('com_endpoint_openai_alpha_models')}
+                  </div>
+                )}
+                {alphaModels.map(renderModelItem)}
               </Fragment>
             );
           } else {

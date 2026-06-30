@@ -37,8 +37,22 @@ jest.mock('~/components/Chat/Menus/Endpoints/CustomMenu', () => {
 });
 
 jest.mock('~/hooks', () => ({
+  useFavorites: () => ({
+    isFavoriteModel: jest.fn(() => false),
+    toggleFavoriteModel: jest.fn(),
+    isFavoriteAgent: jest.fn(() => false),
+    toggleFavoriteAgent: jest.fn(),
+  }),
   useLocalize: () => (key: string, options?: Record<string, string>) =>
-    options?.[0] ? `${key} ${options[0]}` : key,
+    key === 'com_endpoint_openai_alpha_models'
+      ? 'OpenAI alpha'
+      : options?.[0]
+        ? `${key} ${options[0]}`
+        : key,
+}));
+
+jest.mock('~/data-provider', () => ({
+  useGetStartupConfig: () => ({ data: {} }),
 }));
 
 const endpoint: Endpoint = {
@@ -53,6 +67,14 @@ const agentsEndpoint: Endpoint = {
   label: 'My Agents',
   hasModels: false,
   icon: null,
+};
+
+const openAIEndpoint: Endpoint = {
+  value: 'openAI',
+  label: 'OpenAI',
+  hasModels: true,
+  icon: null,
+  models: [{ name: 'chat-latest' }, { name: 'gpt-5.6-alpha' }],
 };
 
 describe('EndpointItem', () => {
@@ -88,5 +110,13 @@ describe('EndpointItem', () => {
     expect(
       screen.queryByRole('button', { name: 'com_endpoint_config_key My Agents' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('renders OpenAI alpha models under a separate submenu', () => {
+    render(<EndpointItem endpoint={openAIEndpoint} endpointIndex={0} />);
+
+    expect(screen.getByText('chat-latest')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI alpha')).toBeInTheDocument();
+    expect(screen.getByText('gpt-5.6-alpha')).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Bot } from 'lucide-react';
-import { isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
+import { EModelEndpoint, isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
 import type {
   TModelSpec,
   TAgentsMap,
@@ -10,6 +10,28 @@ import type {
 import type { useLocalize } from '~/hooks';
 import SpecIcon from '~/components/Chat/Menus/Endpoints/components/SpecIcon';
 import { Endpoint, SelectedValues } from '~/common';
+
+export function isOpenAIAlphaModel(model: string | null | undefined): boolean {
+  return typeof model === 'string' && model.toLowerCase().includes('-alpha');
+}
+
+export function partitionOpenAIModelsForDisplay(endpoint: Endpoint, models: string[]) {
+  if (endpoint.value !== EModelEndpoint.openAI) {
+    return { standardModels: models, alphaModels: [] };
+  }
+
+  return models.reduce(
+    (acc, model) => {
+      if (isOpenAIAlphaModel(model)) {
+        acc.alphaModels.push(model);
+      } else {
+        acc.standardModels.push(model);
+      }
+      return acc;
+    },
+    { standardModels: [] as string[], alphaModels: [] as string[] },
+  );
+}
 
 export function filterItems<
   T extends {

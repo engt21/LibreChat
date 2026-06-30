@@ -16,7 +16,7 @@ import { useModelSelectorContext } from '../ModelSelectorContext';
 import { renderEndpointModels } from './EndpointModelItem';
 import { EndpointSettingsButton, canShowEndpointSettingsButton } from './EndpointSettingsButton';
 import { ModelSpecItem } from './ModelSpecItem';
-import { filterModels } from '../utils';
+import { filterModels, partitionOpenAIModelsForDisplay } from '../utils';
 import { useLocalize } from '~/hooks';
 
 interface EndpointItemProps {
@@ -85,43 +85,75 @@ function EndpointMenuContent({
     endpoint.value === EModelEndpoint.anthropic
       ? anthropicModelNames.filter((model) => !anthropicQuickSelectModels.includes(model))
       : [];
+  const renderOpenAIModels = (modelNames: string[]) => {
+    const { standardModels, alphaModels } = partitionOpenAIModelsForDisplay(endpoint, modelNames);
+
+    return (
+      <>
+        {renderEndpointModels(endpoint, endpoint.models ?? [], standardModels, endpointIndex)}
+        {alphaModels.length > 0 && (
+          <Menu
+            id={`${endpoint.value}-alpha-models-menu`}
+            label={
+              <span className="text-xs font-medium uppercase tracking-wide text-text-secondary">
+                {localize('com_endpoint_openai_alpha_models')}
+              </span>
+            }
+          >
+            {renderEndpointModels(endpoint, endpoint.models ?? [], alphaModels, endpointIndex)}
+          </Menu>
+        )}
+      </>
+    );
+  };
+  const renderModelContent = () => {
+    if (filteredModels) {
+      return endpoint.value === EModelEndpoint.openAI
+        ? renderOpenAIModels(filteredModels)
+        : renderEndpointModels(endpoint, endpoint.models || [], filteredModels, endpointIndex);
+    }
+
+    if (!endpoint.models) {
+      return null;
+    }
+
+    if (endpoint.value === EModelEndpoint.anthropic) {
+      return (
+        <>
+          {anthropicQuickSelectModels.length > 0 && (
+            <div className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
+              {localize('com_endpoint_quick_select')}
+            </div>
+          )}
+          {renderEndpointModels(
+            endpoint,
+            endpoint.models,
+            anthropicQuickSelectModels,
+            endpointIndex,
+          )}
+          {remainingAnthropicModels.length > 0 && anthropicQuickSelectModels.length > 0 && (
+            <div className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
+              {localize('com_endpoint_all_models')}
+            </div>
+          )}
+          {renderEndpointModels(endpoint, endpoint.models, remainingAnthropicModels, endpointIndex)}
+        </>
+      );
+    }
+
+    if (endpoint.value === EModelEndpoint.openAI) {
+      return renderOpenAIModels(endpoint.models.map((model) => model.name));
+    }
+
+    return renderEndpointModels(endpoint, endpoint.models, undefined, endpointIndex);
+  };
 
   return (
     <>
       {endpointSpecs.map((spec: TModelSpec) => (
         <ModelSpecItem key={spec.name} spec={spec} isSelected={selectedSpec === spec.name} />
       ))}
-      {filteredModels
-        ? renderEndpointModels(endpoint, endpoint.models || [], filteredModels, endpointIndex)
-        : endpoint.models &&
-          (endpoint.value === EModelEndpoint.anthropic ? (
-            <>
-              {anthropicQuickSelectModels.length > 0 && (
-                <div className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
-                  Quick select
-                </div>
-              )}
-              {renderEndpointModels(
-                endpoint,
-                endpoint.models,
-                anthropicQuickSelectModels,
-                endpointIndex,
-              )}
-              {remainingAnthropicModels.length > 0 && anthropicQuickSelectModels.length > 0 && (
-                <div className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
-                  All models
-                </div>
-              )}
-              {renderEndpointModels(
-                endpoint,
-                endpoint.models,
-                remainingAnthropicModels,
-                endpointIndex,
-              )}
-            </>
-          ) : (
-            renderEndpointModels(endpoint, endpoint.models, undefined, endpointIndex)
-          ))}
+      {renderModelContent()}
     </>
   );
 }

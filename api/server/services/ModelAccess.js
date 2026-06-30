@@ -6,6 +6,9 @@ const {
 } = require('librechat-data-provider');
 
 const ALL_MODELS = '*';
+const OPENAI_ALPHA_MODEL_TOKEN = '-alpha';
+const OPENAI_DATED_SNAPSHOT_REGEX = /(?:-\d{4}-\d{2}-\d{2}|-\d{4}(?:-[a-z]+)?)$/;
+const OPENAI_PERMISSION_MODEL_REGEX = /^(?:chat-latest$|chatgpt-|gpt-|o\d)/i;
 
 const DEFAULT_NON_ADMIN_MODEL_PERMISSIONS = Object.freeze({
   enabled: false,
@@ -61,6 +64,23 @@ function isModelAllowedBySet(allowedModels, model) {
   }
 
   return Array.from(allowedModels).some((pattern) => matchesModelPattern(pattern, model));
+}
+
+function isOpenAIAlphaModel(model) {
+  return typeof model === 'string' && model.toLowerCase().includes(OPENAI_ALPHA_MODEL_TOKEN);
+}
+
+function isAvailableModelPermission(endpoint, model, availableModels = []) {
+  if (availableModels.includes(model)) {
+    return true;
+  }
+
+  const baseModel = model.replace(OPENAI_DATED_SNAPSHOT_REGEX, '');
+  if (baseModel !== model && availableModels.includes(baseModel)) {
+    return true;
+  }
+
+  return endpoint === EModelEndpoint.openAI && OPENAI_PERMISSION_MODEL_REGEX.test(model);
 }
 
 function sortRules(rules = []) {
@@ -276,7 +296,7 @@ function validateModelPermissions(modelPermissions, modelsConfig = {}) {
         return false;
       }
 
-      return !availableModels.includes(model);
+      return !isAvailableModelPermission(rule.endpoint, model, availableModels);
     });
     if (invalidModels.length > 0) {
       return {
@@ -347,6 +367,7 @@ module.exports = {
   normalizeModelPermissions,
   hasModelRestrictions,
   getAllowedModelsMap,
+  isOpenAIAlphaModel,
   filterModelsConfigForUser,
   filterModelSpecsConfig,
   isModelAllowedForConfig,
