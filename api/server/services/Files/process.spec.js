@@ -83,7 +83,7 @@ const {
 const { mergeFileConfig } = require('librechat-data-provider');
 const { checkCapability } = require('~/server/services/Config');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
-const { processAgentFileUpload } = require('./process');
+const { filterFile, processAgentFileUpload } = require('./process');
 
 const PDF_MIME = 'application/pdf';
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -140,6 +140,74 @@ describe('processAgentFileUpload', () => {
         .mockResolvedValue({ text: 'extracted text', bytes: 42, filepath: 'doc://result' }),
     });
     mergeFileConfig.mockReturnValue(makeFileConfig());
+  });
+
+  describe('filterFile raw code interpreter uploads', () => {
+    const uuid = '550e8400-e29b-41d4-a716-446655440000';
+    const strictConfig = {
+      endpoints: {
+        default: {
+          fileSizeLimit: 512 * 1024 * 1024,
+          totalSizeLimit: 512 * 1024 * 1024,
+          supportedMimeTypes: [/^text\/plain$/],
+          disabled: false,
+        },
+        agents: {
+          fileSizeLimit: 512 * 1024 * 1024,
+          totalSizeLimit: 512 * 1024 * 1024,
+          supportedMimeTypes: [/^text\/plain$/],
+          disabled: false,
+        },
+        assistants: {
+          fileSizeLimit: 512 * 1024 * 1024,
+          totalSizeLimit: 512 * 1024 * 1024,
+          supportedMimeTypes: [/^text\/plain$/],
+          disabled: false,
+        },
+      },
+      checkType: (mime, types = []) => types.some((regex) => regex.test(mime)),
+      serverFileSizeLimit: 512 * 1024 * 1024,
+      avatarSizeLimit: 2 * 1024 * 1024,
+    };
+
+    beforeEach(() => {
+      mergeFileConfig.mockReturnValue(strictConfig);
+    });
+
+    test('allows unsupported MIME types for execute_code uploads', () => {
+      const req = makeReq({ mimetype: 'application/octet-stream' });
+      req.file.size = 12;
+      req.body = {
+        endpoint: EModelEndpoint.agents,
+        file_id: uuid,
+        tool_resource: EToolResources.execute_code,
+      };
+
+      expect(() => filterFile({ req })).not.toThrow();
+    });
+
+    test('still rejects unsupported MIME types outside execute_code uploads', () => {
+      const req = makeReq({ mimetype: 'application/octet-stream' });
+      req.file.size = 12;
+      req.body = {
+        endpoint: EModelEndpoint.agents,
+        file_id: uuid,
+      };
+
+      expect(() => filterFile({ req })).toThrow('Unsupported file type');
+    });
+
+    test('does not apply the raw-file bypass to Assistants uploads', () => {
+      const req = makeReq({ mimetype: 'application/octet-stream' });
+      req.file.size = 12;
+      req.body = {
+        endpoint: EModelEndpoint.assistants,
+        file_id: uuid,
+        tool_resource: EToolResources.execute_code,
+      };
+
+      expect(() => filterFile({ req })).toThrow('Unsupported file type');
+    });
   });
 
   describe('OCR strategy selection', () => {

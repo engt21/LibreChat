@@ -52,18 +52,37 @@ const checkAgentResourceAccess = (agentId, requiredPermission, req, res, continu
   return middleware(tempReq, res, continuation);
 };
 
+const getAddedConvosFromBody = (body) => {
+  const addedConvos = Array.isArray(body?.addedConvos)
+    ? body.addedConvos.filter(
+        (convo) => convo && typeof convo === 'object' && !Array.isArray(convo),
+      )
+    : [];
+
+  if (addedConvos.length > 0) {
+    return addedConvos;
+  }
+
+  const addedConvo = body?.addedConvo;
+  if (!addedConvo || typeof addedConvo !== 'object' || Array.isArray(addedConvo)) {
+    return [];
+  }
+
+  return [addedConvo];
+};
+
 /**
  * Middleware factory that validates MULTI_CONVO:USE role permission and, when
- * addedConvo.agent_id is a non-ephemeral agent, the same resource-level permission
+ * added conversation agent IDs are non-ephemeral agents, the same resource-level permission
  * required for the primary agent (`requiredPermission`). Caches the resolved agent
- * document on `req.resolvedAddedAgent` to avoid a duplicate DB fetch in `loadAddedAgent`.
+ * documents on `req.resolvedAddedAgents` to avoid duplicate DB fetches in `loadAddedAgent`.
  *
  * @param {number} requiredPermission - Permission bit(s) to check on the added agent resource
  * @returns {(req: import('express').Request, res: import('express').Response, next: Function) => Promise<void>}
  */
 const checkAddedConvoAccess = (requiredPermission) => async (req, res, next) => {
-  const addedConvo = req.body?.addedConvo;
-  if (!addedConvo || typeof addedConvo !== 'object' || Array.isArray(addedConvo)) {
+  const addedConvos = getAddedConvosFromBody(req.body);
+  if (addedConvos.length === 0) {
     return next();
   }
 
@@ -86,39 +105,45 @@ const checkAddedConvoAccess = (requiredPermission) => async (req, res, next) => 
       }
     }
 
-    const addedAgentId = addedConvo.agent_id;
-    if (!addedAgentId || typeof addedAgentId !== 'string' || isEphemeralAgentId(addedAgentId)) {
-      return next();
-    }
-
     if (req.user.role === SystemRoles.ADMIN) {
       return next();
     }
 
-    const agent = await resolveAgentIdFromBody(addedAgentId);
-    if (!agent) {
-      return res.status(404).json({
-        error: 'Not Found',
-        message: `${ResourceType.AGENT} not found`,
+    const resolvedAddedAgents = {};
+    for (const addedConvo of addedConvos) {
+      const addedAgentId = addedConvo.agent_id;
+      if (!addedAgentId || typeof addedAgentId !== 'string' || isEphemeralAgentId(addedAgentId)) {
+        continue;
+      }
+
+      const agent = await resolveAgentIdFromBody(addedAgentId);
+      if (!agent) {
+        return res.status(404).json({
+          error: 'Not Found',
+          message: `${ResourceType.AGENT} not found`,
+        });
+      }
+
+      const hasPermission = await checkPermission({
+        userId: req.user.id,
+        role: req.user.role,
+        resourceType: ResourceType.AGENT,
+        resourceId: agent._id,
+        requiredPermission,
       });
+
+      if (!hasPermission) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: `Insufficient permissions to access this ${ResourceType.AGENT}`,
+        });
+      }
+
+      resolvedAddedAgents[addedAgentId] = agent;
+      req.resolvedAddedAgent ??= agent;
     }
 
-    const hasPermission = await checkPermission({
-      userId: req.user.id,
-      role: req.user.role,
-      resourceType: ResourceType.AGENT,
-      resourceId: agent._id,
-      requiredPermission,
-    });
-
-    if (!hasPermission) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: `Insufficient permissions to access this ${ResourceType.AGENT}`,
-      });
-    }
-
-    req.resolvedAddedAgent = agent;
+    req.resolvedAddedAgents = resolvedAddedAgents;
     return next();
   } catch (error) {
     logger.error('Failed to validate addedConvo access permissions', error);
@@ -131,7 +156,7 @@ const checkAddedConvoAccess = (requiredPermission) => async (req, res, next) => 
 
 /**
  * Middleware factory that checks agent access permissions from request body.
- * Validates both the primary agent_id and, when present, addedConvo.agent_id
+ * Validates both the primary agent_id and, when present, added conversation agent IDs
  * (which also requires MULTI_CONVO:USE role permission).
  *
  * @param {Object} options - Configuration options

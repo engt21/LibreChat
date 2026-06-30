@@ -31,6 +31,7 @@ import {
   type TAdminSettings,
   type TAdminPermission,
   type TAdminModelPermissions,
+  type TAdminModelRateLimits,
 } from 'librechat-data-provider';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import type { ContextType } from '~/common';
@@ -41,11 +42,13 @@ import {
   useAdminRolesQuery,
   useAdminUsageQuery,
   useAdminUsersQuery,
+  useAdminMCPServersQuery,
   useAdminSettingsQuery,
   useAdminPermissionsQuery,
   useAdminObservabilityQuery,
   useDeleteAdminUserMutation,
   useUpdateAdminUserMutation,
+  useUpdateAdminMCPServerPublicationMutation,
   useUpdateAdminSettingsMutation,
   useRefreshAdminModelsMutation,
 } from '~/data-provider';
@@ -61,10 +64,28 @@ const DEFAULT_SETTINGS: TAdminSettings = {
     metricsUrl: '',
     prometheusUrl: '',
   },
+  byok: {
+    providers: {
+      openAI: { enabled: false, allowBaseURL: true, fallbackToPlatform: true },
+      azureOpenAI: { enabled: false, allowBaseURL: true, fallbackToPlatform: true },
+      anthropic: { enabled: false, allowBaseURL: true, fallbackToPlatform: true },
+      google: { enabled: false, allowBaseURL: true, fallbackToPlatform: true },
+      custom: { enabled: false, allowBaseURL: true, fallbackToPlatform: true },
+      bedrock: { enabled: false, allowBaseURL: true, fallbackToPlatform: true },
+    },
+  },
   mcpDomainFilterMode: 'denylist',
 };
 
+const BYOK_PROVIDER_IDS = ['openAI', 'azureOpenAI', 'anthropic', 'google', 'custom', 'bedrock'];
+const MODEL_ACCESS_EXCLUDED_ENDPOINTS = new Set(['assistants', 'azureAssistants']);
+
 const DEFAULT_MODEL_PERMISSIONS: TAdminModelPermissions = {
+  enabled: false,
+  rules: [],
+};
+
+const DEFAULT_MODEL_RATE_LIMITS: TAdminModelRateLimits = {
   enabled: false,
   rules: [],
 };
@@ -76,7 +97,7 @@ function normalizeModelPermissions(
 
   for (const rule of modelPermissions?.rules ?? []) {
     const endpoint = rule.endpoint?.trim();
-    if (!endpoint) {
+    if (!endpoint || MODEL_ACCESS_EXCLUDED_ENDPOINTS.has(endpoint)) {
       continue;
     }
 
@@ -98,6 +119,47 @@ function normalizeModelPermissions(
         models: Array.from(models).sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => a.endpoint.localeCompare(b.endpoint)),
+  };
+}
+
+function normalizeModelRateLimits(
+  modelRateLimits: TAdminModelRateLimits | undefined,
+): TAdminModelRateLimits {
+  const seen = new Set<string>();
+  const rules: TAdminModelRateLimits['rules'] = [];
+
+  for (const rule of modelRateLimits?.rules ?? []) {
+    const endpoint = rule.endpoint?.trim();
+    const model = rule.model?.trim();
+    if (!endpoint || !model) {
+      continue;
+    }
+
+    const requestsPerDay =
+      Number.isInteger(rule.requestsPerDay) && Number(rule.requestsPerDay) > 0
+        ? Number(rule.requestsPerDay)
+        : null;
+    const tokensPerDay =
+      Number.isInteger(rule.tokensPerDay) && Number(rule.tokensPerDay) > 0
+        ? Number(rule.tokensPerDay)
+        : null;
+    if (!requestsPerDay && !tokensPerDay) {
+      continue;
+    }
+
+    const key = `${endpoint}:${model}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    rules.push({ endpoint, model, requestsPerDay, tokensPerDay });
+  }
+
+  return {
+    enabled: modelRateLimits?.enabled === true,
+    rules: rules.sort((a, b) =>
+      `${a.endpoint}:${a.model}`.localeCompare(`${b.endpoint}:${b.model}`),
+    ),
   };
 }
 
@@ -157,6 +219,11 @@ export default function AdminConsole() {
   const [selectedAdminRoleIds, setSelectedAdminRoleIds] = useState<string[]>([]);
   const [selectedModelPermissions, setSelectedModelPermissions] =
     useState<TAdminModelPermissions>(DEFAULT_MODEL_PERMISSIONS);
+  const [selectedModelRateLimits, setSelectedModelRateLimits] =
+    useState<TAdminModelRateLimits>(DEFAULT_MODEL_RATE_LIMITS);
+  const [selectedMemoriesEnabled, setSelectedMemoriesEnabled] = useState(true);
+  const [selectedImageGenerationEnabled, setSelectedImageGenerationEnabled] = useState(true);
+  const [selectedModelSteeringEnabled, setSelectedModelSteeringEnabled] = useState(true);
   const [settingsForm, setSettingsForm] = useState<TAdminSettings>(DEFAULT_SETTINGS);
   const [newMcpDomain, setNewMcpDomain] = useState('');
   const [activeRefreshProvider, setActiveRefreshProvider] = useState<string | null>(null);
@@ -227,6 +294,7 @@ export default function AdminConsole() {
     { enabled: canReadUsage },
   );
 
+  const adminMCPServersQuery = useAdminMCPServersQuery({ enabled: canReadSettings });
   const adminSettingsQuery = useAdminSettingsQuery({ enabled: canReadSettings });
   const adminObservabilityQuery = useAdminObservabilityQuery({ enabled: canReadObservability });
   const adminRolesQuery = useAdminRolesQuery({ enabled: isSuperAdmin });
@@ -265,6 +333,18 @@ export default function AdminConsole() {
     onError: (error) => {
       showToast({
         message: error?.message || localize('com_admin_user_delete_error'),
+        status: 'error',
+      });
+    },
+  });
+
+  const updateAdminMCPServerPublicationMutation = useUpdateAdminMCPServerPublicationMutation({
+    onSuccess: () => {
+      showToast({ message: 'MCP server publication updated', status: 'success' });
+    },
+    onError: (error) => {
+      showToast({
+        message: error?.message || 'Failed to update MCP server publication',
         status: 'error',
       });
     },
@@ -345,6 +425,20 @@ export default function AdminConsole() {
       setSelectedModelPermissions(
         normalizeModelPermissions(adminUserQuery.data.user.modelPermissions),
       );
+      setSelectedModelRateLimits(
+        normalizeModelRateLimits(adminUserQuery.data.user.modelRateLimits),
+      );
+      setSelectedMemoriesEnabled(
+        adminUserQuery.data.user.preferences?.personalization?.memories ??
+          adminUserQuery.data.user.memoriesEnabled ??
+          true,
+      );
+      setSelectedImageGenerationEnabled(
+        adminUserQuery.data.user.preferences?.imageGeneration?.enabledByDefault ?? true,
+      );
+      setSelectedModelSteeringEnabled(
+        adminUserQuery.data.user.preferences?.modelSteering?.enabled ?? true,
+      );
     }
   }, [adminUserQuery.data?.user]);
 
@@ -387,6 +481,13 @@ export default function AdminConsole() {
         .sort((a, b) => a[0].localeCompare(b[0])),
     [adminModelsQuery.data],
   );
+  const modelAccessEntries = useMemo(
+    () =>
+      availableModelEntries.filter(
+        ([endpoint]) => !MODEL_ACCESS_EXCLUDED_ENDPOINTS.has(endpoint),
+      ),
+    [availableModelEntries],
+  );
 
   const selectedModelRuleMap = useMemo(
     () =>
@@ -424,6 +525,46 @@ export default function AdminConsole() {
     });
   };
 
+  const updateModelRateLimitRule = (
+    index: number,
+    key: 'endpoint' | 'model' | 'requestsPerDay' | 'tokensPerDay',
+    value: string,
+  ) => {
+    setSelectedModelRateLimits((current) => ({
+      ...current,
+      rules: (current.rules ?? []).map((rule, ruleIndex) => {
+        if (ruleIndex !== index) {
+          return rule;
+        }
+        if (key === 'requestsPerDay' || key === 'tokensPerDay') {
+          const numericValue = value.trim() ? Number(value) : null;
+          return {
+            ...rule,
+            [key]: Number.isFinite(numericValue) && numericValue ? numericValue : null,
+          };
+        }
+        return { ...rule, [key]: value };
+      }),
+    }));
+  };
+
+  const addModelRateLimitRule = () => {
+    setSelectedModelRateLimits((current) => ({
+      ...current,
+      rules: [
+        ...(current.rules ?? []),
+        { endpoint: '', model: '', requestsPerDay: null, tokensPerDay: null },
+      ],
+    }));
+  };
+
+  const removeModelRateLimitRule = (index: number) => {
+    setSelectedModelRateLimits((current) => ({
+      ...current,
+      rules: (current.rules ?? []).filter((_, ruleIndex) => ruleIndex !== index),
+    }));
+  };
+
   const handleSaveUserAccess = async () => {
     if (!selectedUserId) {
       return;
@@ -435,7 +576,48 @@ export default function AdminConsole() {
         role: selectedRole,
         adminRoleIds: selectedAdminRoleIds,
         modelPermissions: normalizeModelPermissions(selectedModelPermissions),
+        modelRateLimits: normalizeModelRateLimits(selectedModelRateLimits),
+        personalization: { memories: selectedMemoriesEnabled },
+        imageGenerationPrefs: {
+          ...(selectedUser?.preferences?.imageGeneration ?? {}),
+          enabledByDefault: selectedImageGenerationEnabled,
+          models: selectedUser?.preferences?.imageGeneration?.models ?? {},
+        },
+        modelSteeringPrefs: { enabled: selectedModelSteeringEnabled },
       },
+    });
+  };
+
+  const handleToggleMCPPublication = (serverName: string, published: boolean) => {
+    updateAdminMCPServerPublicationMutation.mutate({
+      serverName,
+      payload: { published },
+    });
+  };
+
+  const updateBYOKProviderPolicy = (
+    providerId: string,
+    key: 'enabled' | 'allowBaseURL' | 'fallbackToPlatform',
+    value: boolean,
+  ) => {
+    setSettingsForm((current) => {
+      const currentPolicy = current.byok?.providers?.[providerId] ?? {};
+      const nextPolicy = {
+        enabled: currentPolicy.enabled ?? false,
+        allowBaseURL: currentPolicy.allowBaseURL ?? true,
+        fallbackToPlatform: currentPolicy.fallbackToPlatform ?? true,
+      };
+      nextPolicy[key] = value;
+
+      return {
+        ...current,
+        byok: {
+          providers: {
+            ...(current.byok?.providers ?? {}),
+            [providerId]: nextPolicy,
+          },
+        },
+      };
     });
   };
 
@@ -445,6 +627,7 @@ export default function AdminConsole() {
       modelSteeringEnabled: settingsForm.modelSteeringEnabled,
       platformPrompt: settingsForm.platformPrompt?.trim() ? settingsForm.platformPrompt : null,
       observability: settingsForm.observability,
+      byok: settingsForm.byok,
       mcpDomainFilterMode: settingsForm.mcpDomainFilterMode ?? 'denylist',
       mcpAllowedDomains: settingsForm.mcpAllowedDomains ?? [],
     });
@@ -468,14 +651,14 @@ export default function AdminConsole() {
         {loadingLabel}
       </div>
     );
-  } else if (availableModelEntries.length === 0) {
+  } else if (modelAccessEntries.length === 0) {
     modelAccessOptionsContent = (
       <div className="rounded-xl border border-border-light bg-surface-primary p-3 text-sm text-text-secondary">
         {localize('com_admin_model_access_none_available')}
       </div>
     );
   } else {
-    modelAccessOptionsContent = availableModelEntries.map(([endpoint, models]) => (
+    modelAccessOptionsContent = modelAccessEntries.map(([endpoint, models]) => (
       <div key={endpoint} className="rounded-xl border border-border-light bg-surface-primary p-3">
         <div className="font-medium text-text-primary">
           {alternateName[endpoint as keyof typeof alternateName] || endpoint}
@@ -690,8 +873,123 @@ export default function AdminConsole() {
                 {selectedUserUsage.transactionCount}
               </div>
             </div>
+            <div className="rounded-xl border border-border-light bg-surface-primary p-3">
+              <div className="text-xs uppercase text-text-secondary">
+                {localize('com_ui_schedule_runs')}
+              </div>
+              <div className="mt-1 text-sm text-text-primary">
+                {selectedUserUsage.scheduledRunCount ?? 0}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border-light bg-surface-primary p-3">
+              <div className="text-xs uppercase text-text-secondary">
+                {localize('com_ui_mcp_servers')}
+              </div>
+              <div className="mt-1 text-sm text-text-primary">
+                {selectedUserUsage.mcpServerCount ?? 0}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border-light bg-surface-primary p-3">
+              <div className="text-xs uppercase text-text-secondary">
+                {localize('com_admin_byok_keys')}
+              </div>
+              <div className="mt-1 text-sm text-text-primary">
+                {selectedUserUsage.byokKeyCount ?? 0}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border-light bg-surface-primary p-3">
+              <div className="text-xs uppercase text-text-secondary">
+                {localize('com_admin_last_active')}
+              </div>
+              <div className="mt-1 text-sm text-text-primary">
+                {selectedUserUsage.lastActiveAt
+                  ? new Date(selectedUserUsage.lastActiveAt).toLocaleString()
+                  : '—'}
+              </div>
+            </div>
           </div>
         ) : null}
+
+        <div className="rounded-2xl border border-border-light bg-surface-primary p-4">
+          <h4 className="font-semibold text-text-primary">{localize('com_admin_preferences')}</h4>
+          <p className="mt-1 text-sm text-text-secondary">
+            {localize('com_admin_preferences_desc')}
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border-light bg-surface-secondary p-3">
+              <span className="text-sm text-text-primary">{localize('com_ui_memories')}</span>
+              <Switch
+                checked={selectedMemoriesEnabled}
+                onCheckedChange={setSelectedMemoriesEnabled}
+                aria-label="Memories"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border-light bg-surface-secondary p-3">
+              <span className="text-sm text-text-primary">
+                {localize('com_admin_image_generation_by_default')}
+              </span>
+              <Switch
+                checked={selectedImageGenerationEnabled}
+                onCheckedChange={setSelectedImageGenerationEnabled}
+                aria-label="Image generation by default"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border-light bg-surface-secondary p-3">
+              <span className="text-sm text-text-primary">{localize('com_ui_model_steering')}</span>
+              <Switch
+                checked={selectedModelSteeringEnabled}
+                onCheckedChange={setSelectedModelSteeringEnabled}
+                aria-label="Model steering"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <div className="rounded-2xl border border-border-light bg-surface-primary p-4">
+            <h4 className="font-semibold text-text-primary">
+              {localize('com_admin_user_mcp_servers')}
+            </h4>
+            <div className="mt-3 space-y-2">
+              {(adminUserQuery.data?.mcpServers ?? []).length > 0 ? (
+                adminUserQuery.data?.mcpServers.map((server) => (
+                  <div
+                    key={server.serverName}
+                    className="rounded-xl border border-border-light bg-surface-secondary p-3"
+                  >
+                    <div className="font-medium text-text-primary">
+                      {server.title || server.serverName}
+                    </div>
+                    <div className="text-xs text-text-secondary">{server.url || server.type}</div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-text-secondary">
+                  {localize('com_admin_no_user_mcp_servers')}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border-light bg-surface-primary p-4">
+            <h4 className="font-semibold text-text-primary">
+              {localize('com_admin_byok_provider_status')}
+            </h4>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(adminUserQuery.data?.byokKeys ?? []).length > 0 ? (
+                adminUserQuery.data?.byokKeys.map((key) => (
+                  <AccessBadge
+                    key={key.provider}
+                    label={`${key.provider}${key.expired ? ' (expired)' : ''}`}
+                  />
+                ))
+              ) : (
+                <p className="text-sm text-text-secondary">
+                  {localize('com_admin_no_user_byok_keys')}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
 
         {isSuperAdmin ? (
           <div className="rounded-2xl border border-border-light bg-surface-primary p-4">
@@ -784,6 +1082,82 @@ export default function AdminConsole() {
                 ) : null}
               </div>
 
+              <div className="rounded-2xl border border-border-light bg-surface-secondary p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="font-medium text-text-primary">
+                      {localize('com_admin_model_rate_limits')}
+                    </div>
+                    <div className="mt-1 text-sm text-text-secondary">
+                      {localize('com_admin_model_rate_limits_desc')}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={selectedModelRateLimits.enabled}
+                    onCheckedChange={(checked) =>
+                      setSelectedModelRateLimits((current) => ({ ...current, enabled: checked }))
+                    }
+                    aria-label={localize('com_admin_model_rate_limits')}
+                  />
+                </div>
+
+                {selectedModelRateLimits.enabled ? (
+                  <div className="mt-4 space-y-3">
+                    {(selectedModelRateLimits.rules ?? []).map((rule, index) => (
+                      <div
+                        key={`model-rate-limit-${index}`}
+                        className="grid gap-2 rounded-xl border border-border-light bg-surface-primary p-3 md:grid-cols-[1fr_1fr_120px_120px_auto]"
+                      >
+                        <Input
+                          value={rule.endpoint}
+                          onChange={(event) =>
+                            updateModelRateLimitRule(index, 'endpoint', event.target.value)
+                          }
+                          placeholder="endpoint"
+                        />
+                        <Input
+                          value={rule.model}
+                          onChange={(event) =>
+                            updateModelRateLimitRule(index, 'model', event.target.value)
+                          }
+                          placeholder="model"
+                        />
+                        <Input
+                          value={rule.requestsPerDay ?? ''}
+                          type="number"
+                          min={1}
+                          onChange={(event) =>
+                            updateModelRateLimitRule(index, 'requestsPerDay', event.target.value)
+                          }
+                          placeholder="requests/day"
+                        />
+                        <Input
+                          value={rule.tokensPerDay ?? ''}
+                          type="number"
+                          min={1}
+                          onChange={(event) =>
+                            updateModelRateLimitRule(index, 'tokensPerDay', event.target.value)
+                          }
+                          placeholder="tokens/day"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => removeModelRateLimitRule(index)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+
+                    <Button type="button" variant="outline" onClick={addModelRateLimitRule}>
+                      <Plus className="h-4 w-4" />
+                      {localize('com_admin_add_rate_limit')}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+
               <div className="flex justify-end">
                 <Button
                   type="button"
@@ -851,6 +1225,55 @@ export default function AdminConsole() {
         </div>
       </div>
     ));
+  }
+
+  let adminMCPServersContent: ReactNode;
+  if (adminMCPServersQuery.isLoading) {
+    adminMCPServersContent = (
+      <div className="flex items-center gap-2 text-sm text-text-secondary">
+        <Spinner className="text-text-primary" />
+        {loadingLabel}
+      </div>
+    );
+  } else {
+    adminMCPServersContent = (adminMCPServersQuery.data?.servers ?? []).map((server) => (
+      <div
+        key={`${server.storage}-${server.serverName}`}
+        className="rounded-2xl border border-border-light bg-surface-secondary p-4"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-medium text-text-primary">{server.title || server.serverName}</div>
+            <div className="text-xs text-text-secondary">{server.serverName}</div>
+            <div className="mt-1 text-xs text-text-secondary">
+              {server.storage === 'static' ? 'Platform YAML' : server.ownerEmail || 'User-defined'}
+            </div>
+          </div>
+          <Switch
+            checked={server.published}
+            onCheckedChange={(checked) => handleToggleMCPPublication(server.serverName, checked)}
+            disabled={!canWriteSettings || updateAdminMCPServerPublicationMutation.isLoading}
+            aria-label={`Publish ${server.serverName}`}
+          />
+        </div>
+        {server.url ? (
+          <div className="mt-3 break-all text-xs text-text-secondary">{server.url}</div>
+        ) : null}
+        <div className="mt-3">
+          <AccessBadge
+            label={server.published ? 'Published to all users' : 'Hidden from all users'}
+          />
+        </div>
+      </div>
+    ));
+
+    if ((adminMCPServersQuery.data?.servers ?? []).length === 0) {
+      adminMCPServersContent = (
+        <p className="text-sm text-text-secondary">
+          {localize('com_admin_no_mcp_servers_configured')}
+        </p>
+      );
+    }
   }
 
   if (!isPotentialAdmin || adminPermissionsQuery.isLoading) {
@@ -940,6 +1363,16 @@ export default function AdminConsole() {
             />
 
             <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">{usageContent}</div>
+          </SectionCard>
+        ) : null}
+
+        {canReadSettings ? (
+          <SectionCard
+            title={localize('com_admin_mcp_server_publishing')}
+            description={localize('com_admin_mcp_server_publishing_desc')}
+            icon={<Settings2 className="h-5 w-5" />}
+          >
+            <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">{adminMCPServersContent}</div>
           </SectionCard>
         ) : null}
 
@@ -1105,6 +1538,73 @@ export default function AdminConsole() {
                     disabled={!canWriteSettings}
                     className="mt-2"
                   />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border-light bg-surface-primary p-4">
+                <div>
+                  <div className="font-medium text-text-primary">
+                    {localize('com_admin_byok_provider_policies')}
+                  </div>
+                  <div className="mt-1 text-sm text-text-secondary">
+                    {localize('com_admin_byok_provider_policies_desc')}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  {BYOK_PROVIDER_IDS.map((providerId) => {
+                    const policy = settingsForm.byok?.providers?.[providerId] ?? {
+                      enabled: false,
+                      allowBaseURL: true,
+                      fallbackToPlatform: true,
+                    };
+                    const providerLabel =
+                      alternateName[providerId as keyof typeof alternateName] || providerId;
+
+                    return (
+                      <div
+                        key={providerId}
+                        className="rounded-xl border border-border-light bg-surface-secondary p-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-medium text-text-primary">{providerLabel}</div>
+                          <Switch
+                            checked={policy.enabled === true}
+                            onCheckedChange={(checked) =>
+                              updateBYOKProviderPolicy(providerId, 'enabled', checked)
+                            }
+                            disabled={!canWriteSettings}
+                            aria-label={`Enable BYOK for ${providerLabel}`}
+                          />
+                        </div>
+
+                        <div className="mt-3 space-y-2 text-sm">
+                          <label className="flex items-center justify-between gap-3 text-text-secondary">
+                            <span>{localize('com_admin_allow_user_base_url')}</span>
+                            <Switch
+                              checked={policy.allowBaseURL !== false}
+                              onCheckedChange={(checked) =>
+                                updateBYOKProviderPolicy(providerId, 'allowBaseURL', checked)
+                              }
+                              disabled={!canWriteSettings}
+                              aria-label={`Allow user base URL for ${providerLabel}`}
+                            />
+                          </label>
+                          <label className="flex items-center justify-between gap-3 text-text-secondary">
+                            <span>{localize('com_admin_fallback_to_platform_key')}</span>
+                            <Switch
+                              checked={policy.fallbackToPlatform !== false}
+                              onCheckedChange={(checked) =>
+                                updateBYOKProviderPolicy(providerId, 'fallbackToPlatform', checked)
+                              }
+                              disabled={!canWriteSettings}
+                              aria-label={`Fallback to platform key for ${providerLabel}`}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

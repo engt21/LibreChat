@@ -1,27 +1,16 @@
 import { Providers } from '@librechat/agents';
-import { EModelEndpoint, ErrorTypes } from 'librechat-data-provider';
+import { EModelEndpoint } from 'librechat-data-provider';
 import type {
   BaseInitializeParams,
   InitializeResultBase,
   GoogleConfigOptions,
   GoogleCredentials,
 } from '~/types';
-import { isEnabled, checkUserKeyExpiry } from '~/utils';
+import { isEnabled } from '~/utils';
+import { isAdminBYOKEnabled, resolveUserKeyWithFallback } from '../byok';
 import { prepareGoogleCredentials, resolveGoogleClientAuth } from './auth';
 import { getGoogleConfig } from './llm';
 import { getGoogleModelCapability } from '../models';
-
-function isNoUserKeyError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  try {
-    return JSON.parse(error.message)?.type === ErrorTypes.NO_USER_KEY;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Initializes Google/Vertex AI endpoint configuration.
@@ -43,24 +32,32 @@ export async function initializeGoogle({
   const isUserProvided = GOOGLE_KEY === 'user_provided';
   const { key: expiresAt } = req.body;
   const serverCredentials = isUserProvided ? await prepareGoogleCredentials() : undefined;
-  const serverGoogleAuth = serverCredentials ? resolveGoogleClientAuth(serverCredentials) : undefined;
+  const serverGoogleAuth = serverCredentials
+    ? resolveGoogleClientAuth(serverCredentials)
+    : undefined;
+  const adminBYOKEnabled = isAdminBYOKEnabled(req, EModelEndpoint.google);
 
-  let userKey = null;
-  if (expiresAt && isUserProvided) {
-    checkUserKeyExpiry(expiresAt, EModelEndpoint.google);
-    try {
-      userKey = await db.getUserKey({ userId: req.user?.id, name: EModelEndpoint.google });
-    } catch (error) {
-      if (!isNoUserKeyError(error) || !serverGoogleAuth?.isConfigured) {
-        throw error;
-      }
-    }
-  }
-
-  const credentials: GoogleCredentials = await prepareGoogleCredentials({
-    credentials: isUserProvided ? (userKey as GoogleCredentials | null) : undefined,
-    rawApiKey: isUserProvided ? undefined : GOOGLE_KEY,
+  const userKey = await resolveUserKeyWithFallback({
+    req,
+    db,
+    endpoint: EModelEndpoint.google,
+    expiresAt,
+    userProvided: isUserProvided,
+    platformAvailable: isUserProvided ? serverGoogleAuth?.isConfigured === true : !!GOOGLE_KEY,
+    fallbackOnMissing: serverGoogleAuth?.isConfigured === true,
   });
+
+  let credentials: GoogleCredentials;
+  if (userKey) {
+    credentials = await prepareGoogleCredentials({ credentials: userKey });
+  } else if (isUserProvided && serverCredentials) {
+    credentials = serverCredentials;
+  } else {
+    credentials = await prepareGoogleCredentials({
+      credentials: adminBYOKEnabled ? null : undefined,
+      rawApiKey: isUserProvided ? undefined : GOOGLE_KEY,
+    });
+  }
   const googleAuth = resolveGoogleClientAuth(credentials);
 
   let clientOptions: GoogleConfigOptions = {};

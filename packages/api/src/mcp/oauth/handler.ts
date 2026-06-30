@@ -753,7 +753,10 @@ export class MCPOAuthHandler {
    * Gets the default redirect URI for a server
    */
   private static getDefaultRedirectUri(serverName?: string): string {
-    const baseUrl = process.env.DOMAIN_SERVER || 'http://localhost:3080';
+    const baseUrl =
+      process.env.MCP_OAUTH_CALLBACK_BASE_URL ||
+      process.env.DOMAIN_SERVER ||
+      'http://localhost:3080';
     return serverName
       ? `${baseUrl}/api/mcp/${serverName}/oauth/callback`
       : `${baseUrl}/api/mcp/oauth/callback`;

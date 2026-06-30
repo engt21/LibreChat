@@ -363,7 +363,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
       const endpoint = 'Anthropic (via LiteLLM)';
       const options = {
         modelOptions: {
-          model: 'claude-3-opus-20240229',
+          model: 'claude-3-5-sonnet-latest',
           user: 'searchUser',
           web_search: true,
         },
@@ -380,14 +380,13 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
       expect(result).toEqual({
         llmConfig: {
           apiKey: 'sk-search',
-          model: 'claude-3-opus-20240229',
+          model: 'claude-3-5-sonnet-latest',
           stream: true,
           maxTokens: 8192,
           modelKwargs: {
             metadata: {
               user_id: 'searchUser',
             },
-            promptCache: true,
           },
         },
         configOptions: {
@@ -395,7 +394,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
         },
         tools: [
           {
-            type: 'web_search_20260209',
+            type: 'web_search_20250305',
             name: 'web_search',
           },
         ],
@@ -567,7 +566,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
 
       expect(result.tools).toEqual([
         {
-          type: 'web_search_20260209',
+          type: 'web_search_20250305',
           name: 'web_search',
         },
       ]);
@@ -622,7 +621,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
       const endpoint = 'Anthropic (Custom)';
       const options = {
         modelOptions: {
-          model: 'claude-3-opus-20240229',
+          model: 'claude-3-5-sonnet-latest',
           user: 'mixed-user',
         },
         customParams: {
@@ -640,7 +639,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
 
       expect(result.tools).toEqual([
         {
-          type: 'web_search_20260209',
+          type: 'web_search_20250305',
           name: 'web_search',
         },
       ]);
@@ -763,7 +762,7 @@ describe('getOpenAIConfig - Anthropic Compatibility', () => {
 
         expect(result.tools).toEqual([
           {
-            type: 'web_search_20260209',
+            type: 'web_search_20250305',
             name: 'web_search',
           },
         ]);

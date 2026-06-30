@@ -1,6 +1,7 @@
 const { logger } = require('@librechat/data-schemas');
 const { initializeAgent, validateAgentModel } = require('@librechat/api');
 const getStream = require('get-stream');
+const { appendAgentIdSuffix } = require('librechat-data-provider');
 const { loadAddedAgent, setGetAgent, ADDED_AGENT_ID } = require('~/models/loadAddedAgent');
 const { getConvoFiles } = require('~/models/Conversation');
 const { getAgent } = require('~/models/Agent');
@@ -17,9 +18,28 @@ async function getFileBuffer(req, file) {
 // Initialize the getAgent dependency
 setGetAgent(getAgent);
 
+const getAddedConvos = (endpointOption) => {
+  const addedConvos = Array.isArray(endpointOption.addedConvos)
+    ? endpointOption.addedConvos.filter(
+        (convo) => convo && typeof convo === 'object' && !Array.isArray(convo),
+      )
+    : [];
+
+  if (addedConvos.length > 0) {
+    return addedConvos;
+  }
+
+  const addedConvo = endpointOption.addedConvo;
+  if (!addedConvo || typeof addedConvo !== 'object' || Array.isArray(addedConvo)) {
+    return [];
+  }
+
+  return [addedConvo];
+};
+
 /**
- * Process addedConvo for parallel agent execution.
- * Creates a parallel agent config from an added conversation.
+ * Process added conversations for parallel agent execution.
+ * Creates parallel agent configs from added conversations.
  *
  * When an added agent has no incoming edges, it becomes a start node
  * and runs in parallel with the primary agent automatically.
@@ -45,7 +65,16 @@ setGetAgent(getAgent);
  * @param {Map} params.agentConfigs - Map of agent configs to add to
  * @param {string} params.primaryAgentId - The primary agent ID
  * @param {Object|undefined} params.userMCPAuthMap - User MCP auth map to merge into
- * @returns {Promise<{userMCPAuthMap: Object|undefined}>} The updated userMCPAuthMap
+ * @returns {Promise<{
+ *   userMCPAuthMap: Object|undefined,
+ *   agentToolContexts: Array<{
+ *     agentId: string,
+ *     agent: Object,
+ *     toolRegistry?: import('@librechat/agents').LCToolRegistry,
+ *     userMCPAuthMap?: Record<string, Record<string, string>>,
+ *     tool_resources?: Object,
+ *   }>,
+ * }>} The updated userMCPAuthMap and added-agent execution contexts
  */
 const processAddedConvo = async ({
   req,
@@ -63,88 +92,110 @@ const processAddedConvo = async ({
   primaryAgent,
   userMCPAuthMap,
 }) => {
-  const addedConvo = endpointOption.addedConvo;
-  if (addedConvo == null) {
-    return { userMCPAuthMap };
+  const addedConvos = getAddedConvos(endpointOption);
+  const agentToolContexts = [];
+  if (addedConvos.length === 0) {
+    return { userMCPAuthMap, agentToolContexts };
   }
 
-  logger.debug('[processAddedConvo] Processing added conversation', {
-    model: addedConvo.model,
-    agentId: addedConvo.agent_id,
-    endpoint: addedConvo.endpoint,
-  });
-
-  try {
-    const addedAgent = await loadAddedAgent({ req, conversation: addedConvo, primaryAgent });
-    if (!addedAgent) {
-      return { userMCPAuthMap };
-    }
-
-    const addedValidation = await validateAgentModel({
-      req,
-      res,
-      modelsConfig,
-      logViolation,
-      agent: addedAgent,
+  for (const [index, addedConvo] of addedConvos.entries()) {
+    const addedIndex = index + 1;
+    logger.debug('[processAddedConvo] Processing added conversation', {
+      index: addedIndex,
+      model: addedConvo.model,
+      agentId: addedConvo.agent_id,
+      endpoint: addedConvo.endpoint,
     });
 
-    if (!addedValidation.isValid) {
-      logger.warn(
-        `[processAddedConvo] Added agent validation failed: ${addedValidation.error?.message}`,
-      );
-      return { userMCPAuthMap };
-    }
+    try {
+      const addedAgent = await loadAddedAgent({
+        req,
+        conversation: addedConvo,
+        primaryAgent,
+        index: addedIndex,
+      });
+      if (!addedAgent) {
+        continue;
+      }
 
-    const addedConfig = await initializeAgent(
-      {
+      const addedOriginalProvider = addedAgent.provider;
+
+      const addedValidation = await validateAgentModel({
         req,
         res,
-        loadTools,
-        requestFiles,
-        conversationId,
-        parentMessageId,
+        modelsConfig,
+        logViolation,
         agent: addedAgent,
-        endpointOption,
-        allowedProviders,
-      },
-      {
-        getConvoFiles,
-        getFiles: db.getFiles,
-        getFileBuffer,
-        getUserKey: db.getUserKey,
-        getMessages: db.getMessages,
-        updateFile: db.updateFile,
-        updateFilesUsage: db.updateFilesUsage,
-        getUserCodeFiles: db.getUserCodeFiles,
-        getUserKeyValues: db.getUserKeyValues,
-        getToolFilesByIds: db.getToolFilesByIds,
-        getCodeGeneratedFiles: db.getCodeGeneratedFiles,
-      },
-    );
+      });
 
-    if (userMCPAuthMap != null) {
-      Object.assign(userMCPAuthMap, addedConfig.userMCPAuthMap ?? {});
-    } else {
-      userMCPAuthMap = addedConfig.userMCPAuthMap;
+      if (!addedValidation.isValid) {
+        logger.warn(
+          `[processAddedConvo] Added agent validation failed: ${addedValidation.error?.message}`,
+        );
+        continue;
+      }
+
+      const addedConfig = await initializeAgent(
+        {
+          req,
+          res,
+          loadTools,
+          requestFiles,
+          conversationId,
+          parentMessageId,
+          agent: addedAgent,
+          endpointOption,
+          allowedProviders,
+        },
+        {
+          getConvoFiles,
+          getFiles: db.getFiles,
+          getFileBuffer,
+          getUserKey: db.getUserKey,
+          getMessages: db.getMessages,
+          updateFile: db.updateFile,
+          updateFilesUsage: db.updateFilesUsage,
+          getUserCodeFiles: db.getUserCodeFiles,
+          getUserKeyValues: db.getUserKeyValues,
+          getToolFilesByIds: db.getToolFilesByIds,
+          getCodeGeneratedFiles: db.getCodeGeneratedFiles,
+        },
+      );
+
+      // Restore the selected endpoint/provider for execution-time tool routing.
+      // initializeAgent may normalize provider values for model clients.
+      addedAgent.provider = addedOriginalProvider;
+
+      if (userMCPAuthMap != null) {
+        Object.assign(userMCPAuthMap, addedConfig.userMCPAuthMap ?? {});
+      } else {
+        userMCPAuthMap = addedConfig.userMCPAuthMap;
+      }
+
+      const addedAgentId = addedConfig.id || appendAgentIdSuffix(ADDED_AGENT_ID, addedIndex);
+      agentConfigs.set(addedAgentId, addedConfig);
+      agentToolContexts.push({
+        agentId: addedAgentId,
+        agent: addedAgent,
+        toolRegistry: addedConfig.toolRegistry,
+        userMCPAuthMap: addedConfig.userMCPAuthMap,
+        tool_resources: addedConfig.tool_resources,
+      });
+
+      // No edges needed - agent without incoming edges becomes a start node
+      // and runs in parallel with the primary agent automatically.
+      // This is independent of any edges/agent_ids the primary agent has.
+
+      logger.debug(
+        `[processAddedConvo] Added parallel agent: ${addedAgentId} (primary: ${primaryAgentId}, ` +
+          `primary has edges: ${!!endpointOption.edges}, primary has agent_ids: ${!!endpointOption.agent_ids})`,
+      );
+    } catch (err) {
+      logger.error('[processAddedConvo] Error processing addedConvo for parallel agent', err);
     }
-
-    const addedAgentId = addedConfig.id || ADDED_AGENT_ID;
-    agentConfigs.set(addedAgentId, addedConfig);
-
-    // No edges needed - agent without incoming edges becomes a start node
-    // and runs in parallel with the primary agent automatically.
-    // This is independent of any edges/agent_ids the primary agent has.
-
-    logger.debug(
-      `[processAddedConvo] Added parallel agent: ${addedAgentId} (primary: ${primaryAgentId}, ` +
-        `primary has edges: ${!!endpointOption.edges}, primary has agent_ids: ${!!endpointOption.agent_ids})`,
-    );
-
-    return { userMCPAuthMap };
-  } catch (err) {
-    logger.error('[processAddedConvo] Error processing addedConvo for parallel agent', err);
-    return { userMCPAuthMap };
   }
+
+  return { userMCPAuthMap, agentToolContexts };
 };
 
 module.exports = {

@@ -8,13 +8,12 @@ import {
   sortAnthropicModels,
 } from './anthropic';
 import type { TAnthropicModelCapabilities } from './anthropic';
+import { AnthropicAdvisorModel } from './schemas';
 
 describe('anthropic model helpers', () => {
   it('normalizes Anthropic model names returned by the models API', () => {
     expect(normalizeAnthropicModelName('models/claude-opus-4-6')).toBe('claude-opus-4-6');
-    expect(normalizeAnthropicModelName('anthropic/claude-sonnet-4-5')).toBe(
-      'claude-sonnet-4-5',
-    );
+    expect(normalizeAnthropicModelName('anthropic/claude-sonnet-4-5')).toBe('claude-sonnet-4-5');
     expect(normalizeAnthropicModelName('claude-3-7-sonnet-latest')).toBe(
       'claude-3-7-sonnet-latest',
     );
@@ -80,8 +79,26 @@ describe('anthropic model helpers', () => {
     expect(capabilities.supportsAdaptiveThinking).toBe(true);
     expect(capabilities.supportsEffort).toBe(true);
     expect(capabilities.supportsEffortMax).toBe(true);
+    expect(capabilities.supportsFastMode).toBe(true);
     expect(capabilities.supportsWebSearch).toBe(true);
+    expect(capabilities.supportsWebFetch).toBe(true);
     expect(capabilities.supportsCodeExecution).toBe(true);
+    expect(capabilities.supportsAdvisor).toBe(true);
+    expect(capabilities.advisorModelOptions).toEqual([
+      AnthropicAdvisorModel.opus48,
+      AnthropicAdvisorModel.opus47,
+    ]);
+  });
+
+  it('detects Anthropic-native tools on newer Sonnet models without enabling fast mode', () => {
+    const capabilities = getAnthropicModelCapabilities('claude-sonnet-4-6');
+
+    expect(capabilities.supportsAdaptiveThinking).toBe(true);
+    expect(capabilities.supportsFastMode).toBe(false);
+    expect(capabilities.supportsWebSearch).toBe(true);
+    expect(capabilities.supportsWebFetch).toBe(true);
+    expect(capabilities.supportsCodeExecution).toBe(true);
+    expect(capabilities.supportsAdvisor).toBe(true);
   });
 
   it('keeps Claude 3.7 on fixed thinking budgets instead of adaptive effort', () => {
@@ -91,6 +108,10 @@ describe('anthropic model helpers', () => {
     expect(capabilities.supportsAdaptiveThinking).toBe(false);
     expect(capabilities.supportsThinkingBudget).toBe(true);
     expect(capabilities.supportsEffort).toBe(false);
+    expect(capabilities.supportsFastMode).toBe(false);
+    expect(capabilities.supportsWebFetch).toBe(false);
+    expect(capabilities.supportsAdvisor).toBe(false);
+    expect(capabilities.supportsCodeExecution).toBe(true);
   });
 
   it('disables Anthropic sampling controls while thinking is enabled', () => {
@@ -125,5 +146,22 @@ describe('anthropic model helpers', () => {
         thinking: undefined,
       }),
     ).toEqual({ supported: true });
+  });
+
+  it('explains unavailable Anthropic provider sidebar features for older models', () => {
+    const capabilities = getAnthropicModelCapabilities('claude-3-7-sonnet-latest');
+
+    expect(getAnthropicSettingCapabilityState('fast_mode', capabilities)).toEqual({
+      supported: false,
+      reason: 'Anthropic fast mode is only available for supported Claude Opus models.',
+    });
+    expect(getAnthropicSettingCapabilityState('web_fetch', capabilities)).toEqual({
+      supported: false,
+      reason: 'Native Anthropic web fetch is not available for this Claude model.',
+    });
+    expect(getAnthropicSettingCapabilityState('anthropic_advisor', capabilities)).toEqual({
+      supported: false,
+      reason: 'The Anthropic advisor tool is not available for this Claude model.',
+    });
   });
 });

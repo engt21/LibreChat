@@ -100,6 +100,47 @@ describe('MCPServersRegistry', () => {
       expect(configs).toHaveProperty('app_server');
       expect(configs).toHaveProperty('user_server');
     });
+
+    it('should return servers in alphabetical display-name order', async () => {
+      await registry['cacheConfigsRepo'].add('zeta_server', {
+        ...testParsedConfig,
+        title: 'Zeta',
+      } as t.ParsedServerConfig);
+      await registry['cacheConfigsRepo'].add('alpha_server_2', {
+        ...testParsedConfig,
+        title: 'Alpha',
+      } as t.ParsedServerConfig);
+      await registry['cacheConfigsRepo'].add('alpha_server_1', {
+        ...testParsedConfig,
+        title: 'Alpha',
+      } as t.ParsedServerConfig);
+
+      const configs = await registry.getAllServerConfigs();
+
+      expect(Object.keys(configs)).toEqual(['alpha_server_1', 'alpha_server_2', 'zeta_server']);
+    });
+
+    it('should filter cache-backed servers when a published server allowlist is configured', async () => {
+      await registry['cacheConfigsRepo'].add('published_server', testParsedConfig);
+      await registry['cacheConfigsRepo'].add('hidden_server', testParsedConfig);
+
+      await registry.setPublishedServerNames(['published_server']);
+
+      const configs = await registry.getAllServerConfigs();
+      expect(configs).toHaveProperty('published_server');
+      expect(configs).not.toHaveProperty('hidden_server');
+      await expect(registry.getServerConfig('hidden_server')).resolves.toBeUndefined();
+    });
+
+    it('should keep all cache-backed servers visible when no published allowlist is configured', async () => {
+      await registry['cacheConfigsRepo'].add('app_server', testParsedConfig);
+
+      await registry.setPublishedServerNames(null);
+
+      const configs = await registry.getAllServerConfigs();
+      expect(configs).toHaveProperty('app_server');
+      await expect(registry.getServerConfig('app_server')).resolves.toBeDefined();
+    });
   });
 
   describe('reset', () => {

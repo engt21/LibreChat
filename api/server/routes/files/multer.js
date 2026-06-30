@@ -4,9 +4,11 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { sanitizeFilename } = require('@librechat/api');
 const {
+  EToolResources,
   mergeFileConfig,
   getEndpointFileConfig,
   fileConfig: defaultFileConfig,
+  isAssistantsEndpoint,
 } = require('librechat-data-provider');
 const { getAppConfig } = require('~/server/services/Config');
 const { isTranscribableMediaFile } = require('~/server/services/Files/Audio/mediaFileTypes');
@@ -59,6 +61,8 @@ const createFileFilter = (customFileConfig) => {
 
     const endpoint = req.body.endpoint;
     const endpointType = req.body.endpointType;
+    const isCodeInterpreterUpload =
+      !isAssistantsEndpoint(endpoint) && req.body.tool_resource === EToolResources.execute_code;
     const endpointFileConfig = getEndpointFileConfig({
       fileConfig: customFileConfig,
       endpoint,
@@ -66,6 +70,10 @@ const createFileFilter = (customFileConfig) => {
     });
 
     if (!defaultFileConfig.checkType(file.mimetype, endpointFileConfig.supportedMimeTypes)) {
+      if (isCodeInterpreterUpload) {
+        return cb(null, true);
+      }
+
       if (
         req.body.message_file === 'true' &&
         isTranscribableMediaFile({
@@ -96,4 +104,4 @@ const createMulterInstance = async () => {
   });
 };
 
-module.exports = { createMulterInstance, storage, importFileFilter };
+module.exports = { createMulterInstance, createFileFilter, storage, importFileFilter };

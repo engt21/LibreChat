@@ -191,6 +191,11 @@ export enum AnthropicServiceTier {
   standard_only = 'standard_only',
 }
 
+export enum AnthropicAdvisorModel {
+  opus48 = 'claude-opus-4-8',
+  opus47 = 'claude-opus-4-7',
+}
+
 export enum BedrockReasoningConfig {
   low = 'low',
   medium = 'medium',
@@ -235,6 +240,7 @@ export const eImageDetailSchema = z.nativeEnum(ImageDetail);
 export const eReasoningEffortSchema = z.nativeEnum(ReasoningEffort);
 export const eAnthropicEffortSchema = z.nativeEnum(AnthropicEffort);
 export const eAnthropicServiceTierSchema = z.nativeEnum(AnthropicServiceTier);
+export const eAnthropicAdvisorModelSchema = z.nativeEnum(AnthropicAdvisorModel);
 export const eReasoningSummarySchema = z.nativeEnum(ReasoningSummary);
 export const eVerbositySchema = z.nativeEnum(Verbosity);
 export const eThinkingLevelSchema = z.nativeEnum(ThinkingLevel);
@@ -511,6 +517,22 @@ export const anthropicSettings = {
       AnthropicServiceTier.auto,
       AnthropicServiceTier.standard_only,
     ],
+  },
+  fast_mode: {
+    default: false as const,
+  },
+  web_fetch: {
+    default: false as const,
+  },
+  code_execution: {
+    default: false as const,
+  },
+  advisor: {
+    default: false as const,
+  },
+  advisor_model: {
+    default: AnthropicAdvisorModel.opus48,
+    options: [AnthropicAdvisorModel.opus48, AnthropicAdvisorModel.opus47],
   },
   web_search: {
     default: false as const,
@@ -789,6 +811,13 @@ export const tConversationSchema = z.object({
   effort: eAnthropicEffortSchema.optional().nullable(),
   /* Anthropic: Capacity routing */
   service_tier: eAnthropicServiceTierSchema.optional().nullable(),
+  /* Anthropic: Fast mode */
+  fast_mode: z.boolean().optional(),
+  /* Anthropic: Server tools */
+  web_fetch: z.boolean().optional(),
+  anthropic_code_execution: z.boolean().optional(),
+  anthropic_advisor: z.boolean().optional(),
+  anthropic_advisor_model: eAnthropicAdvisorModelSchema.optional().nullable(),
   /* OpenAI Responses API / Anthropic API / Google API */
   web_search: z.boolean().optional(),
   /* disable streaming */
@@ -917,6 +946,11 @@ export const tQueryParamsSchema = tConversationSchema
     thinkingLevel: true,
     effort: true,
     service_tier: true,
+    fast_mode: true,
+    web_fetch: true,
+    anthropic_code_execution: true,
+    anthropic_advisor: true,
+    anthropic_advisor_model: true,
     /** @endpoints bedrock */
     region: true,
     /** @endpoints bedrock */
@@ -1280,6 +1314,11 @@ export const anthropicBaseSchema = tConversationSchema.pick({
   thinkingBudget: true,
   effort: true,
   service_tier: true,
+  fast_mode: true,
+  web_fetch: true,
+  anthropic_code_execution: true,
+  anthropic_advisor: true,
+  anthropic_advisor_model: true,
   artifacts: true,
   iconURL: true,
   greeting: true,

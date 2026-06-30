@@ -165,6 +165,12 @@ export const useRegenerateBackupCodesMutation = (): UseMutationResult<
   );
 };
 
+export const useSetupPendingTwoFactorMutation = (
+  options?: t.MutationOptions<t.TSetupPending2FAResponse, void, unknown, unknown>,
+): UseMutationResult<t.TSetupPending2FAResponse, unknown, void, unknown> => {
+  return useMutation(() => dataService.setupPendingTwoFactor(), options);
+};
+
 export const useVerifyTwoFactorTempMutation = (
   options?: t.MutationOptions<t.TVerify2FATempResponse, t.TVerify2FATempRequest, unknown, unknown>,
 ): UseMutationResult<t.TVerify2FATempResponse, unknown, t.TVerify2FATempRequest, unknown> => {

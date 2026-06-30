@@ -35,6 +35,36 @@ done
 
 exit_code=0
 
+resolve_stable_api_container() {
+  local by_label
+
+  if [[ -n "${LIBRECHAT_STABLE_API_CONTAINER:-}" ]]; then
+    printf '%s\n' "$LIBRECHAT_STABLE_API_CONTAINER"
+    return
+  fi
+
+  by_label="$(docker ps \
+    --filter 'label=com.docker.compose.project=librechat-stable' \
+    --filter 'label=com.docker.compose.service=api' \
+    --format '{{.Names}}' 2>/dev/null | head -1)"
+  if [[ -n "$by_label" ]]; then
+    printf '%s\n' "$by_label"
+    return
+  fi
+
+  if [[ -n "${LIBRECHAT_API_CONTAINER_NAME:-}" ]]; then
+    printf '%s\n' "$LIBRECHAT_API_CONTAINER_NAME"
+    return
+  fi
+
+  if docker inspect LibreChat >/dev/null 2>&1; then
+    printf '%s\n' "LibreChat"
+    return
+  fi
+
+  printf '%s\n' "librechat-stable-api"
+}
+
 # --- 1. Orphan detection ---
 echo -e "${BOLD}== Orphan container check ==${NC}"
 
@@ -251,6 +281,23 @@ if docker ps --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | gr
   fi
   echo
 fi
+
+echo -e "${BOLD}== OpenAI reasoning preservation invariant ==${NC}"
+if $stable_running; then
+  stable_container="$(resolve_stable_api_container)"
+  if "$ROOT_DIR/local-services/verify-openai-reasoning-preservation.sh" --container "$stable_container"; then
+    echo -e "${GREEN}Stable reasoning preservation invariant is present in source and deployed runtime.${NC}"
+  else
+    echo -e "${RED}Stable reasoning preservation invariant is missing; do not promote or restart production until repaired.${NC}"
+    exit_code=1
+  fi
+else
+  echo -e "${YELLOW}Stable API is not running; checking repository invariant without deployed-runtime inspection.${NC}"
+  if ! "$ROOT_DIR/local-services/verify-openai-reasoning-preservation.sh"; then
+    exit_code=1
+  fi
+fi
+echo
 
 if [[ $exit_code -eq 0 ]]; then
   echo -e "${GREEN}All checks passed.${NC}"

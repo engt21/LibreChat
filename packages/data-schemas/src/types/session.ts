@@ -46,4 +46,7 @@ export interface SignPayloadParams {
   payload: Record<string, unknown>;
   secret?: string;
   expirationTime: number;
+  issuer?: string;
+  audience?: string;
+  jwtId?: string;
 }

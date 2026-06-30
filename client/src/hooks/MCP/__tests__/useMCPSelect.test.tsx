@@ -6,7 +6,7 @@ import { Constants, LocalStorageKeys } from 'librechat-data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
 import { setTimestamp } from '~/utils/timestamps';
 import { useMCPSelect } from '../useMCPSelect';
-import { MCPServerDefinition } from '../useMCPServerManager';
+import { MCPServerDefinition, compareMCPServerDefinitions } from '../useMCPServerManager';
 
 // Mock dependencies
 jest.mock('~/utils/timestamps', () => ({
@@ -925,5 +925,33 @@ describe('useMCPSelect', () => {
       // Should handle remounting gracefully
       expect(newResult.current.mcpValues).toBeDefined();
     });
+  });
+});
+
+describe('compareMCPServerDefinitions', () => {
+  it('sorts MCP servers alphabetically by display title with server name as a tiebreaker', () => {
+    const servers: MCPServerDefinition[] = [
+      {
+        serverName: 'zeta-server',
+        config: { title: 'Zeta', url: 'http://mcp' },
+        effectivePermissions: 15,
+      },
+      {
+        serverName: 'alpha-server-2',
+        config: { title: 'Alpha', url: 'http://mcp' },
+        effectivePermissions: 15,
+      },
+      {
+        serverName: 'alpha-server-1',
+        config: { title: 'Alpha', url: 'http://mcp' },
+        effectivePermissions: 15,
+      },
+    ];
+
+    expect(servers.sort(compareMCPServerDefinitions).map((server) => server.serverName)).toEqual([
+      'alpha-server-1',
+      'alpha-server-2',
+      'zeta-server',
+    ]);
   });
 });

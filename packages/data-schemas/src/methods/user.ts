@@ -180,9 +180,12 @@ export function createUserMethods(mongoose: typeof import('mongoose')) {
         username: user.username,
         provider: user.provider,
         email: user.email,
+        tokenType: 'access',
       },
       secret: process.env.JWT_SECRET,
       expirationTime: expires / 1000,
+      issuer: process.env.JWT_ISSUER || 'librechat',
+      audience: process.env.JWT_AUDIENCE || 'librechat-api',
     });
   }
 

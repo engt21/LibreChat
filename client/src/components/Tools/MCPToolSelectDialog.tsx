@@ -208,7 +208,15 @@ function MCPToolSelectDialog({
 
   const mcpServers = useMemo(() => {
     const servers = Array.from(mcpServersMap.values()).filter((s) => !s.consumeOnly);
-    return servers.sort((a, b) => a.serverName.localeCompare(b.serverName));
+    return servers.sort((a, b) => {
+      const leftName = a.metadata?.name || a.serverName;
+      const rightName = b.metadata?.name || b.serverName;
+
+      return (
+        leftName.localeCompare(rightName, undefined, { numeric: true, sensitivity: 'base' }) ||
+        a.serverName.localeCompare(b.serverName, undefined, { numeric: true, sensitivity: 'base' })
+      );
+    });
   }, [mcpServersMap]);
 
   const filteredServers = useMemo(() => {

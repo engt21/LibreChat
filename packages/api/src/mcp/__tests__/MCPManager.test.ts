@@ -791,6 +791,110 @@ describe('MCPManager', () => {
     });
   });
 
+  describe('callTool - transport session recovery', () => {
+    const mockUser: Partial<IUser> = {
+      id: 'user-session-recovery',
+    };
+
+    const mockFlowManager = {
+      getState: jest.fn(),
+      setState: jest.fn(),
+      clearState: jest.fn(),
+    };
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      (graphUtils.preProcessGraphTokens as jest.Mock).mockImplementation(
+        async (options) => options,
+      );
+      (mockRegistryInstance.getServerConfig as jest.Mock).mockResolvedValue({
+        type: 'streamable-http',
+        url: 'https://mcp.example.com/mcp',
+      });
+    });
+
+    it('reconnects and retries once when a streamable session is stale', async () => {
+      const request = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('MCP error -32001: Session not found'))
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'Recovered' }],
+          isError: false,
+        });
+      const mockConnection = {
+        isConnected: jest.fn().mockResolvedValue(true),
+        setRequestHeaders: jest.fn(),
+        connect: jest.fn().mockResolvedValue(undefined),
+        timeout: 30000,
+        client: {
+          request,
+        },
+      } as unknown as MCPConnection;
+
+      mockAppConnections({
+        get: jest.fn().mockResolvedValue(mockConnection),
+      });
+
+      const manager = await MCPManager.createInstance(newMCPServersConfig());
+
+      const result = await manager.callTool({
+        user: mockUser as IUser,
+        serverName,
+        toolName: 'browser_snapshot',
+        provider: 'openai',
+        flowManager: mockFlowManager as unknown as Parameters<
+          typeof manager.callTool
+        >[0]['flowManager'],
+      });
+
+      expect((mockConnection as unknown as { connect: jest.Mock }).connect).toHaveBeenCalledTimes(
+        1,
+      );
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(result[0]).toEqual([{ type: 'text', text: 'Recovered' }]);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('MCP transport session lost during tool call'),
+        expect.objectContaining({
+          error: expect.stringContaining('Session not found'),
+        }),
+      );
+    });
+
+    it('does not retry ordinary tool execution errors', async () => {
+      const request = jest.fn().mockRejectedValue(new Error('tool rejected the arguments'));
+      const mockConnection = {
+        isConnected: jest.fn().mockResolvedValue(true),
+        setRequestHeaders: jest.fn(),
+        connect: jest.fn().mockResolvedValue(undefined),
+        timeout: 30000,
+        client: {
+          request,
+        },
+      } as unknown as MCPConnection;
+
+      mockAppConnections({
+        get: jest.fn().mockResolvedValue(mockConnection),
+      });
+
+      const manager = await MCPManager.createInstance(newMCPServersConfig());
+
+      await expect(
+        manager.callTool({
+          user: mockUser as IUser,
+          serverName,
+          toolName: 'write_side_effect',
+          provider: 'openai',
+          flowManager: mockFlowManager as unknown as Parameters<
+            typeof manager.callTool
+          >[0]['flowManager'],
+        }),
+      ).rejects.toThrow('tool rejected the arguments');
+
+      expect((mockConnection as unknown as { connect: jest.Mock }).connect).not.toHaveBeenCalled();
+      expect(request).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('callTool - Arcade Provider Consent Continuation (VAL-MCP-004)', () => {
     /**
      * Arcade-hosted MCP tools (e.g., Microsoft tools via Arcade) may require

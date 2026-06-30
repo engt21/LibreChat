@@ -1,5 +1,5 @@
 import { supportsAdaptiveThinking } from './bedrock';
-import { AnthropicEffort, anthropicSettings } from './schemas';
+import { AnthropicAdvisorModel, AnthropicEffort, anthropicSettings } from './schemas';
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 const anthropicFamilies = new Set(['opus', 'sonnet', 'haiku'] as const);
@@ -47,12 +47,16 @@ export type TResolvedAnthropicModelCapabilities = {
   supportsThinkingBudget: boolean;
   supportsEffort: boolean;
   supportsEffortMax: boolean;
+  supportsFastMode: boolean;
   supportsWebSearch: boolean;
+  supportsWebFetch: boolean;
   supportsCodeExecution: boolean;
+  supportsAdvisor: boolean;
   supportsServiceTier: boolean;
   maxOutputTokensDefault: number;
   maxOutputTokensMax: number;
   effortOptions: AnthropicEffort[];
+  advisorModelOptions: AnthropicAdvisorModel[];
 };
 
 export type TAnthropicSettingCapabilityState = {
@@ -71,7 +75,10 @@ function isShortVersionToken(token?: string): boolean {
 
 function parseAnthropicModelName(model?: string | null): ParsedAnthropicModelName {
   const normalizedModel = normalizeAnthropicModelName(model).toLowerCase();
-  const tokens = normalizedModel.replace(/\./g, '-').split(/[^a-z0-9]+/).filter(Boolean);
+  const tokens = normalizedModel
+    .replace(/\./g, '-')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
   const familyIndex = tokens.findIndex((token) =>
     anthropicFamilies.has(token as Exclude<AnthropicFamily, 'unknown'>),
   );
@@ -150,13 +157,9 @@ function compareAnthropicModels(
   const parsedB = parseAnthropicModelName(b);
 
   const versionScoreA =
-    parsedA.majorVersion * 1000 +
-    parsedA.minorVersion * 10 +
-    anthropicFamilyRank[parsedA.family];
+    parsedA.majorVersion * 1000 + parsedA.minorVersion * 10 + anthropicFamilyRank[parsedA.family];
   const versionScoreB =
-    parsedB.majorVersion * 1000 +
-    parsedB.minorVersion * 10 +
-    anthropicFamilyRank[parsedB.family];
+    parsedB.majorVersion * 1000 + parsedB.minorVersion * 10 + anthropicFamilyRank[parsedB.family];
 
   if (versionScoreA !== versionScoreB) {
     return versionScoreB - versionScoreA;
@@ -202,6 +205,42 @@ function inferAnthropicCodeExecutionSupport(model: ParsedAnthropicModelName): bo
   }
 
   return /^claude-3[-.]7-sonnet(?:$|[-.])/i.test(normalizedModel);
+}
+
+function inferAnthropicWebFetchSupport(model: ParsedAnthropicModelName): boolean {
+  if (model.normalizedModel.includes('mythos')) {
+    return true;
+  }
+
+  if (model.majorVersion > 4) {
+    return true;
+  }
+
+  return model.majorVersion === 4 && model.minorVersion >= 6;
+}
+
+function inferAnthropicFastModeSupport(model: ParsedAnthropicModelName): boolean {
+  return model.family === 'opus' && model.majorVersion === 4 && model.minorVersion >= 6;
+}
+
+function inferAnthropicAdvisorSupport(model: ParsedAnthropicModelName): boolean {
+  if (model.majorVersion > 4) {
+    return model.family === 'opus' || model.family === 'sonnet' || model.family === 'haiku';
+  }
+
+  if (model.majorVersion !== 4) {
+    return false;
+  }
+
+  if (model.family === 'opus' || model.family === 'sonnet') {
+    return model.minorVersion >= 6;
+  }
+
+  if (model.family === 'haiku') {
+    return model.minorVersion >= 5;
+  }
+
+  return false;
 }
 
 function inferAnthropicThinkingSupport(model: ParsedAnthropicModelName): boolean {
@@ -263,7 +302,11 @@ export function buildAnthropicModelCapabilitiesMap(
   return models.reduce<Record<string, TAnthropicModelCapabilities>>((acc, model) => {
     const normalizedModel = normalizeAnthropicModelName(model.id);
 
-    if (!normalizedModel || acc[normalizedModel] != null || !isAnthropicTextCompatibleModel(model)) {
+    if (
+      !normalizedModel ||
+      acc[normalizedModel] != null ||
+      !isAnthropicTextCompatibleModel(model)
+    ) {
       return acc;
     }
 
@@ -380,12 +423,16 @@ export function getAnthropicModelCapabilities(
     supportsThinkingBudget: supportsThinking && !adaptiveThinking,
     supportsEffort,
     supportsEffortMax,
+    supportsFastMode: isTextCompatible && inferAnthropicFastModeSupport(parsedModel),
     supportsWebSearch: isTextCompatible && inferAnthropicWebSearchSupport(parsedModel),
+    supportsWebFetch: isTextCompatible && inferAnthropicWebFetchSupport(parsedModel),
     supportsCodeExecution: isTextCompatible && inferAnthropicCodeExecutionSupport(parsedModel),
+    supportsAdvisor: isTextCompatible && inferAnthropicAdvisorSupport(parsedModel),
     supportsServiceTier: isTextCompatible,
     maxOutputTokensDefault: Math.min(anthropicSettings.maxOutputTokens.default, maxOutputTokensMax),
     maxOutputTokensMax,
     effortOptions,
+    advisorModelOptions: anthropicSettings.advisor_model.options,
   };
 }
 
@@ -493,6 +540,35 @@ export function getAnthropicSettingCapabilityState(
         : {
             supported: false,
             reason: 'Native Anthropic web search is not available for this Claude model.',
+          };
+    case 'web_fetch':
+      return capabilities.supportsWebFetch
+        ? { supported: true }
+        : {
+            supported: false,
+            reason: 'Native Anthropic web fetch is not available for this Claude model.',
+          };
+    case 'anthropic_code_execution':
+      return capabilities.supportsCodeExecution
+        ? { supported: true }
+        : {
+            supported: false,
+            reason: 'Native Anthropic code execution is not available for this Claude model.',
+          };
+    case 'anthropic_advisor':
+    case 'anthropic_advisor_model':
+      return capabilities.supportsAdvisor
+        ? { supported: true }
+        : {
+            supported: false,
+            reason: 'The Anthropic advisor tool is not available for this Claude model.',
+          };
+    case 'fast_mode':
+      return capabilities.supportsFastMode
+        ? { supported: true }
+        : {
+            supported: false,
+            reason: 'Anthropic fast mode is only available for supported Claude Opus models.',
           };
     case 'stop':
       return capabilities.supportsStop

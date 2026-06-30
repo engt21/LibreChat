@@ -17,6 +17,17 @@ import type * as t from '~/types';
 import { sanitizeModelName, constructAzureURL } from '~/utils/azure';
 import { isEnabled } from '~/utils/common';
 
+const DEFAULT_OPENAI_WEB_SEARCH_MAX_TOOL_CALLS = 6;
+const MAX_OPENAI_WEB_SEARCH_MAX_TOOL_CALLS = 12;
+
+function getOpenAIWebSearchMaxToolCalls(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    return DEFAULT_OPENAI_WEB_SEARCH_MAX_TOOL_CALLS;
+  }
+
+  return Math.min(value, MAX_OPENAI_WEB_SEARCH_MAX_TOOL_CALLS);
+}
+
 export const knownOpenAIParams = new Set([
   // Constructor/Instance Parameters
   'model',
@@ -229,6 +240,15 @@ export function getOpenAILLMConfig({
     : reasoning_effort;
   const normalizedReasoningSummary = isOllamaEndpoint ? undefined : reasoning_summary;
 
+  const usesOpenAIHostedResponses =
+    !useOpenRouter &&
+    !isXAIEndpoint &&
+    !isOllamaEndpoint &&
+    (endpoint == null ||
+      endpoint === EModelEndpoint.openAI ||
+      endpoint === EModelEndpoint.azureOpenAI ||
+      azure != null);
+
   if (
     openAIModelCapabilities &&
     resolveOpenAIResponsesApiEnabled(openAIModelCapabilities, {
@@ -323,8 +343,16 @@ export function getOpenAILLMConfig({
     enableWebSearch = false;
   }
 
-  if (openAIModelCapabilities?.hasKnownCapabilities && !openAIModelCapabilities.supportsWebSearch) {
+  if (!useOpenRouter && openAIModelCapabilities && !openAIModelCapabilities.supportsWebSearch) {
     enableWebSearch = false;
+  }
+
+  if (
+    openAIModelCapabilities?.hasKnownCapabilities === true &&
+    !openAIModelCapabilities.supportsOpenAIResponsesApi &&
+    !openAIModelCapabilities.requiresResponsesApi
+  ) {
+    delete llmConfig.useResponsesApi;
   }
 
   if (isXAIEndpoint && xaiModelCapabilities && !xaiModelCapabilities.supportsWebSearch) {
@@ -443,6 +471,10 @@ export function getOpenAILLMConfig({
   } else if (enableWebSearch && !isOllamaEndpoint) {
     /** Standard OpenAI web search uses tools API */
     llmConfig.useResponsesApi = true;
+    if (usesOpenAIHostedResponses) {
+      modelKwargs.max_tool_calls = getOpenAIWebSearchMaxToolCalls(modelKwargs.max_tool_calls);
+      hasModelKwargs = true;
+    }
     tools.push({ type: 'web_search' });
   }
 

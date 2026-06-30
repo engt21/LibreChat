@@ -13,7 +13,7 @@ const {
   deleteMessages,
 } = require('./Message');
 const { getConvoTitle, getConvo, saveConvo, deleteConvos } = require('./Conversation');
-const { getPreset, getPresets, savePreset, deletePresets } = require('./Preset');
+const { getPreset, getPresets, reorderPresets, savePreset, deletePresets } = require('./Preset');
 const {
   ScheduledJob,
   createScheduledJob,
@@ -53,6 +53,7 @@ module.exports = {
 
   getPreset,
   getPresets,
+  reorderPresets,
   savePreset,
   deletePresets,
 

@@ -74,6 +74,36 @@ export const useDeleteAdminUserMutation = (
   );
 };
 
+export const useUpdateAdminMCPServerPublicationMutation = (
+  options?: UseMutationOptions<
+    t.TAdminMCPServer,
+    t.TError | undefined,
+    { serverName: string; payload: t.TAdminMCPServerPublicationUpdate }
+  >,
+): UseMutationResult<
+  t.TAdminMCPServer,
+  t.TError | undefined,
+  { serverName: string; payload: t.TAdminMCPServerPublicationUpdate },
+  unknown
+> => {
+  const queryClient = useQueryClient();
+
+  return useMutation(
+    [MutationKeys.updateAdminMCPServerPublication],
+    ({ serverName, payload }) => dataService.updateAdminMCPServerPublication(serverName, payload),
+    {
+      ...options,
+      onSuccess: (data, variables, context) => {
+        queryClient.invalidateQueries([QueryKeys.adminMCPServers]);
+        queryClient.invalidateQueries([QueryKeys.mcpServers]);
+        queryClient.invalidateQueries([QueryKeys.mcpTools]);
+        queryClient.invalidateQueries([QueryKeys.startupConfig]);
+        options?.onSuccess?.(data, variables, context);
+      },
+    },
+  );
+};
+
 export const useRefreshAdminModelsMutation = (
   options?: UseMutationOptions<
     t.TAdminModelsRefreshResponse,

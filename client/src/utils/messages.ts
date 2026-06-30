@@ -196,17 +196,21 @@ export const getMessageAriaLabel = (message: TMessage, localize: LocalizeFunctio
  * Sets up primary and added agent content parts with agentId for column rendering.
  *
  * @param primaryConvo - The primary conversation configuration
- * @param addedConvo - The added conversation configuration
+ * @param addedConvoOrConvos - The added conversation configuration(s)
  * @param endpointsConfig - Endpoints configuration for getting model display labels
  * @param modelSpecs - Model specs list for getting spec labels
  * @returns Array of content parts with agentId for side-by-side rendering
  */
 export const createDualMessageContent = (
   primaryConvo: TConversation,
-  addedConvo: TConversation,
+  addedConvoOrConvos: TConversation | TConversation[],
   endpointsConfig?: TEndpointsConfig,
   modelSpecs?: { name: string; label?: string }[],
 ): TMessageContentParts[] => {
+  const addedConvos = Array.isArray(addedConvoOrConvos)
+    ? addedConvoOrConvos
+    : [addedConvoOrConvos];
+
   // For real agents (agent_id starts with "agent_"), use agent_id directly
   // Otherwise create ephemeral ID from endpoint/model
   let primaryAgentId: string;
@@ -245,44 +249,46 @@ export const createDualMessageContent = (
     groupId: parallelGroupId,
   };
 
-  // For added agent, use agent_id if it's a real agent (starts with "agent_")
-  // Otherwise create ephemeral ID with index suffix
-  // Always append index suffix for added agent to distinguish from primary (even if same agent_id)
-  let addedAgentId: string;
-  if (addedConvo.agent_id && !isEphemeralAgentId(addedConvo.agent_id)) {
-    // Append suffix to distinguish from primary agent (matches ephemeral format)
-    addedAgentId = appendAgentIdSuffix(addedConvo.agent_id, 1);
-  } else {
-    const addedEndpoint = addedConvo.endpoint;
-    const addedModel = addedConvo.model ?? '';
-    // Look up model spec for label fallback
-    const addedSpec =
-      addedConvo.spec != null && addedConvo.spec !== ''
-        ? modelSpecs?.find((s) => s.name === addedConvo.spec)
-        : undefined;
-    // For ephemeral agents, use modelLabel if provided, then model spec's label,
-    // then modelDisplayLabel from endpoint config, otherwise empty string to show model name
-    const addedSender =
-      addedConvo.modelLabel ??
-      addedSpec?.label ??
-      (addedEndpoint ? endpointsConfig?.[addedEndpoint]?.modelDisplayLabel : undefined) ??
-      '';
-    addedAgentId = encodeEphemeralAgentId({
-      endpoint: addedEndpoint ?? '',
-      model: addedModel,
-      sender: addedSender,
-      index: 1,
-    });
-  }
+  const addedContent = addedConvos.map((addedConvo, index) => {
+    const addedIndex = index + 1;
+    // For added agent, use agent_id if it's a real agent (starts with "agent_")
+    // Otherwise create ephemeral ID with index suffix.
+    let addedAgentId: string;
+    if (addedConvo.agent_id && !isEphemeralAgentId(addedConvo.agent_id)) {
+      // Append suffix to distinguish from primary agent (matches ephemeral format)
+      addedAgentId = appendAgentIdSuffix(addedConvo.agent_id, addedIndex);
+    } else {
+      const addedEndpoint = addedConvo.endpoint;
+      const addedModel = addedConvo.model ?? '';
+      // Look up model spec for label fallback
+      const addedSpec =
+        addedConvo.spec != null && addedConvo.spec !== ''
+          ? modelSpecs?.find((s) => s.name === addedConvo.spec)
+          : undefined;
+      // For ephemeral agents, use modelLabel if provided, then model spec's label,
+      // then modelDisplayLabel from endpoint config, otherwise empty string to show model name
+      const addedSender =
+        addedConvo.modelLabel ??
+        addedSpec?.label ??
+        (addedEndpoint ? endpointsConfig?.[addedEndpoint]?.modelDisplayLabel : undefined) ??
+        '';
+      addedAgentId = encodeEphemeralAgentId({
+        endpoint: addedEndpoint ?? '',
+        model: addedModel,
+        sender: addedSender,
+        index: addedIndex,
+      });
+    }
 
-  // Use empty type - placeholder to establish agentId/groupId
-  const addedContent = {
-    type: '' as const,
-    agentId: addedAgentId,
-    groupId: parallelGroupId,
-  };
+    // Use empty type - placeholder to establish agentId/groupId
+    return {
+      type: '' as const,
+      agentId: addedAgentId,
+      groupId: parallelGroupId,
+    };
+  });
 
   // Cast through unknown since these are placeholder objects with empty type
   // that will be replaced by real content with proper types from the server
-  return [primaryContent, addedContent] as unknown as TMessageContentParts[];
+  return [primaryContent, ...addedContent] as unknown as TMessageContentParts[];
 };

@@ -147,6 +147,8 @@ export const schedulePushUnsubscribe = () => `${schedulesRoot}/notifications/pus
 
 export const presets = () => `${BASE_URL}/api/presets`;
 
+export const reorderPresets = () => `${BASE_URL}/api/presets/order`;
+
 export const deletePreset = () => `${BASE_URL}/api/presets/delete`;
 
 export const aiEndpoints = () => `${BASE_URL}/api/endpoints`;
@@ -406,6 +408,9 @@ export const adminUsers = (params?: { q?: string; limit?: number }) =>
 export const adminUser = (userId: string) => `${admin()}/users/${encodeURIComponent(userId)}`;
 export const adminUsage = (params?: { q?: string; limit?: number }) =>
   `${admin()}/usage${buildQuery(params ?? {})}`;
+export const adminMCPServers = () => `${admin()}/mcp/servers`;
+export const adminMCPServerPublication = (serverName: string) =>
+  `${admin()}/mcp/servers/${encodeURIComponent(serverName)}/publication`;
 export const adminSettings = () => `${admin()}/settings`;
 export const adminObservability = () => `${admin()}/observability`;
 export const adminRoles = () => `${admin()}/rbac/roles`;
@@ -437,6 +442,7 @@ export const verifyTwoFactor = () => `${BASE_URL}/api/auth/2fa/verify`;
 export const confirmTwoFactor = () => `${BASE_URL}/api/auth/2fa/confirm`;
 export const disableTwoFactor = () => `${BASE_URL}/api/auth/2fa/disable`;
 export const regenerateBackupCodes = () => `${BASE_URL}/api/auth/2fa/backup/regenerate`;
+export const setupPendingTwoFactor = () => `${BASE_URL}/api/auth/2fa/pending/setup`;
 export const verifyTwoFactorTemp = () => `${BASE_URL}/api/auth/2fa/verify-temp`;
 
 /* Memories */

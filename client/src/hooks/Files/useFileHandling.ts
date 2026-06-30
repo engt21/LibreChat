@@ -10,6 +10,7 @@ import {
   LocalStorageKeys,
   EModelEndpoint,
   EToolResources,
+  FileSources,
   dataService,
   mergeFileConfig,
   isAssistantsEndpoint,
@@ -381,6 +382,9 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       onSuccess: (data, variables) => {
         clearUploadTimer(data.temp_file_id);
         console.log('upload success', data);
+        const toolResource = variables.get('tool_resource');
+        const uploadedToolResource =
+          typeof toolResource === 'string' && toolResource.length > 0 ? toolResource : undefined;
         if (agent_id) {
           queryClient.refetchQueries([QueryKeys.agent, agent_id]);
           return;
@@ -411,8 +415,14 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
               height: data.height,
               width: data.width,
               filename: data.filename,
-              source: data.source,
+              source:
+                data.source ??
+                (uploadedToolResource === EToolResources.execute_code
+                  ? FileSources.execute_code
+                  : undefined),
               embedded: data.embedded,
+              ...(uploadedToolResource ? { tool_resource: uploadedToolResource } : {}),
+              ...(data.metadata ? { metadata: data.metadata } : {}),
             },
             assistant_id ? true : false,
           );
@@ -456,7 +466,6 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     const formData = new FormData();
     formData.append('endpoint', endpoint);
     formData.append('endpointType', endpointType ?? '');
-    formData.append('file', extendedFile.file as File, encodeURIComponent(filename));
     formData.append('file_id', extendedFile.file_id);
 
     const width = extendedFile.width ?? 0;
@@ -493,6 +502,10 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       formData.append('iconURL', conversation.iconURL);
     }
 
+    const appendFile = () => {
+      formData.append('file', extendedFile.file as File, encodeURIComponent(filename));
+    };
+
     if (!isAssistantsEndpoint(endpointType ?? endpoint)) {
       if (!agent_id) {
         formData.append('message_file', 'true');
@@ -513,6 +526,7 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
         formData.append('agent_id', conversation.agent_id);
       }
 
+      appendFile();
       uploadFile.mutate(formData);
       return;
     }
@@ -543,6 +557,7 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       formData.append('model', convoModel);
     }
 
+    appendFile();
     uploadFile.mutate(formData);
   };
 

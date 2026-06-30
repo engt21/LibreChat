@@ -1,6 +1,7 @@
 const originalEnv = {
   CREDS_KEY: process.env.CREDS_KEY,
   CREDS_IV: process.env.CREDS_IV,
+  OLLAMA_API_KEY: process.env.OLLAMA_API_KEY,
 };
 
 process.env.CREDS_KEY = '0123456789abcdef0123456789abcdef';
@@ -67,6 +68,11 @@ describe('models/Agent', () => {
       await mongoServer.stop();
       process.env.CREDS_KEY = originalEnv.CREDS_KEY;
       process.env.CREDS_IV = originalEnv.CREDS_IV;
+      if (originalEnv.OLLAMA_API_KEY == null) {
+        delete process.env.OLLAMA_API_KEY;
+      } else {
+        process.env.OLLAMA_API_KEY = originalEnv.OLLAMA_API_KEY;
+      }
     });
 
     beforeEach(async () => {
@@ -2456,6 +2462,48 @@ describe('models/Agent', () => {
       }
     });
 
+    test('should map Anthropic ephemeral server-tool fields into model parameters', async () => {
+      const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
+
+      getMCPServerTools.mockResolvedValue(null);
+
+      const mockReq = {
+        user: { id: 'user123' },
+        body: {
+          promptPrefix: 'Use current sources.',
+          web_fetch: true,
+          ephemeralAgent: {
+            web_search: true,
+            anthropic_code_execution: false,
+            anthropic_advisor: true,
+            anthropic_advisor_model: 'claude-opus-4-7',
+            fast_mode: true,
+            mcp: [],
+          },
+        },
+      };
+
+      const result = await loadAgent({
+        req: mockReq,
+        agent_id: EPHEMERAL_AGENT_ID,
+        endpoint: 'anthropic',
+        model_parameters: { model: 'claude-sonnet-4-6', temperature: 0.7 },
+      });
+
+      expect(result.provider).toBe('anthropic');
+      expect(result.model_parameters).toMatchObject({
+        temperature: 0.7,
+        web_fetch: true,
+        anthropic_code_execution: false,
+        anthropic_advisor: true,
+        anthropic_advisor_model: 'claude-opus-4-7',
+        fast_mode: true,
+      });
+      expect(result.instructions).toContain('Use current sources.');
+      expect(result.instructions).toContain('{{current_datetime}}');
+      expect(result.instructions).toContain('Anthropic web search or web fetch');
+    });
+
     test('should restrict ephemeral MCP server tools using mcpToolFilter', async () => {
       const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
 
@@ -2528,6 +2576,7 @@ describe('models/Agent', () => {
 
     test('should default Ollama ephemeral web search to native Ollama tools', async () => {
       const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
+      process.env.OLLAMA_API_KEY = 'test-ollama-key';
 
       getMCPServerTools.mockResolvedValue(null);
 
@@ -2559,6 +2608,7 @@ describe('models/Agent', () => {
 
     test('should map Ollama sidebar web search to native Ollama tools', async () => {
       const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
+      process.env.OLLAMA_API_KEY = 'test-ollama-key';
 
       getMCPServerTools.mockResolvedValue(null);
 
@@ -2584,6 +2634,7 @@ describe('models/Agent', () => {
       const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
       const { Constants } = require('librechat-data-provider');
       const { OLLAMA_SEARCH_FETCH_MCP_SERVER } = require('~/server/services/Tools/ollama');
+      process.env.OLLAMA_API_KEY = 'test-ollama-key';
 
       getMCPServerTools.mockImplementation(async (_userId, server) => {
         if (server === OLLAMA_SEARCH_FETCH_MCP_SERVER) {

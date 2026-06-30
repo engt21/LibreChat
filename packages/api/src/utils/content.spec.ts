@@ -81,6 +81,109 @@ describe('filterMalformedContentParts', () => {
       expect(result).toEqual(parts);
     });
 
+    it('should keep legacy text-shaped Anthropic web search result blocks', () => {
+      const parts = [
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_123',
+          name: 'web_search',
+          input: { query: 'latest news' },
+        },
+        {
+          type: ContentTypes.TEXT,
+          tool_use_id: 'srvtoolu_123',
+          content: [{ type: 'web_search_result', title: 'Example' }],
+        },
+      ] as unknown as TMessageContentParts[];
+
+      const result = filterMalformedContentParts(parts);
+
+      expect(result).toEqual(parts);
+    });
+
+    it('should keep legacy text-shaped Anthropic web fetch result blocks', () => {
+      const parts = [
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_fetch',
+          name: 'web_fetch',
+          input: { url: 'https://example.com' },
+        },
+        {
+          type: ContentTypes.TEXT,
+          tool_use_id: 'srvtoolu_fetch',
+          content: [{ type: 'web_fetch_result', title: 'Example', url: 'https://example.com' }],
+        },
+      ] as unknown as TMessageContentParts[];
+
+      const result = filterMalformedContentParts(parts);
+
+      expect(result).toEqual(parts);
+    });
+
+    it('should keep paired Anthropic server web fetch, code execution, and advisor blocks', () => {
+      const parts = [
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_fetch',
+          name: 'web_fetch',
+          input: { url: 'https://example.com' },
+        },
+        {
+          type: 'web_fetch_tool_result',
+          tool_use_id: 'srvtoolu_fetch',
+          content: [{ type: 'web_fetch_result', title: 'Example', url: 'https://example.com' }],
+        },
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_code',
+          name: 'code_execution',
+          input: { code: 'print(1)' },
+        },
+        {
+          type: 'code_execution_tool_result',
+          tool_use_id: 'srvtoolu_code',
+          content: [{ type: 'text', text: '1' }],
+        },
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_advisor',
+          name: 'advisor',
+          input: { question: 'Review this plan' },
+        },
+        {
+          type: 'advisor_tool_result',
+          tool_use_id: 'srvtoolu_advisor',
+          content: [{ type: 'text', text: 'Looks reasonable.' }],
+        },
+      ] as unknown as TMessageContentParts[];
+
+      const result = filterMalformedContentParts(parts);
+
+      expect(result).toEqual(parts);
+    });
+
+    it('should drop Anthropic server tool blocks when the result type does not match the tool', () => {
+      const parts = [
+        {
+          type: 'server_tool_use',
+          id: 'srvtoolu_fetch',
+          name: 'web_fetch',
+          input: { url: 'https://example.com' },
+        },
+        {
+          type: 'web_search_tool_result',
+          tool_use_id: 'srvtoolu_fetch',
+          content: [{ type: 'web_search_result', title: 'Example' }],
+        },
+        { type: ContentTypes.TEXT, text: 'Final answer' },
+      ] as unknown as TMessageContentParts[];
+
+      const result = filterMalformedContentParts(parts);
+
+      expect(result).toEqual([{ type: ContentTypes.TEXT, text: 'Final answer' }]);
+    });
+
     it('should drop malformed Anthropic thinking blocks before history replay', () => {
       const parts = [
         { type: 'thinking' },

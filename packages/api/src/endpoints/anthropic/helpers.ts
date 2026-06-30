@@ -13,8 +13,14 @@ export const ANTHROPIC_CODE_EXECUTION_BETA = 'code-execution-2025-08-25';
 export const ANTHROPIC_CODE_EXECUTION_TOOL = 'code_execution_20250825';
 export const ANTHROPIC_CONTEXT_MANAGEMENT_BETA = 'context-management-2025-06-27';
 export const ANTHROPIC_MCP_CLIENT_BETA = 'mcp-client-2025-11-20';
-export const ANTHROPIC_WEB_SEARCH_TOOL = 'web_search_20260209';
-export const ANTHROPIC_VERTEX_WEB_SEARCH_TOOL = 'web_search_20250305';
+export const ANTHROPIC_FAST_MODE_BETA = 'fast-mode-2026-02-01';
+export const ANTHROPIC_ADVISOR_BETA = 'advisor-tool-2026-03-01';
+export const ANTHROPIC_ADVISOR_TOOL = 'advisor_20260301';
+export const ANTHROPIC_WEB_FETCH_TOOL = 'web_fetch_20250910';
+export const ANTHROPIC_WEB_FETCH_DYNAMIC_TOOL = 'web_fetch_20260209';
+export const ANTHROPIC_WEB_SEARCH_TOOL = 'web_search_20250305';
+export const ANTHROPIC_WEB_SEARCH_DYNAMIC_TOOL = 'web_search_20260209';
+export const ANTHROPIC_VERTEX_WEB_SEARCH_TOOL = ANTHROPIC_WEB_SEARCH_TOOL;
 
 /**
  * @param {string} modelName
@@ -91,9 +97,7 @@ function normalizeAnthropicHeaders(headers: unknown): Record<string, string> | u
   if (Array.isArray(headers)) {
     return Object.fromEntries(
       headers.flatMap((entry) =>
-        Array.isArray(entry) &&
-        typeof entry[0] === 'string' &&
-        typeof entry[1] === 'string'
+        Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string'
           ? [[entry[0], entry[1]] as [string, string]]
           : [],
       ),

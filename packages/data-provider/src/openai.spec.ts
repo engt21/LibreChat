@@ -80,6 +80,7 @@ describe('openai model helpers', () => {
   it('defaults built-in OpenAI endpoints to the Responses API for recognized OpenAI models', () => {
     const gpt4Capabilities = getOpenAIModelCapabilities('gpt-4.1');
     const deepseekCapabilities = getOpenAIModelCapabilities('deepseek-chat');
+    const chatLatestCapabilities = getOpenAIModelCapabilities('gpt-chat-latest');
 
     expect(
       resolveOpenAIResponsesApiEnabled(gpt4Capabilities, { endpoint: EModelEndpoint.openAI }),
@@ -93,6 +94,11 @@ describe('openai model helpers', () => {
     expect(
       resolveOpenAIResponsesApiEnabled(deepseekCapabilities, { endpoint: EModelEndpoint.openAI }),
     ).toBe(false);
+    expect(
+      resolveOpenAIResponsesApiEnabled(chatLatestCapabilities, {
+        endpoint: EModelEndpoint.azureOpenAI,
+      }),
+    ).toBe(true);
   });
 
   it('still honors explicit Responses API opt-outs unless the model requires it', () => {
@@ -129,6 +135,92 @@ describe('openai model helpers', () => {
     expect(getOpenAISettingCapabilityState('stop', o4MiniCapabilities)).toEqual({
       supported: false,
       reason: 'This OpenAI model does not support stop sequences.',
+    });
+  });
+
+  it.each([
+    'gpt-4.1-mini',
+    'gpt-4.1-nano',
+    'gpt-4o',
+    'gpt-5-nano',
+    'gpt-5.1-chat',
+    'gpt-5.2-chat',
+    'gpt-5.3-chat',
+    'gpt-5.4',
+    'gpt-5.4-pro',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-chat-latest',
+  ])('enables OpenAI-native web search and streaming chat settings for %s', (model) => {
+    const capabilities = getOpenAIModelCapabilities(model);
+
+    expect(capabilities.providerFamily).toBe('openai');
+    expect(capabilities.hasKnownCapabilities).toBe(true);
+    expect(capabilities.isTextGenerationModel).toBe(true);
+    expect(capabilities.supportsOpenAIResponsesApi).toBe(true);
+    expect(capabilities.supportsWebSearch).toBe(true);
+    expect(
+      resolveOpenAIResponsesApiEnabled(capabilities, {
+        endpoint: EModelEndpoint.azureOpenAI,
+      }),
+    ).toBe(true);
+    expect(getOpenAISettingCapabilityState('disableStreaming', capabilities)).toEqual({
+      supported: true,
+    });
+  });
+
+  it.each([
+    ['codex-mini', 'openai'],
+    ['gpt-oss-120b', 'openai'],
+    ['DeepSeek-V3.1', 'deepseek'],
+    ['DeepSeek-V4-Flash', 'deepseek'],
+    ['grok-4-20-reasoning', 'xai'],
+    ['grok-4-1-fast-non-reasoning', 'xai'],
+    ['grok-4-1-fast-reasoning', 'xai'],
+    ['Phi-4', 'microsoft'],
+    ['Phi-4-reasoning', 'microsoft'],
+    ['Mistral-Large-3', 'mistral'],
+  ] as const)(
+    'keeps Azure-hosted %s on chat streaming settings without OpenAI-native web search',
+    (model, providerFamily) => {
+      const capabilities = getOpenAIModelCapabilities(model);
+
+      expect(capabilities.providerFamily).toBe(providerFamily);
+      expect(capabilities.hasKnownCapabilities).toBe(true);
+      expect(capabilities.isTextGenerationModel).toBe(true);
+      expect(capabilities.supportsOpenAIResponsesApi).toBe(false);
+      expect(capabilities.supportsWebSearch).toBe(false);
+      expect(
+        resolveOpenAIResponsesApiEnabled(capabilities, {
+          endpoint: EModelEndpoint.azureOpenAI,
+          useResponsesApi: true,
+        }),
+      ).toBe(false);
+      expect(getOpenAISettingCapabilityState('web_search', capabilities)).toEqual({
+        supported: false,
+        reason: 'This model does not support provider-native web search.',
+      });
+      expect(getOpenAISettingCapabilityState('disableStreaming', capabilities)).toEqual({
+        supported: true,
+      });
+    },
+  );
+
+  it('marks embedding deployments as non-chat so streaming and tool toggles are not advertised', () => {
+    const capabilities = getOpenAIModelCapabilities('text-embedding-3-small');
+
+    expect(capabilities.providerFamily).toBe('embedding');
+    expect(capabilities.hasKnownCapabilities).toBe(true);
+    expect(capabilities.isTextGenerationModel).toBe(false);
+    expect(capabilities.supportsOpenAIResponsesApi).toBe(false);
+    expect(capabilities.supportsWebSearch).toBe(false);
+    expect(getOpenAISettingCapabilityState('max_tokens', capabilities)).toEqual({
+      supported: false,
+      reason: 'This deployment is not a streaming chat model.',
+    });
+    expect(getOpenAISettingCapabilityState('web_search', capabilities)).toEqual({
+      supported: false,
+      reason: 'This deployment is not a streaming chat model.',
     });
   });
 });

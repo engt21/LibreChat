@@ -26,9 +26,15 @@ function isValidObjectId(id) {
  * @param {string} refreshToken - The refresh token to validate
  * @returns {{valid: boolean, userId?: string, error?: string}} - Validation result
  */
-function validateToken(refreshToken) {
+function validateToken(refreshToken, allowedTypes = ['refresh']) {
   try {
-    const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, {
+      issuer: process.env.JWT_ISSUER || 'librechat',
+      audience: process.env.JWT_REFRESH_AUDIENCE || 'librechat-refresh',
+    });
+    if (payload.tokenType && !allowedTypes.includes(payload.tokenType)) {
+      return { valid: false, error: 'Invalid token type' };
+    }
 
     if (!isValidObjectId(payload.id)) {
       return { valid: false, error: 'Invalid User ID' };
@@ -79,7 +85,7 @@ function createValidateImageRequest(secureImageLinks) {
           return res.status(403).send('Access Denied');
         }
 
-        const validationResult = validateToken(openidUserId);
+        const validationResult = validateToken(openidUserId, ['openid_user']);
         if (!validationResult.valid) {
           logger.warn(`[validateImageRequest] ${validationResult.error}`);
           return res.status(403).send('Access Denied');

@@ -469,6 +469,8 @@ const chatV2 = async (req, res) => {
         await recordUsage({
           ...completedRun.usage,
           user: req.user.id,
+          userObject: req.user,
+          endpoint,
           model: completedRun.model ?? model,
           conversationId,
         });
@@ -477,6 +479,8 @@ const chatV2 = async (req, res) => {
       await recordUsage({
         ...response.run.usage,
         user: req.user.id,
+        userObject: req.user,
+        endpoint,
         model: response.run.model ?? model,
         conversationId,
       });

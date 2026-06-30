@@ -38,12 +38,25 @@ const appSettingsSchema = new Schema<IAppSettings>(
       },
       default: {},
     },
+    byok: {
+      type: {
+        providers: {
+          type: Schema.Types.Mixed,
+          default: {},
+        },
+      },
+      default: { providers: {} },
+    },
     mcpDomainFilterMode: {
       type: String,
       enum: ['allowlist', 'denylist'],
       default: 'denylist',
     },
     mcpAllowedDomains: {
+      type: [String],
+      default: undefined,
+    },
+    mcpPublishedServers: {
       type: [String],
       default: undefined,
     },

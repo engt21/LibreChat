@@ -25,14 +25,22 @@ If you see the mic as disabled, the usual cause is:
 
 ## How to use it
 
-1. Start or restart the local stack:
+1. Start the local/dev stack when you need a running app instance:
 
    ```bash
    cd /pool/home/timeng/LibreChat-custom
    ./local-services/start-all.sh
    ```
 
-   If the stack is already running and you want a clean rebuild/restart:
+   If the stack is already running and you changed only backend/config/runtime-loaded files, prefer a fast runtime-delta deploy:
+
+   ```bash
+   cd /pool/home/timeng/LibreChat-custom
+   ./local-services/deploy-runtime-delta.sh dev --dry-run -- <paths>
+   ./local-services/deploy-runtime-delta.sh dev -- <paths>
+   ```
+
+   Use a clean rebuild/restart only when the helper refuses the changed paths or dependencies, Dockerfiles, compose/container shape, package source, or frontend source require fresh artifacts:
 
    ```bash
    cd /pool/home/timeng/LibreChat-custom
@@ -151,4 +159,4 @@ docker logs --tail 100 LibreChat
 
 ## Local runtime note
 
-The local helper scripts rebuild the local app image from this checkout, so realtime backend/frontend changes only become live after the stack is restarted.
+Small realtime backend/config changes can become live through `local-services/deploy-runtime-delta.sh` plus the API restart it performs. Rebuild the local app image only for dependency/image/container-shape changes or when the helper refuses the surface. Realtime frontend source changes still require a complete `client/dist` build and deployment through `local-services/deploy-built-client-dist.sh`.

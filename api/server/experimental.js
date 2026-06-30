@@ -10,6 +10,7 @@ const express = require('express');
 const passport = require('passport');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
+const securityHeaders = require('./middleware/securityHeaders');
 const { logger } = require('@librechat/data-schemas');
 const mongoSanitize = require('express-mongo-sanitize');
 const {
@@ -266,7 +267,24 @@ if (cluster.isMaster) {
     });
 
     app.use(mongoSanitize());
-    app.use(cors());
+    app.use(securityHeaders);
+    const allowedOrigins = new Set(
+      String(process.env.CORS_ALLOWED_ORIGINS || process.env.DOMAIN_CLIENT || '')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    );
+    app.use(
+      cors({
+        credentials: true,
+        origin(origin, callback) {
+          if (!origin || allowedOrigins.has(origin)) {
+            return callback(null, true);
+          }
+          return callback(new Error('Origin not allowed by CORS'));
+        },
+      }),
+    );
     app.use(cookieParser());
 
     if (!isEnabled(DISABLE_COMPRESSION)) {

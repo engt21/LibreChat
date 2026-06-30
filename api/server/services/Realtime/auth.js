@@ -17,13 +17,13 @@ function getBearerToken(authorizationHeader = '') {
   return token;
 }
 
-function verifyToken(token, secret) {
+function verifyToken(token, secret, options) {
   if (!token || !secret) {
     return null;
   }
 
   try {
-    return jwt.verify(token, secret);
+    return jwt.verify(token, secret, options);
   } catch {
     return null;
   }
@@ -38,12 +38,25 @@ async function getCookieAuthenticatedUserId(cookieHeader = '') {
   const tokenProvider = parsedCookies.token_provider;
 
   if (tokenProvider === 'openid' && isEnabled(process.env.OPENID_REUSE_TOKENS)) {
-    const openidPayload = verifyToken(parsedCookies.openid_user_id, process.env.JWT_REFRESH_SECRET);
-    return typeof openidPayload?.id === 'string' ? openidPayload.id : null;
+    const openidPayload = verifyToken(parsedCookies.openid_user_id, process.env.JWT_REFRESH_SECRET, {
+      issuer: process.env.JWT_ISSUER || 'librechat',
+      audience: process.env.JWT_REFRESH_AUDIENCE || 'librechat-refresh',
+    });
+    return typeof openidPayload?.id === 'string' &&
+      (!openidPayload.tokenType || openidPayload.tokenType === 'openid_user')
+      ? openidPayload.id
+      : null;
   }
 
-  const refreshPayload = verifyToken(parsedCookies.refreshToken, process.env.JWT_REFRESH_SECRET);
-  if (typeof refreshPayload?.id !== 'string' || !refreshPayload?.sessionId) {
+  const refreshPayload = verifyToken(parsedCookies.refreshToken, process.env.JWT_REFRESH_SECRET, {
+    issuer: process.env.JWT_ISSUER || 'librechat',
+    audience: process.env.JWT_REFRESH_AUDIENCE || 'librechat-refresh',
+  });
+  if (
+    typeof refreshPayload?.id !== 'string' ||
+    !refreshPayload?.sessionId ||
+    (refreshPayload.tokenType && refreshPayload.tokenType !== 'refresh')
+  ) {
     return null;
   }
 
@@ -64,8 +77,13 @@ async function authenticateRealtimeRequest(req) {
   const requestURL = new URL(req.url, origin);
   const token = requestURL.searchParams.get('token') || getBearerToken(req.headers.authorization);
 
-  const payload = verifyToken(token, process.env.JWT_SECRET);
-  const userId = payload?.id || (await getCookieAuthenticatedUserId(req.headers.cookie));
+  const payload = verifyToken(token, process.env.JWT_SECRET, {
+    issuer: process.env.JWT_ISSUER || 'librechat',
+    audience: process.env.JWT_AUDIENCE || 'librechat-api',
+  });
+  const userId =
+    (!payload?.tokenType || payload.tokenType === 'access' ? payload?.id : null) ||
+    (await getCookieAuthenticatedUserId(req.headers.cookie));
 
   if (!userId) {
     const error = new Error('Missing realtime authentication token.');

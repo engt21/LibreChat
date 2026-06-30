@@ -20,6 +20,18 @@ This branch now mirrors the local code interpreter pattern for file search by wi
 - path: `/pool/home/timeng/LibreChat-custom`
 - holds all LibreChat integration changes
 
+### Production runtime bundle
+
+- host: `timeng@192.168.50.104` (`librechat`)
+- path: `/opt/LibreChat-custom`
+- app URL: `http://192.168.50.104:3080`
+- compose project: `librechat-stable`
+- live RAG containers: `rag-api-openai-local`, `rag-api-azure-local`, `rag-api-google-local`
+- current VM state uses preloaded `librechat-local-rag-api:latest` images; no external `rag_api` source checkout was found on the VM during the 2026-06-08 read-only audit, so any VM-side RAG image rebuild needs explicit setup/approval
+- readiness was verified on 2026-06-08 without writing production vector data:
+  all three RAG containers were healthy, exposed `/embed`, `/embed-upload`,
+  `/query`, and `/query_multiple`, and `vectordb` accepted connections
+
 ### External local RAG repo
 
 - path: `/pool/home/timeng/rag_api`
@@ -34,14 +46,15 @@ git clone https://github.com/danny-avila/rag_api.git "/pool/home/timeng/rag_api"
 
 ## Architecture
 
-### Dual-rail local runtime model
+### Dual-rail runtime model
 
-This repo now supports two parallel rails so one can stay usable while the other is rebuilt:
+This repo still supports a dev rail for validation, but production stable now
+runs on the VM:
 
 | Rail | Purpose | App URL | OpenAI RAG | Azure RAG | Google RAG |
 | --- | --- | --- | --- | --- | --- |
-| `stable` | keep a working stack available | `http://127.0.0.1:3080` | `8100` | `8101` | `8102` |
-| `dev` | rebuild/test new changes | `http://127.0.0.1:3081` | `8110` | `8111` | `8112` |
+| VM `stable` | production runtime | `http://192.168.50.104:3080` | VM loopback `8100` | VM loopback `8101` | VM loopback `8102` |
+| pve2 `dev` | fast-deploy, rebuild, and test new changes | `http://127.0.0.1:3081` | `8110` | `8111` | `8112` |
 
 The helper scripts give each rail its own Compose project name, image tags, ports, and local state paths.
 
@@ -55,7 +68,9 @@ The local override compose file builds and runs three independent `rag_api` cont
 
 All three share the same local pgvector database container inside a rail, but write into separate collection names so embeddings from different providers do not get mixed.
 
-`stable` and `dev` do not share MongoDB or pgvector containers with each other.
+`stable` and `dev` do not share pgvector containers with each other. Depending
+on dev shared-stable mode, dev may read/write production MongoDB/uploads, so use
+test accounts and avoid destructive data resets.
 
 ### Why three services instead of one
 
@@ -193,21 +208,22 @@ If a provider key is missing, that provider-specific local RAG service can still
 
 ## Startup and restart
 
-Start the rail you want:
+Start local/dev validation only:
 
 ```bash
-./local-services/start-all.sh stable
 ./local-services/start-all.sh dev
 ```
 
-The script now checks that `LOCAL_RAG_API_ROOT` exists before continuing.
+The script now checks that `LOCAL_RAG_API_ROOT` exists before continuing. Do not
+start/restart/rebuild VM stable unless the user explicitly approves production
+maintenance in the current task.
 
 Recommended workflow:
 
-1. keep `stable` (`r1`) running on `:3080`
-2. rebuild and validate on `dev` (`r2`) via `./local-services/start-all.sh dev`
-3. keep `dev` warm while you rebuild `stable`
-4. once `stable` is back and verified, decide which rail should remain primary
+1. keep VM `stable` running on `http://192.168.50.104:3080`
+2. for small LibreChat backend/config/runtime updates, classify with `./local-services/deploy-runtime-delta.sh dev --dry-run -- <paths>` and deploy to dev with that helper when accepted
+3. rebuild and validate on `dev` via `./local-services/start-all.sh dev` only when the change affects RAG images, dependencies, Dockerfiles, compose/container shape, frontend source, or package source needing fresh build artifacts
+4. promote to VM stable only after approval and a task-specific remote deployment plan
 
 ## Manual compose validation
 
@@ -219,14 +235,20 @@ docker compose -f docker-compose.yml -f docker-compose.local.override.yml config
 
 ## Health checks
 
-Stable rail:
+VM stable rail:
 
 ```bash
-curl -s http://127.0.0.1:8100/health
-curl -s http://127.0.0.1:8101/health
-curl -s http://127.0.0.1:8102/health
-curl -i http://127.0.0.1:3080/api/realtime/models
+ssh timeng@192.168.50.104 'curl -s http://127.0.0.1:8100/health'
+ssh timeng@192.168.50.104 'curl -s http://127.0.0.1:8101/health'
+ssh timeng@192.168.50.104 'curl -s http://127.0.0.1:8102/health'
+curl -i http://192.168.50.104:3080/api/realtime/models
 ```
+
+For read-only VM readiness beyond health, inspect `/openapi.json` on ports
+`8100`, `8101`, and `8102`, check recent RAG logs for errors, and verify
+`vectordb` with `pg_isready`. A full file-search ingest/query smoke is not
+read-only: it writes to production pgvector collections and can call paid
+provider embedding APIs, so run it only with explicit approval.
 
 Dev rail:
 
@@ -274,27 +296,30 @@ NODE_OPTIONS=--max_old_space_size=8192 npm --prefix packages/api run build
 
 Note: `packages/api` still emits pre-existing TypeScript warnings in unrelated files during build, but the build completed successfully and the new RAG-related files did not introduce new hard build failures.
 
-### Local rail/runtime validation
+### Historical local rail/runtime validation
 
-Validated after rebuild:
+This was the same-host validation pattern before the VM migration. After the VM
+migration, use the VM stable health checks above for production and local/dev
+checks for pve2 validation.
 
 ```bash
 ./local-services/status-all.sh all
-curl -fsS http://127.0.0.1:3080/ >/dev/null
+curl -fsS http://192.168.50.104:3080/ >/dev/null
 curl -fsS http://127.0.0.1:3081/ >/dev/null
 
-for port in 8100 8101 8102 8110 8111 8112; do
+for port in 8110 8111 8112; do
   curl -fsS "http://127.0.0.1:${port}/health"
 done
 ```
 
 Current validated state:
 
-- `stable` rail serving on `:3080`
-- `dev` rail serving on `:3081`
-- all six local RAG containers healthy across both rails
-- `status-all.sh all` reports both rails correctly
-- `stable` can stay live while `dev` is rebuilt and validated, then `dev` can stay warm while `stable` is restarted
+- VM `stable` rail serving on `http://192.168.50.104:3080`
+- VM `stable` has healthy OpenAI/Azure/Google RAG containers on loopback ports
+  `8100`, `8101`, and `8102`
+- VM `stable` `vectordb` accepts connections
+- pve2 `dev` remains the validation rail when explicitly started; do not infer
+  that dev is currently running
 
 ## Current behavior summary
 

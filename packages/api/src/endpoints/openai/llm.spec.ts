@@ -432,6 +432,78 @@ describe('getOpenAILLMConfig', () => {
       });
 
       expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig.modelKwargs).toHaveProperty('max_tool_calls', 6);
+      expect(result.tools).toContainEqual({ type: 'web_search' });
+    });
+
+    it('should enable Azure OpenAI-native web search for Chat Latest aliases', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint: EModelEndpoint.azureOpenAI,
+        modelOptions: {
+          model: 'gpt-chat-latest',
+          web_search: true,
+        },
+      });
+
+      expect(result.llmConfig).toHaveProperty('streaming', true);
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig.modelKwargs).toHaveProperty('max_tool_calls', 6);
+      expect(result.tools).toContainEqual({ type: 'web_search' });
+    });
+
+    it.each(['DeepSeek-V3.1', 'grok-4-1-fast-reasoning', 'Phi-4', 'Mistral-Large-3'])(
+      'should not force OpenAI Responses or native web search for Azure-hosted %s',
+      (model) => {
+        const result = getOpenAILLMConfig({
+          apiKey: 'test-api-key',
+          streaming: true,
+          endpoint: EModelEndpoint.azureOpenAI,
+          modelOptions: {
+            model,
+            useResponsesApi: true,
+            web_search: true,
+          },
+        });
+
+        expect(result.llmConfig).toHaveProperty('streaming', true);
+        expect(result.llmConfig).not.toHaveProperty('useResponsesApi');
+        expect(result.llmConfig).not.toHaveProperty('modelKwargs');
+        expect(result.tools).toEqual([]);
+      },
+    );
+
+    it('should bound configured web search tool calls for OpenAI Responses', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint: EModelEndpoint.openAI,
+        addParams: {
+          max_tool_calls: 100,
+        },
+        modelOptions: {
+          model: 'gpt-5.4-mini',
+          web_search: true,
+        },
+      });
+
+      expect(result.llmConfig.modelKwargs).toHaveProperty('max_tool_calls', 12);
+      expect(result.tools).toContainEqual({ type: 'web_search' });
+    });
+
+    it('should not inject OpenAI tool call limits for custom compatible endpoints', () => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint: 'custom-compatible',
+        modelOptions: {
+          model: 'gpt-4',
+          web_search: true,
+        },
+      });
+
+      expect(result.llmConfig.modelKwargs).toBeUndefined();
       expect(result.tools).toContainEqual({ type: 'web_search' });
     });
 

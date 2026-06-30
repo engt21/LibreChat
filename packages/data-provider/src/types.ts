@@ -60,6 +60,11 @@ export type TEndpointOption = Pick<
   | 'thinkingLevel'
   | 'effort'
   | 'service_tier'
+  | 'fast_mode'
+  | 'web_fetch'
+  | 'anthropic_code_execution'
+  | 'anthropic_advisor'
+  | 'anthropic_advisor_model'
   // Assistant/Agent fields
   | 'assistant_id'
   | 'agent_id'
@@ -106,6 +111,11 @@ export type TEphemeralAgent = {
   mcpToolFilter?: Record<string, string[]>;
   web_search?: boolean;
   web_search_mode?: WebSearchModes;
+  web_fetch?: boolean;
+  anthropic_code_execution?: boolean;
+  anthropic_advisor?: boolean;
+  anthropic_advisor_model?: string | null;
+  fast_mode?: boolean;
   file_search?: boolean;
   execute_code?: boolean;
   execute_code_mode?: CodeInterpreterModes;
@@ -125,6 +135,8 @@ export type TPayload = Partial<TMessage> &
     editedContent?: TEditedContent | null;
     /** Added conversation for multi-convo feature */
     addedConvo?: TConversation;
+    /** Additional conversations for multi-convo fan-out. */
+    addedConvos?: TConversation[];
   };
 
 export type TEditedContent =
@@ -155,6 +167,8 @@ export type TSubmission = {
   editedContent?: TEditedContent | null;
   /** Added conversation for multi-convo feature */
   addedConvo?: TConversation;
+  /** Additional conversations for multi-convo fan-out. */
+  addedConvos?: TConversation[];
 };
 
 export type EventSubmission = Omit<TSubmission, 'initialResponse'> & { initialResponse: TMessage };
@@ -437,7 +451,7 @@ export type TLoginResponse = {
   token?: string;
   user?: TUser;
   twoFAPending?: boolean;
-  tempToken?: string;
+  mfaEnrollmentRequired?: boolean;
 };
 
 /** Shared payload for any operation that requires OTP or backup-code verification. */
@@ -460,10 +474,12 @@ export type TVerify2FAResponse = {
   message: string;
 };
 
-/** For verifying 2FA during login with a temporary token. */
+/** For completing MFA during a pending sign-in cookie session. */
 export type TVerify2FATempRequest = TOTPVerificationPayload & {
-  tempToken: string;
+  backupCodesAcknowledged?: boolean;
 };
+
+export type TSetupPending2FAResponse = TEnable2FAResponse;
 
 export type TVerify2FATempResponse = {
   token?: string;

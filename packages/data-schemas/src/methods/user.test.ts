@@ -46,9 +46,12 @@ describe('User Methods', () => {
           username: mockUser.username,
           provider: mockUser.provider,
           email: mockUser.email,
+          tokenType: 'access',
         },
         secret: 'test-secret',
         expirationTime: 900, // 15 minutes in seconds (DEFAULT_SESSION_EXPIRY / 1000)
+        issuer: 'librechat',
+        audience: 'librechat-api',
       });
     });
 
@@ -64,9 +67,12 @@ describe('User Methods', () => {
           username: mockUser.username,
           provider: mockUser.provider,
           email: mockUser.email,
+          tokenType: 'access',
         },
         secret: 'test-secret',
         expirationTime: 900, // 15 minutes in seconds (DEFAULT_SESSION_EXPIRY / 1000)
+        issuer: 'librechat',
+        audience: 'librechat-api',
       });
     });
 
@@ -82,9 +88,12 @@ describe('User Methods', () => {
           username: mockUser.username,
           provider: mockUser.provider,
           email: mockUser.email,
+          tokenType: 'access',
         },
         secret: 'test-secret',
         expirationTime: 1800, // 30 minutes in seconds
+        issuer: 'librechat',
+        audience: 'librechat-api',
       });
     });
 
@@ -101,9 +110,12 @@ describe('User Methods', () => {
           username: mockUser.username,
           provider: mockUser.provider,
           email: mockUser.email,
+          tokenType: 'access',
         },
         secret: 'test-secret',
         expirationTime: 0, // 0 seconds
+        issuer: 'librechat',
+        audience: 'librechat-api',
       });
     });
 

@@ -222,6 +222,11 @@ export default function useResumableSSE(
             return;
           }
 
+          if (data.event === 'stream_finalizing') {
+            setShowStopButton(false);
+            return;
+          }
+
           if (data.event != null) {
             stepHandler(data, { ...currentSubmission, userMessage } as EventSubmission);
             return;

@@ -54,13 +54,18 @@ describe('suggested model specs', () => {
     ],
   };
 
-  it('chooses the latest preferred OpenAI suggestions while skipping pro/nano/tooling variants', () => {
+  it('chooses chat-latest, latest full, and latest mini OpenAI suggestions', () => {
     expect(
       getSuggestedModelsForEndpoint(
         EModelEndpoint.openAI,
         [
+          'chat-latest',
           'gpt-5.5-pro',
           'gpt-5.5',
+          'gpt-5.5-alpha',
+          'gpt-5.5-mini',
+          'gpt-4-1106-preview',
+          'gpt-3.5-turbo-0125',
           'gpt-5.4-thinking',
           'gpt-5.4',
           'gpt-5.4-mini',
@@ -70,12 +75,68 @@ describe('suggested model specs', () => {
         ],
         3,
       ),
-    ).toEqual(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']);
+    ).toEqual(['chat-latest', 'gpt-5.5', 'gpt-5.5-mini']);
+  });
+
+  it('uses versioned chat-latest as the top OpenAI suggestion when the short alias is absent', () => {
+    expect(
+      getSuggestedModelsForEndpoint(
+        EModelEndpoint.openAI,
+        [
+          'gpt-5.5',
+          'gpt-5.5-mini',
+          'gpt-5.5-chat-latest',
+          'gpt-5.4-mini',
+          'gpt-5.4-chat-latest',
+          'gpt-5.3-chat-latest',
+          'gpt-5.2-chat-latest',
+          'gpt-5.4-nano',
+        ],
+        3,
+      ),
+    ).toEqual(['gpt-5.5-chat-latest', 'gpt-5.5', 'gpt-5.5-mini']);
+  });
+
+  it('prefers gpt-chat-latest over versioned chat-latest models', () => {
+    expect(
+      getSuggestedModelsForEndpoint(
+        EModelEndpoint.openAI,
+        ['gpt-5.6-chat-latest', 'gpt-5.5', 'gpt-chat-latest', 'gpt-5.5-mini'],
+        3,
+      ),
+    ).toEqual(['gpt-chat-latest', 'gpt-5.5', 'gpt-5.5-mini']);
+  });
+
+  it('prefers chat-latest over gpt-chat-latest and versioned chat-latest models', () => {
+    expect(
+      getSuggestedModelsForEndpoint(
+        EModelEndpoint.openAI,
+        [
+          'gpt-5.6-chat-latest',
+          'gpt-chat-latest',
+          'gpt-5.5',
+          'chat-latest',
+          'gpt-5.5-mini',
+        ],
+        3,
+      ),
+    ).toEqual(['chat-latest', 'gpt-5.5', 'gpt-5.5-mini']);
+  });
+
+  it('uses the OpenAI suggestion policy for Azure OpenAI models', () => {
+    expect(
+      getSuggestedModelsForEndpoint(
+        EModelEndpoint.azureOpenAI,
+        ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-chat-latest', 'gpt-4.1'],
+        3,
+      ),
+    ).toEqual(['gpt-5.3-chat-latest', 'gpt-5.4', 'gpt-5.4-mini']);
   });
 
   it('updates simple OpenAI and Anthropic quick-selector specs from the current model catalog', () => {
     const result = applyDynamicSuggestedModelSpecs(specsConfig, {
       [EModelEndpoint.openAI]: [
+        'gpt-5.3-chat-latest',
         'gpt-5.5-pro',
         'gpt-5.5',
         'gpt-5.4',
@@ -91,20 +152,64 @@ describe('suggested model specs', () => {
     });
 
     expect(result.list.map((spec) => spec.preset.model)).toEqual([
+      'gpt-5.3-chat-latest',
       'gpt-5.5',
-      'gpt-5.4',
       'gpt-5.4-mini',
       'claude-opus-4-7',
-      'claude-opus-4-6',
-      'claude-sonnet-4-6',
     ]);
     expect(result.list.map((spec) => spec.label)).toEqual([
+      'Chat Latest',
       'GPT-5.5',
-      'GPT-5.4',
       'GPT-5.4 Mini',
       'Claude Opus 4.7',
-      'Claude Opus 4.6',
-      'Claude Sonnet 4.6',
+    ]);
+  });
+
+  it('keeps three OpenAI-family suggestions and one top suggestion from each other provider', () => {
+    const result = applyDynamicSuggestedModelSpecs(
+      {
+        enforce: false,
+        prioritize: true,
+        list: [
+          ...specsConfig.list,
+          {
+            name: 'Gemini Pro',
+            label: 'Gemini Pro',
+            description: 'Google model',
+            group: EModelEndpoint.google,
+            preset: { endpoint: EModelEndpoint.google, model: 'gemini-2.5-pro' },
+          },
+          {
+            name: 'Gemini Flash',
+            label: 'Gemini Flash',
+            description: 'Google model',
+            group: EModelEndpoint.google,
+            preset: { endpoint: EModelEndpoint.google, model: 'gemini-2.5-flash' },
+          },
+          {
+            name: 'Grok',
+            label: 'Grok',
+            description: 'xAI model',
+            group: 'xai',
+            preset: { endpoint: 'xai', model: 'grok-4' },
+          },
+        ],
+      },
+      {
+        [EModelEndpoint.openAI]: ['gpt-chat-latest', 'gpt-5.5', 'gpt-5.5-mini'],
+        [EModelEndpoint.anthropic]: ['claude-sonnet-4-6', 'claude-opus-4-7'],
+        [EModelEndpoint.google]: ['gemini-3.0-pro', 'gemini-2.5-flash'],
+        xai: ['grok-4.20-beta-latest-non-reasoning', 'grok-4'],
+      },
+    );
+
+    expect(result.list.map((spec) => spec.preset.model)).toEqual([
+      'gpt-chat-latest',
+      'gpt-5.5',
+      'gpt-5.5-mini',
+      'claude-opus-4-7',
+      'gemini-3.0-pro',
+      'grok-4.20-beta-latest-non-reasoning',
     ]);
   });
 

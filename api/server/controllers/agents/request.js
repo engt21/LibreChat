@@ -13,9 +13,12 @@ const {
 const { disposeClient, clientRegistry, requestDataMap } = require('~/server/cleanup');
 const { getModelsConfig } = require('~/server/controllers/ModelController');
 const { validateModelAccess } = require('~/server/services/ModelAccess');
+const { checkAndIncrementModelRequestLimit } = require('~/server/services/ModelRateLimits');
 const { handleAbortError } = require('~/server/middleware');
 const { logViolation } = require('~/cache');
 const { saveMessage } = require('~/models');
+
+const STREAM_FINALIZING_EVENT = 'stream_finalizing';
 
 function createCloseHandler(abortController) {
   return function (manual) {
@@ -94,6 +97,12 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
     // Resolve the agent and validate the model BEFORE sending the `started` response.
     // This prevents "headers already sent" errors and late stream failures when a
     // restricted user attempts to chat with a blocked model.
+    let rateLimitEndpoint = endpointOption?.endpoint || req.body?.endpoint;
+    let rateLimitModel =
+      endpointOption?.modelOptions?.model ||
+      endpointOption?.model_parameters?.model ||
+      req.body?.model;
+
     if (endpointOption?.agent) {
       const preflightAgent = await endpointOption.agent;
       if (!preflightAgent) {
@@ -103,6 +112,8 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
 
       const preflightModel = preflightAgent.model;
       const preflightEndpoint = preflightAgent.provider || endpointOption.endpoint;
+      rateLimitEndpoint = preflightEndpoint;
+      rateLimitModel = preflightModel;
 
       if (preflightModel && preflightEndpoint) {
         const modelsConfig = await getModelsConfig(req);
@@ -123,6 +134,27 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       // Re-wrap the resolved agent as an already-resolved promise so initializeClient
       // can still await it without re-fetching
       endpointOption.agent = Promise.resolve(preflightAgent);
+    }
+
+    if (rateLimitEndpoint && rateLimitModel) {
+      const rateLimitResult = await checkAndIncrementModelRequestLimit({
+        user: req.user,
+        endpoint: rateLimitEndpoint,
+        model: rateLimitModel,
+      });
+
+      if (!rateLimitResult.allowed) {
+        await decrementPendingRequest(userId);
+        return res.status(429).json({
+          type: 'model_rate_limit',
+          message: `Model ${rateLimitResult.type} limit exceeded.`,
+          endpoint: rateLimitEndpoint,
+          model: rateLimitModel,
+          limit: rateLimitResult.limit,
+          current: rateLimitResult.current,
+          window: rateLimitResult.window,
+        });
+      }
     }
 
     logger.debug(`[ResumableAgentController] Creating job`, {
@@ -305,6 +337,8 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
 
         const databasePromise = response.databasePromise;
         delete response.databasePromise;
+
+        await GenerationJobManager.emitChunk(streamId, { event: STREAM_FINALIZING_EVENT });
 
         const { conversation: convoData = {} } = await databasePromise;
         const conversation = { ...convoData };
@@ -688,6 +722,8 @@ const _LegacyAgentController = async (req, res, next, initializeClient, addTitle
     // Store database promise locally
     const databasePromise = response.databasePromise;
     delete response.databasePromise;
+
+    sendEvent(res, { event: STREAM_FINALIZING_EVENT });
 
     // Resolve database-related data
     const { conversation: convoData = {} } = await databasePromise;

@@ -4,6 +4,8 @@ import {
   Tools,
   KnownEndpoints,
   CodeInterpreterModes,
+  AnthropicAdvisorModel,
+  anthropicSettings,
   checkOpenAIStorage,
   EModelEndpoint,
   isEphemeralAgentId,
@@ -13,7 +15,14 @@ import {
 import type { AgentToolResources, TFile } from 'librechat-data-provider';
 import type { IMongoFile } from '@librechat/data-schemas';
 import type { ServerRequest } from '~/types';
-import { ANTHROPIC_CODE_EXECUTION_TOOL } from '~/endpoints/anthropic/helpers';
+import {
+  ANTHROPIC_ADVISOR_TOOL,
+  ANTHROPIC_CODE_EXECUTION_TOOL,
+  ANTHROPIC_WEB_FETCH_DYNAMIC_TOOL,
+  ANTHROPIC_WEB_FETCH_TOOL,
+  ANTHROPIC_WEB_SEARCH_DYNAMIC_TOOL,
+  ANTHROPIC_WEB_SEARCH_TOOL,
+} from '~/endpoints/anthropic/helpers';
 
 export type AgentNativeTools = {
   web_search?: {
@@ -37,6 +46,9 @@ export type NativeToolSelection = {
   openAIExecuteCode: boolean;
   openAIFileSearch: boolean;
   anthropicCodeExecution: boolean;
+  anthropicWebFetch: boolean;
+  anthropicAdvisor: boolean;
+  anthropicAdvisorModel?: string | null;
   googleCodeExecution: boolean;
 };
 
@@ -57,6 +69,13 @@ type BuildNativeProviderToolsParams = {
   selection: NativeToolSelection;
   getFileBuffer?: (req: ServerRequest, file: IMongoFile) => Promise<Buffer>;
   updateFile?: (data: Partial<IMongoFile> & { file_id: string }) => Promise<IMongoFile | null>;
+};
+
+type AnthropicNativeToolOptions = {
+  webFetch?: boolean;
+  codeExecution?: boolean;
+  advisor?: boolean;
+  advisorModel?: string | null;
 };
 
 const openAIProviders = new Set<string>([
@@ -120,6 +139,11 @@ const isGoogleProvider = (provider: string) => googleProviders.has(provider);
 const isAnthropicProvider = (provider: string) => anthropicProviders.has(provider);
 const isXAIProvider = (provider: string) => xaiProviders.has(provider);
 
+const getAdvisorModel = (model?: string | null): AnthropicAdvisorModel =>
+  Object.values(AnthropicAdvisorModel).includes(model as AnthropicAdvisorModel)
+    ? (model as AnthropicAdvisorModel)
+    : anthropicSettings.advisor_model.default;
+
 const PROVIDER_NATIVE_CODE_INTERPRETER = CodeInterpreterModes.provider_native;
 const LIBRECHAT_MANAGED_CODE_INTERPRETER = CodeInterpreterModes.librechat;
 
@@ -174,6 +198,7 @@ export const selectNativeTools = ({
   tool_resources,
   model,
   codeInterpreterMode,
+  anthropicToolOptions,
 }: {
   agentId: string;
   provider: string;
@@ -181,6 +206,7 @@ export const selectNativeTools = ({
   tool_resources?: AgentToolResources;
   model?: string | null;
   codeInterpreterMode?: string;
+  anthropicToolOptions?: AnthropicNativeToolOptions;
 }): NativeToolSelection => {
   const selection: NativeToolSelection = {
     stripTools: new Set<string>(),
@@ -189,6 +215,9 @@ export const selectNativeTools = ({
     openAIExecuteCode: false,
     openAIFileSearch: false,
     anthropicCodeExecution: false,
+    anthropicWebFetch: false,
+    anthropicAdvisor: false,
+    anthropicAdvisorModel: undefined,
     googleCodeExecution: false,
   };
 
@@ -201,12 +230,16 @@ export const selectNativeTools = ({
   if (isOpenAIProvider(provider)) {
     const useProviderNativeCodeInterpreter = shouldUseProviderNativeCodeInterpreter(provider);
     const openAIModelCapabilities = getOpenAIModelCapabilities(model);
+    const supportsOpenAINativeTools =
+      openAIModelCapabilities.supportsOpenAIResponsesApi ||
+      openAIModelCapabilities.requiresResponsesApi;
     selection.enableWebSearch =
-      requestedTools.has(Tools.web_search) &&
-      (!openAIModelCapabilities.hasKnownCapabilities || openAIModelCapabilities.supportsWebSearch);
+      requestedTools.has(Tools.web_search) && openAIModelCapabilities.supportsWebSearch;
     selection.openAIExecuteCode =
-      useProviderNativeCodeInterpreter && requestedTools.has(Tools.execute_code);
-    selection.openAIFileSearch = requestedTools.has(Tools.file_search);
+      supportsOpenAINativeTools &&
+      useProviderNativeCodeInterpreter &&
+      requestedTools.has(Tools.execute_code);
+    selection.openAIFileSearch = supportsOpenAINativeTools && requestedTools.has(Tools.file_search);
     selection.requiresResponsesApi =
       selection.enableWebSearch || selection.openAIExecuteCode || selection.openAIFileSearch;
 
@@ -230,13 +263,28 @@ export const selectNativeTools = ({
       typeof codeInterpreterMode === 'string'
         ? parseCodeInterpreterRouting(codeInterpreterMode)
         : LIBRECHAT_MANAGED_CODE_INTERPRETER;
+    const explicitAnthropicCodeExecution =
+      typeof anthropicToolOptions?.codeExecution === 'boolean'
+        ? anthropicToolOptions.codeExecution
+        : undefined;
+    const wantsAnthropicCodeExecution =
+      explicitAnthropicCodeExecution ??
+      (anthropicCodeMode === PROVIDER_NATIVE_CODE_INTERPRETER &&
+        requestedTools.has(Tools.execute_code));
     selection.enableWebSearch =
       requestedTools.has(Tools.web_search) && anthropicModelCapabilities.supportsWebSearch;
     selection.anthropicCodeExecution =
-      anthropicCodeMode === PROVIDER_NATIVE_CODE_INTERPRETER &&
+      wantsAnthropicCodeExecution === true &&
       anthropicModelCapabilities.supportsCodeExecution &&
-      requestedTools.has(Tools.execute_code) &&
       codeFiles.length === 0;
+    selection.anthropicWebFetch =
+      anthropicToolOptions?.webFetch === true && anthropicModelCapabilities.supportsWebFetch;
+    selection.anthropicAdvisor =
+      anthropicToolOptions?.advisor === true && anthropicModelCapabilities.supportsAdvisor;
+    selection.anthropicAdvisorModel =
+      typeof anthropicToolOptions?.advisorModel === 'string'
+        ? anthropicToolOptions.advisorModel
+        : undefined;
 
     if (selection.enableWebSearch) {
       selection.stripTools.add(Tools.web_search);
@@ -588,6 +636,27 @@ export const buildNativeProviderTools = async ({
   }
 
   if (isAnthropicProvider(provider)) {
+    if (selection.enableWebSearch) {
+      tools.push({
+        type: selection.anthropicCodeExecution
+          ? ANTHROPIC_WEB_SEARCH_DYNAMIC_TOOL
+          : ANTHROPIC_WEB_SEARCH_TOOL,
+        name: 'web_search',
+      });
+    }
+
+    if (selection.anthropicWebFetch) {
+      tools.push({
+        type: selection.anthropicCodeExecution
+          ? ANTHROPIC_WEB_FETCH_DYNAMIC_TOOL
+          : ANTHROPIC_WEB_FETCH_TOOL,
+        name: 'web_fetch',
+        citations: {
+          enabled: true,
+        },
+      });
+    }
+
     if (selection.anthropicCodeExecution) {
       tools.push({
         type: ANTHROPIC_CODE_EXECUTION_TOOL,
@@ -597,6 +666,14 @@ export const buildNativeProviderTools = async ({
         provider: providerLabel,
         file_ids: [],
       };
+    }
+
+    if (selection.anthropicAdvisor) {
+      tools.push({
+        type: ANTHROPIC_ADVISOR_TOOL,
+        name: 'advisor',
+        model: getAdvisorModel(selection.anthropicAdvisorModel),
+      });
     }
 
     return {

@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { createMulterInstance, storage, importFileFilter } = require('./multer');
+const { createMulterInstance, createFileFilter, storage, importFileFilter } = require('./multer');
 
 // Mock only the config service that requires external dependencies
 jest.mock('~/server/services/Config', () => ({
@@ -330,6 +330,68 @@ describe('Multer Configuration', () => {
       expect(typeof multerInstance.single).toBe('function');
       expect(typeof multerInstance.array).toBe('function');
       expect(typeof multerInstance.fields).toBe('function');
+    });
+  });
+
+  describe('fileFilter raw code interpreter uploads', () => {
+    const makeStrictConfig = () => {
+      const { mergeFileConfig } = require('librechat-data-provider');
+      return mergeFileConfig({
+        endpoints: {
+          agents: {
+            supportedMimeTypes: ['^text\\/plain$'],
+          },
+          assistants: {
+            supportedMimeTypes: ['^text\\/plain$'],
+          },
+        },
+      });
+    };
+
+    it('allows unsupported MIME types when the file is routed to execute_code', (done) => {
+      const fileFilter = createFileFilter(makeStrictConfig());
+      mockReq.body = {
+        endpoint: 'agents',
+        tool_resource: 'execute_code',
+      };
+      mockFile.mimetype = 'application/octet-stream';
+
+      fileFilter(mockReq, mockFile, (err, acceptFile) => {
+        expect(err).toBeNull();
+        expect(acceptFile).toBe(true);
+        done();
+      });
+    });
+
+    it('rejects unsupported MIME types when the upload is not an execute_code file', (done) => {
+      const fileFilter = createFileFilter(makeStrictConfig());
+      mockReq.body = {
+        endpoint: 'agents',
+      };
+      mockFile.mimetype = 'application/octet-stream';
+
+      fileFilter(mockReq, mockFile, (err, acceptFile) => {
+        expect(err).toBeInstanceOf(Error);
+        expect(err.message).toBe('Unsupported file type: application/octet-stream');
+        expect(acceptFile).toBe(false);
+        done();
+      });
+    });
+
+    it('does not apply the execute_code raw-file bypass to Assistants uploads', (done) => {
+      const fileFilter = createFileFilter(makeStrictConfig());
+      mockReq.body = {
+        endpoint: 'assistants',
+        tool_resource: 'execute_code',
+      };
+      mockFile.mimetype = 'application/octet-stream';
+
+      fileFilter(mockReq, mockFile, (err, acceptFile) => {
+        expect(err).toBeInstanceOf(Error);
+        expect(err.message).toBe('Unsupported file type: application/octet-stream');
+        expect(acceptFile).toBe(false);
+        done();
+      });
     });
   });
 

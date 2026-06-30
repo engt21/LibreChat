@@ -1,10 +1,10 @@
 import type { TAgentsEndpoint } from 'librechat-data-provider';
 
-const DEFAULT_RECURSION_LIMIT = 50;
+const DEFAULT_RECURSION_LIMIT = 100;
 
 /**
  * Resolves the effective recursion limit for an agent run via a 3-step cascade:
- * 1. YAML endpoint config default (falls back to 50)
+ * 1. YAML endpoint config default (falls back to 100)
  * 2. Per-agent DB override (if set and positive)
  * 3. Global max cap from YAML (if set and positive)
  */

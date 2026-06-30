@@ -333,7 +333,7 @@ const SetKeyDialog = ({
   });
 
   const [userKey, setUserKey] = useState('');
-  const [expiresAtLabel, setExpiresAtLabel] = useState(EXPIRY.TWELVE_HOURS.label);
+  const [expiresAtLabel, setExpiresAtLabel] = useState(EXPIRY.NEVER.label);
   const { getExpiry, getValue, saveUserKey, isLoading } = useUserKey(endpoint, {
     includeValue: open,
   });

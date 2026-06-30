@@ -36,12 +36,25 @@ There are two local worktrees in use:
 - `/pool/home/timeng/LibreChat-custom`
   - actual customization worktree
   - branch: `engt21/local-customizations`
-  - purpose: local development, Docker runs, tests, and all custom feature work
+  - purpose: source edits, local/dev validation, builds, tests, docs, and all custom feature work
+
+Production deployment host after the 2026-06-07 VM migration:
+
+- `timeng@192.168.50.104` (`librechat`)
+  - runtime bundle: `/opt/LibreChat-custom`
+  - live app URL: `https://librechatvm.tail6e13ff.ts.net:8443` through Tailscale Serve; emergency LAN fallback remains `http://192.168.50.104:3080`
+  - Docker compose project: `librechat-stable`
+  - compose files: `/opt/LibreChat-custom/docker-compose.yml` plus `/opt/LibreChat-custom/docker-compose.local.override.yml`
+  - API container: `LibreChat`
+  - note: `/opt/LibreChat-custom` is a copied runtime/deploy bundle, not the Git source checkout
 
 Important rule:
 
-- run LibreChat from `LibreChat-custom`
+- edit/build/test LibreChat from `/pool/home/timeng/LibreChat-custom`
+- inspect the live runtime on the VM with read-only SSH/Docker/curl checks
 - do not use `LibreChat` as the primary runtime worktree
+- do not start a duplicate pve2 stable stack while the VM controls LibreChat Docker services
+- do not stop, restart, rebuild, redeploy, or reconfigure VM containers unless the user explicitly authorizes production maintenance in the current task
 
 ---
 
@@ -49,14 +62,14 @@ Important rule:
 
 The custom work in this branch falls into these main buckets:
 
-1. Admin console, RBAC, superadmin sync, and live app settings
+1. Admin console, RBAC, BYOK provider policies, user detail/preferences/metrics, superadmin sync, and live app settings
 2. Scheduled runs and notifications
-3. Default per-user model access restrictions plus admin overrides
+3. Per-user model access controls plus per-user/per-model rate limits
 4. Provider-native tools plus Anthropic live model discovery and capability-aware settings
 5. OpenAI/Azure plus Google Gemini model-family capability-aware settings
 6. xAI custom-endpoint live model discovery and capability-aware settings
 7. Ollama multi-source model discovery, hosted web search, and reasoning controls
-8. MCP interoperability, OAuth hardening, and per-server tool filtering for OpenAI / Arcade-hosted MCP tools
+8. MCP interoperability, OAuth hardening, alphabetical ordering, admin publishing, and per-server tool filtering for OpenAI / Arcade-hosted MCP tools
 9. Realtime voice brokered sessions across OpenAI/Azure/Gemini/xAI-compatible providers
 10. Local code interpreter bridge with warm-session reuse and provider-routing controls
 11. Langfuse pricing sync, historical backfill, and alias-aware observability support
@@ -66,10 +79,11 @@ The custom work in this branch falls into these main buckets:
 15. Google auth mode support (API key, Vertex service account, Vertex ADC)
 16. Math and computation tools (Scientific Calculator + Code Interpreter Math)
 17. Runtime librechat.yaml interface, modelSpecs quick-selector, and endpoint configuration
-18. Auth cookie and session hardening for plain-HTTP LAN deployments
-19. UX bug fixes: stop button persistence, badge row visibility, pinned model reset
+18. Authentication security: Tailscale HTTPS, mandatory local MFA, short tokens, and session hardening
+19. UX bug fixes and ordering controls: stop button persistence, badge row visibility, pinned model reset, sidebar chat date/month buckets, and user-sortable presets
 20. User-managed image generation: per-provider model discovery, settings tab, chat-bar toggle, and ephemeral-agent auto-injection
 21. Internet Archive / Wayback read-only MCP server integration
+22. arXiv research MCP server integration with prompt-injection guardrails
 
 ---
 
@@ -82,26 +96,37 @@ The custom work in this branch falls into these main buckets:
 - an admin console UI and admin backend routes
 - lower-tier admin role/permission handling
 - DB-backed app settings such as `registrationEnabled`
+- admin-managed BYOK provider policies in `AppSettings.byok.providers` for `openAI`, `azureOpenAI`, `anthropic`, `google`, `custom`, and `bedrock`; each provider policy supports `enabled`, `allowBaseURL`, and `fallbackToPlatform`
 - host-aware observability links instead of `localhost`-only links
 - syncing allowlisted `SUPERADMIN_EMAILS` into admin role membership on startup/login/auth flows
-- a super-admin-only API-key settings cog in the chat model picker so super admins can always unset/update key expiry at the provider level, excluding `My Agents`
+- a super-admin-only API-key settings cog in the chat model picker so super admins can always unset/update key expiry at the provider level, excluding `My Agents`; new provider-key saves default to never expire unless the user chooses a finite expiry
 - reopening that provider settings cog now reloads saved provider values so super admins can edit only the field that changed instead of re-entering the whole config
+- server-side BYOK resolution that tries user credentials first when enabled and can fall back to platform credentials for missing/expired user keys when `fallbackToPlatform` is enabled; platform secrets are never returned to the client
+- admin user detail responses include safe user preferences, user-owned MCP servers, BYOK key status, and richer usage metrics (`lastActiveAt`, `scheduledRunCount`, `mcpServerCount`, active `byokKeyCount`)
+- admins can update safe user preferences from the detail page: memories, image-generation default, model steering, notification enablement/address/provider, and per-model rate limits. Push subscription secrets are summarized by count and are not writable through admin updates
 - user API-key updates/revokes invalidate server-side model discovery caches (`MODEL_QUERIES`, `MODELS_CONFIG`, startup refresh latch) and client-side `models`/`endpoints`/`startupConfig` queries so BYOK OpenAI/Anthropic model lists refresh immediately after key rotation
 - an admin-managed platform system prompt, stored in `AppSettings.platformPrompt`, that super admins edit from Workspace settings and the server prepends ahead of preset/user/agent instructions for Assistants and Agents
-- optional model steering, gated by `AppSettings.modelSteeringEnabled` plus per-user `modelSteeringPrefs.enabled`: while a non-Assistants generation is running, the normal chat bar changes to the steering placeholder, keeps Stop visible, and Enter/Send posts the steering text to `POST /api/agents/chat/steer`. The backend aborts the active stream, saves the partial assistant response, then restarts the continuation with the steering instruction parented to that partial response.
+- optional model steering, gated by `AppSettings.modelSteeringEnabled` plus per-user `modelSteeringPrefs.enabled`: while a non-Assistants generation is running, the normal chat bar changes to the steering placeholder, keeps Stop visible, and Enter/Send posts the steering text to `POST /api/agents/chat/steer`. The backend aborts the active stream, saves the partial assistant response, then restarts the continuation with the steering instruction parented to that partial response. Once generation has returned and the server is only finalizing persistence/final metadata, agents request controllers emit `stream_finalizing` so the client hides Stop before slower DB/final-event cleanup completes.
 - a "Model discovery" section in the admin console with a "Refresh all providers" button plus per-provider refresh buttons; this drops the `MODEL_QUERIES` and `MODELS_CONFIG` caches, resets the in-process startup-refresh latch, and re-runs `loadModels` so freshly released models (e.g., `gpt-5.5`, `gpt-5.5-pro`) appear in the picker without restarting the server. Backed by `POST /api/admin/models/refresh` (gated by `AdminPermissions.SETTINGS_WRITE`)
-- merge-mode resolution for env-pinned model lists (`OPENAI_MODELS`, `ANTHROPIC_MODELS`, `GOOGLE_MODELS`, `AZURE_OPENAI_MODELS`, etc.). Each `*_MODELS` env var is paired with a `*_MODELS_MODE` knob (`override` (default) or `merge`). In merge mode, the env list is preserved at the front and unioned (deduped, optionally filtered for OpenAI text-compatibility) with anything live discovery returns, so newly released provider models surface after the admin refresh button without dropping curated env-pinned ids. Discovery failures fall back to the env list verbatim. BYOK OpenAI/Anthropic discovery uses the resolved per-user key/base URL with user-scoped cache keys and never tries to use the `user_provided` sentinel as a live API key. Custom YAML endpoints (xAI/Ollama/etc.) get an analogous resolution: `endpoint.models.mode` (YAML) → `CUSTOM_MODELS_MODE` env → xAI defaults to `merge`, others default to `override`
-- version-descending sort for the merged OpenAI/Anthropic/Google model lists. Each provider has a `getXxxModelVersionScore` + `sortXxxModelsByVersion` helper in `packages/api/src/endpoints/models.ts` that ranks model ids by extracted `<major>.<minor>` so that newer frontier ids (e.g., `gpt-5.5-pro-2026-04-23`) sit at the top of the chat picker rather than appended after legacy `gpt-3.5/gpt-4` entries the live API returns earlier. `*-instruct` always sinks to the very bottom and Azure deployments preserve admin-curated order (no auto-sort) since deployment names are operator-controlled.
+- merge-mode resolution for env-pinned model lists (`OPENAI_MODELS`, `ANTHROPIC_MODELS`, `GOOGLE_MODELS`, `AZURE_OPENAI_MODELS`, etc.). Each `*_MODELS` env var is paired with a `*_MODELS_MODE` knob (`override` (default) or `merge`). Native OpenAI now treats `OPENAI_MODELS` as a fallback seed instead of a hard override, so `/v1/models` can surface newly released chat models after the admin refresh button; OpenAI reverse proxies keep legacy override semantics so non-OpenAI-compatible catalog ids are not filtered away. Other providers use merge mode to preserve the env list at the front and union it with live discovery. Discovery failures fall back to the env list verbatim. BYOK OpenAI/Anthropic discovery uses the resolved per-user key/base URL with user-scoped cache keys and never tries to use the `user_provided` sentinel as a live API key. Native OpenAI model-directory discovery must prefer the signed-in user's saved OpenAI key when present, even if a platform key is configured, so key-picker/BYOK accounts see their private model catalog. Custom YAML endpoints (xAI/Ollama/etc.) get an analogous resolution: `endpoint.models.mode` (YAML) → `CUSTOM_MODELS_MODE` env → xAI defaults to `merge`, others default to `override`
+- release-order sorting and picker normalization for native OpenAI, plus version-descending sort for Anthropic/Google model lists. Native OpenAI runs discovered ids through `normalizeOpenAIChatModels`, which keeps a single Chat Latest candidate near the top with explicit priority `chat-latest` -> `gpt-chat-latest` -> highest-version `gpt-*-chat-latest`, hides dated snapshots (`YYYY-MM-DD` and compact legacy snapshots like `0613`/`0125-preview`), keeps non-legacy codename chat models such as `sol`/`luna`/`iris-preview`, filters non-chat model families (embeddings/audio/realtime/image/video/moderation/transcription/deep-research/computer-use/search-preview/codex/instruct/vision) plus legacy base models, dedupes aliases, and orders known releases/variants before falling back to regex version scoring. Azure and OpenAI reverse-proxy deployments preserve operator-controlled model ids/order because those names may not match native OpenAI heuristics.
 
 #### Key files
 
 Backend:
 
 - `api/server/controllers/AdminController.js`
+- `api/server/controllers/__tests__/adminUserPreferencesAndMetrics.spec.js`
 - `api/server/controllers/ModelSteeringController.js`
 - `api/server/controllers/ModelController.js`
 - `api/server/controllers/agents/request.js`
 - `api/server/services/Models/refreshModels.js`
+- `packages/api/src/endpoints/byok.ts`
+- `packages/api/src/endpoints/anthropic/initialize.ts`
+- `packages/api/src/endpoints/bedrock/initialize.ts`
+- `packages/api/src/endpoints/custom/initialize.ts`
+- `packages/api/src/endpoints/google/initialize.ts`
+- `packages/api/src/endpoints/openai/initialize.ts`
 - `api/server/routes/agents/chat.js`
 - `api/server/routes/keys.js`
 - `api/server/routes/modelSteering.js`
@@ -133,6 +158,7 @@ Frontend/shared:
 - `client/src/data-provider/Admin/queries.ts`
 - `packages/api/src/agents/context.ts`
 - `packages/data-provider/src/admin.ts`
+- `packages/data-provider/src/admin.spec.ts`
 - `packages/data-provider/src/modelSteering.ts`
 - `packages/data-provider/src/createPayload.ts`
 - `packages/data-provider/src/react-query/react-query-service.ts`
@@ -148,6 +174,8 @@ Frontend/shared:
 - `/api/admin` route mounting and middleware
 - `SUPERADMIN_EMAILS` sync behavior
 - DB-backed app settings and registration gating
+- `AppSettings.byok.providers` schema/zod/UI handling and server-side BYOK fallback semantics; user BYOK credentials must remain preferred when configured, and platform secrets must stay server-only
+- admin user detail serialization must keep preferences/metrics useful without exposing notification push subscription payloads or key material
 - `AppSettings.platformPrompt` normalization, admin UI wiring, and prompt-prepend behavior in `buildEndpointOption` plus `packages/api/src/agents/context.ts`
 - `AppSettings.modelSteeringEnabled`, `user.modelSteeringPrefs.enabled`, `PATCH /api/model-steering/prefs`, and `POST /api/agents/chat/steer` server-side gates; do not rely on frontend-only hiding
 - the model steering abort/save/restart contract in `api/server/routes/agents/chat.js`, including active-job ownership checks, partial assistant persistence, and continuation parenting to the saved partial assistant message
@@ -155,12 +183,13 @@ Frontend/shared:
 - host-aware admin observability links
 - admin console UI and its data-provider wiring
 - super-admin-only model-picker API-key settings access
+- `SetKeyDialog.tsx` default expiry must stay `never`; backend `updateUserKey` already treats an empty expiry as no expiration
 - `POST /api/admin/models/refresh` route, the `refreshModels` service, the lazy-required call site inside `AdminController.refreshAdminModelsController`, and the exported `resetStartupModelRefresh` helper from `ModelController.js`
 - `PUT`/`DELETE /api/keys` cache invalidation for model discovery and client query invalidation after user-key mutations
 - the "Model discovery" section in `AdminConsole.tsx` plus the `useRefreshAdminModelsMutation` hook and its `adminRefreshModels` endpoint helper
 - the `resolveModelsListMode` and `unionWithLiveDiscovery` helpers in `packages/api/src/endpoints/models.ts` and the `*_MODELS_MODE` env conventions documented in `.env`
 - the `resolveCustomEndpointModelsMode` helper inside `api/server/services/Config/loadConfigModels.js` (xAI default-merge cascade, YAML/env override surface)
-- the `getOpenAIModelVersionScore` / `sortOpenAIModelsByVersion` (and Anthropic/Google equivalents) helpers in `packages/api/src/endpoints/models.ts` AND every call-site that uses them (currently `fetchOpenAIModels`, the `getOpenAIModels` merge branch, the `getAnthropicModels` merge branch, and the `getGoogleModels` merge branch). Removing any of those sort calls reverts the picker to chronological order from the live API, which is what triggered the original "gpt-5.5 below gpt-4" bug.
+- the `normalizeOpenAIChatModels`, `getOpenAIModelReleaseScore`, `sortOpenAIModelsByVersion` helpers in `packages/api/src/endpoints/models.ts` and their native OpenAI call sites (`fetchOpenAIModels`, `getOpenAIModels`). Removing those calls reverts the picker to chronological `/v1/models` order, exposes non-chat/snapshot ids, or lets `OPENAI_MODELS` hide newly released models. Preserve the Anthropic/Google version-sort equivalents in their merge/live-discovery paths.
 
 #### Lessons learned
 
@@ -173,11 +202,12 @@ Frontend/shared:
 - The steering input is the normal chat bar. During a steerable stream, `useTextarea` intentionally bypasses the usual `enterToSend=false` newline behavior so a plain Enter submits steering, while Stop remains independently clickable.
 - New-chat steering cannot depend only on `conversation.conversationId`, because the URL can remain `/c/new` while the backend has already assigned the active stream a real conversation id. Use `latestMessage.conversationId` as the fallback for both steering and Stop.
 - Clear both form state and pending/conversation drafts after steering submit. Otherwise autosave can restore the steering instruction into the input after the continuation finishes.
-- `OPENAI_MODELS` / `ANTHROPIC_MODELS` / `GOOGLE_MODELS` short-circuit live discovery in `getOpenAIModels`/`getAnthropicModels`/`getGoogleModels` whenever they are set. Without `*_MODELS_MODE=merge`, even the admin refresh button cannot surface newer models (e.g., `gpt-5.5`) because the env list strictly overrides discovery. The dev/stable `.env` ships with `OPENAI_MODELS_MODE=merge` and `GOOGLE_MODELS_MODE=merge`. `ANTHROPIC_MODELS_MODE=merge` is supported but disabled by default (no `ANTHROPIC_MODELS` is currently set).
+- `stream_finalizing` is part of the Stop-button contract: `api/server/controllers/agents/request.js` emits it after `client.sendMessage()` returns but before awaiting final DB work, and both `useSSE.ts` and `useResumableSSE.ts` must clear `showStopButton` on it while leaving `isSubmitting` for final cleanup.
+- Native OpenAI is intentionally different from the generic env-list behavior: `OPENAI_MODELS` seeds/falls back but no longer blocks live `/v1/models` discovery, so newly released OpenAI chat models can appear after cache refresh. Keep `OPENAI_REVERSE_PROXY` and Azure behavior separate; reverse-proxy catalogs may expose non-OpenAI ids (for example local/router model names) and must not be normalized by native OpenAI heuristics.
 - In merge mode we explicitly pass `[]` as the seed to `fetchOpenAIModels`/`fetchAnthropicModels` so a discovery failure returns `[]` (which `unionWithLiveDiscovery` treats as fallback). Passing the static defaults as the seed would cause failed discoveries to leak the upstream default list into the merged result.
-- For OpenAI (non-Azure), the merged list runs through `filterOpenAITextCompatibleModels` to drop audio/realtime/embedding/image variants the chat path cannot use. Azure deployments skip the filter because deployment names are admin-controlled and may not match the OpenAI-id heuristic.
-- **Model picker ordering must be version-descending, not API-creation order.** The OpenAI `/v1/models` endpoint returns ids in a roughly chronological-by-creation order (often `gpt-3.5-turbo` → `gpt-4*` → `gpt-4o*` → newer ids). When merge mode appended live results to a curated env list, freshly-released models like `gpt-5.5-pro-2026-04-23` ended up far below `gpt-4` and `gpt-3.5-turbo` in the picker. The fix is the `sortOpenAIModelsByVersion` helper, applied in BOTH `fetchOpenAIModels` (live-only path) AND `getOpenAIModels` merge-mode (post-union). If you ever add a new code path that surfaces model ids to the client, run it through the corresponding `sortXxxModelsByVersion` helper before returning. Equivalent helpers exist for Anthropic and Google. Azure deployments are intentionally NOT auto-sorted because deployment names (e.g. `gpt5-prod`) are operator-controlled and the configured order is meaningful.
-- The version sort is intentionally regex-based, not an explicit allow-list, so it keeps working as OpenAI ships new families (`gpt-5.5`, `gpt-5.6`, `o5`, ...). The score is `major*100 + minor` for `gpt-X.Y` / `chatgpt-X.Y` and `N*100` for `oN` reasoning models, so `o4-mini` ≈ `gpt-4` and both rank below `gpt-5*`. Unknown ids return `-1` and sort to the end (above instruct).
+- For native OpenAI, normalization drops non-chat families, legacy base models, and dated snapshots before returning `/api/models`, while retaining non-legacy codename chat ids and `-alpha` ids. Reverse proxies and Azure deployments skip that filter because deployment names are operator-controlled and may not match the OpenAI-id heuristic.
+- **OpenAI picker ordering must be release-order-first, not API-creation order.** The OpenAI `/v1/models` endpoint can return ids in a roughly chronological-by-creation order and include timestamped snapshots. The fix is `normalizeOpenAIChatModels` / `sortOpenAIModelsByVersion`, applied in BOTH `fetchOpenAIModels` (live-only path) AND `getOpenAIModels` (post-union). If you add a new native OpenAI code path that surfaces model ids to the client, run it through the same normalizer before returning.
+- Keep the release-order table fresh enough to rank current families (Chat Latest, newest full/pro/mini/nano, current o-series, then older GPT families), but leave the regex fallback in place so future `gpt-X.Y` / `oN` families still sort sensibly. Prefix fallback is required so future variants such as `gpt-5.5-mini` inherit the known `gpt-5.5` release position until explicitly listed.
 
 ---
 
@@ -257,31 +287,42 @@ Frontend/shared:
 
 ---
 
-### 3.3 Default per-user model access restrictions plus admin overrides
+### 3.3 Per-user model access, admin overrides, and per-model rate limits
 
 #### What it adds
 
-- new non-admin users get default model restrictions instead of full unrestricted model access
+- model access restrictions live per user instead of globally shrinking provider model lists
 - admins keep full access
 - admins can override per-user model permissions through the admin console
 - server-side filtering and validation prevents users from choosing unauthorized models
+- OpenAI `-alpha` models remain available when a user's model permissions allow OpenAI access; the endpoint picker and search results render them after the normal OpenAI models in a separate alpha subgroup instead of promoting them into quick suggestions
+- deprecated Assistants / Azure Assistants endpoints are intentionally omitted from the admin console's per-user model-permission picker; the Assistants API is being phased out and should not be newly assigned through this surface
+- optional per-user `modelRateLimits` with `enabled` plus rules of `{ endpoint, model, requestsPerDay, tokensPerDay }`
+- `modelRateLimits` rules support `*` wildcards for endpoint/model; the most specific matching rule wins
+- 24-hour request budgets are checked before normal chat, agent, and assistant execution; exhausted budgets return HTTP `429` with `type: "model_rate_limit"`
+- 24-hour token budgets are recorded after usage is known via `recordModelTokenUsage`, so token exhaustion is enforced on subsequent requests
 
-#### Default policy currently documented in the branch
+#### Current default policy
 
-- `azureOpenAI`: all models
-- `ollama`: all discovered Ollama models (local + cloud)
-- `openAI`: `gpt-5*`
-- `anthropic`: `claude-opus-4-*`, `claude-sonnet-4-*`, `claude-haiku-4-*`, plus explicit current 4.x entries and legacy Claude 3.x/Haiku defaults
-- `xai`: `grok-4-1-fast`
+- `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` is currently `{ enabled: false, rules: [] }`.
+- New non-admin users therefore start with unrestricted model visibility unless an admin sets per-user model permissions.
+- The runtime `modelSpecs` quick-selector is a convenience list only (`enforce: false`) and does not define access by itself.
 
 #### Key files
 
 - `api/server/services/ModelAccess.js`
 - `api/server/controllers/ModelController.js`
 - `api/server/middleware/validateModel.js`
+- `api/server/middleware/validateModel.spec.js`
 - `api/server/controllers/agents/v1.js`
+- `api/server/controllers/agents/request.js`
+- `api/server/controllers/agents/client.js`
 - `api/server/controllers/assistants/v1.js`
 - `api/server/controllers/assistants/v2.js`
+- `api/server/services/ModelRateLimits.js`
+- `api/server/services/ModelRateLimits.spec.js`
+- `api/server/services/Threads/manage.js`
+- `api/server/services/Threads/recordUsage.spec.js`
 - `api/server/services/AuthService.js`
 - `api/server/services/PermissionService.js`
 - `api/strategies/ldapStrategy.js`
@@ -298,7 +339,16 @@ Frontend/shared:
 - default-permission assignment on all user-creation paths
 - model filtering for returned config/model lists
 - server-side model validation enforcement in message/agent/assistant flows
+- OpenAI alpha models must follow normal model-permission filtering and remain separated into the OpenAI alpha subgroup at the bottom of endpoint picker/search results
+- admin-console model-permission UI must keep `assistants` and `azureAssistants` hidden from selectable access rules; do not reintroduce them when wiring new endpoint model lists
 - per-model wildcard matching for both filtering and validation so new frontier model IDs are not hidden from non-admin users solely because the static allowlist predates the provider release
+- model rate limit schema/type fields in user/admin schemas and the admin console UI for request/token budgets
+- request-limit checks before execution in `validateModel.js` and agent request flows, plus token recording after assistant/agent usage is collected
+
+#### Lessons learned
+
+- 2026-05-25: the admin model-permission picker deliberately excludes `assistants` and `azureAssistants` because the Assistants API is being deprecated. `AdminConsole.tsx` also drops those endpoints when normalizing model-permission rules, so a normal admin save does not preserve or recreate hidden Assistants access entries.
+- 2026-05-25/2026-06-08: production serves compiled frontend assets, not `client/src`. Copying only `AdminConsole.tsx` into a container is not enough for the live UI, and hand-patching hashed assets is no longer allowed. Build a complete host-side `client/dist` tree and deploy it with `local-services/deploy-built-client-dist.sh`, which verifies the manifest, swaps the whole tree, restarts to clear cached HTML, and rolls back on failed health checks.
 
 ---
 
@@ -311,10 +361,15 @@ Frontend/shared:
 - native handling for Gemini search/code execution where safe
 - live Anthropic model discovery from Anthropic's models endpoint, with normalized capability metadata exposed to startup config
 - Anthropic model picker quick-select ordering driven by the live model list so newest/highest-tier Claude models float to the top automatically
-- capability-aware Anthropic sidebar and agent-builder parameter rendering for thinking, fixed thinking budgets vs adaptive effort, sampling controls, prompt caching, service tier, web search, and file token limits
+- capability-aware Anthropic sidebar and agent-builder parameter rendering for thinking, fixed thinking budgets vs adaptive effort, sampling controls, prompt caching, service tier, fast mode, web search, web fetch, server-side code execution, advisor model routing, and file token limits
 - native Anthropic web search and native Anthropic code execution when the selected Claude model supports them
+- multi-conversation added agents receive the same execution-time tool context registration as the primary agent, so Anthropic/OpenAI/Gemini side responses can load their selected web/search/fetch/MCP tools instead of reporting that no browsing tools exist
+- direct Anthropic endpoint sidebar controls for Messages API server tools: `fast_mode` sets `speed: fast` plus the fast-mode beta header on supported Opus models; `web_search` adds `web_search_20250305` unless Anthropic hosted code execution is also active, in which case it uses `web_search_20260209`; `web_fetch` adds `web_fetch_20250910` with citations enabled unless Anthropic hosted code execution is also active, in which case it uses `web_fetch_20260209`; `anthropic_code_execution` adds `code_execution_20250825` plus the code-execution beta header; `anthropic_advisor` adds `advisor_20260301` plus the selected advisor model and beta header
+- Anthropic direct-only tool guards: Vertex Anthropic requests skip fast mode, web fetch, code execution, and advisor with warnings instead of sending invalid provider payloads
+- Anthropic citations/search-results boundary: web fetch requests enable provider citations, web-search result blocks are preserved in conversation history, and user-supplied `search_result` content remains a separate RAG/message-content concern rather than a generic sidebar switch
+- Anthropic client-side tool boundary: memory, bash, computer use, and text editor tools are not exposed as dead sidebar toggles because LibreChat does not yet provide the required client executor/sandbox/tool-result loop for those Anthropic client tools
 - server-side model capability gating for OpenAI/Anthropic native tools so unsupported model/tool combinations remain on the structured/local fallback path instead of being sent as invalid provider-native requests
-- Anthropic web-search history sanitization drops orphaned `server_tool_use` web-search blocks that no longer have a matching `web_search_tool_result`, preventing invalid replay errors on subsequent Claude turns
+- Anthropic server-tool history sanitization drops orphaned or mismatched `server_tool_use` blocks for web search, web fetch, code execution, and advisor when they no longer have a matching provider tool-result block, preventing invalid replay errors on subsequent Claude turns
 - Anthropic thinking-block sanitization drops incomplete `thinking` blocks before DB save and runtime request replay, preventing Claude history requests from failing with `messages.*.content.*.thinking.thinking: Field required` after interrupted native-tool streams
 - dual Anthropic code-interpreter routing: users can keep using the local LibreChat code interpreter or switch to Anthropic-native code execution on a per-chat basis
 - local file uploads remain on LibreChat storage for Anthropic chats, and provider-native code execution automatically falls back to the local code interpreter when local code files are attached
@@ -388,29 +443,50 @@ Frontend/shared:
 - `ContentTypes.WEB_SEARCH_STATUS` must remain in `packages/data-provider/src/types/runs.ts` and `TMessageContentParts`
 - `on_web_search_status` handler must remain in `callbacks.js` `getDefaultHandlers()` and in the Responses API handler
 - consecutive client `think` parts must continue to be coalesced before rendering
+- same-slot OpenAI/Azure `on_reasoning_delta` updates must use separator-aware merging so distinct completed reasoning-summary items render as separate paragraphs rather than running together
 - `config/apply-runtime-patches.js` must keep the stream-target validation guard that rejects any web-search status patch referencing `stepKey` before the local `stepKey` declaration
 - the install/build pipeline must continue patching `@librechat/agents` during `npm install`, because host-side `node_modules` edits are excluded from the Docker build context
 - Gemini fallback logic when native + structured tools would conflict
 - OpenAI and Anthropic native-tool selection must remain model-aware, not just provider-aware; provider-native tools should only be selected when the selected model capability metadata explicitly allows the requested tool
-- Anthropic server-tool history filtering must preserve paired `server_tool_use`/`web_search_tool_result` blocks but drop orphaned web-search server-tool blocks before replaying conversation history
+- For Azure OpenAI / Foundry catalogs, preserve the distinction between GPT/Chat
+  Latest deployments and Azure-hosted third-party/open-weight deployments:
+  GPT/Chat Latest may use OpenAI/Azure native Responses tools, while
+  `DeepSeek-*`, `grok-*`, `Phi-*`, `Mistral-*`, `codex-*`, `gpt-oss-*`, and
+  embeddings must not be upgraded into OpenAI-native web search/code/file tool
+  calls just because the endpoint is `azureOpenAI`
+- Multi-conversation `addedConvos[]` agents must be registered in the runtime `agentToolContexts` map with their initialized `toolRegistry`, `userMCPAuthMap`, and `tool_resources`; otherwise `ON_TOOL_EXECUTE` cannot load tools for added Anthropic/Gemini/OpenAI agents even when the UI toggles are enabled
+- Anthropic server-tool history filtering must preserve paired `server_tool_use` blocks for `web_search`, `web_fetch`, `code_execution`, and `advisor` only when the matching `*_tool_result` block exists and matches the same tool name; orphaned or mismatched server-tool blocks must be dropped before replaying conversation history
 - Anthropic thinking-block history filtering must continue to drop partial `type: 'thinking'` blocks that lack non-empty `thinking` or `signature` fields; valid signed thinking blocks must be preserved exactly
 - Anthropic live-model discovery, quick-select sorting, and startup capability metadata
 - Anthropic code-execution mode persistence (`librechat` vs `provider_native`) for chat and scheduled-run flows
 - Anthropic provider-native code execution must continue to fall back to the local LibreChat interpreter when local code files are attached
 - Anthropic parameter gating must continue to treat the model's default thinking state as authoritative when the conversation has not yet persisted an explicit `thinking` value
+- Anthropic sidebar server-tool controls must remain model-aware and direct-provider-aware: unsupported models and Vertex Anthropic requests should warn and skip unsupported tools instead of throwing or leaking invalid request fields
+- Anthropic endpoint `defaultParams`, `addParams`, and `dropParams` must keep controlling `fast_mode`, `web_fetch`, `anthropic_code_execution`, `anthropic_advisor`, and `anthropic_advisor_model` without leaking those sidebar-only fields into the final LLM config object
+- Do not expose Anthropic memory, bash, computer-use, or text-editor client tools in the sidebar until there is a real LibreChat executor with sandboxing, approval/error surfaces, and tool-result continuation support
 - client capability detection and UI routing
 
 #### Lessons learned
 
 - 2026-04-04 prod incident: a stable image still carried the legacy `graph.getStepIdByKey(stepKey)` web-search-status patch in `@librechat/agents`, which crashed GPT-5.4 / Responses streams with `Cannot access 'stepKey' before initialization` as soon as native web search status events arrived.
-- Prevention: keep the runtime patch validator and Jest coverage in place, and rebuild the affected rail after any runtime-patch change so the containerized `node_modules` copy cannot drift behind the worktree fix.
+- Prevention: keep the runtime patch validator and Jest coverage in place, and use `local-services/deploy-runtime-delta.sh` after runtime-patch changes so the script is copied, applied inside the API container, restarted, and health-checked without requiring a full image rebuild. Schedule a later cached image refresh when appropriate so the patched dependency layer is baked into the next image.
 - 2026-04-05 code interpreter failure: OpenAI Responses API rejects `reasoning` items (type `rs_…`) in reconstructed conversation history when the `id` field is present but the required following output item (e.g. `code_interpreter_call`) is not in the exact position the API expects. Fix: strip `id` from reasoning items during reconstruction in `_convertMessagesToOpenAIResponsesParams` and skip reasoning items that have no `summary` data. Patch added to `config/apply-runtime-patches.js` for both ESM and CJS dist targets.
-- 2026-04-05 deployment slowness: **never use `--no-cache` for Docker builds** unless the Dockerfile or base image changed. The `COPY . .` layer already invalidates everything after it when source files change, so cache is only skipped for the frontend build (~10 min) and later steps. Using `--no-cache` forces a full `npm install` (~3 min) on top of that, turning a 12-min build into 25+ min. For small fixes (e.g. a runtime patch or a few TS/JS file changes), the fastest deployment path is: **(1)** patch files directly inside the running container via `docker exec python3 -c "..."`, **(2)** `docker restart <container>`, **(3)** schedule a proper cached image rebuild for the next maintenance window. Record every in-container hotfix in `apply-runtime-patches.js` so the next `docker compose build` bakes it in permanently.
+- 2026-05-25/26 OpenAI reasoning display regression: OpenAI can emit each completed reasoning summary as a separate item while successive `on_reasoning_delta` updates reuse one THINK content slot. There are two accumulation layers and both must preserve boundaries: the client SSE path (`client/src/hooks/SSE/useStepHandler.ts` via dependency-free `mergeThinkingText`) keeps live streaming readable, and the server-side `@librechat/agents` `createContentAggregator` runtime patch in `config/apply-runtime-patches.js` keeps the stored/reloaded message readable. Leaving the server layer on raw concatenation persisted text like `Here goes!Searching for scholarly papers` even when the built frontend already contained the client helper. During incident response, an unsafe manual edit to the generated browser bundle also crashed the authenticated production chat pane with repeated DOM `insertBefore` / `removeChild` `NotFoundError` exceptions; only full manifest-verified frontend builds may be promoted.
+- 2026-05-25 frontend deployment incident and mandatory prevention: production serves compiled `client/dist`, not `client/src`. An attempted hand-patch of a hashed browser bundle and its entry references temporarily made the authenticated UI unusable. Frontend changes must now be built on the host as a complete dist tree: `client/scripts/post-build.cjs` emits `.librechat-client-dist-manifest.json`, and `local-services/deploy-built-client-dist.sh` is the only supported code-only frontend deployment path. It refuses missing/stale/tampered manifests and asset-URL rewrites, snapshots the previous dist, atomically swaps the full tree, restarts the API to clear cached HTML, HTTP-verifies the built entrypoint, and restores the rollback tree automatically on failure. Never deploy frontend fixes by copying `client/src` only or manually changing individual generated assets, `index.html`, or `sw.js`.
+- 2026-05-26 OpenAI native web-search completion regression: a production Responses request with `web_search`, detailed reasoning summaries, and high reasoning effort continued emitting correctly separated thought items while repeatedly starting new web-search rounds and never reaching a visible final answer. Root cause: the OpenAI-hosted web-search request path configured the tool but did not set `max_tool_calls`, leaving research turns unbounded. `packages/api/src/endpoints/openai/llm.ts` now enforces `max_tool_calls = 6` by default for OpenAI/Azure hosted Responses web search and clamps administrator overrides to a maximum of `12`; do not remove this bound without replacing it with an equivalent termination control and production UI validation.
+- 2026-05-26 OpenAI reasoning preservation enforcement: `local-services/verify-openai-reasoning-preservation.sh` is the fail-closed guard for this incident class. It validates the request bound, live-stream separator, persisted/runtime separator, required regression tests, and operator documentation; when given `--container NAME`, it also verifies the deployed runtime in that API container. After the 2026-06-07 VM migration, the production API container name is `LibreChat`; older pve2 examples may mention `librechat-stable-api`. Stable startup, stable frontend promotion, and health checks must resolve the running stable API container dynamically and continue invoking the verifier so merges, migrations, or hot deploys cannot silently reintroduce stuck final answers or glued Thoughts.
+- 2026-04-05/2026-06-08 deployment slowness: **never use `--no-cache` for Docker builds** unless the Dockerfile or base image changed. The `COPY . .` layer already invalidates everything after it when source files change, so cache is only skipped for the frontend build (~10 min) and later steps. Using `--no-cache` forces a full `npm install` (~3 min) on top of that, turning a 12-min build into 25+ min. For small backend/config fixes, use `local-services/deploy-runtime-delta.sh` instead of manual `docker cp`: it snapshots, copies only safe runtime paths, applies `config/apply-runtime-patches.js` when needed, restarts, and health-checks. Record durable dependency hotfixes in `apply-runtime-patches.js` so the next cached image build bakes them in permanently.
 - 2026-04-06 Langfuse Azure model naming: The `@langfuse/langchain` `CallbackHandler.extractModelNameFromMetadata()` reads `response_metadata.model_name` from the API response at generation END, overwriting the correct `azure-openai/gpt-5.4-mini` model name set at generation START via `invocationParams`. Azure API responses return bare model names without the `azure-openai/` prefix. Fix: disable `extractModelNameFromMetadata` (return `undefined`) in `@langfuse/langchain` so the START event model name from `invocationParams` is preserved. Patch added to `config/apply-runtime-patches.js` under `langfusePatchTargets`. Root cause chain: `AzureChatOpenAI.invocationParams()` → sets `params.model = 'azure-openai/X'` ✓ → Langfuse START uses it ✓ → Azure API responds with `model: 'X'` → Langfuse END overwrites with bare `'X'` ✗.
 - 2026-04-06 Ollama Cloud 401 unauthorized: Single `apiKey: '${OLLAMA_API_KEY}'` was shared across local and cloud `baseURLs`. Cloud (`ollama.com/v1/`) requires user-provided auth keys, while local Ollama needs none. Fix: split into two separate custom endpoints in `librechat.yaml` — "Ollama" (local, server key `${OLLAMA_MULTI_API_KEY}`, `baseURL` + `baseURLs` for local instances only, `models.default` listing actually-running local models) and "Ollama Cloud" (`apiKey: 'user_provided'`, `baseURL: 'https://ollama.com/v1/'`, `models.default` with available cloud models from API key). Notes: (1) `models.default` array is required by Zod validation — omitting it crashes startup. (2) After splitting endpoints, the `☁` cloud tagging in `loadConfigModels.js` becomes inert for the local endpoint (no cloud URL → `hasCloudURL` is false) but users may see stale `☁`-tagged models from browser cache until they hard-refresh. (3) Local model names include the tag suffix (e.g. `qwen3:14b`) — these must match exactly what `ollama list` reports on `192.168.50.201`. (4) Set `fetch: false` for local Ollama — `fetch: true` pulls ALL 14 models from `/v1/models` API regardless of the `default` list, showing models like `gemini-3-flash-preview:latest` which are cloud-only stubs and fail locally with "unauthorized". (5) For Ollama Cloud, `fetch: true` is inert because `apiKey: 'user_provided'` is detected and fetch is skipped; only the `default` list is shown.
 - 2026-04-06 Ollama agents "empty_messages" context window error: Agents endpoint uses `@librechat/api` `initializeAgent()` to calculate `maxContextTokens`. For Ollama/custom endpoints, `providerEndpointMap` has no entry, so `getModelMaxTokens()` returns `undefined` and the fallback was only 18000 tokens. With system instructions, tool schemas, and MCP tool definitions all counted against this budget, even a simple "hi" message could be pruned. Fix: increased the fallback from 18000 to 128000 in `packages/api/dist/index.js` (both `optionalChainWithEmptyCheck` fallback and `agentMaxContextNum` fallback). Patch added to `config/apply-runtime-patches.js` under `librechatApiPatchTargets`.
 - 2026-04-16 Anthropic default-thinking mismatch: the UI can render Claude's default `thinking` state before the conversation or agent model parameters store an explicit `thinking` boolean. Capability gating must therefore resolve Anthropic thinking from the parameter definition default when `thinking` is still `undefined`; otherwise the panel can show `Thinking` as checked while dependent controls still behave as if thinking were off.
 - 2026-05-13 Anthropic interrupted-tool replay failure: cancelling or interrupting a Claude native-tool/web-search stream can leave an incomplete `type: 'thinking'` block in message history. Replaying that history without `thinking` and `signature` fields causes Anthropic to reject the next request with `messages.*.content.*.thinking.thinking: Field required`. Fix: `packages/api/src/utils/content.ts` filters malformed thinking blocks before storage, and `config/apply-runtime-patches.js` patches `@librechat/agents` Anthropic `message_inputs` (src/ESM/CJS) to skip malformed thinking blocks at request-build time. Keep both layers; the runtime patch protects already-saved broken chats and the storage filter prevents new malformed history from persisting.
+- 2026-06-04 Anthropic sidebar server-tool expansion: direct Anthropic model chats expose supported server-tool controls in the model-parameter sidebar instead of pretending all Anthropic docs tools are just request flags. Implemented tools are direct Messages API server-side features (`fast_mode`, `web_fetch` with citations, `anthropic_code_execution`, and `anthropic_advisor`). Client-executed Anthropic tools (`memory`, `bash`, `computer use`, `text editor`) deliberately remain non-UI because LibreChat would need a sandbox/executor loop and robust tool-result continuation before those can be safe or useful. History replay filtering now covers web search, web fetch, code execution, and advisor server-tool/result pairs.
+- 2026-06-06 Anthropic web-search/fetch construction regression: direct Anthropic chats and ephemeral agents must use the basic server-tool descriptors by default (`web_search_20250305`, `web_fetch_20250910`). Use the dynamic filtering variants (`web_search_20260209`, `web_fetch_20260209`) only when Anthropic hosted code execution is also enabled and model/provider capability checks allow it. Sending the dynamic variants without code execution can leave Claude without a usable web-search/fetch tool even though the UI toggles are enabled.
+- 2026-06-06 multi-conversation added-agent tool-context regression: primary agents registered a runtime tool context, but `processAddedConvo()` only returned merged MCP auth and not the initialized context for added agents. Added Anthropic/Gemini/OpenAI side responses could therefore reach tool execution with no `toolRegistry`/auth/resource context and claim that web search/fetch tools were unavailable. Fix: return every added agent's initialized execution context, register it in `initializeClient()` under the exact suffixed agent id, and preserve provider selection after `initializeAgent()` normalization.
+- 2026-06-06 browser/MCP research-loop regression: long browser research runs could hit LangGraph's recursion limit of 50, while Playwright Streamable HTTP sessions could go stale mid-tool-call (`Session not found`, `Failed to open SSE stream`, SDK max reconnect exceeded) and fail the whole agent run. Fix: raise the default agent recursion limit to 100, set local runtime cap/default to 100/200, increase high-level MCP reconnect attempts to 6, and retry exactly one tool call after reconnecting when the failure is classified as stale transport session loss.
+- 2026-06-06 OpenAI CUA browser MCP stale-browser regression: the external `/pool/home/timeng/openai-cua-mcp-server` service could retain a closed Chromium object while `_playwright` remained non-null, causing `Browser.new_context: Target page, context or browser has been closed`. Fix: `BrowserManager.start()` now checks `Browser.is_connected()`, clears stale browser/playwright/session state, and relaunches before creating a new context.
+- 2026-05-24 MCP ordering / Arcade duplicate hotfix: MCP server lists were normalized to display-name-first sorting across the registry, admin surfaces, and user/agent MCP UIs. The static runtime `mcpServers.arcade-read` entry was removed because it visually duplicated user-created Arcade/Microsoft entries and its external favicon rendered broken/corrupted. At explicit user request, stable/prod was hotfixed directly by copying the patched API dist/source/AdminController files into `librechat-stable-api` and restarting it; this was a one-off production-maintenance exception before `local-services/deploy-runtime-delta.sh` existed. Current small backend/config/package-dist updates must use the runtime-delta helper for snapshot/copy/restart/health-check protection, and normal mission policy remains dev validation first.
 
 ---
 
@@ -420,6 +496,13 @@ Frontend/shared:
 
 - model-family capability resolution for OpenAI/Azure settings, side-panel parameters, and agent model parameters
 - GPT-5/o-series/search-preview-aware parameter gating for reasoning effort, sampling controls, stop sequences, verbosity, Responses API behavior, and provider-native web search
+- Azure-hosted catalog models that are not OpenAI hosted GPT/Chat Latest
+  deployments (`DeepSeek-*`, `grok-*`, `Phi-*`, `Mistral-*`, `codex-*`,
+  `gpt-oss-*`) are treated as streaming chat models but are not allowed to
+  force OpenAI Responses-native web search/code/file tools; they stay on the
+  LibreChat structured/local fallback path when those tools are available
+- embedding deployments such as `text-embedding-3-small` are treated as
+  non-chat/non-streaming for chat parameter and native-tool toggles
 - live Gemini discovery for API-key mode
 - lazy Vertex callable discovery: normal selector/config loads stay cheap and use configured/default Google models until a real Vertex access failure occurs, then the server probes callable publisher models and caches the callable union
 - multi-location Vertex callable discovery across the configured preferred location plus official Google model locations, with per-model `vertexLocation` / `vertexLocations` metadata
@@ -572,9 +655,15 @@ Frontend/shared:
 - sets the local Docker override to `DOMAIN_SERVER=${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}` so the `.env` value takes precedence and Arcade/OAuth callbacks use the correct LAN address; falls back to localhost loopback for development
 - distinguishes LibreChat MCP initialization from downstream provider consent: a tool returning `authorization_url` / `llm_instructions` means the MCP server is connected and the remaining step is provider-side authorization
 - keeps the MCP chat-bar selector visible whenever the user has `MCP_SERVERS.USE`, the active model supports structured tool calling, and selectable MCP servers exist, even when no MCP server is pinned or selected yet
+- sorts MCP server lists alphabetically by display title/name with numeric/case-insensitive comparison and `serverName` as the deterministic tiebreaker across `MCPServersRegistry.sortServerConfigs`, admin MCP lists, `useMCPServerManager`, agent MCP panel/dialog surfaces, and MCP builder-derived lists
+- admin MCP publishing controls list YAML/static and user-defined MCP servers with storage, owner, redacted config metadata, and publication status
+- `PATCH /api/admin/mcp/servers/:serverName/publication` publishes/unpublishes servers: static YAML servers use `AppSettings.mcpPublishedServers`, and DB-backed user servers publish by granting public MCP viewer ACL plus `publishedBy`/`publishedAt` metadata
+- Arcade/Microsoft MCP servers are intentionally DB/user-managed through MCP registration/publishing workflows; the static runtime `mcpServers.arcade-read` default was removed because it duplicated user-created Arcade entries visually and its external favicon rendered broken/corrupted
 - lets chat and scheduled-run users expand an MCP server and include a subset of that server's tools while preserving the old default that selecting a server includes all tools
 - stores per-conversation/new-chat MCP subsets in `ephemeralAgent.mcpToolFilter` and tab-isolated `LAST_MCP_TOOL_FILTER_*` local storage; missing server entries mean "all tools"
 - filters ephemeral agent tool expansion on the backend so selected MCP tool subsets apply to normal chat, scheduled runs, and added/parallel ephemeral agents
+- retries one MCP `tools/call` after reconnecting when the Streamable HTTP/SSE transport reports stale-session errors such as `Session not found`, `Failed to open SSE stream`, or SDK `Maximum reconnection attempts ... exceeded`; ordinary tool execution errors are not retried
+- makes high-level MCP reconnect attempts configurable through `MCP_MAX_RECONNECT_ATTEMPTS` and defaults to 6 attempts after SDK stream recovery gives up
 - detects OAuth-requiring errors from transport layer messages containing `"Authorization"` / `"authorization"` (e.g. arcade.dev's `"Missing Authorization header"`) in addition to `"OAuth"`, `"authentication"`, and `"401"` patterns — only enters the OAuth path when the server config has `requiresOAuth` or `oauthMetadata` set, so local non-OAuth servers are never affected
 - when `reinitMCPServer` detects `oauthRequired=true` but has no `oauthUrl` (common for newly created OAuth servers with no stored tokens), the reinitialize route handler initiates a proper OAuth flow via `MCPOAuthHandler.initiateOAuthFlow` to generate a full authorization URL with client_id/state/redirect_uri — without this, the UI would spin indefinitely waiting for an auth URL that never arrives
 
@@ -585,9 +674,13 @@ Frontend/shared:
 - `client/src/components/MCP/MCPServerMenuItem.tsx`
 - `client/src/hooks/MCP/useMCPSelect.ts`
 - `client/src/hooks/MCP/useMCPServerManager.ts`
+- `client/src/hooks/MCP/__tests__/useMCPSelect.test.tsx`
 - `client/src/store/mcp.ts`
+- `client/src/components/SidePanel/Agents/MCPTools.tsx`
+- `client/src/components/Tools/MCPToolSelectDialog.tsx`
 - `client/src/components/Nav/SettingsTabs/Data/ScheduledRuns.tsx`
 - `client/src/components/Chat/Input/MCPSelect.guards.spec.ts`
+- `client/src/components/Admin/AdminConsole.tsx`
 - `api/models/Agent.js`
 - `api/models/loadAddedAgent.js`
 - `api/app/clients/tools/util/handleTools.js`
@@ -599,7 +692,14 @@ Frontend/shared:
 - `packages/api/src/mcp/__tests__/handler.test.ts`
 - `api/server/routes/mcp.js`
 - `api/server/routes/__tests__/mcp.spec.js`
+- `api/server/controllers/AdminController.js`
+- `api/server/controllers/__tests__/adminMCPPublish.spec.js`
 - `api/server/services/Tools/mcp.js`
+- `api/server/services/initializeMCPs.js`
+- `packages/api/src/mcp/registry/MCPServersRegistry.ts`
+- `packages/api/src/mcp/registry/__tests__/MCPServersRegistry.test.ts`
+- `packages/data-schemas/src/schema/mcpServer.ts`
+- `packages/data-schemas/src/types/mcp.ts`
 - `docker-compose.local.override.yml`
 
 #### Preserve during merges
@@ -610,6 +710,9 @@ Frontend/shared:
 - callback URL precedence must remain: valid `DOMAIN_SERVER` -> `X-Forwarded-*` headers -> request host/protocol
 - `DOMAIN_SERVER` in `docker-compose.local.override.yml` must use `${DOMAIN_SERVER:-...}` syntax so the `.env` value takes precedence; hardcoding `http://localhost:...` breaks OAuth callbacks for LAN-accessed instances
 - provider authorization prompts returned from Arcade Microsoft tools should not be treated as LibreChat MCP initialization failures
+- MCP server sorting must remain display-title/name-first with `serverName` as the deterministic tiebreaker across backend registry, admin surfaces, and user/agent UIs; do not revert list rendering to object insertion order or raw server-name-only sorting
+- admin MCP publishing must continue to use `AppSettings.mcpPublishedServers` for static YAML servers and public MCP viewer ACLs for user-managed DB servers
+- publishing changes must invalidate admin MCP, startup config, MCP server, and MCP tools queries and update the live `MCPServersRegistry` published-server filter
 - do not reintroduce a `!isPinned && mcpValues?.length === 0` render guard in `MCPSelect.tsx`; empty `mcpValues` means "nothing selected yet", not "hide the selector"
 - keep MCP server selection and MCP tool filtering separate: `ephemeralAgent.mcp` lists servers, while optional `ephemeralAgent.mcpToolFilter` maps server name to concrete tool keys; omitting a server from `mcpToolFilter` must continue to mean all tools
 - when all tools for a server are selected, remove that server's filter entry instead of storing a full copy of the tool list; this preserves current all-tools behavior and avoids stale filters after server tool discovery changes
@@ -622,6 +725,9 @@ Frontend/shared:
 
 - `client/src/components/Chat/Input/MCPSelect.guards.spec.ts` asserts that the MCP selector is not hidden solely because no server is pinned or selected
 - `client/src/hooks/MCP/__tests__/useMCPSelect.test.tsx` covers per-server MCP tool filters, including default all-tools cleanup when all tools are selected
+- `client/src/hooks/MCP/__tests__/useMCPSelect.test.tsx` also covers MCP display-title alphabetical sorting
+- `packages/api/src/mcp/registry/__tests__/MCPServersRegistry.test.ts` covers registry alphabetical order and published-server filtering
+- `api/server/controllers/__tests__/adminMCPPublish.spec.js` covers admin MCP publication list/update behavior, including sorted output
 - `api/models/Agent.spec.js` covers backend filtering of ephemeral MCP tool expansion
 - `api/server/services/ScheduledJobs/ScheduledJobsController.spec.js` covers preserving `mcpToolFilter` through nested scheduled-run updates
 - `packages/api/src/mcp/__tests__/zod.spec.ts` covers the bare-object schema normalization behavior
@@ -690,17 +796,35 @@ Frontend/shared:
 - `LibreChat` is the upstream-sync worktree
 - helper scripts make the custom worktree runnable by linking runtime-only secret/data files from the upstream worktree while keeping the local Docker override checked into the customization worktree
 - standardized detached Docker startup from the custom worktree
+- production stable moved to the VM deployment host (`timeng@192.168.50.104`, runtime bundle `/opt/LibreChat-custom`) while pve2 remains the source/edit/build host
+- read-only live status is checked with SSH to the VM; mutating VM Docker actions require explicit production-maintenance approval
+- guarded runtime-delta deployment for small backend/config/script fixes: `local-services/deploy-runtime-delta.sh` classifies changed files, refuses frontend/package-source direct copies, snapshots prior container/host files, optionally applies `config/apply-runtime-patches.js`, restarts the API container, and health-checks without rebuilding the image
 - separate Prometheus and Grafana/Loki sidecar stacks
+- VM observability sidecars are split across compose projects: `librechat-stable`
+  owns Langfuse plus the LibreChat metrics exporter, `grafana-loki-stable` owns
+  Grafana/Loki/Promtail, and `prometheus-stable` owns the app Prometheus plus
+  Blackbox exporter
+- admin-console observability links should be persisted as `localhost` service
+  URLs so `AdminController.resolveObservabilityLinks()` rewrites them to the
+  request host dynamically; the current VM ports are Langfuse `3000`, Grafana
+  `3001`, metrics exporter `9091`, and app Prometheus `9092`
+- `/api/admin/observability` is the browser-click quick-link endpoint and returns
+  request-host-resolved URLs; `/api/admin/settings` keeps the raw stored
+  observability values for the edit form so saving settings does not pin the VM
+  IP. Same-host observability URLs submitted through the settings form are
+  normalized back to `localhost` on save.
 - user-level systemd services for auto-start
 - Ollama keep-warm timer/service
 - optional admin-only patched-remote image path
 - devcontainer persistence behavior
-- dev rail shared-stable data mode: by default `start-all.sh dev` rewrites the stable `MONGO_URI` to the LAN-accessible stable MongoDB host/port and shares `uploads/`, so dev can access the same conversations/files if the stable API is down while keeping separate image tags, ports, logs, Meilisearch data, and code-interpreter state
+- dev rail shared-stable data mode: by default `start-all.sh dev` rewrites the stable `MONGO_URI` to the LAN-accessible stable MongoDB host/port and shares `uploads/`, so dev can access the same conversations/files if the stable API is down while keeping separate image tags, ports, logs, Meilisearch data, and code-interpreter state. After the VM migration, verify the target host before assuming shared-stable means pve2-local data.
 - dev failover watchdog: `librechat-dev-failover.timer` runs `dev-failover-watchdog.sh`, starts dev in a minimal API-only profile after stable health failures, and stops failover-owned dev after stable recovers
 - lower dev resource defaults for standby/testing/failover operation; full dev is ~1 GiB API heap-limited and failover dev is smaller, with RAG/vector/code services omitted from the failover profile
+- host memory guardrails for adjacent non-production workloads: the `oss-llama.service` user unit has a persistent drop-in at `/home/timeng/.config/systemd/user/oss-llama.service.d/override.conf` with `MemoryHigh=4G`, `MemoryMax=5G`, and `MemorySwapMax=0`; non-stable sidecar/test Docker containers are capped and may be stopped without deleting them when the host is under pressure
+- host-side LibreChat Node jobs use `local-services/run-node-capped.sh` and npm aliases such as `lint:capped` and `build:capped` so ESLint/Rollup/Turbo/TypeScript children run with both `NODE_OPTIONS=--max-old-space-size=...` and a user-systemd cgroup `MemoryMax` / `MemorySwapMax=0`
 - secret/runtime ignore patterns in `.gitignore`
 - MCP OAuth callback URLs with `DOMAIN_SERVER`-first resolution plus forwarded/request-host fallback
-- `DOMAIN_SERVER` in `docker-compose.local.override.yml` uses `${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}` so the `.env` value (typically `http://192.168.50.4:3080`) takes precedence for LAN access; falls back to localhost for pure-local development
+- `DOMAIN_SERVER` in `docker-compose.local.override.yml` uses `${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}` so the `.env` value takes precedence for LAN access; the VM runtime currently uses `http://192.168.50.104:3080`, while local/pve2 MCP helper services still use `192.168.50.4` addresses in `librechat.yaml`
 
 #### Key files
 
@@ -720,6 +844,8 @@ Frontend/shared:
 - `local-services/status-all.sh`
 - `local-services/sync-from-stable.sh`
 - `local-services/health-check.sh`
+- `local-services/run-node-capped.sh`
+- `local-services/deploy-runtime-delta.sh`
 - `local-services/dev-seed-validation-personas.js`
 - `local-services/dev-failover-watchdog.sh`
 - `local-services/install-user-service.sh`
@@ -736,10 +862,27 @@ Frontend/shared:
 #### Preserve during merges
 
 - always run from `/pool/home/timeng/LibreChat-custom`
+- treat `/pool/home/timeng/LibreChat-custom` as the source/build/test worktree and `timeng@192.168.50.104:/opt/LibreChat-custom` as the production runtime bundle
+- use `ssh timeng@192.168.50.104 'cd /opt/LibreChat-custom && docker compose -p librechat-stable -f docker-compose.yml -f docker-compose.local.override.yml ps'` for read-only VM compose checks
+- use `ssh timeng@192.168.50.104 'docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"'` and `curl -I http://192.168.50.104:3080/` for read-only live checks
+- preserve the VM API container name `LibreChat` in deployed-runtime verification examples; older pve2/local docs may mention `librechat-stable-api`
 - runtime symlink convention created by `ensure-runtime-files.sh` for secrets/runtime data only
-- `COMPOSE_PROJECT_NAME=librechat` for the custom app stack
+- `COMPOSE_PROJECT_NAME=librechat-stable` for the VM production app stack; pve2 dev uses `librechat-dev`
 - separate exporter compose stacks for Prometheus and Grafana/Loki
-- Grafana/Loki should tail `/pool/home/timeng/LibreChat-custom/logs` for this worktree
+- on the VM, preserve the separate exporter compose projects
+  `grafana-loki-stable` and `prometheus-stable`; the app Prometheus surface is
+  the containerized one on host port `9092`, not the host snap Prometheus on
+  `9090` that only scrapes itself
+- keep admin observability settings host-relative by using `localhost` URLs
+  (`3000`, `3001`, `9091`, `9092`); hardcoding `192.168.50.4` or any old host
+  IP breaks the admin console after migration
+- preserve the split between raw settings and resolved quick links:
+  `getAdminSettingsController` returns raw stored observability values,
+  `getAdminObservabilityController` returns request-host-resolved links, and
+  `updateAdminSettingsController` normalizes same-host observability submissions
+  back to `localhost`
+- Grafana/Loki should tail the active runtime logs path: `/opt/LibreChat-custom/logs`
+  on the VM and `/pool/home/timeng/LibreChat-custom/logs` for pve2/dev
 - user service units pointing to the custom worktree
 - devcontainer persistence settings
 - LiteLLM file-path expectations if LiteLLM is re-enabled
@@ -748,8 +891,12 @@ Frontend/shared:
 - dev shared-stable data mode is intentional: preserve `LIBRECHAT_DEV_USE_STABLE_MONGO=true` default, `LIBRECHAT_DEV_SHARED_MONGO_HOST`/`PORT` overrides, and `LIBRECHAT_DEV_SHARED_UPLOADS_DIR`; `LIBRECHAT_DEV_USE_STABLE_MONGO=false` is the opt-in isolated mode
 - preserve the failover lifecycle: `librechat-stack.service` starts stable explicitly, `librechat-dev-failover.timer` is the only automatic dev starter, and failover-owned dev is stopped when stable health is back
 - preserve minimal failover profile behavior in `start-all.sh` (`LIBRECHAT_DEV_PROFILE=failover` + `--no-build` + `--skip-health-check`) so automated failover does not rebuild or start heavyweight dev-only services
+- preserve `deploy-runtime-delta.sh` as the supported fast path for backend/runtime-loaded code, config helpers, runtime bind files, and already-built `packages/*/dist/**` artifacts; it must keep refusing `client/src/**`, individual `client/dist/**`, `packages/*/src/**`, dependency, Dockerfile, and compose changes because those surfaces need built artifacts, image rebuilds, or container recreation
 - preserve `sync-from-stable.sh` behavior that skips Mongo restore/upload rsync when dev already shares stable data, and `health-check.sh` allowance for shared `uploads/`
 - preserve `dev-seed-validation-personas.js` refusal to seed/reset validation personas against stable/shared MongoDB unless `DEV_SEED_ALLOW_SHARED_PROD_DB=true` is explicitly set
+- preserve host memory guardrails: stable LibreChat containers stay constrained by `docker-compose.local.override.yml`/`rail-env.sh`; host-side build/lint/test commands should use `npm run lint:capped`, `npm run build:capped`, `npm run frontend:capped`, or `local-services/run-node-capped.sh`; adjacent non-stable workloads must not run uncapped. Current non-stable caps are `oss-llama.service` `MemoryHigh=4G` / `MemoryMax=5G` / `MemorySwapMax=0`; `librechat-official-rag=512m`, `librechat-official-vectordb=512m`, `librechat-official-mongodb=1g`, `librechat-official-meili=768m`; `grafana-loki-stable-loki=512m`, `grafana-loki-stable-grafana=512m`, `grafana-loki-stable-promtail=256m`; `prometheus-stable-prometheus=1g`, `prometheus-stable-blackbox=128m`; `touchdown-r1=768m`; and `touchdown-backwards-r1=768m`, all with `memswap_limit` equal to `mem_limit`
+- if the host is near OOM, stop non-production/non-stable containers instead of deleting them. On pve2, do not stop VM production by mistake; on the VM, do not stop `LibreChat`, `chat-mongodb`, `chat-meilisearch`, `code-interpreter-local`, `rag-api-*`, `vectordb`, or `librechat-stable-*` containers without explicit production-maintenance approval.
+- `librechat-official-mongodb` and `librechat-official-meili` may restart-loop from `/tmp/librechat-upstream-param` permission errors (`/data/db/journal` and Meili data path). Keep them stopped unless intentionally debugging the upstream/offical stack, and reapply caps after recreating those containers because the labeled compose file under `/tmp/librechat-upstream-param/docker-compose.yml` is not durable.
 
 #### Runtime files linked into the custom worktree
 
@@ -764,25 +911,30 @@ Frontend/shared:
 
 #### Mission safety: dev-rail-only execution policy
 
-All agent missions (upstream merges, version bumps, feature migrations, validation harnesses) MUST operate exclusively on the dev rail (r2, port 3081). The stable/production rail (r1, port 3080) must remain running and fully usable throughout any mission.
+All agent missions (upstream merges, version bumps, feature migrations, validation harnesses) MUST operate away from VM stable when runtime validation is needed. The stable/production rail on `http://192.168.50.104:3080` must remain running and fully usable throughout any mission.
 
 **Hard rules:**
 
-- Never rebuild, restart, stop, or reconfigure the stable rail during any mission step
-- Never run `./local-services/start-all.sh stable` as part of a mission
-- Never direct Docker commands at `librechat-stable-*` containers during mission work
-- All code changes, builds, tests, and validation happen on dev only
-- Promotion to stable happens ONLY at the very end of the mission, after all validation passes and the user gives explicit approval
-- If something goes wrong, only the dev rail gets fixed or restarted; stable remains untouched as fallback
+- Never rebuild, restart, stop, or reconfigure the VM stable rail during any mission step
+- Never run `./local-services/start-all.sh stable` on pve2 as part of a mission while the VM is production
+- Never direct mutating Docker commands at VM stable containers during mission work
+- All code changes, builds, tests, and validation happen in the source worktree or dev only
+- Promotion to VM stable happens ONLY at the very end of the mission, after all validation passes and the user gives explicit approval
+- If something goes wrong, only the dev rail gets fixed or restarted; VM stable remains untouched as fallback
 
-This policy exists because the user depends on the stable rail for daily use. Disrupting stable during a mission leaves the user without a working instance.
+This policy exists because the user depends on the VM stable rail for daily use. Disrupting stable during a mission leaves the user without a working instance.
 
 #### Dev shared-stable data guardrails
 
 - Default dev runtime can read/write the same MongoDB database and uploaded files as stable. This is intentional for fallback access, but it means dev testing must use test accounts and avoid destructive data resets.
 - Existing test accounts such as `playwright@test.local` should be used for browser automation and validation on dev. Persona seeding/reset tooling is for isolated dev Mongo only unless deliberately overridden.
-- Stable containers still remain protected: dev may connect to the stable MongoDB backend, but missions must not restart, rebuild, stop, or mutate `librechat-stable-*` containers without explicit promotion approval.
+- Stable containers still remain protected: dev may connect to the stable MongoDB backend, but missions must not restart, rebuild, stop, or mutate VM stable containers without explicit promotion approval.
 - Dev should normally be stopped while stable is healthy. The watchdog only stops dev instances it started itself, leaving manually started dev alone for explicit testing unless `LIBRECHAT_FAILOVER_STOP_MANUAL_DEV_ON_RECOVERY=true` is set.
+
+#### Lessons learned
+
+- 2026-06-07/08 VM deployment migration: production LibreChat stable moved off pve2 to `timeng@192.168.50.104`, with the active runtime bundle at `/opt/LibreChat-custom` and the live app at `http://192.168.50.104:3080`. The VM bundle is not a Git checkout, so agents must keep source edits/builds/tests in `/pool/home/timeng/LibreChat-custom` and use read-only SSH checks for live status until an explicitly approved production-maintenance task names the remote mutation commands. The VM stable API container is `LibreChat`; use that name for deployed-runtime verification, not stale pve2 examples such as `librechat-stable-api`. Do not start duplicate pve2 stable containers while the VM owns LibreChat Docker.
+- 2026-06-08 runtime-delta deployment workflow: small backend/config changes no longer require a full image rebuild or manual `docker cp`. Use `./local-services/deploy-runtime-delta.sh dev --dry-run -- <paths>` to classify, then deploy to dev or, after explicit approval, to VM stable with `LIBRECHAT_STABLE_RUNTIME_DELTA_APPROVAL=YES ./local-services/deploy-runtime-delta.sh stable --approve-stable -- <paths>`. The helper snapshots previous files under `output/runtime-delta-deployments/`, copies only runtime-valid paths, applies runtime patches when `config/apply-runtime-patches.js` changes, restarts the API, and health-checks. It intentionally refuses frontend source and package source changes because browsers execute `client/dist` and the API imports package `dist` bundles.
 
 ---
 
@@ -850,6 +1002,13 @@ This policy exists because the user depends on the stable rail for daily use. Di
 - default managed/local code-execution routing for OpenAI, Azure OpenAI, and Google instead of provider-native execution
 - persistent local workspaces plus warm runtime reuse keyed by LibreChat `session_id`
 - startup prewarm so trivial first Python executions are usually already warm by the time the UI is ready
+- VM dynamic child-container startup was verified on 2026-06-08 by calling
+  `code-interpreter-local` `/v1/exec` directly; it created a new
+  `llm-sandbox` child container, returned `stdout: "7"`, and the synthetic child
+  was removed afterward
+- raw code-interpreter uploads: files intentionally routed with `tool_resource=execute_code` bypass MIME allowlists and are uploaded/stored as raw bytes so the sandbox can inspect arbitrary formats such as `.mp3`, `.wav`, proprietary binaries, or extensionless files under `/mnt/data`
+- chat-bar upload menus and drag/drop expose "Upload for Code Interpreter" for ephemeral chats whenever the conversation supports Code Interpreter, even before the toggle is already on; selecting that destination sets `tool_resource=execute_code`, enables the tool, and keeps audio/video eligible for Code Interpreter instead of forcing text/OCR or transcription paths
+- completed chat-bar uploads preserve their `tool_resource` and native-tool metadata in compose state so follow-up UI and send logic keep treating Code Interpreter-routed audio as raw Code Interpreter input
 
 #### Key files
 
@@ -865,6 +1024,14 @@ This policy exists because the user depends on the stable rail for daily use. Di
 - `code-interpreter-local` service wiring and `LIBRECHAT_CODE_BASEURL` override
 - `OPENAI_CODE_INTERPRETER_ROUTING`, `AZURE_OPENAI_CODE_INTERPRETER_ROUTING`, and `GOOGLE_CODE_INTERPRETER_ROUTING`
 - warm-session reuse, startup prewarm, and persistent workspace behavior
+- VM production requires `/var/run/docker.sock`, the sandbox image
+  `ghcr.io/vndee/sandbox-python-311-bullseye`, and
+  `/opt/LibreChat-custom/local-code-interpreter/data` to remain available so
+  dynamic Code Interpreter child containers can start
+- raw `execute_code` upload validation bypass in `client/src/utils/files.ts`, `api/server/routes/files/multer.js`, and `api/server/services/Files/process.js`; keep it scoped to non-Assistants `tool_resource=execute_code` uploads so file search, avatars, context parsing, and ordinary attachments remain gated
+- Code Interpreter upload option visibility in `client/src/components/Chat/Input/Files/AttachFileMenu.tsx` and `client/src/components/Chat/Input/Files/DragDropModal.tsx`; ephemeral chats must show the Code Interpreter upload target based on capability, not on the current toggle value, otherwise dropped audio like `.wav` can be incorrectly reduced to "Upload as Text"
+- multipart field ordering in `client/src/hooks/Files/useFileHandling.ts`; route metadata must be appended before the file part so Multer can see `tool_resource=execute_code` before applying its early filter
+- upload-success state in `client/src/hooks/Files/useFileHandling.ts`; do not drop `tool_resource` or file `metadata` after `/api/files` returns, or audio/video routed to Code Interpreter can fall back into generic audio UI paths
 - the adapter contract so the backend can be swapped without further LibreChat app changes
 - `LOCAL_CODE_WORKSPACE_HOST_ROOT` absolute-host-path handling
 
@@ -952,13 +1119,15 @@ This policy exists because the user depends on the stable rail for daily use. Di
 
 #### What it adds
 
-- uploading any audio or video file auto-triggers a background transcription job
-- a dedicated conversation is created immediately with a "Transcribing..." placeholder response; the user can navigate away and the job runs asynchronously
+- audio/video files upload as normal attachments first; the user explicitly starts transcription from the inline compose-bar controls
+- a dedicated conversation is created when transcription starts, with a "Transcribing..." placeholder response; the user can navigate away and the job runs asynchronously
 - background runner polls a MongoDB-backed job queue with lease/lock semantics (horizontally scalable, crash-safe)
 - video files are converted to mp3 via ffmpeg; oversized uploads are normalized to mono 16 kHz mp3 and chunked into <=23 MB segments before sending to the STT provider
 - completed transcript text is stored in the file's `text` field and the response message is updated in place
 - the conversation persists in the sidebar like any other chat, so the user can return, read the transcript, and continue chatting with it
 - the attach-file menu now accepts `audio/*` and `video/*` MIME types for all document-supporting providers
+- audio/video attachments can also be routed to Code Interpreter by choosing the Code Interpreter upload destination; transcription and Code Interpreter are explicit alternatives, not mutually exclusive file-type assumptions
+- the inline transcription controls ignore files already marked for Code Interpreter (`tool_resource=execute_code`, `source=execute_code`, native `execute_code`, or a code file identifier), so sending a Code Interpreter-routed `.wav`/`.m4a` proceeds as a normal chat message with raw file attachments unless the user explicitly chose the transcription path
 - **session-scoped controls**: transcription model, prompt, and diarization speaker references now live in the per-conversation parameters popover, so each chat session can keep its own transcription behavior just like chat-model settings
 - **diarization**: when `gpt-4o-transcribe-diarize` is selected, the backend automatically sets `response_format=diarized_json` and `chunking_strategy=auto`, can attach up to 4 named 2-10 second speaker reference clips as `known_speaker_*` inputs, and formats speaker-labeled segments as `[speaker_N]: text`
 - **prompt support**: the session-level "Transcription Prompt" textarea is enabled for `whisper-1`, `gpt-4o-transcribe`, and `gpt-4o-mini-transcribe`; the diarize model disables the field and the backend suppresses prompt submission for that model
@@ -972,7 +1141,7 @@ This policy exists because the user depends on the stable rail for daily use. Di
 - `api/server/routes/files/files.js` -- `POST /api/files/transcribe` plus `POST /api/files/transcription-reference` for validated speaker reference uploads
 - `api/server/index.js` / `api/server/experimental.js` -- starts the transcription runner on server boot
 - `client/src/hooks/Files/useFileHandling.ts` -- exposes `transcribeUploadedFile` callback for the inline bar, polls for completion, and sends transcription settings and speaker references in the request payload; auto-transcription on upload is disabled
-- `client/src/components/Chat/Input/Files/AudioTranscriptionBar.tsx` -- inline transcription controls in the chat compose area: model dropdown, expandable prompt textarea, diarization speaker reference upload (up to 4 clips), and explicit "Transcribe" button
+- `client/src/components/Chat/Input/Files/AudioTranscriptionBar.tsx` -- inline transcription controls in the chat compose area: model dropdown, expandable prompt textarea, diarization speaker reference upload (up to 4 clips), and explicit "Transcribe" button; excludes Code Interpreter-routed audio/video attachments
 - `client/src/components/Chat/Input/ChatForm.tsx` -- wires AudioTranscriptionBar between the file preview row and the textarea
 - `client/src/components/Chat/Input/Files/AttachFileMenu.tsx` -- broadened file acceptance to include audio/video
 - `client/src/components/Endpoints/Settings/TranscriptionSettings.tsx` -- session-level transcription model/prompt UI in the endpoint settings panel (secondary location; primary is now the inline bar)
@@ -1129,22 +1298,20 @@ modelSpecs:
 - `enforce: false` -- users can still pick any model from any endpoint; the specs are convenience shortcuts, not restrictions
 - `prioritize: true` -- specs appear prominently in the model picker with provider icons
 
-The quick-selector list mirrors the models available to default non-admin users (from `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` in `api/server/services/ModelAccess.js`):
+The quick-selector list is a convenience surface only. `modelSpecs.enforce: false` means it never restricts access; actual per-user access is stored in `user.modelPermissions` and currently defaults to unrestricted for new non-admin users (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` is disabled).
 
-| Spec name         | Endpoint  | Model               | Group     |
-| ----------------- | --------- | ------------------- | --------- |
-| GPT-5.4 Mini      | openAI    | gpt-5.4-mini        | openAI    |
-| GPT-5.4 Nano      | openAI    | gpt-5.4-nano        | openAI    |
-| GPT-5.3 Chat      | openAI    | gpt-5.3-chat-latest | openAI    |
-| Claude Sonnet 4.6 | anthropic | claude-sonnet-4-6   | anthropic |
-| Claude Sonnet 4.5 | anthropic | claude-sonnet-4-5   | anthropic |
-| Claude Haiku 4.5  | anthropic | claude-haiku-4-5    | anthropic |
-| Grok 4-1 Fast     | xai       | grok-4-1-fast       | xai       |
-| Ollama Local      | Ollama    | qwen2.5:latest      | Ollama    |
+Runtime suggested specs are filtered through the same per-user model-access view as `/api/models`. For OpenAI and Azure OpenAI, simple dynamic suggestions use exactly three OpenAI-family shortcuts when slots are configured: Chat Latest, newest stable full GPT, and newest stable GPT mini. Chat Latest priority is `chat-latest`, then `gpt-chat-latest`, then the highest-version `gpt-*-chat-latest` available. For every other provider, dynamic suggestions keep only that provider's top available model. Alpha and snapshot ids are skipped.
 
-Each spec uses the `group` field to nest under the matching provider icon in the picker. xAI and Ollama also set `groupIcon` explicitly since they are custom endpoints.
+| Spec name         | Endpoint  | Model              | Group     |
+| ----------------- | --------- | ------------------ | --------- |
+| Chat Latest       | openAI / azureOpenAI | `chat-latest`, `gpt-chat-latest`, or highest `gpt-*-chat-latest` | same endpoint |
+| Latest GPT full   | openAI / azureOpenAI | newest stable GPT  | same endpoint |
+| Latest GPT mini   | openAI / azureOpenAI | newest stable mini | same endpoint |
+| Provider best     | non-OpenAI providers | top available model | same endpoint |
 
-When updating `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`, the modelSpecs list should also be updated to stay aligned.
+Each spec uses the `group` field to nest under the matching provider icon in the picker. Custom endpoints such as xAI and Ollama can set `groupIcon` explicitly.
+
+When intentionally changing default access policy or curated quick picks, review both `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` and the runtime `modelSpecs` list so docs and UI expectations stay aligned.
 
 ##### Custom endpoints
 
@@ -1158,8 +1325,12 @@ Three custom endpoints are defined:
 
 ##### Other runtime sections
 
-- `mcpSettings.allowedDomains` -- MCP domain allowlist for local MCP servers (`192.168.50.4:8765` through `192.168.50.4:8770`; `:8770` is the Internet Archive MCP server)
+- `mcpSettings.allowedDomains` -- MCP domain allowlist for local MCP servers (`192.168.50.4:8765` through `192.168.50.4:8771`; `:8770` is the Internet Archive MCP server, `:8771` is the arXiv MCP server)
+- `endpoints.agents.recursionLimit: 100` / `maxRecursionLimit: 200` -- local default for longer agent research/tool loops; this prevents legitimate browser/research runs from hitting LangGraph's old default of 50 steps while still keeping a hard cap.
+- Arcade/Microsoft MCP servers are DB/user-managed and should not be configured as static YAML defaults; `mcpServers.arcade-read` was removed to avoid duplicate visual entries and broken/corrupted external favicon rendering
+- `mcpServers.openai-cua-browser` -- OpenAI CUA browser MCP server using streamable HTTP at `http://192.168.50.4:8768/mcp` with `timeout: 240000`.
 - `mcpServers.internet-archive` -- read-only Internet Archive / Wayback MCP server using streamable HTTP at `http://192.168.50.4:8770/mcp` with `timeout: 90000`
+- `mcpServers.arxiv` -- arXiv research MCP server using streamable HTTP at `http://192.168.50.4:8771/mcp/` with `timeout: 180000`, `initTimeout: 30000`, arXiv icon, and prompt-injection `serverInstructions`
 - `memory.agent` -- memory agent using `gpt-4.1-mini` via `openAI` provider (casing matters -- must be `openAI` not `openai`)
 - `speech.stt.openai` -- Whisper-1 STT with `${OPENAI_API_KEY}`
 - `version: 1.3.5` -- config schema version
@@ -1168,18 +1339,20 @@ Three custom endpoints are defined:
 
 - `librechat.yaml` (runtime, gitignored, bind-mounted via `docker-compose.local.override.yml`)
 - `librechat.example.yaml` (reference)
-- `api/server/services/ModelAccess.js` (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` -- source of truth for which models default users get)
+- `api/server/services/ModelAccess.js` (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` -- source of truth for whether new users get default model restrictions)
 - `local-services/dev-seed-validation-personas.js` (validation script that can inject modelSpecs -- see lessons learned)
 
 #### Preserve during merges
 
 - the `interface` section must remain with all five fields set to `true`; removing it hides the parameters panel, presets, and free model selection
 - `modelSpecs.enforce` must remain `false` so the quick-selector never blocks free model access
-- `modelSpecs` list should stay aligned with `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`
+- `modelSpecs` is not an access-control surface; keep it aligned with intentionally curated quick picks and review `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` separately when changing default access
 - custom endpoint split (Ollama local with `fetch: false` vs Ollama Cloud with `user_provided` key) must not be re-merged into a single endpoint
 - `memory.agent.provider` must use camelCase `openAI` (not lowercase `openai`)
 - `mcpSettings.allowedDomains` must be updated if local MCP server addresses change
+- keep static `mcpServers.arcade-read` absent when regenerating or editing runtime `librechat.yaml` unless explicitly redesigning Arcade defaults; Arcade/Microsoft MCP servers should remain user/admin-managed through DB-backed MCP workflows
 - preserve `mcpServers.internet-archive` and the `http://192.168.50.4:8770` allowlist entry when regenerating or editing runtime `librechat.yaml`
+- preserve `mcpServers.arxiv`, its prompt-injection guardrail instructions, the trailing-slash `http://192.168.50.4:8771/mcp/` URL, and the `http://192.168.50.4:8771` allowlist entry when regenerating or editing runtime `librechat.yaml`
 
 #### Lessons learned
 
@@ -1192,12 +1365,18 @@ Three custom endpoints are defined:
 
 #### What it adds
 
-- three locally-built `rag_api` containers (OpenAI, Azure, Google) from an external `rag_api` git clone, sharing a local pgvector database
+- three locally-built `rag_api` containers (OpenAI, Azure, Google) from an external `rag_api` git clone, sharing a local pgvector database. The VM currently runs preloaded `librechat-local-rag-api:latest` images; no external `rag_api` source checkout was found on the VM during the 2026-06-08 read-only audit, so VM-side RAG image rebuilds need explicit setup/approval.
+- VM file-search/RAG readiness was verified on 2026-06-08 without writing
+  production vector data: all three provider RAG containers were healthy,
+  exposed `/embed`, `/embed-upload`, `/query`, and `/query_multiple`, and
+  `vectordb` accepted connections
 - provider-aware RAG URL routing: file uploads and queries route to the correct provider-specific RAG service based on the active chat provider
 - dual storage pattern: file search uploads go to both persistent storage (local/S3) and the local vector DB for embeddings
 - citation content passthrough: the actual text chunk/quote from the RAG query is now displayed in the frontend citation hovercard and source panel, not just the filename and page numbers
 - retry with exponential backoff for all RAG API calls (embed, query, delete) with configurable timeouts
 - container resource tuning: vectordb at 512m with postgres tuning (shared_buffers, work_mem, effective_cache_size), RAG containers at 384m with CPU bounds
+- production vector-ingest smoke tests require explicit approval because they
+  write to pgvector collections and can call paid provider embedding APIs
 
 #### Key files
 
@@ -1260,6 +1439,7 @@ These are recurring lessons from the focused docs plus past Droid sessions for t
 - upstream features that depend on `librechat.yaml` config sections (like `memory:`) will silently no-op if the section is absent; the code returns early on `!config` rather than throwing, so missing config looks like a working app with the feature quietly disabled; always verify that new upstream features have their config section added to the runtime `librechat.yaml`
 - `provider` values in `librechat.yaml` memory/agent config must use `EModelEndpoint` casing (e.g., `"openAI"` not `"openai"`); `getProviderConfig` in `packages/api/src/endpoints/config.ts` does a case-sensitive lookup against `providerConfigMap` and its lowercase fallback only checks `provider.toLowerCase()`, which does not help when the correct key is camelCase like `"openAI"`
 - the API container's original default `mem_limit` (768m) was too tight for concurrent agent + memory agent processing with image uploads; Node.js auto-detects a ~396 MB heap from a 768m container, which OOMs under load; the fix is per-rail limits in `rail-env.sh` (`LIBRECHAT_API_MEM_LIMIT` and `LIBRECHAT_API_NODE_MAX_OLD_SPACE`) driving `NODE_OPTIONS=--max-old-space-size=<value>` in the compose environment; stable gets 3072m/2048MB heap, dev gets 1536m/1024MB heap; uploaded images are base64-encoded in the request body and can consume tens of MBs of heap per request, so the heap must have significant headroom beyond idle usage
+- host-side LibreChat build/lint/test jobs can also starve the host because `npm run lint`, `npm run build`, and `npm run frontend` fan out to child Node processes such as ESLint, Rollup, Turbo, Vite, and `tsc`. Use the capped aliases (`lint:capped`, `build:capped`, `frontend:capped`, `test:all:capped`) or `local-services/run-node-capped.sh` so each Node process has a V8 heap cap and the whole command tree is bounded by a user-systemd scope. On this host, `systemd-run --user --scope` cannot be combined with `--wait`; use `--scope --collect` and let `systemd-run` propagate the command exit status.
 - feature controls should be placed where users naturally interact, not buried in settings or admin pages; for file-related features, the natural location is inline in the chat compose area near the file preview
 - when a workflow pivots from a draft/new conversation into a newly created persisted conversation, clear any stale per-conversation UI state (for example `latestMessage` and file drafts) before navigation; otherwise follow-up input gating and draft restoration can accidentally carry old state into the next chat
 - Langfuse v3 services (ClickHouse, web, worker) need higher container memory limits than the compose defaults; ClickHouse merge operations and the Next.js 15 web frontend both OOM at their defaults (768m and 600m respectively); a container that Docker reports as "Up" but refuses connections is likely restart-looping from OOM — always check `docker logs` before assuming a networking problem
@@ -1281,6 +1461,8 @@ These are recurring lessons from the focused docs plus past Droid sessions for t
   - **Merge note:** `shouldUseSecureCookie()` is in `packages/api/` (compiled to `packages/api/dist/index.js`). Upstream merges that touch `packages/api/src/oauth/csrf.ts` need the `isPlainHttp` check re-applied.
   - **Diagnostic lesson:** When debugging cookie issues, always inspect the raw `Set-Cookie` response header (via Playwright, curl `-v`, or DevTools Network tab) -- don't rely on checking `document.cookie` or server-side logs alone. Also, always test runtime behavior inside the actual server process (add `logger.warn` calls), not via `docker exec node -e` which runs in a different environment.
 - 2026-04-11 Stop button persists after stream finishes (first fix): after `finalHandler` navigates from `/c/new` to `/c/<uuid>`, the stale submission atom could trigger `useResumeOnLoad` to re-enable the stop button. Fix: in `useResumableSSE.ts`, clear the submission atom (`setSubmission(null)`) after processing the final event, preventing stale state from being misinterpreted as an active stream.
+- 2026-06-06 Sidebar chat grouping uses fixed recency/date buckets: Today, Yesterday, Last week, Last month, current-year month buckets, Last year, and Older than last year. Preserve `client/src/utils/convos.ts` as the grouping layer rather than reverting to the older Today / previous 7 days / previous 30 days headings.
+- 2026-06-06 User presets are manually sortable. `Preset.order` is user-controlled via `POST /api/presets/order`, and the preset menu exposes drag/drop plus move up/down icon controls. Setting a default preset must not force `order=0`; default-preset pinning and user-defined sort order are separate concerns.
 - 2026-04-20 Stop button persists after stream finishes (regression — **critical**):
   - **Symptom:** After any model finished streaming, the stop button stayed visible permanently. Affected all non-assistants models (everything routed through `useResumableSSE`).
   - **Root cause:** In `client/src/hooks/SSE/useResumableSSE.ts` line 176, the earlier customization changed `clearAllDrafts(...)` to `clearDraft(...)`. But `clearDraft` is a local function defined only in `useSSE.ts` — it was never imported or defined in `useResumableSSE.ts`. Every time the server sent the `final` SSE event, `clearDraft(...)` threw a `ReferenceError`. The outer `try-catch` in the message handler silently swallowed the error (`catch (error) { console.error(...) }`), which prevented `finalHandler`, `sse.close()`, `setIsSubmitting(false)`, `setShowStopButton(false)`, and `setSubmission(null)` from ever executing.
@@ -1289,6 +1471,8 @@ These are recurring lessons from the focused docs plus past Droid sessions for t
   - **Fix (two parts):**
     1. Changed `clearDraft` → `clearAllDrafts` on line 176 (the function that is actually imported).
     2. Added a safety-net in the outer catch block: if processing a `final` event throws for any reason, the catch now detects it by re-parsing `e.data`, and forces cleanup (`setIsSubmitting(false)`, `setShowStopButton(false)`, `sse.close()`, `setSubmission(null)`). This prevents any future bug in that code path from causing a permanently stuck UI.
+
+- 2026-06-29 Stop button lingers during final persistence (second-stage fix): after the visible model stream finished, Stop could remain available while the server awaited conversation/message persistence and assembled the final event. Fix: agents request controllers emit a `stream_finalizing` SSE event immediately after `client.sendMessage()` returns; `useSSE.ts` and `useResumableSSE.ts` clear `showStopButton` on that event while leaving normal final-event cleanup responsible for `isSubmitting`, messages, active jobs, and submission state.
   - **Prevention lessons:**
     1. **Add `tsc --noEmit` to CI or pre-commit** — this single change would have caught this exact bug before it shipped.
     2. **Never use broad silent catch blocks around critical state transitions** — the original `catch (error) { console.error(...) }` pattern is dangerous when the try block contains state cleanup that must execute. Always add recovery logic for critical events.
@@ -1296,7 +1480,7 @@ These are recurring lessons from the focused docs plus past Droid sessions for t
   - **Collateral damage — forced full rebuild (operational postmortem):**
     - While deploying the one-line fix, an attempt was made to run `npx vite build` inside the stable container to rebuild the client bundle. The container's memory limit caused the Vite process to OOM (exit code 137). The critical failure mode: Vite's build pipeline runs `npm run clean` (which deletes `dist/` directories) **before** the actual compilation step. The OOM killed the process mid-compilation, leaving the container with deleted `packages/api/dist/`, `packages/data-schemas/dist/`, and `client/dist/` — and nothing to replace them. The server then crash-looped on `Cannot find module '@librechat/api/dist/index.js'`.
     - Recovery required: (a) building `@librechat/api` locally with `NODE_OPTIONS="--max-old-space-size=8192"` (took ~5 min, default heap was insufficient), (b) copying all three package dists into the container, (c) extracting the original `client/dist` from the Docker image layer via `docker create` + `docker cp`, and finally (d) a full `start-all.sh stable` rebuild (~45 min) to get a clean image with the fix baked in.
-    - **Hard rule: never run package or client builds inside the running API containers.** The containers are memory-constrained and the build toolchain's clean-then-build pattern means an OOM mid-build destroys artifacts without producing replacements. For client-side fixes, always do a full image rebuild via `start-all.sh`. For backend-only fixes (`.js` files under `api/`), `docker cp` + `docker restart` remains safe since no build step is needed.
+    - **Hard rule: never run package or client builds inside the running API containers.** The containers are memory-constrained and the build toolchain's clean-then-build pattern means an OOM mid-build destroys artifacts without producing replacements. For client-side fixes, build `client/dist` on the host and deploy the complete manifest-verified tree with `local-services/deploy-built-client-dist.sh`. For backend/runtime-only fixes (`.js` files under `api/`, runtime config helpers, or built package dist files), use `local-services/deploy-runtime-delta.sh` rather than manual `docker cp`.
 - 2026-04-11 Badge row hidden for super admin: ~~the model quick-selector `BadgeRow` in `ChatForm.tsx` is now conditionally hidden when `isSuperAdmin === true`, using the same detection pattern as `ModelSelectorContext.tsx` (`useAdminPermissionsQuery`). Super admins use the pinned/default model instead of the quick-selector badges.~~ **Superseded 2026-04-26 (see below).** This entry was technically incorrect: `BadgeRow` is the _tool-toggle_ row (Web Search, Code Interpreter, File Search, Artifacts, MCP Servers, and as of 2026-04-26 the Image generation badge plus the ToolsDropdown menu), not a model selector. Hiding it from super admins removed legitimate per-conversation tool controls. The `{!isSuperAdmin && (<BadgeRow .../>)}` gate has been removed; super admins now see all badges and the ToolsDropdown like every other user, gated only by per-tool permissions on their role.
 - 2026-04-11 Pinned model reset on new chat: `useNewConvo.ts` unconditionally applied the admin `defaultPreset` when `endpoint` was null (new chat), overriding the user's manually selected model stored in `lastConversationSetup`. Fix: added a `userHasManualModelSelection` check that bypasses the admin default when the user has an explicit non-spec model selection in localStorage.
 - 2026-04-11 Gemini/Vertex AI callable discovery: in Vertex mode, do not trust `GOOGLE_MODELS` or `models.list()` metadata alone. Normal selector loads should stay cheap and use the configured/default list first. When a real Vertex "not found / no access" failure happens, list candidate publisher models, probe them (currently via `countTokens`), cache the callable union across the preferred location plus official Google model locations, and only then replace the selector contents. This prevents stale or unauthorized models (for example older Gemini 2.0 entries) from lingering while also avoiding expensive all-location discovery on every startup/config request.
@@ -1304,7 +1488,7 @@ These are recurring lessons from the focused docs plus past Droid sessions for t
 - 2026-04-11 Gemini 2.5 Flash-Lite thinking sanitization: do not inherit default thinking / `includeThoughts` settings from broader Gemini family heuristics. Vertex rejects requests when `includeThoughts` is sent while thinking is disabled, so capability metadata and request builders must strip thinking controls for unsupported models such as `gemini-2.5-flash-lite`.
 - 2026-04-12 Vertex selector refresh invalidation: refreshing the callable-model cache is not enough by itself. LibreChat's config/model selector caches must also be invalidated on a successful refresh, or the browser will keep showing the stale fallback list until the process restarts.
 - 2026-04-12 Per-model Vertex routing: once multi-location discovery is cached, chat initialization must honor each model's discovered `vertexLocation` and optional fallback list. Otherwise global-only models such as `gemini-3.1-pro-preview` still fail under a `us-central1` default even though discovery already proved they are callable elsewhere.
-- 2026-04-12 Local rail deployment under memory limits: the dev/stable API containers are memory-limited enough to kill `packages/api` Rollup builds in-container (`exit 137`). For code-only package hotfixes, build the safe `dist` on the host against a rail-equivalent source snapshot, then `docker cp` the bundle into the target rail instead of trying to rebuild the whole package inside the constrained container.
+- 2026-04-12 Local rail deployment under memory limits: the dev/stable API containers are memory-limited enough to kill `packages/api` Rollup builds in-container (`exit 137`). For code-only package hotfixes, build the safe `dist` on the host against a rail-equivalent source snapshot, then deploy the resulting `packages/*/dist/**` artifacts with `local-services/deploy-runtime-delta.sh` instead of trying to rebuild the whole package inside the constrained container.
 - 2026-04-11 Playwright automation test account: created `playwright@test.local` / `PlaywrightBot123!` (name: "Playwright Bot") for automated E2E testing via Playwright. `ALLOW_UNVERIFIED_EMAIL_LOGIN=true` in `.env` so email verification is not required. Use this account for all automated browser testing -- never use real user credentials in automation. This account was used to validate the Google selector contents and live Gemini chat flow on both dev and stable rails after the Vertex fixes.
 - 2026-04-11 Auth cookie diagnostic logging in AuthController.js: added `logger.debug` calls in `refreshController` to log cookie presence (`hasRefreshToken`, `hasTokenProvider`, `cookieHeader`), and `logger.warn` before the "No refresh token cookie found" return. These are diagnostic additions that will conflict with upstream during merges; preserve them if auth debugging is still needed, or remove once the auth cookie fix is confirmed stable long-term.
 - 2026-04-11 Gemini/Vertex AI service-account runtime mount: `docker-compose.local.override.yml` mounts `./data/google-service-account.json` → `/app/data/google-service-account.json` (read-only), and the `.gitignore` includes `/data/google-service-account.json` to prevent credential leakage. The operational lesson is stricter than the env/config lesson: every rail/container must actually have that file present at runtime. Dev and stable can diverge if one rail has the JSON copied/mounted and the other does not, which causes stable to fall back away from Vertex discovery/auth and quietly repopulate stale env-listed models.
@@ -1409,7 +1593,7 @@ Frontend:
 
 #### Live-rail deployment notes
 
-- Code-only deploy: rebuild `data-provider`, `data-schemas`, `packages/api`, then run `npm run frontend`. Push the resulting dists/SPA via `docker cp` and restart the target container — no Docker image rebuild needed.
+- Code-only deploy: for backend/runtime files, use `local-services/deploy-runtime-delta.sh` so the previous files are snapshotted, copied, restarted, and health-checked without a Docker image rebuild. For package source changes, build the package dist on the host first, then deploy `packages/*/dist/**` with the runtime-delta helper. For frontend source changes, build the complete `client/dist` tree and deploy it with `local-services/deploy-built-client-dist.sh`.
 - Smoke test after deploy: `curl http://localhost:<port>/api/image-generation/models` must return `401` (unauthenticated). The Settings → Image generation tab loads only for users whose role grants `IMAGE_GEN.USE`.
 
 ---
@@ -1450,6 +1634,57 @@ Frontend:
 
 ---
 
+### 3.22 arXiv research MCP server integration with prompt-injection guardrails
+
+#### What it adds
+
+- Configures the external `/pool/home/timeng/arxiv-mcp-server` service as LibreChat MCP server `arxiv`.
+- Exposes the server through streamable HTTP at `http://192.168.50.4:8771/mcp/`.
+- Adds `http://192.168.50.4:8771` to `mcpSettings.allowedDomains`.
+- Sets the arXiv icon with `iconPath: https://info.arxiv.org/brand/images/brand-logomark-primary.jpg`.
+- Injects custom `serverInstructions` warning that arXiv titles, abstracts, and paper text are untrusted external content and must be treated as data, not instructions.
+- Exposes the bounded platform tool surface: `search_papers`, `get_abstract`, `download_paper`, `read_paper`, `list_papers`, and `citation_graph`.
+- Keeps stateful or heavy/experimental upstream tools hidden for platform-wide use via the external service `ENABLED_TOOLS` allowlist: `watch_topic`, `check_alerts`, `semantic_search`, and `reindex` are not listed or callable.
+
+#### Key files / runtime dependencies
+
+- `librechat.yaml` (runtime, gitignored) — `mcpServers.arxiv` and `mcpSettings.allowedDomains`.
+- `/pool/home/timeng/arxiv-mcp-server` — external Python MCP service cloned from `https://github.com/blazickjp/arxiv-mcp-server`.
+- `/pool/home/timeng/arxiv-mcp-server/src/arxiv_mcp_server/config.py` — local `ENABLED_TOOLS`, transport, host, port, and origin/host allowlist settings.
+- `/pool/home/timeng/arxiv-mcp-server/src/arxiv_mcp_server/server.py` — local tool allowlist support for safe platform exposure.
+- `/pool/home/timeng/arxiv-mcp-server/src/arxiv_mcp_server/tools/download.py` — paper download, HTML/PDF extraction, content warning, and safe storage path use.
+- `/pool/home/timeng/arxiv-mcp-server/src/arxiv_mcp_server/tools/list_papers.py` — local paper-ID validation and storage path confinement.
+- `/pool/home/timeng/arxiv-mcp-server/src/arxiv_mcp_server/tools/read_paper.py` — stored paper reads, content warning, and shared safe paper path use.
+- `/home/timeng/.config/systemd/user/arxiv-mcp.service` — user service that keeps the external MCP server active on port `8771`.
+- `ARXIV_MCP.md` — focused local runbook, security notes, and tool-surface reference.
+
+#### Preserve during merges / runtime changes
+
+- Keep `mcpServers.arxiv` configured as `type: streamable-http`, `url: http://192.168.50.4:8771/mcp/`, `timeout: 180000`, and `initTimeout: 30000`.
+- Keep `http://192.168.50.4:8771` in `mcpSettings.allowedDomains`.
+- Keep the trailing slash on `/mcp/`; the no-slash URL returns a `307` redirect that broke LibreChat streamable HTTP initialization.
+- Keep the arXiv prompt-injection `serverInstructions`; upstream explicitly warns that paper content is untrusted and may contain adversarial instructions.
+- Keep the systemd service `ALLOWED_HOSTS` constrained to the LibreChat/LAN host values; unexpected Host headers should return `421 Invalid Host header`.
+- Keep the platform exposed tool allowlist limited unless a separate review approves shared watches, semantic indexing, or other stateful/heavy tools.
+- Keep paper storage confined to `/pool/home/timeng/arxiv-mcp-server/papers`; do not remove the paper-ID validation/path-confinement patch.
+- Keep the `[UNTRUSTED EXTERNAL CONTENT — arXiv paper...]` warning prepended to text returned by `download_paper` and `read_paper`.
+
+#### Validation notes
+
+- External server validation passed with `pytest` (`94 passed`, one upstream pytest config warning).
+- External server formatting passed with `black --check src tests`.
+- Live MCP validation passed: `tools/list` returned the six exposed `arxiv` tools.
+- Host-header validation passed: allowed `Host: 192.168.50.4:8771` reached MCP transport; `Host: evil.example:8771` returned `421 Invalid Host header`.
+- Direct MCP content-fetch validation passed: `download_paper` fetched previously uncached paper `2401.00001` from the HTML source path, and `read_paper` read it back from local storage with the untrusted-content warning.
+- Dev LibreChat API on `:3081` initialized `arxiv` and exposed only the six allowlisted tools.
+- Stable LibreChat API on `:3080` initialized `arxiv`; `/api/mcp/tools` exposed only the six allowlisted tools and `/api/mcp/servers` returned the configured icon/instructions metadata.
+
+#### Lessons learned
+
+- 2026-05-24: LibreChat streamable HTTP MCP URLs for this FastMCP server must use `http://192.168.50.4:8771/mcp/` with the trailing slash. The no-slash URL receives a `307` redirect and caused LibreChat SDK initialization to fail with an empty "Error POSTing to endpoint" message.
+
+---
+
 ## 4. Merge-sensitive files / surfaces to watch closely
 
 When merging upstream changes, pay special attention to these areas.
@@ -1457,11 +1692,13 @@ When merging upstream changes, pay special attention to these areas.
 ### Runtime/config surface
 
 - `.env.example`
-- `librechat.yaml` (runtime, gitignored -- verify `interface`, `modelSpecs`, endpoint config, local MCP allowlist entries through `http://192.168.50.4:8770`, and `mcpServers.internet-archive` are intact after any modification)
+- `librechat.yaml` (runtime, gitignored -- verify `interface`, `modelSpecs`, endpoint config, local MCP allowlist entries through `http://192.168.50.4:8771`, keep static `mcpServers.arcade-read` absent, and preserve `mcpServers.internet-archive` / `mcpServers.arxiv` after any modification)
 - `librechat.example.yaml`
 - `api/server/routes/config.js`
 - `packages/api/src/endpoints/models.ts`
-- `api/server/services/ModelAccess.js` (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` -- keep aligned with `modelSpecs` quick-selector)
+- `packages/api/src/endpoints/byok.ts`
+- `packages/api/src/endpoints/{openai,anthropic,google,bedrock,custom}/initialize.ts`
+- `api/server/services/ModelAccess.js` (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` -- review separately from `modelSpecs`, which is only a quick-selector surface)
 - `local-services/dev-seed-validation-personas.js` (can inject modelSpecs into librechat.yaml -- do not run against shared runtime yaml)
 
 ### Admin / RBAC / app settings
@@ -1472,6 +1709,7 @@ When merging upstream changes, pay special attention to these areas.
 - `packages/data-provider/src/admin.ts`
 - `packages/data-schemas/src/schema/adminRole.ts`
 - `packages/data-schemas/src/schema/appSettings.ts`
+- `packages/data-schemas/src/schema/user.ts`
 
 ### Scheduled runs
 
@@ -1483,6 +1721,7 @@ When merging upstream changes, pay special attention to these areas.
 ### Model access defaults / per-user restrictions
 
 - `api/server/services/ModelAccess.js`
+- `api/server/services/ModelRateLimits.js`
 - auth/user-creation strategy files
 - `packages/data-schemas/src/schema/user.ts`
 - `packages/data-schemas/src/types/user.ts`
@@ -1501,8 +1740,10 @@ When merging upstream changes, pay special attention to these areas.
 - `client/src/components/Chat/Input/MCPSelect.tsx`
 - `client/src/components/Chat/Input/MCPSelect.guards.spec.ts`
 - `packages/api/src/mcp/zod.ts`
+- `packages/api/src/mcp/registry/MCPServersRegistry.ts`
 - `packages/api/src/mcp/oauth/handler.ts`
 - `packages/api/src/mcp/MCPConnectionFactory.ts`
+- `packages/data-schemas/src/schema/mcpServer.ts`
 - `docker-compose.local.override.yml`
 
 ### Realtime voice
@@ -1582,20 +1823,33 @@ When merging upstream changes, pay special attention to these areas.
 - `Dockerfile`
 - `Dockerfile.remote-patched`
 - `local-services/*`
+- `local-services/deploy-runtime-delta.sh` — guarded backend/config/runtime file fast deploy with snapshot/restart/health-check
+- `local-services/deploy-built-client-dist.sh` — complete frontend dist deploy/rollback enforcement
+- `client/scripts/post-build.cjs` — frontend dist integrity-manifest generation
 - `.devcontainer/*`
 - `.gitignore`
 
-### Auth cookie and session hardening (LAN/plain-HTTP deployments)
+### Authentication security: HTTPS, MFA, tokens, and sessions
 
-- `packages/api/src/oauth/csrf.ts` — `shouldUseSecureCookie()` with `isPlainHttp` bypass for `http://` DOMAIN_SERVER
-- `api/server/services/AuthService.js` — `sameSite: 'lax'` on `refreshToken` and `token_provider` cookies in `setAuthTokens()`
-- `api/server/controllers/AuthController.js` — diagnostic `logger.debug`/`logger.warn` calls in `refreshController`
+- `AUTH_SECURITY.md` is the focused production runbook for Tailscale HTTPS, local TOTP enrollment, federated-provider MFA behavior, recovery, validation, and rollback.
+- `api/strategies/localStrategy.js`, `api/server/middleware/requireLocalAuth.js`, and `api/strategies/validators.js` return generic credential failures, perform dummy bcrypt work for unknown/passwordless accounts, avoid logging submitted request bodies, and keep the new-password minimum separate from existing-user login.
+- `api/server/controllers/auth/{LoginController,TwoFactorAuthController}.js`, `api/server/services/{twoFactorService,mfaPolicy}.js`, `api/server/middleware/limiters/mfaLimiter.js`, and `client/src/components/Auth/TwoFactorScreen.tsx` use a five-minute path-scoped HttpOnly pending cookie, standard RFC 6238 authenticator enrollment, backup codes, account/IP MFA attempt limits, normalized-email login throttling, atomic one-time backup-code consumption, and no MFA token in browser URLs.
+- Local-password MFA can be enforced for admins or all local accounts; OIDC, Microsoft Entra ID, SAML, and other federated providers keep provider-native MFA. Enforced local users cannot disable MFA, and `scripts/admin-reset-user-mfa.js` provides a session-revoking recovery path.
+- `packages/data-schemas/src/{methods,crypto,types}`, `api/strategies/jwtStrategy.js`, `api/server/controllers/AuthController.js`, `api/server/middleware/validateImageRequest.js`, and `api/server/services/Realtime/auth.js` bind local JWTs to access/refresh/openid-user purposes with issuer/audience validation while preserving server-side hashed refresh sessions and rotation.
+- `packages/api/src/oauth/csrf.ts` supports `FORCE_SECURE_COOKIES=true` behind an HTTPS proxy. `packages/api/src/mcp/oauth/handler.ts` uses `MCP_OAUTH_CALLBACK_BASE_URL` so the public app can use Tailscale HTTPS while Arcade/Microsoft MCP OAuth retains its loopback callback.
+- `api/server/middleware/securityHeaders.js` and the server bootstrap add anti-framing, MIME, referrer, permissions, CSP, auth no-store, HSTS-on-HTTPS, and explicit-origin CORS protections.
+- Production policy disables public registration and unverified-email login, raises new/reset passwords to 12 characters, uses 15-minute access JWTs and 30-day refresh sessions, and serves the app through `https://librechatvm.tail6e13ff.ts.net:8443`. Port `443` remains reserved for the VM Nextcloud/Apache service, and public registration is disabled in both `ALLOW_REGISTRATION` and the persisted global app-settings override.
+- The 30-day refresh session is an absolute server-side MongoDB expiry. Refresh tokens rotate on use without extending that original expiry; access JWTs remain 15 minutes so stolen bearer tokens age out quickly. See `AUTH_SECURITY.md` for the complete credential-lifetime table and revocation behavior.
 
-### UX bug fixes (stop button, badge row, pinned model)
+### UX bug fixes and ordering controls (stop button, badge row, pinned model, sidebar groups, presets)
 
-- `client/src/hooks/SSE/useResumableSSE.ts` — `setSubmission(null)` after final event to clear stop button; `clearDraft` → `clearAllDrafts` fix (the imported function); safety-net catch block that forces UI cleanup if `final` event processing throws
+- `client/src/hooks/SSE/useResumableSSE.ts` — `setSubmission(null)` after final event to clear stop button; `clearDraft` → `clearAllDrafts` fix (the imported function); safety-net catch block that forces UI cleanup if `final` event processing throws; `stream_finalizing` handler that hides Stop as soon as generation has returned and the server is finalizing persistence
 - ~~`client/src/components/Chat/Input/ChatForm.tsx` — `{!isSuperAdmin && <BadgeRow>}` conditional, super admin detection via `useAdminPermissionsQuery`~~ **Removed 2026-04-26.** `BadgeRow` is the tool-toggle row, not a model selector; the gate is gone and tool-row visibility is now governed entirely by per-tool `useHasAccess` checks inside `BadgeRow.tsx`. A regression guard at `client/src/components/Chat/Input/ChatForm.guards.spec.ts` fails CI if any future merge re-wraps `<BadgeRow` in an `isSuperAdmin` gate.
 - `client/src/hooks/useNewConvo.ts` — `userHasManualModelSelection` check to preserve pinned model; `FILES_DRAFT` cleanup on new conversation
+- `client/src/utils/convos.ts` — fixed sidebar date buckets: Today, Yesterday, Last week, Last month, current-year month buckets, Last year, Older than last year
+- `api/models/Preset.js`, `api/server/routes/presets.js`, `client/src/hooks/Conversations/usePresets.ts`, and `client/src/components/Chat/Menus/Presets/PresetItems.tsx` — user-controlled preset ordering, persisted through `/api/presets/order`; default preset selection must not overwrite manual order
+- `client/src/hooks/Conversations/useDebouncedInput.ts`, `client/src/hooks/Conversations/usePresets.ts`, and `client/src/components/Chat/Menus/Presets/EditPresetDialog.tsx` — preset edit saves flush pending debounced field updates, submit from the latest Recoil snapshot, update the React Query/default-preset caches immediately on mutation success, and sync saved parameter changes into the active matching conversation so the saved values reflect without waiting for a later refetch or new chat
+- `client/src/hooks/Chat/useAddedResponse.ts`, `client/src/hooks/Chat/useChatFunctions.ts`, `client/src/hooks/Messages/useSubmitMessage.ts`, `client/src/components/Chat/Input/{ChatForm,TextareaHeader,AddedConvo}.tsx`, `client/src/components/Chat/Messages/Content/ParallelContent.tsx`, `client/src/utils/messages.ts`, `packages/data-provider/src/{types,createPayload}.ts`, `api/server/services/Endpoints/agents/{build,addedConvo}.js`, `api/server/middleware/accessResources/canAccessAgentFromBody.js`, `api/models/loadAddedAgent.js`, and `api/app/clients/BaseClient.js` — multi-conversation fan-out supports an arbitrary `addedConvos[]` list while preserving the legacy first `addedConvo` field. Each added conversation gets a stable positive index, independent removable chip, unique placeholder agent ID, full resource permission check, parallel backend agent config, runtime tool-execution context, and a readable horizontally scrollable response column.
 
 ### Regression guards (pinned tests; do not loosen)
 
@@ -1713,21 +1967,25 @@ Run the relevant checks for the touched areas before considering the merge done.
 For the MCP/OAuth customization area, the current targeted checks are:
 
 ```bash
-docker exec -w /app LibreChat npm --prefix /app/packages/api run test:ci -- --runInBand --testPathPatterns=src/mcp/__tests__/handler.test.ts
-docker exec -w /app LibreChat npm --prefix /app/packages/api run test:ci -- --runInBand --testPathPatterns=src/mcp/__tests__/zod.spec.ts
-docker exec LibreChat node -e "console.log(process.env.DOMAIN_SERVER || '')"
+cd /pool/home/timeng/LibreChat-custom/packages/api
+npx jest --runInBand --testPathPatterns=src/mcp/__tests__/handler.test.ts
+npx jest --runInBand --testPathPatterns=src/mcp/__tests__/zod.spec.ts
+
+# Read-only VM runtime confirmation:
+ssh timeng@192.168.50.104 'docker exec LibreChat node -e "console.log(process.env.DOMAIN_SERVER || \"\")"'
 ```
 
 If the backend route suite is needed, remember that `api/server/routes/__tests__/mcp.spec.js` is still locally affected by the existing Alpine `mongodb-memory-server` limitation.
 
-### Step 6: rebuild the custom runtime
+### Step 6: refresh the custom runtime only as needed
 
 ```bash
 cd /pool/home/timeng/LibreChat-custom
-./local-services/start-all.sh
+./local-services/deploy-runtime-delta.sh dev --dry-run -- <paths>
+./local-services/deploy-runtime-delta.sh dev -- <paths>
 ```
 
-That helper path now resolves the checked-in `docker-compose.local.override.yml`, validates the compose config, and force-recreates the local `librechat-local:latest` container so agent restarts stay on the customization image instead of drifting back to upstream defaults.
+For small backend/config/runtime-loaded changes, prefer the runtime-delta helper above so the old files are snapshotted, the accepted paths are copied, the API is restarted, and health checks run without a full image rebuild. If the helper refuses the paths, build the required package/frontend artifacts or use `./local-services/start-all.sh dev` for dependency, Dockerfile, base-image, compose, or container-shape changes. That startup path resolves the checked-in `docker-compose.local.override.yml`, validates the compose config, and force-recreates the local custom container so agent restarts stay on the customization image instead of drifting back to upstream defaults.
 
 ---
 
@@ -1746,6 +2004,9 @@ That helper path now resolves the checked-in `docker-compose.local.override.yml`
 - realtime voice routes, websocket auth refresh, provider adapters, client audio/transcript UX, and sidebar conversation persistence remain intact
 - the local code interpreter bridge remains available with warm-session reuse and prewarm behavior
 - Langfuse pricing sync/backfill and alias-aware pricing behavior remain intact
+- admin-console observability links remain host-aware and point at the VM
+  observability services: Langfuse `localhost:3000`, Grafana `localhost:3001`,
+  metrics exporter `localhost:9091`, and app Prometheus `localhost:9092`
 - Azure direct Azure OpenAI / Azure AI Foundry per-user configuration remains intact (including the v1 api-version exclusion fix)
 - background audio/video transcription queue, runner, and persistent conversation flow remain intact
 - `metadata.transcription` sub-document schema in file.ts stays declared (not Mixed) so Mongoose $set updates persist correctly
@@ -1753,9 +2014,13 @@ That helper path now resolves the checked-in `docker-compose.local.override.yml`
 - shared Google credential helpers in `packages/api/src/endpoints/google/auth.ts` remain the single source of truth for credential resolution
 - the Google endpoint settings UI with auth mode dropdown and conditional field rendering remains intact
 - local startup scripts continue rebuilding and running the custom image from `docker-compose.local.override.yml`
+- small backend/config/package-dist hotfixes use `local-services/deploy-runtime-delta.sh` for copy/restart iteration; the helper must keep refusing frontend source, package source, dependency, Dockerfile, and compose-file changes that need build or recreate paths
+- all `client/src/**` deployments use a successful manifest-verified whole-`client/dist` build through `local-services/deploy-built-client-dist.sh`; no generated hashed asset, `client/dist/index.html`, or `client/dist/sw.js` is hand-patched for frontend promotion
+- OpenAI/Azure native Responses web-search requests remain bounded by the `max_tool_calls` enforcement in `packages/api/src/endpoints/openai/llm.ts` so a live reasoning/search turn cannot remain in repeated search stages indefinitely
+- `npm run verify:openai-reasoning-preservation` passes before deployment and, after any approved VM stable change affecting OpenAI Responses, reasoning display, runtime patches, or frontend thought rendering, the deployed VM runtime passes `ssh timeng@192.168.50.104 'cd /opt/LibreChat-custom && ./local-services/verify-openai-reasoning-preservation.sh --container LibreChat'`
 - the runtime `librechat.yaml` includes a `memory:` section with a valid agent config (provider + model or agent id) so that user memories are retrieved and injected into agent conversations
 - the runtime `librechat.yaml` always includes an `interface` block with `endpointsMenu`, `modelSelect`, `parameters`, `sidePanel`, and `presets` all set to `true`
-- `modelSpecs` in `librechat.yaml` uses `enforce: false` so the quick-selector never blocks free model access; the specs list stays aligned with `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`
+- `modelSpecs` in `librechat.yaml` uses `enforce: false` so the quick-selector never blocks free model access; review it separately from `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`, which is the default access policy source
 - the Ollama local endpoint uses `fetch: false` with an explicit model list; Ollama Cloud uses `user_provided` key with its own default list; these must not be re-merged into a single endpoint
 - `local-services/dev-seed-validation-personas.js` must never be run against the shared runtime `librechat.yaml`; it is dev-rail validation tooling only
 - secret/runtime-only files remain ignored and not accidentally committed

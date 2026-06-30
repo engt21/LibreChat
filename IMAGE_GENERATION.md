@@ -185,15 +185,19 @@ cd client && npx jest --testPathPatterns=components/Chat/Messages/Content/__test
 
 Code-only changes:
 
-1. Rebuild the four affected packages on the host:
+1. Build only the artifacts required by the files you changed. If package or frontend source changed, rebuild those artifacts on the host:
    ```bash
    NODE_OPTIONS="--max-old-space-size=8192" npm run build:data-provider
    NODE_OPTIONS="--max-old-space-size=8192" npm run build:data-schemas
    NODE_OPTIONS="--max-old-space-size=8192" npm run build:api
    NODE_OPTIONS="--max-old-space-size=8192" npm run frontend
    ```
-2. `docker cp` the three `dist/` trees plus the modified `api/` files into the target container.
-3. `docker restart <container>`.
+2. For backend/runtime files and already-built `packages/*/dist/**`, use the guarded runtime-delta helper instead of manual `docker cp`:
+   ```bash
+   ./local-services/deploy-runtime-delta.sh dev --dry-run -- api/server/routes/imageGeneration.js packages/api/dist
+   ./local-services/deploy-runtime-delta.sh dev -- api/server/routes/imageGeneration.js packages/api/dist
+   ```
+3. For frontend source changes, deploy the complete host-built `client/dist` tree with `local-services/deploy-built-client-dist.sh`; never hand-copy individual generated assets.
 4. Smoke check:
    ```bash
    curl -s -o /dev/null -w "%{http_code}\n" http://localhost:<port>/api/image-generation/models

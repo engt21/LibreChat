@@ -24,6 +24,7 @@ const mockAdminPermissionsQuery: Record<string, unknown> = {
 const mockAdminUsersQuery: Record<string, unknown> = { data: undefined, isLoading: false };
 const mockAdminUserQuery: Record<string, unknown> = { data: undefined, isLoading: false };
 const mockAdminUsageQuery: Record<string, unknown> = { data: undefined, isLoading: false };
+const mockAdminMCPServersQuery: Record<string, unknown> = { data: undefined, isLoading: false };
 const mockAdminSettingsQuery: Record<string, unknown> = { data: undefined, isLoading: false };
 const mockAdminObservabilityQuery: Record<string, unknown> = {
   data: undefined,
@@ -34,12 +35,14 @@ const mockAdminModelsQuery: Record<string, unknown> = { data: undefined, isLoadi
 
 const mockRefreshAdminModelsMutate = jest.fn();
 const mockUpdateAdminSettingsMutateAsync = jest.fn();
+const mockUpdateAdminMCPPublicationMutate = jest.fn();
 
 jest.mock('~/data-provider', () => ({
   useAdminPermissionsQuery: () => mockAdminPermissionsQuery,
   useAdminUsersQuery: () => mockAdminUsersQuery,
   useAdminUserQuery: () => mockAdminUserQuery,
   useAdminUsageQuery: () => mockAdminUsageQuery,
+  useAdminMCPServersQuery: () => mockAdminMCPServersQuery,
   useAdminSettingsQuery: () => mockAdminSettingsQuery,
   useAdminObservabilityQuery: () => mockAdminObservabilityQuery,
   useAdminRolesQuery: () => mockAdminRolesQuery,
@@ -57,6 +60,12 @@ jest.mock('~/data-provider', () => ({
   }),
   useUpdateAdminSettingsMutation: () => ({
     mutateAsync: mockUpdateAdminSettingsMutateAsync,
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useUpdateAdminMCPServerPublicationMutation: () => ({
+    mutate: mockUpdateAdminMCPPublicationMutate,
     isLoading: false,
     isError: false,
     error: null,
@@ -141,6 +150,8 @@ function resetQueryDefaults() {
   mockAdminPermissionsQuery.isError = false;
   mockAdminSettingsQuery.data = undefined;
   mockAdminSettingsQuery.isLoading = false;
+  mockAdminMCPServersQuery.data = undefined;
+  mockAdminMCPServersQuery.isLoading = false;
 }
 
 describe('AdminConsole – permission gating', () => {

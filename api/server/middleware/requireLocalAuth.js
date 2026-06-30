@@ -9,7 +9,7 @@ const requireLocalAuth = (req, res, next) => {
     }
     if (!user) {
       logger.debug('[requireLocalAuth] Error: No user');
-      return res.status(404).send(info);
+      return res.status(401).send({ message: info?.message || 'Invalid email or password.' });
     }
     if (info && info.message) {
       logger.debug('[requireLocalAuth] Error: ' + info.message);

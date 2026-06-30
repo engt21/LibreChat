@@ -273,15 +273,16 @@ export const validateFiles = ({
   for (let i = 0; i < fileList.length; i++) {
     let originalFile = fileList[i];
     const fileType = inferMimeType(originalFile.name, originalFile.type);
+    const isCodeInterpreterUpload = toolResource === EToolResources.execute_code;
 
     // Check if the file type is still empty after the extension check
-    if (!fileType) {
+    if (!fileType && !isCodeInterpreterUpload) {
       setError('Unable to determine file type for: ' + originalFile.name);
       return false;
     }
 
     // Replace empty type with inferred type
-    if (originalFile.type !== fileType) {
+    if (fileType && originalFile.type !== fileType) {
       const newFile = new File([originalFile], originalFile.name, { type: fileType });
       originalFile = newFile;
       fileList[i] = newFile;
@@ -296,7 +297,7 @@ export const validateFiles = ({
       ];
     }
 
-    if (!checkType(originalFile.type, mimeTypesToCheck)) {
+    if (!isCodeInterpreterUpload && !checkType(originalFile.type, mimeTypesToCheck)) {
       // Allow transcribable audio/video files through as message attachments;
       // the server-side multer filter and filterFile apply the same bypass.
       if (!isTranscribableMediaUpload(originalFile.name, originalFile.type)) {

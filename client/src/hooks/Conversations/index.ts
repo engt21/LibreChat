@@ -3,7 +3,7 @@ export { default as useGetSender } from './useGetSender';
 export { default as useDefaultConvo } from './useDefaultConvo';
 export { default as useSearchEnabled } from './useSearchEnabled';
 export { default as useGenerateConvo } from './useGenerateConvo';
-export { default as useDebouncedInput } from './useDebouncedInput';
+export { default as useDebouncedInput, flushDebouncedInputs } from './useDebouncedInput';
 export { default as useGetConversation } from './useGetConversation';
 export { default as useBookmarkSuccess } from './useBookmarkSuccess';
 export { default as useNavigateToConvo } from './useNavigateToConvo';

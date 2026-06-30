@@ -118,6 +118,10 @@ export function updatePreset(payload: s.TPreset): Promise<s.TPreset> {
   return request.post(endpoints.presets(), payload);
 }
 
+export function reorderPresets(payload: m.PresetOrderUpdate): Promise<s.TPreset[]> {
+  return request.post(endpoints.reorderPresets(), payload);
+}
+
 export function deletePreset(arg: s.TPreset | undefined): Promise<m.PresetDeleteResponse> {
   return request.post(endpoints.deletePreset(), arg);
 }
@@ -202,6 +206,17 @@ export function deleteAdminUser(userId: string): Promise<void> {
 
 export function getAdminUsage(params: t.AdminListParams = {}): Promise<t.TAdminUsageResponse> {
   return request.get(endpoints.adminUsage(params));
+}
+
+export function getAdminMCPServers(): Promise<t.TAdminMCPServersResponse> {
+  return request.get(endpoints.adminMCPServers());
+}
+
+export function updateAdminMCPServerPublication(
+  serverName: string,
+  payload: t.TAdminMCPServerPublicationUpdate,
+): Promise<t.TAdminMCPServer> {
+  return request.patch(endpoints.adminMCPServerPublication(serverName), payload);
 }
 
 export function getAdminSettings(): Promise<t.TAdminSettings> {
@@ -1139,6 +1154,10 @@ export function regenerateBackupCodes(
   payload?: t.TRegenerateBackupCodesRequest,
 ): Promise<t.TRegenerateBackupCodesResponse> {
   return request.post(endpoints.regenerateBackupCodes(), payload);
+}
+
+export function setupPendingTwoFactor(): Promise<t.TSetupPending2FAResponse> {
+  return request.post(endpoints.setupPendingTwoFactor());
 }
 
 export function verifyTwoFactorTemp(

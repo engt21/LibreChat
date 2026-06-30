@@ -225,9 +225,13 @@ export function createSessionMethods(mongoose: typeof import('mongoose')) {
         payload: {
           id: session.user,
           sessionId: session._id,
+          tokenType: 'refresh',
         },
         secret: process.env.JWT_REFRESH_SECRET!,
         expirationTime: Math.floor((expiresIn - Date.now()) / 1000),
+        issuer: process.env.JWT_ISSUER || 'librechat',
+        audience: process.env.JWT_REFRESH_AUDIENCE || 'librechat-refresh',
+        jwtId: session._id.toString(),
       });
 
       session.refreshTokenHash = await hashToken(refreshToken);

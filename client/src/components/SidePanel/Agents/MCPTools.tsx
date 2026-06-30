@@ -24,6 +24,15 @@ export default function MCPTools({
   if (!hasMcpAccess) {
     return null;
   }
+  const sortedMCPServerNames = mcpServerNames?.slice().sort((left, right) => {
+    const leftName = mcpServersMap.get(left)?.metadata?.name || left;
+    const rightName = mcpServersMap.get(right)?.metadata?.name || right;
+    return (
+      leftName.localeCompare(rightName, undefined, { numeric: true, sensitivity: 'base' }) ||
+      left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+    );
+  });
+
   return (
     <div className="mb-4">
       <label className="text-token-text-primary mb-2 block font-medium">
@@ -32,7 +41,7 @@ export default function MCPTools({
       <div>
         <div className="mb-1">
           {/* Render servers with selected tools */}
-          {mcpServerNames?.map((mcpServerName) => {
+          {sortedMCPServerNames?.map((mcpServerName) => {
             const serverInfo = mcpServersMap.get(mcpServerName);
             if (!serverInfo?.isConfigured) {
               return (

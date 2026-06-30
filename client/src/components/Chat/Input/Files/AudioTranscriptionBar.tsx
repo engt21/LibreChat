@@ -4,7 +4,8 @@ import { v4 } from 'uuid';
 import { useRecoilState } from 'recoil';
 import { Dropdown, TextareaAutosize, useToastContext } from '@librechat/client';
 import { useQueryClient } from '@tanstack/react-query';
-import { QueryKeys } from 'librechat-data-provider';
+import { EToolResources, FileSources, QueryKeys } from 'librechat-data-provider';
+import type { ExtendedFile } from '~/common';
 import { useChatContext } from '~/Providers';
 import { useUploadTranscriptionReferenceMutation } from '~/data-provider';
 import store from '~/store';
@@ -31,6 +32,31 @@ interface AudioTranscriptionBarProps {
   isTranscribing: boolean;
 }
 
+const isCodeInterpreterAttachment = (file: ExtendedFile) =>
+  file.tool_resource === EToolResources.execute_code ||
+  file.source === FileSources.execute_code ||
+  file.metadata?.nativeTool === EToolResources.execute_code ||
+  Boolean(file.metadata?.fileIdentifier);
+
+export const getAudioTranscriptionFiles = (files?: Map<string, ExtendedFile>) => {
+  const result: Array<{ fileId: string; filename: string }> = [];
+  if (!files) {
+    return result;
+  }
+
+  files.forEach((file, key) => {
+    if (isCodeInterpreterAttachment(file)) {
+      return;
+    }
+    const type = file.type ?? '';
+    if (type.startsWith('audio/') || type.startsWith('video/')) {
+      result.push({ fileId: key, filename: file.filename ?? 'audio' });
+    }
+  });
+
+  return result;
+};
+
 export default function AudioTranscriptionBar({
   onTranscribe,
   isTranscribing,
@@ -54,19 +80,7 @@ export default function AudioTranscriptionBar({
 
   const uploadReferenceMutation = useUploadTranscriptionReferenceMutation();
 
-  const audioFiles = useMemo(() => {
-    const result: Array<{ fileId: string; filename: string }> = [];
-    if (!files) {
-      return result;
-    }
-    files.forEach((file, key) => {
-      const type = file.type ?? '';
-      if (type.startsWith('audio/') || type.startsWith('video/')) {
-        result.push({ fileId: key, filename: file.filename ?? 'audio' });
-      }
-    });
-    return result;
-  }, [files]);
+  const audioFiles = useMemo(() => getAudioTranscriptionFiles(files), [files]);
 
   const handleAddSpeakerClip = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {

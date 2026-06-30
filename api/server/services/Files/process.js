@@ -1105,6 +1105,8 @@ function filterFile({ req, image, isAvatar }) {
     endpointFileConfig.supportedMimeTypes,
   );
   const isMessageAttachment = req.body.message_file === 'true';
+  const isCodeInterpreterUpload =
+    !isAssistantsEndpoint(endpoint) && req.body.tool_resource === EToolResources.execute_code;
   const isTranscribableMedia = isMessageAttachment
     ? isTranscribableMediaFile({
         filename: file.originalname,
@@ -1112,7 +1114,7 @@ function filterFile({ req, image, isAvatar }) {
       })
     : false;
 
-  if (!isSupportedMimeType && !isTranscribableMedia) {
+  if (!isSupportedMimeType && !isTranscribableMedia && !isCodeInterpreterUpload) {
     throw new Error('Unsupported file type');
   }
 

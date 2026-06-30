@@ -70,6 +70,21 @@ export const useAdminUsageQuery = (
   );
 };
 
+export const useAdminMCPServersQuery = (
+  config?: UseQueryOptions<t.TAdminMCPServersResponse>,
+): QueryObserverResult<t.TAdminMCPServersResponse> => {
+  return useQuery<t.TAdminMCPServersResponse>(
+    [QueryKeys.adminMCPServers],
+    () => dataService.getAdminMCPServers(),
+    {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      retry: false,
+      ...config,
+    },
+  );
+};
+
 export const useAdminSettingsQuery = (
   config?: UseQueryOptions<t.TAdminSettings>,
 ): QueryObserverResult<t.TAdminSettings> => {

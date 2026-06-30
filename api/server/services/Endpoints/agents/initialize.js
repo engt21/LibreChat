@@ -127,7 +127,9 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
   const toolExecuteOptions = {
     loadTools: async (toolNames, agentId) => {
       const ctx = agentToolContexts.get(agentId) ?? {};
-      logger.debug(`[ON_TOOL_EXECUTE] ctx found: ${!!ctx.userMCPAuthMap}, agent: ${ctx.agent?.id}`);
+      logger.debug(
+        `[ON_TOOL_EXECUTE] ctx found: ${agentToolContexts.has(agentId)}, agent: ${ctx.agent?.id}`,
+      );
       logger.debug(`[ON_TOOL_EXECUTE] toolRegistry size: ${ctx.toolRegistry?.size ?? 'undefined'}`);
 
       const result = await loadToolsForExecution({
@@ -366,22 +368,35 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
   let edges = Array.from(edgeMap.values());
 
   /** Multi-Convo: Process addedConvo for parallel agent execution */
-  const { userMCPAuthMap: updatedMCPAuthMap } = await processAddedConvo({
-    req,
-    res,
-    loadTools,
-    logViolation,
-    modelsConfig,
-    requestFiles,
-    agentConfigs,
-    primaryAgent,
-    endpointOption,
-    userMCPAuthMap,
-    conversationId,
-    parentMessageId,
-    allowedProviders,
-    primaryAgentId: primaryConfig.id,
-  });
+  const { userMCPAuthMap: updatedMCPAuthMap, agentToolContexts: addedAgentToolContexts } =
+    await processAddedConvo({
+      req,
+      res,
+      loadTools,
+      logViolation,
+      modelsConfig,
+      requestFiles,
+      agentConfigs,
+      primaryAgent,
+      endpointOption,
+      userMCPAuthMap,
+      conversationId,
+      parentMessageId,
+      allowedProviders,
+      primaryAgentId: primaryConfig.id,
+    });
+
+  for (const context of addedAgentToolContexts ?? []) {
+    logger.debug(
+      `[initializeClient] Storing added-agent tool context for ${context.agentId}: registry size ${context.toolRegistry?.size ?? '0'}`,
+    );
+    agentToolContexts.set(context.agentId, {
+      agent: context.agent,
+      toolRegistry: context.toolRegistry,
+      userMCPAuthMap: context.userMCPAuthMap,
+      tool_resources: context.tool_resources,
+    });
+  }
 
   if (updatedMCPAuthMap) {
     userMCPAuthMap = updatedMCPAuthMap;

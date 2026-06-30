@@ -152,7 +152,13 @@ const refreshController = async (req, res) => {
   }
 
   try {
-    const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, {
+      issuer: process.env.JWT_ISSUER || 'librechat',
+      audience: process.env.JWT_REFRESH_AUDIENCE || 'librechat-refresh',
+    });
+    if (payload.tokenType && payload.tokenType !== 'refresh') {
+      throw new Error('Invalid refresh token type');
+    }
     const user = await getUserById(payload.id, '-password -__v -totpSecret -backupCodes');
     if (!user) {
       return res.status(401).redirect('/login');

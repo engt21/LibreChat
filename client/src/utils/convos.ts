@@ -1,15 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import { LocalStorageKeys, QueryKeys } from 'librechat-data-provider';
-import {
-  format,
-  isToday,
-  subDays,
-  getYear,
-  parseISO,
-  startOfDay,
-  startOfYear,
-  isWithinInterval,
-} from 'date-fns';
+import { isToday, subDays, parseISO, startOfDay, isWithinInterval, getYear } from 'date-fns';
 import type { TConversation, GroupedConversations } from 'librechat-data-provider';
 import type { InfiniteData } from '@tanstack/react-query';
 
@@ -17,6 +8,11 @@ import type { InfiniteData } from '@tanstack/react-query';
 export const dateKeys = {
   today: 'com_ui_date_today',
   yesterday: 'com_ui_date_yesterday',
+  lastWeek: 'com_ui_date_last_week',
+  lastMonth: 'com_ui_date_last_month',
+  olderThanLastMonth: 'com_ui_date_older_than_last_month',
+  lastYear: 'com_ui_date_last_year',
+  olderThanLastYear: 'com_ui_date_older_than_last_year',
   previous7Days: 'com_ui_date_previous_7_days',
   previous30Days: 'com_ui_date_previous_30_days',
   january: 'com_ui_date_january',
@@ -33,48 +29,61 @@ export const dateKeys = {
   december: 'com_ui_date_december',
 };
 
+const monthDateKeys = [
+  dateKeys.january,
+  dateKeys.february,
+  dateKeys.march,
+  dateKeys.april,
+  dateKeys.may,
+  dateKeys.june,
+  dateKeys.july,
+  dateKeys.august,
+  dateKeys.september,
+  dateKeys.october,
+  dateKeys.november,
+  dateKeys.december,
+];
+
 const getGroupName = (date: Date) => {
   const now = new Date(Date.now());
+  const startToday = startOfDay(now);
+  const startYesterday = startOfDay(subDays(now, 1));
+  const startLastWeek = startOfDay(subDays(now, 7));
+  const startLastMonth = startOfDay(subDays(now, 30));
+
   if (isToday(date)) {
     return dateKeys.today;
   }
-  if (isWithinInterval(date, { start: startOfDay(subDays(now, 1)), end: now })) {
+  if (isWithinInterval(date, { start: startYesterday, end: startToday })) {
     return dateKeys.yesterday;
   }
-  if (isWithinInterval(date, { start: subDays(now, 7), end: now })) {
-    return dateKeys.previous7Days;
+  if (isWithinInterval(date, { start: startLastWeek, end: startYesterday })) {
+    return dateKeys.lastWeek;
   }
-  if (isWithinInterval(date, { start: subDays(now, 30), end: now })) {
-    return dateKeys.previous30Days;
+  if (isWithinInterval(date, { start: startLastMonth, end: startLastWeek })) {
+    return dateKeys.lastMonth;
   }
-  if (isWithinInterval(date, { start: startOfYear(now), end: now })) {
-    const month = format(date, 'MMMM').toLowerCase();
-    return dateKeys[month];
+
+  const currentYear = getYear(now);
+  const conversationYear = getYear(date);
+  if (conversationYear === currentYear) {
+    return monthDateKeys[date.getMonth()];
   }
-  return ' ' + getYear(date).toString();
+  if (conversationYear === currentYear - 1) {
+    return dateKeys.lastYear;
+  }
+  return dateKeys.olderThanLastYear;
 };
 
-const monthOrderMap = new Map([
-  ['december', 11],
-  ['november', 10],
-  ['october', 9],
-  ['september', 8],
-  ['august', 7],
-  ['july', 6],
-  ['june', 5],
-  ['may', 4],
-  ['april', 3],
-  ['march', 2],
-  ['february', 1],
-  ['january', 0],
-]);
-const dateKeysReverse = Object.fromEntries(Object.entries(dateKeys).map(([k, v]) => [v, k]));
-const dateGroupsSet = new Set([
+const getOrderedDateGroups = (now: Date) => [
   dateKeys.today,
   dateKeys.yesterday,
-  dateKeys.previous7Days,
-  dateKeys.previous30Days,
-]);
+  dateKeys.lastWeek,
+  dateKeys.lastMonth,
+  ...monthDateKeys.slice(0, now.getMonth() + 1).reverse(),
+  dateKeys.lastYear,
+  dateKeys.olderThanLastYear,
+];
 
 export const groupConversationsByDate = (
   conversations: Array<TConversation | null>,
@@ -106,26 +115,10 @@ export const groupConversationsByDate = (
   });
 
   const sortedGroups = new Map();
-  dateGroupsSet.forEach((group) => {
+  getOrderedDateGroups(now).forEach((group) => {
     if (groups.has(group)) {
       sortedGroups.set(group, groups.get(group));
     }
-  });
-
-  const yearMonthGroups = Array.from(groups.keys())
-    .filter((group) => !dateGroupsSet.has(group))
-    .sort((a, b) => {
-      const [yearA, yearB] = [parseInt(a.trim()), parseInt(b.trim())];
-      if (yearA !== yearB) {
-        return yearB - yearA;
-      }
-      const [monthA, monthB] = [dateKeysReverse[a], dateKeysReverse[b]];
-      const bOrder = monthOrderMap.get(monthB) ?? -1,
-        aOrder = monthOrderMap.get(monthA) ?? -1;
-      return bOrder - aOrder;
-    });
-  yearMonthGroups.forEach((group) => {
-    sortedGroups.set(group, groups.get(group));
   });
 
   sortedGroups.forEach((conversations) => {

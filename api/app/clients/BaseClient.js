@@ -979,7 +979,10 @@ class BaseClient {
       throw new Error('User mismatch.');
     }
 
-    const hasAddedConvo = options?.req?.body?.addedConvo != null;
+    const addedConvos = options?.req?.body?.addedConvos;
+    const hasAddedConvo =
+      options?.req?.body?.addedConvo != null ||
+      (Array.isArray(addedConvos) && addedConvos.length > 0);
     const savedMessage = await saveMessage(
       options?.req,
       {

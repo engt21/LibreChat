@@ -5,10 +5,18 @@ describe('shouldUseSecureCookie', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    delete process.env.FORCE_SECURE_COOKIES;
   });
 
   afterAll(() => {
     process.env = originalEnv;
+  });
+
+  it('should honor the secure-cookie override for HTTPS proxies', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.DOMAIN_SERVER = 'http://localhost:3080';
+    process.env.FORCE_SECURE_COOKIES = 'true';
+    expect(shouldUseSecureCookie()).toBe(true);
   });
 
   it('should return true in production with a non-localhost domain', () => {
@@ -54,11 +62,9 @@ describe('shouldUseSecureCookie', () => {
       expect(shouldUseSecureCookie()).toBe(false);
     });
 
-    it('should return true for http://[::1]:3080 (IPv6 loopback — not detected due to URL bracket parsing)', () => {
-      // Known limitation: new URL('http://[::1]:3080').hostname returns '[::1]' (with brackets)
-      // but the check compares against '::1' (without brackets). IPv6 localhost is rare in practice.
+    it('should return false for plain HTTP IPv6 loopback', () => {
       process.env.DOMAIN_SERVER = 'http://[::1]:3080';
-      expect(shouldUseSecureCookie()).toBe(true);
+      expect(shouldUseSecureCookie()).toBe(false);
     });
 
     it('should return false for subdomain of localhost', () => {

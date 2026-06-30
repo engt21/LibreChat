@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useRecoilValue } from 'recoil';
+import { useRecoilCallback, useRecoilValue } from 'recoil';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import {
   getEndpointField,
@@ -8,6 +8,7 @@ import {
   getDefaultParamsEndpoint,
 } from 'librechat-data-provider';
 import type { TEndpointsConfig, EModelEndpoint, TConversation } from 'librechat-data-provider';
+import type { RecoilValue } from 'recoil';
 import type { AssistantListItem, NewConversationParams } from '~/common';
 import useAssistantListMap from '~/hooks/Assistants/useAssistantListMap';
 import { buildDefaultConvo, getDefaultEndpoint } from '~/utils';
@@ -15,7 +16,37 @@ import { useGetEndpointsQuery } from '~/data-provider';
 import { mainTextareaId } from '~/common';
 import store from '~/store';
 
-const ADDED_INDEX = 1;
+const FIRST_ADDED_INDEX = 1;
+
+type RecoilSnapshotLike = {
+  getLoadable: <T>(value: RecoilValue<T>) => { getValue: () => T };
+};
+
+const getNextAddedIndex = (snapshot: RecoilSnapshotLike) => {
+  const keys = snapshot.getLoadable<(string | number)[]>(store.conversationKeysAtom).getValue();
+  const usedIndexes = new Set<number>();
+
+  for (const key of keys) {
+    const numericKey = Number(key);
+    if (!Number.isInteger(numericKey) || numericKey < FIRST_ADDED_INDEX) {
+      continue;
+    }
+
+    const conversation = snapshot
+      .getLoadable<TConversation | null>(store.conversationByKeySelector(key))
+      .getValue();
+    if (conversation) {
+      usedIndexes.add(numericKey);
+    }
+  }
+
+  let nextIndex = FIRST_ADDED_INDEX;
+  while (usedIndexes.has(nextIndex)) {
+    nextIndex += 1;
+  }
+
+  return nextIndex;
+};
 
 /**
  * Simplified hook for added conversation state.
@@ -27,13 +58,11 @@ export default function useAddedResponse() {
   const assistantsListMap = useAssistantListMap();
   const rootConvo = useRecoilValue(store.conversationByKeySelector(0));
   const { data: endpointsConfig = {} as TEndpointsConfig } = useGetEndpointsQuery();
-  const { conversation, setConversation } = store.useCreateConversationAtom(ADDED_INDEX);
+  const entries = useRecoilValue(store.addedConversationsSelector);
+  const conversation = entries[0]?.conversation ?? null;
+  const conversations = entries.map((entry) => entry.conversation);
 
-  /**
-   * Generate a new conversation based on template and preset.
-   * Mirrors the logic from useNewConvo's switchToConversation.
-   */
-  const generateConversation = useCallback(
+  const buildAddedConversation = useCallback(
     ({ template = {}, preset, modelsData }: NewConversationParams = {}) => {
       let newConversation: TConversation = {
         conversationId: rootConvo?.conversationId ?? 'new',
@@ -102,29 +131,89 @@ export default function useAddedResponse() {
         newConversation.title = preset.title;
       }
 
-      setConversation(newConversation);
-
-      setTimeout(() => {
-        const textarea = document.getElementById(mainTextareaId);
-        if (textarea) {
-          textarea.focus();
-        }
-      }, 150);
-
       return newConversation;
     },
-    [
-      endpointsConfig,
-      setConversation,
-      modelsQuery.data,
-      assistantsListMap,
-      rootConvo?.conversationId,
-    ],
+    [assistantsListMap, endpointsConfig, modelsQuery.data, rootConvo?.conversationId],
+  );
+
+  /**
+   * Generate a new conversation based on template and preset.
+   * Mirrors the logic from useNewConvo's switchToConversation.
+   */
+  const generateConversation = useRecoilCallback(
+    ({ set, snapshot }) =>
+      (params: NewConversationParams = {}) => {
+        const newConversation = buildAddedConversation(params);
+        const nextIndex = getNextAddedIndex(snapshot);
+
+        set(store.conversationKeysAtom, (prevKeys) =>
+          prevKeys.includes(nextIndex) ? prevKeys : [...prevKeys, nextIndex],
+        );
+        set(store.conversationByIndex(nextIndex), newConversation);
+
+        setTimeout(() => {
+          const textarea = document.getElementById(mainTextareaId);
+          if (textarea) {
+            textarea.focus();
+          }
+        }, 150);
+
+        return newConversation;
+      },
+    [buildAddedConversation],
+  );
+
+  const setConversation = useRecoilCallback(
+    ({ set, snapshot }) =>
+      (value: TConversation | null | ((current: TConversation | null) => TConversation | null)) => {
+        const targetIndex = entries[0]?.index ?? getNextAddedIndex(snapshot);
+        const previousConversation =
+          entries[0]?.conversation ??
+          snapshot
+            .getLoadable<TConversation | null>(store.conversationByKeySelector(targetIndex))
+            .getValue();
+        const nextConversation =
+          typeof value === 'function' ? value(previousConversation ?? null) : value;
+
+        set(store.conversationKeysAtom, (prevKeys) =>
+          prevKeys.includes(targetIndex) ? prevKeys : [...prevKeys, targetIndex],
+        );
+        set(store.conversationByIndex(targetIndex), nextConversation);
+      },
+    [entries],
+  );
+
+  const setConversationAtIndex = useRecoilCallback(
+    ({ set }) =>
+      (targetIndex: string | number, value: TConversation | null) => {
+        set(store.conversationKeysAtom, (prevKeys) =>
+          prevKeys.includes(targetIndex) ? prevKeys : [...prevKeys, targetIndex],
+        );
+        set(store.conversationByIndex(targetIndex), value);
+      },
+    [],
+  );
+
+  const removeConversation = useRecoilCallback(
+    ({ reset, set }) =>
+      (targetIndex: string | number) => {
+        reset(store.conversationByIndex(targetIndex));
+        set(store.conversationKeysAtom, (prevKeys) =>
+          prevKeys.filter((key) => String(key) !== String(targetIndex)),
+        );
+        reset(store.latestMessageFamily(targetIndex));
+        reset(store.submissionByIndex(targetIndex));
+    },
+    [],
   );
 
   return {
     conversation,
+    conversations,
+    entries,
     setConversation,
+    setConversationAtIndex,
+    removeConversation,
     generateConversation,
   };
 }

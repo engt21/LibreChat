@@ -2,7 +2,7 @@ import { v4 } from 'uuid';
 import { cloneDeep } from 'lodash';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSetRecoilState, useResetRecoilState, useRecoilValue } from 'recoil';
+import { useSetRecoilState, useRecoilValue } from 'recoil';
 import {
   Constants,
   QueryKeys,
@@ -74,7 +74,7 @@ export default function useChatFunctions({
   const { getExpiry } = useUserKey(immutableConversation?.endpoint ?? '');
   const setIsSubmitting = useSetRecoilState(store.isSubmittingFamily(index));
   const setShowStopButton = useSetRecoilState(store.showStopButtonByIndex(index));
-  const resetLatestMultiMessage = useResetRecoilState(store.latestMessageFamily(index + 1));
+  const clearAddedLatestMessages = store.useClearLatestMessages('useChatFunctions added');
 
   const ask: TAskFunction = (
     {
@@ -95,10 +95,11 @@ export default function useChatFunctions({
       overrideMessages,
       overrideFiles,
       addedConvo,
+      addedConvos,
     } = {},
   ) => {
     setShowStopButton(false);
-    resetLatestMultiMessage();
+    void clearAddedLatestMessages(true);
 
     text = text.trim();
     if ((!isSteering && !!isSubmitting) || text === '') {
@@ -263,6 +264,12 @@ export default function useChatFunctions({
       error: false,
       iconURL,
     };
+    const normalizedAddedConvos =
+      addedConvos && addedConvos.length > 0
+        ? addedConvos
+        : addedConvo
+          ? [addedConvo]
+          : [];
 
     if (isAssistantsEndpoint(endpoint)) {
       initialResponse.model = conversation?.assistant_id ?? '';
@@ -292,12 +299,12 @@ export default function useChatFunctions({
             contentPart[ContentTypes.TEXT] = part[ContentTypes.TEXT];
           }
         }
-      } else if (addedConvo && conversation) {
+      } else if (normalizedAddedConvos.length > 0 && conversation) {
         // Pre-populate placeholders for smooth UI - these will be overridden/extended
         // as SSE events arrive with actual content, preserving the agent-based agentId
         initialResponse.content = createDualMessageContent(
           conversation,
-          addedConvo,
+          normalizedAddedConvos,
           endpointsConfig,
           startupConfig?.modelSpecs?.list,
         );
@@ -333,7 +340,8 @@ export default function useChatFunctions({
       isTemporary,
       ephemeralAgent,
       editedContent,
-      addedConvo,
+      addedConvo: normalizedAddedConvos[0],
+      addedConvos: normalizedAddedConvos.length > 0 ? normalizedAddedConvos : undefined,
     };
 
     if (isRegenerate) {
@@ -349,14 +357,21 @@ export default function useChatFunctions({
     logger.dir('message_stream', submission, { depth: null });
   };
 
-  const regenerate = ({ parentMessageId }, options?: { addedConvo?: TConversation | null }) => {
+  const regenerate = (
+    { parentMessageId },
+    options?: { addedConvo?: TConversation | null; addedConvos?: TConversation[] },
+  ) => {
     const messages = getMessages();
     const parentMessage = messages?.find((element) => element.messageId == parentMessageId);
 
     if (parentMessage && parentMessage.isCreatedByUser) {
       ask(
         { ...parentMessage },
-        { isRegenerate: true, addedConvo: options?.addedConvo ?? undefined },
+        {
+          isRegenerate: true,
+          addedConvo: options?.addedConvo ?? options?.addedConvos?.[0],
+          addedConvos: options?.addedConvos,
+        },
       );
     } else {
       console.error(

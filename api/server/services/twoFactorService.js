@@ -1,6 +1,8 @@
 const { webcrypto } = require('node:crypto');
+const { randomUUID, timingSafeEqual } = require('node:crypto');
 const { hashBackupCode, decryptV3, decryptV2 } = require('@librechat/data-schemas');
 const { updateUser } = require('~/models');
+const { User } = require('~/db/models');
 
 // Base32 alphabet for TOTP secret encoding.
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -109,11 +111,14 @@ const generateTOTP = async (secret, forTime = Date.now()) => {
  * @returns {Promise<boolean>}
  */
 const verifyTOTP = async (secret, token) => {
+  if (!secret || !/^\d{6}$/.test(String(token || ''))) {
+    return false;
+  }
   const timeStepMS = 30 * 1000;
   const currentTime = Date.now();
   for (let offset = -1; offset <= 1; offset++) {
     const expected = await generateTOTP(secret, currentTime + offset * timeStepMS);
-    if (expected === token) {
+    if (timingSafeEqual(Buffer.from(expected), Buffer.from(String(token)))) {
       return true;
     }
   }
@@ -172,12 +177,19 @@ const verifyBackupCode = async ({ user, backupCode, persist = true }) => {
   }
 
   if (persist) {
-    const updatedBackupCodes = user.backupCodes.map((codeObj) =>
-      codeObj.codeHash === hashedInput && !codeObj.used
-        ? { ...codeObj, used: true, usedAt: new Date() }
-        : codeObj,
+    const result = await User.updateOne(
+      {
+        _id: user._id,
+        backupCodes: { $elemMatch: { codeHash: hashedInput, used: false } },
+      },
+      {
+        $set: {
+          'backupCodes.$.used': true,
+          'backupCodes.$.usedAt': new Date(),
+        },
+      },
     );
-    await updateUser(user._id, { backupCodes: updatedBackupCodes });
+    return result.modifiedCount === 1;
   }
   return true;
 };
@@ -242,9 +254,23 @@ const getTOTPSecret = async (storedSecret) => {
  * @param {string} userId
  * @returns {string}
  */
-const generate2FATempToken = (userId) => {
+const generate2FATempToken = (userId, enrollmentRequired = false) => {
   const { sign } = require('jsonwebtoken');
-  return sign({ userId, twoFAPending: true }, process.env.JWT_SECRET, { expiresIn: '5m' });
+  return sign(
+    {
+      userId,
+      tokenType: 'mfa_pending',
+      twoFAPending: true,
+      enrollmentRequired,
+    },
+    process.env.MFA_TEMP_TOKEN_SECRET || process.env.JWT_SECRET,
+    {
+      expiresIn: '5m',
+      issuer: process.env.JWT_ISSUER || 'librechat',
+      audience: process.env.MFA_TOKEN_AUDIENCE || 'librechat-mfa',
+      jwtid: randomUUID(),
+    },
+  );
 };
 
 module.exports = {

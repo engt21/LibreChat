@@ -11,7 +11,9 @@ import {
   AgentCapabilities,
   getDefaultParamsEndpoint,
   normalizeAnthropicModelName,
+  normalizeOpenAIModelName,
   getAnthropicModelCapabilities as resolveAnthropicModelCapabilities,
+  getOpenAIModelCapabilities as resolveOpenAIModelCapabilities,
   isXAIEndpointCandidate,
   normalizeXAIModelName,
   getXAIModelCapabilities as resolveXAIModelCapabilities,
@@ -115,6 +117,9 @@ export default function BadgeRowProvider({
     [endpointsConfig, endpoint],
   );
   const isAnthropicEndpoint = nativeToolEndpoint === EModelEndpoint.anthropic;
+  const isOpenAICompatibleNativeEndpoint =
+    nativeToolEndpoint === EModelEndpoint.openAI ||
+    nativeToolEndpoint === EModelEndpoint.azureOpenAI;
   const anthropicModelCapabilities = useMemo(() => {
     if (!isAnthropicEndpoint) {
       return null;
@@ -143,8 +148,27 @@ export default function BadgeRowProvider({
         null,
     );
   }, [currentModel, endpoint, nativeToolEndpoint, startupConfig?.xaiModelCapabilities]);
+  const openAIModelCapabilities = useMemo(() => {
+    if (!isOpenAICompatibleNativeEndpoint) {
+      return null;
+    }
+
+    return resolveOpenAIModelCapabilities(normalizeOpenAIModelName(currentModel ?? ''));
+  }, [currentModel, isOpenAICompatibleNativeEndpoint]);
   const { supportsNativeWebSearch, supportsNativeCodeInterpreter } = useMemo(() => {
     const nativeSupport = getNativeToolEndpointSupport(nativeToolEndpoint);
+
+    if (openAIModelCapabilities) {
+      return {
+        ...nativeSupport,
+        supportsNativeWebSearch:
+          nativeSupport.supportsNativeWebSearch && openAIModelCapabilities.supportsWebSearch,
+        supportsNativeCodeInterpreter:
+          nativeSupport.supportsNativeCodeInterpreter &&
+          (openAIModelCapabilities.supportsOpenAIResponsesApi ||
+            openAIModelCapabilities.requiresResponsesApi),
+      };
+    }
 
     if (anthropicModelCapabilities) {
       return {
@@ -166,8 +190,10 @@ export default function BadgeRowProvider({
       supportsNativeWebSearch:
         nativeSupport.supportsNativeWebSearch && xaiModelCapabilities.supportsWebSearch,
     };
-  }, [anthropicModelCapabilities, nativeToolEndpoint, xaiModelCapabilities]);
-  const supportsStructuredToolCalling = xaiModelCapabilities?.supportsFunctionCalling ?? true;
+  }, [anthropicModelCapabilities, nativeToolEndpoint, openAIModelCapabilities, xaiModelCapabilities]);
+  const supportsStructuredToolCalling =
+    (xaiModelCapabilities?.supportsFunctionCalling ?? true) &&
+    (openAIModelCapabilities?.isTextGenerationModel ?? true);
   const defaultWebSearchMode = isOllamaEndpoint
     ? WebSearchModes.ollama_native
     : WebSearchModes.librechat;

@@ -56,6 +56,7 @@ const BaseClient = require('~/app/clients/BaseClient');
 const { getRoleByName } = require('~/models/Role');
 const { loadAgent } = require('~/models/Agent');
 const { getMCPManager } = require('~/config');
+const { recordModelTokenUsage } = require('~/server/services/ModelRateLimits');
 const { maybeRefreshGoogleVertexModelAccess } = require('./googleVertexRefresh');
 const db = require('~/models');
 
@@ -671,6 +672,14 @@ class AgentClient extends BaseClient {
 
     if (result) {
       this.usage = result;
+      if (context === 'message') {
+        await recordModelTokenUsage({
+          user: this.options.req.user,
+          endpoint: this.options.agent.provider || this.options.endpoint,
+          model: model ?? this.model ?? this.options.agent.model_parameters.model,
+          tokens: (Number(result.input_tokens) || 0) + (Number(result.output_tokens) || 0),
+        });
+      }
     }
   }
 

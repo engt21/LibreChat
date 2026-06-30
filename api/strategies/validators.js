@@ -34,7 +34,7 @@ const loginSchema = z.object({
   email: z.string().email(),
   password: z
     .string()
-    .min(MIN_PASSWORD_LENGTH)
+    .min(1)
     .max(128)
     .refine((value) => value.trim().length > 0, {
       message: 'Password cannot be only spaces',

@@ -1,10 +1,11 @@
 import { useCallback } from 'react';
-import { useSetRecoilState, useRecoilValue } from 'recoil';
+import { useRecoilValue } from 'recoil';
 import { PlusCircle } from 'lucide-react';
 import { TooltipAnchor } from '@librechat/client';
 import { isAssistantsEndpoint } from 'librechat-data-provider';
 import type { TConversation } from 'librechat-data-provider';
 import { useGetConversation, useLocalize } from '~/hooks';
+import { useAddedChatContext } from '~/Providers';
 import { mainTextareaId } from '~/common';
 import store from '~/store';
 
@@ -12,21 +13,23 @@ function AddMultiConvo() {
   const localize = useLocalize();
   const getConversation = useGetConversation(0);
   const endpoint = useRecoilValue(store.conversationEndpointByIndex(0));
-  const setAddedConvo = useSetRecoilState(store.conversationByIndex(1));
+  const { generateConversation } = useAddedChatContext();
 
   const clickHandler = useCallback(() => {
     const conversation = getConversation();
     const { title: _t, ...convo } = conversation ?? ({} as TConversation);
-    setAddedConvo({
-      ...convo,
-      title: '',
-    } as TConversation);
+    generateConversation({
+      template: {
+        ...convo,
+        title: '',
+      } as TConversation,
+    });
 
     const textarea = document.getElementById(mainTextareaId);
     if (textarea) {
       textarea.focus();
     }
-  }, [getConversation, setAddedConvo]);
+  }, [generateConversation, getConversation]);
 
   if (!endpoint) {
     return null;

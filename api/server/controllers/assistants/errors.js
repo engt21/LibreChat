@@ -123,6 +123,8 @@ const createErrorHandler = ({ req, res, getContext, originPath = '/assistants/ch
         ...run.usage,
         model: run.model,
         user: req.user.id,
+        userObject: req.user,
+        endpoint,
         conversationId,
       });
     } catch (error) {

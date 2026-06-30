@@ -1,10 +1,12 @@
 import { Providers } from '@librechat/agents';
 import {
   Constants,
+  CodeInterpreterModes,
   ErrorTypes,
   EModelEndpoint,
   EToolResources,
   KnownEndpoints,
+  Tools,
   paramEndpoints,
   isAgentsEndpoint,
   isXAIEndpointCandidate,
@@ -327,6 +329,35 @@ export async function initializeAgent(
     requestBody?.ephemeralAgent != null && typeof requestBody.ephemeralAgent === 'object'
       ? (requestBody.ephemeralAgent as Record<string, unknown>)
       : undefined;
+  const anthropicToolOptions =
+    nativeToolProvider === EModelEndpoint.anthropic
+      ? {
+          webFetch:
+            typeof modelOptions.web_fetch === 'boolean'
+              ? modelOptions.web_fetch
+              : typeof requestEphemeralAgent?.web_fetch === 'boolean'
+                ? requestEphemeralAgent.web_fetch
+                : undefined,
+          codeExecution:
+            typeof modelOptions.anthropic_code_execution === 'boolean'
+              ? modelOptions.anthropic_code_execution
+              : typeof requestEphemeralAgent?.anthropic_code_execution === 'boolean'
+                ? requestEphemeralAgent.anthropic_code_execution
+                : undefined,
+          advisor:
+            typeof modelOptions.anthropic_advisor === 'boolean'
+              ? modelOptions.anthropic_advisor
+              : typeof requestEphemeralAgent?.anthropic_advisor === 'boolean'
+                ? requestEphemeralAgent.anthropic_advisor
+                : undefined,
+          advisorModel:
+            typeof modelOptions.anthropic_advisor_model === 'string'
+              ? modelOptions.anthropic_advisor_model
+              : typeof requestEphemeralAgent?.anthropic_advisor_model === 'string'
+                ? requestEphemeralAgent.anthropic_advisor_model
+                : undefined,
+        }
+      : undefined;
 
   const nativeToolSelection = selectNativeTools({
     agentId: agent.id,
@@ -338,7 +369,13 @@ export async function initializeAgent(
       typeof requestEphemeralAgent?.execute_code_mode === 'string'
         ? requestEphemeralAgent.execute_code_mode
         : undefined,
+    anthropicToolOptions,
   });
+  const hasAnthropicCodeExecutionRequest =
+    nativeToolProvider === EModelEndpoint.anthropic &&
+    (typeof anthropicToolOptions?.codeExecution === 'boolean' ||
+      ((agent.tools ?? []).includes(Tools.execute_code) &&
+        requestEphemeralAgent?.execute_code_mode === CodeInterpreterModes.provider_native));
 
   let toolNames = (agent.tools ?? []).filter((tool) => !nativeToolSelection.stripTools.has(tool));
 
@@ -383,6 +420,22 @@ export async function initializeAgent(
     ...modelOptions,
     model: agent.model,
     ...(nativeToolSelection.enableWebSearch ? { web_search: true } : {}),
+    ...(nativeToolProvider === EModelEndpoint.anthropic
+      ? {
+          ...(hasAnthropicCodeExecutionRequest
+            ? { anthropic_code_execution: nativeToolSelection.anthropicCodeExecution }
+            : {}),
+          ...(nativeToolSelection.anthropicWebFetch ? { web_fetch: true } : {}),
+          ...(nativeToolSelection.anthropicAdvisor
+            ? {
+                anthropic_advisor: true,
+                ...(nativeToolSelection.anthropicAdvisorModel
+                  ? { anthropic_advisor_model: nativeToolSelection.anthropicAdvisorModel }
+                  : {}),
+              }
+            : {}),
+        }
+      : {}),
     ...(nativeToolSelection.requiresResponsesApi ? { useResponsesApi: true } : {}),
   };
 

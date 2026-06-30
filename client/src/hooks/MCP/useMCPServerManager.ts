@@ -31,6 +31,26 @@ export interface MCPServerDefinition {
   consumeOnly?: boolean;
 }
 
+export function getMCPServerDisplayName(server: MCPServerDefinition): string {
+  return server.config?.title || server.serverName;
+}
+
+export function compareMCPServerDefinitions(
+  left: MCPServerDefinition,
+  right: MCPServerDefinition,
+): number {
+  return (
+    getMCPServerDisplayName(left).localeCompare(getMCPServerDisplayName(right), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }) ||
+    left.serverName.localeCompare(right.serverName, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  );
+}
+
 // Poll intervals are kept local since they're timer references that can't be serialized
 // The init states (isInitializing, isCancellable, etc.) are stored in the global Jotai atom
 type PollIntervals = Record<string, NodeJS.Timeout | null>;
@@ -77,7 +97,7 @@ export function useMCPServerManager({
         });
       }
     }
-    return definitions;
+    return definitions.sort(compareMCPServerDefinitions);
   }, [loadedServers, permissionsMap, user?.role]);
 
   // Memoize filtered servers for useMCPSelect to prevent infinite loops

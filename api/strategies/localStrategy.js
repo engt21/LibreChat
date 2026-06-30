@@ -7,6 +7,8 @@ const { loginSchema } = require('./validators');
 
 // Unix timestamp for 2024-06-07 15:20:18 Eastern Time
 const verificationEnabledTimestamp = 1717788018;
+const DUMMY_PASSWORD_HASH = '$2a$10$7EqJtq98hPqEX7fNZaFWoO5x0nNl5Qm2H7K9Q4aM8lR2kD8LJ9e7u';
+const invalidCredentials = { message: 'Invalid email or password.' };
 
 async function validateLoginRequest(req) {
   const { error } = loginSchema.safeParse(req.body);
@@ -17,29 +19,27 @@ async function passportLogin(req, email, password, done) {
   try {
     const validationError = await validateLoginRequest(req);
     if (validationError) {
-      logError('Passport Local Strategy - Validation Error', { reqBody: req.body });
       logger.error(`[Login] [Login failed] [Username: ${email}] [Request-IP: ${req.ip}]`);
-      return done(null, false, { message: validationError });
+      return done(null, false, invalidCredentials);
     }
 
     const user = await findUser({ email: email.trim() }, '+password');
     if (!user) {
-      logError('Passport Local Strategy - User Not Found', { email });
+      await comparePassword({ password: DUMMY_PASSWORD_HASH }, password);
       logger.error(`[Login] [Login failed] [Username: ${email}] [Request-IP: ${req.ip}]`);
-      return done(null, false, { message: 'Email does not exist.' });
+      return done(null, false, invalidCredentials);
     }
 
     if (!user.password) {
-      logError('Passport Local Strategy - User has no password', { email });
+      await comparePassword({ password: DUMMY_PASSWORD_HASH }, password);
       logger.error(`[Login] [Login failed] [Username: ${email}] [Request-IP: ${req.ip}]`);
-      return done(null, false, { message: 'Email does not exist.' });
+      return done(null, false, invalidCredentials);
     }
 
     const isMatch = await comparePassword(user, password);
     if (!isMatch) {
-      logError('Passport Local Strategy - Password does not match', { isMatch });
       logger.error(`[Login] [Login failed] [Username: ${email}] [Request-IP: ${req.ip}]`);
-      return done(null, false, { message: 'Incorrect password.' });
+      return done(null, false, invalidCredentials);
     }
 
     const emailEnabled = checkEmailConfig();
@@ -60,9 +60,8 @@ async function passportLogin(req, email, password, done) {
     }
 
     if (!user.emailVerified && !unverifiedAllowed) {
-      logError('Passport Local Strategy - Email not verified', { email });
       logger.error(`[Login] [Login failed] [Username: ${email}] [Request-IP: ${req.ip}]`);
-      return done(null, user, { message: 'Email not verified.' });
+      return done(null, false, invalidCredentials);
     }
 
     logger.info(`[Login] [Login successful] [Username: ${email}] [Request-IP: ${req.ip}]`);
@@ -70,11 +69,6 @@ async function passportLogin(req, email, password, done) {
   } catch (err) {
     return done(err);
   }
-}
-
-function logError(title, parameters) {
-  const entries = Object.entries(parameters).map(([name, value]) => ({ name, value }));
-  logger.error(title, { parameters: entries });
 }
 
 module.exports = () =>

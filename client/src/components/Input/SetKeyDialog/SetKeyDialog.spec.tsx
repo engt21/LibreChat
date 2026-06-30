@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AuthKeys, EModelEndpoint, GoogleAuthMode } from 'librechat-data-provider';
 import SetKeyDialog from './SetKeyDialog';
 
@@ -94,6 +94,31 @@ describe('SetKeyDialog', () => {
       getValue: () => '',
       saveUserKey: jest.fn(),
       isLoading: false,
+    });
+  });
+
+  it('defaults provider key saves to never expire', async () => {
+    const saveUserKey = jest.fn();
+    mockUseUserKey.mockReturnValue({
+      getExpiry: () => null,
+      getValue: () => '',
+      saveUserKey,
+      isLoading: false,
+    });
+
+    render(
+      <SetKeyDialog open={true} onOpenChange={jest.fn()} endpoint={EModelEndpoint.anthropic} />,
+    );
+
+    expect(screen.getByRole('combobox', { name: /Expires/i })).toHaveValue('never');
+
+    fireEvent.change(screen.getByTestId('input-anthropic'), {
+      target: { value: 'sk-ant-test' },
+    });
+    fireEvent.click(screen.getByText('com_ui_submit'));
+
+    await waitFor(() => {
+      expect(saveUserKey).toHaveBeenCalledWith('sk-ant-test', null, false);
     });
   });
 

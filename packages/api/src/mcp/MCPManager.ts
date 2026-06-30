@@ -19,6 +19,37 @@ import { formatToolContent } from './parsers';
 import { MCPConnection } from './connection';
 import { processMCPEnv } from '~/utils/env';
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message?: unknown }).message ?? '');
+  }
+
+  return String(error ?? '');
+}
+
+function shouldRetrySessionLoss(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) {
+    return false;
+  }
+
+  const message = getErrorMessage(error).toLowerCase();
+  if (!message) {
+    return false;
+  }
+
+  return (
+    message.includes('session not found') ||
+    message.includes('maximum reconnection attempts') ||
+    message.includes('failed to open sse stream') ||
+    message.includes('failed to reconnect sse stream') ||
+    message.includes('sse stream disconnected')
+  );
+}
+
 /**
  * Centralized manager for MCP server connections and tool execution.
  * Extends UserConnectionManager to handle both app-level and user-specific connections.
@@ -332,21 +363,44 @@ Please follow these instructions when using tools from the respective MCP server
         connection.setRequestHeaders(currentOptions.headers || {});
       }
 
-      const result = await connection.client.request(
-        {
-          method: 'tools/call',
-          params: {
-            name: toolName,
-            arguments: toolArguments,
+      const requestToolCall = () =>
+        connection!.client.request(
+          {
+            method: 'tools/call',
+            params: {
+              name: toolName,
+              arguments: toolArguments,
+            },
           },
-        },
-        CallToolResultSchema,
-        {
-          timeout: connection.timeout,
-          resetTimeoutOnProgress: true,
-          ...options,
-        },
-      );
+          CallToolResultSchema,
+          {
+            timeout: connection!.timeout,
+            resetTimeoutOnProgress: true,
+            ...options,
+          },
+        );
+
+      let result: Awaited<ReturnType<typeof requestToolCall>>;
+      try {
+        result = await requestToolCall();
+      } catch (toolError) {
+        if (!shouldRetrySessionLoss(toolError, options?.signal)) {
+          throw toolError;
+        }
+
+        logger.warn(
+          `${logPrefix}[${toolName}] MCP transport session lost during tool call; reconnecting and retrying once`,
+          { error: getErrorMessage(toolError) },
+        );
+        await connection.connect();
+        if (!(await connection.isConnected())) {
+          throw new McpError(
+            ErrorCode.InternalError,
+            `${logPrefix} Connection did not recover after session loss. Cannot execute tool ${toolName}.`,
+          );
+        }
+        result = await requestToolCall();
+      }
       if (userId) {
         this.updateUserLastActivity(userId);
       }

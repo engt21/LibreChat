@@ -145,11 +145,16 @@ Rebuild the patched image if you change:
 - any admin UI source that affects `client/dist`
 - any shared package source that affects `packages/data-provider/dist` or `packages/data-schemas/dist`
 
-### Restart usually enough
+For the normal local/VM runtime, do not use the patched-remote image path for small code iteration. Prefer `local-services/deploy-runtime-delta.sh` for accepted backend/config/package-dist changes, and prefer `local-services/deploy-built-client-dist.sh` for complete frontend dist deployments.
 
-A rebuild is usually not required when you only change:
+### Runtime delta usually enough
+
+A rebuild is usually not required when `local-services/deploy-runtime-delta.sh --dry-run` accepts the changed paths, including:
 
 - `.env`
+- backend/runtime-loaded `api/**/*.js`
+- runtime config helpers such as `config/apply-runtime-patches.js`
+- already-built `packages/*/dist/**`
 - bind-mounted uploads/images/logs
 - sidecar service configuration outside the `api` image
 

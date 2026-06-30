@@ -23,6 +23,7 @@ import {
   useGetAgentsConfig,
   useLocalize,
 } from '~/hooks';
+import { isEphemeralAgent } from '~/common';
 import { ephemeralAgentByConvoId } from '~/store';
 import { useDragDropContext } from '~/Providers';
 
@@ -54,6 +55,10 @@ const DragDropModal = ({ onOptionSelect, setShowModal, files, isVisible }: DragD
     agentId,
     ephemeralAgent,
   );
+  const isEphemeralChat = isEphemeralAgent(agentId);
+  const canUploadForFileSearch =
+    capabilities.fileSearchEnabled && (isEphemeralChat || fileSearchAllowedByAgent);
+  const canUploadForCode = capabilities.codeEnabled && (isEphemeralChat || codeAllowedByAgent);
 
   const options = useMemo(() => {
     const _options: FileOption[] = [];
@@ -114,14 +119,14 @@ const DragDropModal = ({ onOptionSelect, setShowModal, files, isVisible }: DragD
         condition: files.every((file) => getFileType(file)?.startsWith('image/')),
       });
     }
-    if (capabilities.fileSearchEnabled && fileSearchAllowedByAgent) {
+    if (canUploadForFileSearch) {
       _options.push({
         label: localize('com_ui_upload_file_search'),
         value: EToolResources.file_search,
         icon: <FileSearch className="icon-md" />,
       });
     }
-    if (capabilities.codeEnabled && codeAllowedByAgent) {
+    if (canUploadForCode) {
       _options.push({
         label: localize('com_ui_upload_code_files'),
         value: EToolResources.execute_code,
@@ -144,9 +149,9 @@ const DragDropModal = ({ onOptionSelect, setShowModal, files, isVisible }: DragD
     endpoint,
     endpointType,
     capabilities,
+    canUploadForCode,
+    canUploadForFileSearch,
     useResponsesApi,
-    codeAllowedByAgent,
-    fileSearchAllowedByAgent,
   ]);
 
   if (!isVisible) {

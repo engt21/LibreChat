@@ -15,6 +15,14 @@ import { ephemeralAgentByConvoId } from '~/store';
 
 type TUseSetOptions = (preset?: TPreset | boolean | null) => TSetOptionsPayload;
 
+const anthropicEphemeralOptionKeys = new Set([
+  'web_fetch',
+  'anthropic_code_execution',
+  'anthropic_advisor',
+  'anthropic_advisor_model',
+  'fast_mode',
+]);
+
 const useSetIndexOptions: TUseSetOptions = (preset = false) => {
   const { conversation, setConversation } = useChatContext();
   const conversationId = conversation?.conversationId ?? Constants.NEW_CONVO;
@@ -33,6 +41,7 @@ const useSetIndexOptions: TUseSetOptions = (preset = false) => {
     const isOllamaEndpoint =
       typeof currentEndpoint === 'string' &&
       currentEndpoint.toLowerCase().startsWith(KnownEndpoints.ollama);
+    const isAnthropicEndpoint = currentEndpoint === EModelEndpoint.anthropic;
 
     if (param === 'presetOverride') {
       const currentOverride = conversation?.presetOverride || {};
@@ -65,6 +74,13 @@ const useSetIndexOptions: TUseSetOptions = (preset = false) => {
         ...(isOllamaEndpoint && newValue === true
           ? { web_search_mode: prevAgent?.web_search_mode ?? WebSearchModes.ollama_native }
           : {}),
+      }));
+    }
+
+    if (isAnthropicEndpoint && anthropicEphemeralOptionKeys.has(param)) {
+      setEphemeralAgent((prevAgent) => ({
+        ...(prevAgent ?? {}),
+        [param]: newValue,
       }));
     }
 

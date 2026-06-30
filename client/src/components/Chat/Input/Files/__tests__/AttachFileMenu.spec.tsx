@@ -302,14 +302,31 @@ describe('AttachFileMenu', () => {
       expect(screen.getByText('Upload for File Search')).toBeInTheDocument();
     });
 
-    it('does NOT show File Search when enabled but not allowed by agent', () => {
+    it('shows File Search option for ephemeral chats even when the toggle is currently off', () => {
       setupMocks();
       mockUseAgentCapabilities.mockReturnValue({
         contextEnabled: false,
         fileSearchEnabled: true,
         codeEnabled: false,
       });
+      mockUseAgentToolPermissions.mockReturnValue({
+        fileSearchAllowedByAgent: false,
+        codeAllowedByAgent: false,
+        provider: undefined,
+      });
       renderMenu({ endpointType: EModelEndpoint.openAI });
+      openMenu();
+      expect(screen.getByText('Upload for File Search')).toBeInTheDocument();
+    });
+
+    it('does NOT show File Search for saved agents when enabled but not allowed by agent', () => {
+      setupMocks();
+      mockUseAgentCapabilities.mockReturnValue({
+        contextEnabled: false,
+        fileSearchEnabled: true,
+        codeEnabled: false,
+      });
+      renderMenu({ agentId: 'agent_123', endpointType: EModelEndpoint.openAI });
       openMenu();
       expect(screen.queryByText('Upload for File Search')).not.toBeInTheDocument();
     });
@@ -329,6 +346,40 @@ describe('AttachFileMenu', () => {
       renderMenu({ endpointType: EModelEndpoint.openAI });
       openMenu();
       expect(screen.getByText('Upload Code Files')).toBeInTheDocument();
+    });
+
+    it('shows Code Files option for ephemeral chats even when the toggle is currently off', () => {
+      setupMocks();
+      mockUseAgentCapabilities.mockReturnValue({
+        contextEnabled: false,
+        fileSearchEnabled: false,
+        codeEnabled: true,
+      });
+      mockUseAgentToolPermissions.mockReturnValue({
+        fileSearchAllowedByAgent: false,
+        codeAllowedByAgent: false,
+        provider: undefined,
+      });
+      renderMenu({ endpointType: EModelEndpoint.openAI });
+      openMenu();
+      expect(screen.getByText('Upload Code Files')).toBeInTheDocument();
+    });
+
+    it('does NOT show Code Files for saved agents when enabled but not allowed by agent', () => {
+      setupMocks();
+      mockUseAgentCapabilities.mockReturnValue({
+        contextEnabled: false,
+        fileSearchEnabled: false,
+        codeEnabled: true,
+      });
+      mockUseAgentToolPermissions.mockReturnValue({
+        fileSearchAllowedByAgent: false,
+        codeAllowedByAgent: false,
+        provider: undefined,
+      });
+      renderMenu({ agentId: 'agent_123', endpointType: EModelEndpoint.openAI });
+      openMenu();
+      expect(screen.queryByText('Upload Code Files')).not.toBeInTheDocument();
     });
 
     it('shows all options when all capabilities are enabled', () => {

@@ -9,7 +9,7 @@ import type { Agents } from 'librechat-data-provider';
 import type { TEditProps } from '~/common';
 import { useMessagesOperations, useMessagesConversation } from '~/Providers';
 import Container from '~/components/Chat/Messages/Content/Container';
-import { useGetAddedConvo } from '~/hooks/Chat';
+import { useGetAddedConvos } from '~/hooks/Chat';
 import { cn, removeFocusRings } from '~/utils';
 import { useLocalize } from '~/hooks';
 import store from '~/store';
@@ -37,7 +37,7 @@ const EditTextPart = ({
 
   const chatDirection = useRecoilValue(store.chatDirection);
 
-  const getAddedConvo = useGetAddedConvo();
+  const getAddedConvos = useGetAddedConvos();
 
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const updateMessageContentMutation = useUpdateMessageContentMutation(conversationId ?? '');
@@ -79,6 +79,7 @@ const EditTextPart = ({
     if (!parentMessage) {
       return;
     }
+    const addedConvos = getAddedConvos();
     ask(
       { ...parentMessage },
       {
@@ -86,7 +87,8 @@ const EditTextPart = ({
         editedMessageId: messageId,
         isRegenerate: true,
         isEdited: true,
-        addedConvo: getAddedConvo() || undefined,
+        addedConvo: addedConvos[0],
+        addedConvos: addedConvos.length > 0 ? addedConvos : undefined,
       },
     );
 

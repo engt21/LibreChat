@@ -28,6 +28,7 @@ export class MCPServersRegistry {
   private readonly allowedDomains?: string[] | null;
   private readonly domainFilterMode: DomainFilterMode;
   private readonly ssrfExemptions?: string[] | null;
+  private publishedServerNames: Set<string> | null;
   private readonly readThroughCache: Keyv<t.ParsedServerConfig>;
   private readonly readThroughCacheAll: Keyv<Record<string, t.ParsedServerConfig>>;
   private readonly pendingGetAllPromises = new Map<
@@ -40,12 +41,16 @@ export class MCPServersRegistry {
     allowedDomains?: string[] | null,
     domainFilterMode: DomainFilterMode = 'allowlist',
     ssrfExemptions?: string[] | null,
+    publishedServerNames?: string[] | null,
   ) {
     this.dbConfigsRepo = new ServerConfigsDB(mongoose);
     this.cacheConfigsRepo = ServerConfigsCacheFactory.create('App', false);
     this.allowedDomains = allowedDomains;
     this.domainFilterMode = domainFilterMode;
     this.ssrfExemptions = ssrfExemptions;
+    this.publishedServerNames = Array.isArray(publishedServerNames)
+      ? new Set(publishedServerNames)
+      : null;
 
     const ttl = cacheConfig.MCP_REGISTRY_CACHE_TTL;
 
@@ -66,6 +71,7 @@ export class MCPServersRegistry {
     allowedDomains?: string[] | null,
     domainFilterMode: DomainFilterMode = 'allowlist',
     ssrfExemptions?: string[] | null,
+    publishedServerNames?: string[] | null,
   ): MCPServersRegistry {
     if (!mongoose) {
       throw new Error(
@@ -83,6 +89,7 @@ export class MCPServersRegistry {
       allowedDomains,
       domainFilterMode,
       ssrfExemptions,
+      publishedServerNames,
     );
     return MCPServersRegistry.instance;
   }
@@ -104,6 +111,49 @@ export class MCPServersRegistry {
     return !Array.isArray(this.allowedDomains) || this.allowedDomains.length === 0;
   }
 
+  public async setPublishedServerNames(serverNames?: string[] | null): Promise<void> {
+    this.publishedServerNames = Array.isArray(serverNames) ? new Set(serverNames) : null;
+    await this.readThroughCache.clear();
+    await this.readThroughCacheAll.clear();
+  }
+
+  private isCacheServerPublished(serverName: string): boolean {
+    return this.publishedServerNames == null || this.publishedServerNames.has(serverName);
+  }
+
+  private filterPublishedCacheConfigs(
+    configs: Record<string, t.ParsedServerConfig>,
+  ): Record<string, t.ParsedServerConfig> {
+    if (this.publishedServerNames == null) {
+      return configs;
+    }
+
+    return Object.fromEntries(
+      Object.entries(configs).filter(([serverName]) => this.isCacheServerPublished(serverName)),
+    );
+  }
+
+  private sortServerConfigs(
+    configs: Record<string, t.ParsedServerConfig>,
+  ): Record<string, t.ParsedServerConfig> {
+    return Object.fromEntries(
+      Object.entries(configs).sort(([leftName, leftConfig], [rightName, rightConfig]) => {
+        const leftDisplayName = leftConfig.title || leftName;
+        const rightDisplayName = rightConfig.title || rightName;
+        return (
+          leftDisplayName.localeCompare(rightDisplayName, undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          }) ||
+          leftName.localeCompare(rightName, undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          })
+        );
+      }),
+    );
+  }
+
   public async getServerConfig(
     serverName: string,
     userId?: string,
@@ -122,8 +172,10 @@ export class MCPServersRegistry {
 
     // YAML config is preloaded into the cache repository.
     const configFromCache = await this.cacheConfigsRepo.get(serverName);
-    await this.readThroughCache.set(cacheKey, configFromCache);
-    return configFromCache;
+    const publishedConfig =
+      configFromCache && this.isCacheServerPublished(serverName) ? configFromCache : undefined;
+    await this.readThroughCache.set(cacheKey, publishedConfig);
+    return publishedConfig;
   }
 
   public async getAllServerConfigs(userId?: string): Promise<Record<string, t.ParsedServerConfig>> {
@@ -152,10 +204,10 @@ export class MCPServersRegistry {
     cacheKey: string,
     userId?: string,
   ): Promise<Record<string, t.ParsedServerConfig>> {
-    const result = {
-      ...(await this.cacheConfigsRepo.getAll()),
+    const result = this.sortServerConfigs({
+      ...this.filterPublishedCacheConfigs(await this.cacheConfigsRepo.getAll()),
       ...(await this.dbConfigsRepo.getAll(userId)),
-    };
+    });
 
     await this.readThroughCacheAll.set(cacheKey, result);
     return result;

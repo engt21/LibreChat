@@ -6,8 +6,11 @@ const {
 } = require('../../../../config/apply-runtime-patches');
 
 describe('apply-runtime-patches web search status patch', () => {
-  const streamTargets = patchTargets.filter((target) =>
-    ['src/stream.ts', 'dist/esm/stream.mjs', 'dist/cjs/stream.cjs'].includes(target.relativePath),
+  const streamTargets = patchTargets.filter(
+    (target) =>
+      ['src/stream.ts', 'dist/esm/stream.mjs', 'dist/cjs/stream.cjs'].includes(
+        target.relativePath,
+      ) && target.replacements.some((replacement) => Array.isArray(replacement.legacy)),
   );
   const streamTarget = streamTargets.find((target) => target.relativePath === 'src/stream.ts');
   const streamReplacement = streamTarget.replacements.find((replacement) =>
@@ -83,7 +86,9 @@ describe('apply-runtime-patches Anthropic web search replay guard', () => {
   const replayTargets = patchTargets.filter(
     (target) =>
       replayTargetPaths.includes(target.relativePath) &&
-      target.replacements.some((replacement) => replacement.to.includes('webSearchToolResultIds')),
+      target.replacements.some((replacement) =>
+        replacement.to.includes('serverToolResultTypesByName'),
+      ),
   );
 
   it('has orphan web_search replay guards for src, esm, and cjs', () => {
@@ -98,16 +103,36 @@ describe('apply-runtime-patches Anthropic web search replay guard', () => {
 
   describeReplayTargets('$relativePath', (target) => {
     const replacement = target.replacements.find((candidate) =>
-      candidate.to.includes('webSearchToolResultIds'),
+      candidate.to.includes('serverToolResultTypesByName'),
+    );
+    const toolTypesReplacement = target.replacements.find((candidate) =>
+      candidate.to.includes('web_fetch_tool_result'),
+    );
+    const tailGuardReplacement = target.replacements.find((candidate) =>
+      candidate.to.includes("formattedMessages[formattedMessages.length - 1].role === 'assistant'"),
     );
 
-    it('drops server_tool_use blocks without matching web_search_tool_result blocks', () => {
+    it('preserves all supported Anthropic server tool result block types', () => {
+      const patched = applyReplacement(
+        toolTypesReplacement.from,
+        toolTypesReplacement,
+        target.relativePath,
+      );
+
+      expect(patched).toContain("'web_fetch_tool_result'");
+      expect(patched).toContain("'code_execution_tool_result'");
+      expect(patched).toContain("'advisor_tool_result'");
+    });
+
+    it('drops server_tool_use blocks without matching same-tool result blocks', () => {
       const patched = applyReplacement(replacement.from, replacement, target.relativePath);
 
       expect(patched).toContain("block.type === 'server_tool_use'");
-      expect(patched).toContain('webSearchToolResultIds.has(block.id)');
-      expect(patched).toContain("block.type === 'web_search_tool_result'");
-      expect(patched).toContain('serverToolUseIds.has(block.tool_use_id)');
+      expect(patched).toContain('serverToolUseNamesById');
+      expect(patched).toContain('serverToolResultNamesById');
+      expect(patched).toContain("'web_fetch_tool_result'");
+      expect(patched).toContain("'code_execution_tool_result'");
+      expect(patched).toContain("'advisor_tool_result'");
       expect(patched).toContain("block.text === ''");
       expect(patched).not.toContain('return contentBlocks.filter((block) => block !== null);');
     });
@@ -116,14 +141,61 @@ describe('apply-runtime-patches Anthropic web search replay guard', () => {
       const patched = applyReplacement(replacement.legacy[0], replacement, target.relativePath);
 
       expect(patched).toBe(replacement.to);
-      expect(patched).toContain('webSearchToolResultIds');
+      expect(patched).toContain('serverToolResultTypesByName');
       expect(patched).toContain("block.text === ''");
+    });
+
+    it('upgrades previously patched web-search-only guards with variant wrapping', () => {
+      const webSearchOnlyLegacy = replacement.legacy.find((candidate) =>
+        candidate.includes('webSearchToolResultIds'),
+      );
+      const wrappedLegacy = webSearchOnlyLegacy.replace(
+        "return typeof block.id === 'string' && webSearchToolResultIds.has(block.id);",
+        "return typeof block.id === 'string' &&\n          webSearchToolResultIds.has(block.id);",
+      );
+
+      expect(wrappedLegacy).not.toBe(webSearchOnlyLegacy);
+      const patched = applyReplacement(wrappedLegacy, replacement, target.relativePath);
+
+      expect(patched).toBe(replacement.to);
+      expect(patched).toContain('serverToolResultTypesByName');
+      expect(patched).toContain("'web_fetch_tool_result'");
+      expect(patched).not.toContain('webSearchToolResultIds');
     });
 
     it('is idempotent when the replay guard is already applied', () => {
       expect(applyReplacement(replacement.to, replacement, target.relativePath)).toBe(
         replacement.to,
       );
+    });
+
+    it('drops trailing assistant messages that would become unsupported Anthropic prefill', () => {
+      const patched = applyReplacement(
+        tailGuardReplacement.from,
+        tailGuardReplacement,
+        target.relativePath,
+      );
+
+      expect(patched).toContain('formattedMessages.pop()');
+      expect(patched).toContain("role === 'assistant'");
+    });
+
+    it('drops trailing assistant messages without removing the typed source return cast', () => {
+      if (!target.relativePath.startsWith('src/')) {
+        return;
+      }
+
+      const typedReturn = tailGuardReplacement.from.replace(
+        `  };
+`,
+        `  } as AnthropicMessageCreateParams;
+`,
+      );
+      const patched = applyReplacement(typedReturn, tailGuardReplacement, target.relativePath);
+
+      expect(patched).toContain('formattedMessages.pop()');
+      expect(patched).toContain("role === 'assistant'");
+      expect(patched).toContain('} as AnthropicMessageCreateParams;');
     });
   });
 });
@@ -141,7 +213,13 @@ describe('apply-runtime-patches LangChain Anthropic web search replay guard', ()
       candidate.to.includes('contentPart.signature.length === 0'),
     );
     const replayReplacement = target.replacements.find((candidate) =>
-      candidate.to.includes('webSearchToolResultIds'),
+      candidate.to.includes('serverToolResultTypesByName'),
+    );
+    const toolTypesReplacement = target.replacements.find((candidate) =>
+      candidate.to.includes('web_fetch_tool_result'),
+    );
+    const tailGuardReplacement = target.replacements.find((candidate) =>
+      candidate.to.includes('formattedMessages[formattedMessages.length - 1].role === "assistant"'),
     );
 
     it('drops malformed thinking blocks before LangChain Anthropic replay', () => {
@@ -162,15 +240,40 @@ describe('apply-runtime-patches LangChain Anthropic web search replay guard', ()
         target.relativePath,
       );
 
-      expect(patched).toContain('webSearchToolResultIds.has(block.id)');
-      expect(patched).toContain('serverToolUseIds.has(block.tool_use_id)');
+      expect(patched).toContain('serverToolUseNamesById');
+      expect(patched).toContain('serverToolResultNamesById');
+      expect(patched).toContain('"web_fetch_tool_result"');
+      expect(patched).toContain('"code_execution_tool_result"');
       expect(patched).not.toBe(replayReplacement.from);
+    });
+
+    it('preserves all supported Anthropic server tool result block types before LangChain replay', () => {
+      const patched = applyReplacement(
+        toolTypesReplacement.from,
+        toolTypesReplacement,
+        target.relativePath,
+      );
+
+      expect(patched).toContain('"web_fetch_tool_result"');
+      expect(patched).toContain('"code_execution_tool_result"');
+      expect(patched).toContain('"advisor_tool_result"');
     });
 
     it('keeps the LangChain Anthropic replay guard idempotent', () => {
       expect(applyReplacement(replayReplacement.to, replayReplacement, target.relativePath)).toBe(
         replayReplacement.to,
       );
+    });
+
+    it('drops trailing assistant messages before LangChain Anthropic requests', () => {
+      const patched = applyReplacement(
+        tailGuardReplacement.from,
+        tailGuardReplacement,
+        target.relativePath,
+      );
+
+      expect(patched).toContain('formattedMessages.pop()');
+      expect(patched).toContain('role === "assistant"');
     });
   });
 });
@@ -336,6 +439,64 @@ describe('apply-runtime-patches reasoning summary streaming', () => {
     it('is idempotent when the patch is already applied', () => {
       const result = applyReplacement(replacement.to, replacement, target.relativePath);
       expect(result).toBe(replacement.to);
+    });
+  });
+});
+
+/*
+ * Reasoning content aggregation patches
+ *
+ * Completed OpenAI reasoning summary items can arrive as multiple THINK updates
+ * for one persisted content slot. The server aggregator must preserve that
+ * boundary instead of storing merged prose such as `Here goes!Searching`.
+ */
+describe('apply-runtime-patches reasoning content aggregation boundaries', () => {
+  const aggregationTargets = patchTargets.filter(
+    (target) =>
+      ['src/stream.ts', 'dist/esm/stream.mjs', 'dist/cjs/stream.cjs'].includes(
+        target.relativePath,
+      ) &&
+      target.replacements.some((replacement) =>
+        replacement.description?.includes('Separate completed OpenAI reasoning summary'),
+      ),
+  );
+
+  it('has persisted reasoning boundary patches for src, esm, and cjs', () => {
+    expect(aggregationTargets.map((target) => target.relativePath).sort()).toEqual(
+      ['dist/cjs/stream.cjs', 'dist/esm/stream.mjs', 'src/stream.ts'].sort(),
+    );
+  });
+
+  describe.each(aggregationTargets)('$relativePath', (target) => {
+    const replacement = target.replacements.find((candidate) =>
+      candidate.description?.includes('Separate completed OpenAI reasoning summary'),
+    );
+    const mergeThinking = new Function(
+      'currentContent',
+      'contentPart',
+      `return ({ ${replacement.to} }).think;`,
+    );
+
+    it('separates distinct completed summary items', () => {
+      expect(mergeThinking({ think: 'Here goes!' }, { think: 'Searching for papers' })).toBe(
+        'Here goes!\n\nSearching for papers',
+      );
+    });
+
+    it('separates Markdown-headed completed summary items from production payloads', () => {
+      expect(mergeThinking({ think: 'Here goes!' }, { think: '**Searching for papers**' })).toBe(
+        'Here goes!\n\n**Searching for papers**',
+      );
+    });
+
+    it('preserves ordinary streamed continuations', () => {
+      expect(mergeThinking({ think: 'First ' }, { think: 'thought' })).toBe('First thought');
+    });
+
+    it('is idempotent when already patched', () => {
+      expect(applyReplacement(replacement.to, replacement, target.relativePath)).toBe(
+        replacement.to,
+      );
     });
   });
 });

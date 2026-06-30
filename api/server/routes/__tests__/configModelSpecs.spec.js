@@ -317,6 +317,7 @@ describe('/api/config modelSpecs filtering (VAL-MODEL-003)', () => {
       };
       mockModelsConfig = {
         [EModelEndpoint.openAI]: [
+          'chat-latest',
           'gpt-5.5-pro',
           'gpt-5.5',
           'gpt-5.4',
@@ -330,20 +331,16 @@ describe('/api/config modelSpecs filtering (VAL-MODEL-003)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.modelSpecs.list.map((spec) => spec.preset.model)).toEqual([
+        'chat-latest',
         'gpt-5.5',
-        'gpt-5.4',
         'gpt-5.4-mini',
         'claude-opus-4-7',
-        'claude-opus-4-6',
-        'claude-sonnet-4-6',
       ]);
       expect(res.body.modelSpecs.list.map((spec) => spec.label)).toEqual([
+        'Chat Latest',
         'GPT-5.5',
-        'GPT-5.4',
         'GPT-5.4 Mini',
         'Claude Opus 4.7',
-        'Claude Opus 4.6',
-        'Claude Sonnet 4.6',
       ]);
     });
 

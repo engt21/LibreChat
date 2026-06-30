@@ -156,6 +156,29 @@ const allConversationsSelector = selector({
   },
 });
 
+export type AddedConversationEntry = {
+  index: string | number;
+  conversation: TConversation;
+};
+
+const addedConversationsSelector = selector<AddedConversationEntry[]>({
+  key: 'addedConversationsSelector',
+  get: ({ get }) => {
+    const keys = get(conversationKeysAtom);
+    return keys
+      .filter((key) => Number(key) > 0)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((key) => ({
+        index: key,
+        conversation: get(conversationByIndex(key)),
+      }))
+      .filter(
+        (entry): entry is AddedConversationEntry =>
+          entry.conversation != null && entry.conversation.conversationId !== undefined,
+      );
+  },
+});
+
 const conversationIdByIndex = selectorFamily<string | null, string | number>({
   key: 'conversationIdByIndex',
   get:
@@ -464,6 +487,7 @@ export default {
   messagesSiblingIdxFamily,
   anySubmittingSelector,
   allConversationsSelector,
+  addedConversationsSelector,
   conversationIdByIndex,
   conversationEndpointByIndex,
   conversationModelByIndex,

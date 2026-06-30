@@ -14,7 +14,10 @@ const {
   enable2FA,
   verify2FA,
 } = require('~/server/controllers/TwoFactorController');
-const { verify2FAWithTempToken } = require('~/server/controllers/auth/TwoFactorAuthController');
+const {
+  setup2FAWithPendingToken,
+  verify2FAWithTempToken,
+} = require('~/server/controllers/auth/TwoFactorAuthController');
 const { logoutController } = require('~/server/controllers/auth/LogoutController');
 const { loginController } = require('~/server/controllers/auth/LoginController');
 const { getAppConfig } = require('~/server/services/Config');
@@ -35,6 +38,7 @@ router.post(
   '/login',
   middleware.logHeaders,
   middleware.loginLimiter,
+  middleware.loginAccountLimiter,
   middleware.checkBan,
   ldapAuth ? middleware.requireLdapAuth : middleware.requireLocalAuth,
   setBalanceConfig,
@@ -65,7 +69,18 @@ router.post(
 
 router.post('/2fa/enable', middleware.requireJwtAuth, enable2FA);
 router.post('/2fa/verify', middleware.requireJwtAuth, verify2FA);
-router.post('/2fa/verify-temp', middleware.checkBan, verify2FAWithTempToken);
+router.post(
+  '/2fa/pending/setup',
+  middleware.mfaLimiter,
+  middleware.checkBan,
+  setup2FAWithPendingToken,
+);
+router.post(
+  '/2fa/verify-temp',
+  middleware.mfaLimiter,
+  middleware.checkBan,
+  verify2FAWithTempToken,
+);
 router.post('/2fa/confirm', middleware.requireJwtAuth, confirm2FA);
 router.post('/2fa/disable', middleware.requireJwtAuth, disable2FA);
 router.post('/2fa/backup/regenerate', middleware.requireJwtAuth, regenerateBackupCodes);

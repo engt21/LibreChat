@@ -10,30 +10,59 @@ const getPreset = async (user, presetId) => {
   }
 };
 
+const getPresets = async (user, filter) => {
+  try {
+    const presets = await Preset.find({ ...filter, user }).lean();
+    const defaultValue = 10000;
+
+    presets.sort((a, b) => {
+      let orderA = a.order !== undefined ? a.order : defaultValue;
+      let orderB = b.order !== undefined ? b.order : defaultValue;
+
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+
+      return b.updatedAt - a.updatedAt;
+    });
+
+    return presets;
+  } catch (error) {
+    logger.error('[getPresets] Error getting presets', error);
+    return { message: 'Error retrieving presets' };
+  }
+};
+
+const reorderPresets = async (user, presetOrder = []) => {
+  try {
+    const operations = presetOrder
+      .filter((item) => item && typeof item.presetId === 'string' && item.presetId)
+      .map((item, index) => ({
+        updateOne: {
+          filter: { user, presetId: item.presetId },
+          update: {
+            $set: {
+              order: Number.isFinite(item.order) ? item.order : index + 1,
+            },
+          },
+        },
+      }));
+
+    if (operations.length > 0) {
+      await Preset.bulkWrite(operations, { ordered: true });
+    }
+
+    return await getPresets(user);
+  } catch (error) {
+    logger.error('[reorderPresets] Error reordering presets', error);
+    throw error;
+  }
+};
+
 module.exports = {
   getPreset,
-  getPresets: async (user, filter) => {
-    try {
-      const presets = await Preset.find({ ...filter, user }).lean();
-      const defaultValue = 10000;
-
-      presets.sort((a, b) => {
-        let orderA = a.order !== undefined ? a.order : defaultValue;
-        let orderB = b.order !== undefined ? b.order : defaultValue;
-
-        if (orderA !== orderB) {
-          return orderA - orderB;
-        }
-
-        return b.updatedAt - a.updatedAt;
-      });
-
-      return presets;
-    } catch (error) {
-      logger.error('[getPresets] Error getting presets', error);
-      return { message: 'Error retrieving presets' };
-    }
-  },
+  getPresets,
+  reorderPresets,
   savePreset: async (user, { presetId, newPresetId, defaultPreset, ...preset }) => {
     try {
       const setter = { $set: {} };
@@ -51,19 +80,17 @@ module.exports = {
 
       if (defaultPreset) {
         update.defaultPreset = defaultPreset;
-        update.order = 0;
 
         const currentDefault = await Preset.findOne({ defaultPreset: true, user });
 
         if (currentDefault && currentDefault.presetId !== presetId) {
           await Preset.findByIdAndUpdate(currentDefault._id, {
-            $unset: { defaultPreset: '', order: '' },
+            $unset: { defaultPreset: '' },
           });
         }
       } else if (defaultPreset === false) {
         update.defaultPreset = undefined;
-        update.order = undefined;
-        setter['$unset'] = { defaultPreset: '', order: '' };
+        setter['$unset'] = { defaultPreset: '' };
       }
 
       setter.$set = update;

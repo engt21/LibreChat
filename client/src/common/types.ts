@@ -359,6 +359,8 @@ export type TOptions = {
   overrideFiles?: t.TMessage['files'];
   /** Added conversation for multi-convo feature - sent to server as part of submission payload */
   addedConvo?: t.TConversation;
+  /** Additional conversations for multi-convo fan-out. */
+  addedConvos?: t.TConversation[];
 };
 
 export type TAskFunction = (props: TAskProps, options?: TOptions) => void;

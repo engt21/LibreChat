@@ -2,14 +2,22 @@ import { useRecoilCallback } from 'recoil';
 import store from '~/store';
 
 /**
- * Hook that provides lazy access to addedConvo without subscribing to changes.
- * Use this to avoid unnecessary re-renders when addedConvo changes.
+ * Hook that provides lazy access to addedConvos without subscribing to changes.
+ * Use this to avoid unnecessary re-renders when added conversations change.
  */
-export default function useGetAddedConvo() {
+export function useGetAddedConvos() {
   return useRecoilCallback(
     ({ snapshot }) =>
       () =>
-        snapshot.getLoadable(store.conversationByKeySelector(1)).getValue(),
+        snapshot
+          .getLoadable(store.addedConversationsSelector)
+          .getValue()
+          .map((entry) => entry.conversation),
     [],
   );
+}
+
+export default function useGetAddedConvo() {
+  const getAddedConvos = useGetAddedConvos();
+  return () => getAddedConvos()[0] ?? null;
 }

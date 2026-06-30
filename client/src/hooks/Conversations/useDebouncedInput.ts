@@ -1,8 +1,19 @@
 import debounce from 'lodash/debounce';
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import type { SetterOrUpdater } from 'recoil';
 import type { TSetOption } from '~/common';
 import { defaultDebouncedDelay } from '~/common';
+
+type FlushableDebounced = {
+  flush: () => void;
+  cancel: () => void;
+};
+
+const activeDebouncedInputs = new Set<FlushableDebounced>();
+
+export function flushDebouncedInputs() {
+  activeDebouncedInputs.forEach((debouncedInput) => debouncedInput.flush());
+}
 
 /** A custom hook that accepts a setOption function and an option key (e.g., 'title').
 It manages a local state for the option value, a debounced setter function for that value,
@@ -34,6 +45,15 @@ function useDebouncedInput<T = unknown>({
     () => debounce(setOption && optionKey ? setOption(optionKey) : setter || (() => {}), delay),
     [setOption, optionKey, setter, delay],
   );
+
+  useEffect(() => {
+    activeDebouncedInputs.add(setDebouncedOption);
+    return () => {
+      setDebouncedOption.flush();
+      setDebouncedOption.cancel();
+      activeDebouncedInputs.delete(setDebouncedOption);
+    };
+  }, [setDebouncedOption]);
 
   /** An onChange handler that updates the local state and the debounced option */
   const onChange = useCallback(

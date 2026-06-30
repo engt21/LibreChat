@@ -11,6 +11,7 @@ const { retrieveAndProcessFile } = require('~/server/services/Files/process');
 const { recordMessage, getMessages } = require('~/models/Message');
 const { spendTokens } = require('~/models/spendTokens');
 const { saveConvo } = require('~/models/Conversation');
+const { recordModelTokenUsage } = require('~/server/services/ModelRateLimits');
 
 /**
  * Initializes a new thread or adds messages to an existing thread.
@@ -500,6 +501,8 @@ async function checkMessageGaps({
  * @param {number} params.completion_tokens - The number of completion tokens used.
  * @param {string} params.model - The model used by the assistant run.
  * @param {string} params.user - The user's ID.
+ * @param {object} [params.userObject] - The user object with admin-managed rate limits.
+ * @param {string} [params.endpoint] - The endpoint used for the assistant run.
  * @param {string} params.conversationId - LibreChat conversation ID.
  * @param {string} [params.context='message'] - The context of the usage. Defaults to 'message'.
  * @return {Promise<TMessage[]>} A promise that resolves to the updated messages
@@ -509,6 +512,8 @@ const recordUsage = async ({
   completion_tokens,
   model,
   user,
+  userObject,
+  endpoint,
   conversationId,
   context = 'message',
 }) => {
@@ -521,6 +526,15 @@ const recordUsage = async ({
     },
     { promptTokens: prompt_tokens, completionTokens: completion_tokens },
   );
+
+  if (context === 'message') {
+    await recordModelTokenUsage({
+      user: userObject,
+      endpoint,
+      model,
+      tokens: (Number(prompt_tokens) || 0) + (Number(completion_tokens) || 0),
+    });
+  }
 };
 
 const uniqueCitationStart = '^====||===';

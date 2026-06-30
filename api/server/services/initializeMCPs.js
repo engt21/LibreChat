@@ -19,10 +19,12 @@ async function initializeMCPs() {
   const yamlDomains = appConfig?.mcpSettings?.allowedDomains;
   let mergedDomains = yamlDomains;
   let domainFilterMode = 'denylist';
+  let mcpPublishedServers = null;
   try {
     const adminSettings = await getEffectiveAppSettings();
     const adminDomains = adminSettings?.mcpAllowedDomains;
     domainFilterMode = adminSettings?.mcpDomainFilterMode || 'denylist';
+    mcpPublishedServers = adminSettings?.mcpPublishedServers ?? null;
     const hasYaml = Array.isArray(yamlDomains) && yamlDomains.length > 0;
     const hasAdmin = Array.isArray(adminDomains) && adminDomains.length > 0;
 
@@ -46,7 +48,17 @@ async function initializeMCPs() {
   const ssrfExemptions = Array.isArray(yamlDomains) && yamlDomains.length > 0 ? yamlDomains : [];
 
   try {
-    createMCPServersRegistry(mongoose, mergedDomains, domainFilterMode, ssrfExemptions);
+    if (Array.isArray(mcpPublishedServers)) {
+      createMCPServersRegistry(
+        mongoose,
+        mergedDomains,
+        domainFilterMode,
+        ssrfExemptions,
+        mcpPublishedServers,
+      );
+    } else {
+      createMCPServersRegistry(mongoose, mergedDomains, domainFilterMode, ssrfExemptions);
+    }
   } catch (error) {
     logger.error('[MCP] Failed to initialize MCPServersRegistry:', error);
     throw error;

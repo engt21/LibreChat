@@ -26,6 +26,8 @@ const USE_SUBMIT_MESSAGE_PATH = path.resolve(
   '../../../hooks/Messages/useSubmitMessage.ts',
 );
 const USE_CHAT_HELPERS_PATH = path.resolve(__dirname, '../../../hooks/Chat/useChatHelpers.ts');
+const USE_SSE_PATH = path.resolve(__dirname, '../../../hooks/SSE/useSSE.ts');
+const USE_RESUMABLE_SSE_PATH = path.resolve(__dirname, '../../../hooks/SSE/useResumableSSE.ts');
 
 describe('ChatForm.tsx -- BadgeRow super-admin gate guard', () => {
   let source: string;
@@ -118,5 +120,15 @@ describe('normal chat bar steering guards', () => {
     const source = fs.readFileSync(USE_CHAT_HELPERS_PATH, 'utf8');
     expect(source).toContain('latestMessage?.conversationId');
     expect(source).toContain('currentLatest?.conversationId');
+  });
+
+  it('hides Stop as soon as generation enters finalization', () => {
+    const sseSource = fs.readFileSync(USE_SSE_PATH, 'utf8');
+    const resumableSource = fs.readFileSync(USE_RESUMABLE_SSE_PATH, 'utf8');
+
+    expect(sseSource).toContain("data.event === 'stream_finalizing'");
+    expect(sseSource).toMatch(/stream_finalizing[\s\S]*setShowStopButton\(false\)/);
+    expect(resumableSource).toContain("data.event === 'stream_finalizing'");
+    expect(resumableSource).toMatch(/stream_finalizing[\s\S]*setShowStopButton\(false\)/);
   });
 });

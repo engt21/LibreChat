@@ -18,6 +18,7 @@ import type {
 import type { SetterOrUpdater } from 'recoil';
 import type { AnnounceOptions } from '~/common';
 import { MESSAGE_UPDATE_INTERVAL } from '~/common';
+import { mergeThinkingText } from '~/utils/mergeThinkingText';
 
 type TUseStepHandler = {
   announcePolite: (options: AnnounceOptions) => void;
@@ -172,7 +173,7 @@ export default function useStepHandler({
       const currentContent = updatedContent[index] as ReasoningDeltaUpdate;
       const update: ReasoningDeltaUpdate = {
         type: ContentTypes.THINK,
-        think: (currentContent.think || '') + contentPart.think,
+        think: mergeThinkingText(currentContent.think || '', contentPart.think),
       };
 
       updatedContent[index] = update;

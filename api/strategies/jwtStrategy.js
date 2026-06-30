@@ -9,9 +9,14 @@ const jwtLogin = () =>
     {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       secretOrKey: process.env.JWT_SECRET,
+      issuer: process.env.JWT_ISSUER || 'librechat',
+      audience: process.env.JWT_AUDIENCE || 'librechat-api',
     },
     async (payload, done) => {
       try {
+        if (payload?.tokenType && payload.tokenType !== 'access') {
+          return done(null, false);
+        }
         const user = await getUserById(payload?.id, '-password -__v -totpSecret -backupCodes');
         if (user) {
           user.id = user._id.toString();

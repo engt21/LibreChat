@@ -265,10 +265,10 @@ endpoints:
   #   # (optional) Assistant Capabilities available to all users. Omit the ones you wish to exclude. Defaults to list below.
   #   capabilities: ["code_interpreter", "retrieval", "actions", "tools", "image_vision"]
   # agents:
-  #   # (optional) Default recursion depth for agents, defaults to 25
-  #   recursionLimit: 50
-  #   # (optional) Max recursion depth for agents, defaults to 25
-  #   maxRecursionLimit: 100
+  #   # (optional) Default recursion depth for agents, defaults to 100
+  #   recursionLimit: 100
+  #   # (optional) Max recursion depth for agents, defaults to unset
+  #   maxRecursionLimit: 200
   #   # (optional) Disable the builder interface for agents
   #   disableBuilder: false
   #   # (optional) Maximum total citations to include in agent responses, defaults to 30

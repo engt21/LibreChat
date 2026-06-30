@@ -49,27 +49,63 @@ export async function initializeOpenAI({
 
   const userProvidesKey = isUserProvided(credentials[endpoint as keyof typeof credentials]);
   const userProvidesURL = isUserProvided(baseURLOptions[endpoint as keyof typeof baseURLOptions]);
+  const byokPolicy = req.appSettings?.byok?.providers?.[endpoint];
+  const adminBYOKEnabled = byokPolicy?.enabled === true;
+  const allowAdminBaseURL = adminBYOKEnabled && byokPolicy?.allowBaseURL !== false;
+  const fallbackToPlatform = adminBYOKEnabled && byokPolicy?.fallbackToPlatform !== false;
 
   let userValues: UserKeyValues | null = null;
-  if (expiresAt && (userProvidesKey || userProvidesURL)) {
-    checkUserKeyExpiry(expiresAt, endpoint);
-    userValues = await db.getUserKeyValues({ userId: req.user?.id ?? '', name: endpoint });
+  const shouldResolveUserValues =
+    (userProvidesKey || userProvidesURL || adminBYOKEnabled || allowAdminBaseURL) && !!req.user?.id;
+  let skipUserValues = false;
+
+  if (expiresAt && shouldResolveUserValues) {
+    try {
+      checkUserKeyExpiry(expiresAt, endpoint);
+    } catch (error) {
+      if (!fallbackToPlatform) {
+        throw error;
+      }
+      skipUserValues = true;
+    }
   }
 
-  let apiKey = userProvidesKey
-    ? userValues?.apiKey
-    : credentials[endpoint as keyof typeof credentials];
-  const baseURL = userProvidesURL
-    ? userValues?.baseURL
-    : baseURLOptions[endpoint as keyof typeof baseURLOptions];
+  if (shouldResolveUserValues && !skipUserValues) {
+    try {
+      userValues = await db.getUserKeyValues({ userId: req.user?.id ?? '', name: endpoint });
+    } catch (error) {
+      if (
+        !fallbackToPlatform ||
+        !credentials[endpoint as keyof typeof credentials] ||
+        (userProvidesKey && !adminBYOKEnabled)
+      ) {
+        throw error;
+      }
+    }
+  }
 
-  if (userProvidesURL && baseURL) {
-    await validateEndpointURL(baseURL, endpoint);
+  let apiKey =
+    userProvidesKey || adminBYOKEnabled
+      ? userValues?.apiKey
+      : credentials[endpoint as keyof typeof credentials];
+  if (!apiKey && fallbackToPlatform) {
+    apiKey = credentials[endpoint as keyof typeof credentials];
+  }
+
+  const baseURL =
+    userProvidesURL || allowAdminBaseURL
+      ? userValues?.baseURL
+      : baseURLOptions[endpoint as keyof typeof baseURLOptions];
+  const resolvedBaseURL =
+    baseURL || (fallbackToPlatform ? baseURLOptions[endpoint as keyof typeof baseURLOptions] : '');
+
+  if ((userProvidesURL || allowAdminBaseURL) && resolvedBaseURL) {
+    await validateEndpointURL(resolvedBaseURL, endpoint);
   }
 
   const clientOptions: OpenAIConfigOptions = {
     proxy: PROXY ?? undefined,
-    reverseProxyUrl: baseURL || undefined,
+    reverseProxyUrl: resolvedBaseURL || undefined,
     streaming: true,
   };
 
@@ -79,7 +115,7 @@ export async function initializeOpenAI({
     isAzureOpenAI && !azureConfig
       ? resolveAzureOpenAIDirectConfig({
           apiKey,
-          baseURL,
+          baseURL: resolvedBaseURL,
           models: userValues?.models,
         })
       : undefined;
@@ -141,7 +177,12 @@ export async function initializeOpenAI({
     }
   }
 
-  if (isAzureOpenAI && userProvidesURL && !clientOptions.reverseProxyUrl && !clientOptions.azure) {
+  if (
+    isAzureOpenAI &&
+    (userProvidesURL || allowAdminBaseURL) &&
+    !clientOptions.reverseProxyUrl &&
+    !clientOptions.azure
+  ) {
     throw new Error(
       JSON.stringify({
         type: ErrorTypes.NO_BASE_URL,

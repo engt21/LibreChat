@@ -37,6 +37,11 @@ done
 
 resolve_librechat_rail "$ROOT_DIR" "$REQUESTED_RAIL"
 
+if [[ "$LIBRECHAT_RAIL" == "stable" ]]; then
+  echo "Validating mandatory OpenAI reasoning preservation invariants before stable startup..."
+  "$ROOT_DIR/local-services/verify-openai-reasoning-preservation.sh"
+fi
+
 LOCAL_OVERRIDE_COMPOSE="$ROOT_DIR/docker-compose.local.override.yml"
 
 DEV_PROFILE="${LIBRECHAT_DEV_PROFILE:-full}"
@@ -147,6 +152,16 @@ if [[ "$LIBRECHAT_MANAGE_SHARED_SERVICES" == "true" ]]; then
   if ! "$ROOT_DIR/local-services/keep-ollama-warm.sh"; then
     echo "Warning: failed to warm remote Ollama model" >&2
   fi
+fi
+
+if [[ "$LIBRECHAT_RAIL" == "stable" ]]; then
+  echo "Validating deployed OpenAI reasoning preservation invariants on stable..."
+  stable_container="$(docker ps \
+    --filter 'label=com.docker.compose.project=librechat-stable' \
+    --filter 'label=com.docker.compose.service=api' \
+    --format '{{.Names}}' 2>/dev/null | head -1)"
+  stable_container="${stable_container:-${LIBRECHAT_API_CONTAINER_NAME:-LibreChat}}"
+  "$ROOT_DIR/local-services/verify-openai-reasoning-preservation.sh" --container "$stable_container"
 fi
 
 echo "Started LibreChat rail '$LIBRECHAT_RAIL' on http://127.0.0.1:$LIBRECHAT_HOST_PORT"

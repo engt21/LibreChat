@@ -11,6 +11,18 @@ export interface IUserModelPermissions {
   rules?: IModelPermissionRule[];
 }
 
+export interface IModelRateLimitRule {
+  endpoint: string;
+  model: string;
+  requestsPerDay?: number | null;
+  tokensPerDay?: number | null;
+}
+
+export interface IUserModelRateLimits {
+  enabled?: boolean;
+  rules?: IModelRateLimitRule[];
+}
+
 export interface IUserImageGenerationPrefs {
   /** When true, the image-generation tool is auto-injected for new chats. */
   enabledByDefault?: boolean;
@@ -94,6 +106,7 @@ export interface IUser extends Document {
     memories?: boolean;
   };
   modelPermissions?: IUserModelPermissions;
+  modelRateLimits?: IUserModelRateLimits;
   imageGenerationPrefs?: IUserImageGenerationPrefs;
   modelSteeringPrefs?: IUserModelSteeringPrefs;
   favorites?: Array<{
@@ -136,6 +149,7 @@ export interface UpdateUserRequest {
     memories?: boolean;
   };
   modelPermissions?: IUserModelPermissions;
+  modelRateLimits?: IUserModelRateLimits;
   imageGenerationPrefs?: IUserImageGenerationPrefs;
   modelSteeringPrefs?: IUserModelSteeringPrefs;
   notifications?: IUserNotifications;

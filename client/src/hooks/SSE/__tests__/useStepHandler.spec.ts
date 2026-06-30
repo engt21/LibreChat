@@ -547,6 +547,53 @@ describe('useStepHandler', () => {
         expect.objectContaining({ type: ContentTypes.THINK, think: 'First thought' }),
       );
     });
+
+    it('should separate completed reasoning summary items in the same content slot', () => {
+      const responseMessage = createResponseMessage();
+      mockGetMessages.mockReturnValue([responseMessage]);
+
+      const { result } = renderHook(() => useStepHandler(createHookParams()));
+
+      const runStep = createRunStep();
+      const submission = createSubmission();
+
+      act(() => {
+        result.current.stepHandler({ event: 'on_run_step', data: runStep }, submission);
+      });
+
+      act(() => {
+        result.current.stepHandler(
+          {
+            event: 'on_reasoning_delta',
+            data: createReasoningDelta('step-1', 'Searching for papers\n\nI need useful sources.'),
+          },
+          submission,
+        );
+      });
+
+      act(() => {
+        result.current.stepHandler(
+          {
+            event: 'on_reasoning_delta',
+            data: createReasoningDelta(
+              'step-1',
+              'Searching for scholarly papers\n\nI need more specific sources.',
+            ),
+          },
+          submission,
+        );
+      });
+
+      const lastCall = mockSetMessages.mock.calls[mockSetMessages.mock.calls.length - 1][0];
+      const responseMsg = lastCall[lastCall.length - 1];
+      expect(responseMsg.content).toContainEqual(
+        expect.objectContaining({
+          type: ContentTypes.THINK,
+          think:
+            'Searching for papers\n\nI need useful sources.\n\nSearching for scholarly papers\n\nI need more specific sources.',
+        }),
+      );
+    });
   });
 
   describe('on_run_step_delta event', () => {

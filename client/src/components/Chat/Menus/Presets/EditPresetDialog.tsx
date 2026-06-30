@@ -18,7 +18,7 @@ import {
   mapEndpoints,
   getConvoSwitchLogic,
 } from '~/utils';
-import { useSetIndexOptions, useLocalize, useDebouncedInput } from '~/hooks';
+import { useSetIndexOptions, useLocalize, useDebouncedInput, flushDebouncedInputs } from '~/hooks';
 import PopoverButtons from '~/components/Chat/Input/PopoverButtons';
 import { EndpointSettings } from '~/components/Endpoints';
 import { useGetEndpointsQuery } from '~/data-provider';
@@ -120,6 +120,11 @@ const EditPresetDialog = ({
     }
   };
 
+  const handleSave = () => {
+    flushDebouncedInputs();
+    window.setTimeout(submitPreset, 0);
+  };
+
   const { endpoint: _endpoint, endpointType, model } = preset || {};
   const endpoint = _endpoint ?? '';
 
@@ -205,7 +210,7 @@ const EditPresetDialog = ({
               {localize('com_endpoint_export')}
             </button>
             <button
-              onClick={submitPreset}
+              onClick={handleSave}
               className="rounded-md bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 md:px-4"
             >
               {localize('com_ui_save')}

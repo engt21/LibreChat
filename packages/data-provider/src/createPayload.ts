@@ -6,6 +6,7 @@ export default function createPayload(submission: t.TSubmission) {
   const {
     isEdited,
     addedConvo,
+    addedConvos,
     userMessage,
     isSteering,
     isContinued,
@@ -38,6 +39,7 @@ export default function createPayload(submission: t.TSubmission) {
     ...endpointOption,
     endpoint,
     addedConvo,
+    addedConvos,
     isTemporary,
     isRegenerate,
     editedContent,

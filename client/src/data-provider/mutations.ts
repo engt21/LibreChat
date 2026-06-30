@@ -673,6 +673,20 @@ export const useUpdatePresetMutation = (
   });
 };
 
+export const useReorderPresetsMutation = (
+  options?: t.ReorderPresetsOptions,
+): UseMutationResult<
+  t.TPreset[], // response data
+  unknown,
+  t.PresetOrderUpdate,
+  unknown
+> => {
+  return useMutation([MutationKeys.reorderPresets], {
+    mutationFn: (payload: t.PresetOrderUpdate) => dataService.reorderPresets(payload),
+    ...(options || {}),
+  });
+};
+
 export const useDeletePresetMutation = (
   options?: t.DeletePresetOptions,
 ): UseMutationResult<

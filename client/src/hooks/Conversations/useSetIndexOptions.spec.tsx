@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import { WebSearchModes } from 'librechat-data-provider';
+import { EModelEndpoint, WebSearchModes } from 'librechat-data-provider';
 import { useChatContext } from '~/Providers/ChatContext';
 import usePresetIndexOptions from './usePresetIndexOptions';
 import useSetIndexOptions from './useSetIndexOptions';
@@ -75,5 +75,37 @@ describe('useSetIndexOptions', () => {
     const updated = updater(null);
     expect(updated).toEqual({ web_search: true });
     expect(updated).not.toHaveProperty('web_search_mode');
+  });
+
+  it('syncs Anthropic sidebar server-tool settings with the ephemeral agent request state', () => {
+    (useChatContext as jest.Mock).mockReturnValue({
+      conversation: {
+        conversationId: 'convo-3',
+        endpoint: EModelEndpoint.anthropic,
+      },
+      setConversation: mockSetConversation,
+    });
+
+    const { result } = renderHook(() => useSetIndexOptions());
+
+    act(() => {
+      result.current.setOption('web_fetch')(true);
+      result.current.setOption('anthropic_code_execution')(false);
+      result.current.setOption('anthropic_advisor_model')('claude-opus-4-7');
+    });
+
+    const webFetchUpdater = mockSetEphemeralAgent.mock.calls[0][0];
+    const codeExecutionUpdater = mockSetEphemeralAgent.mock.calls[1][0];
+    const advisorModelUpdater = mockSetEphemeralAgent.mock.calls[2][0];
+
+    expect(webFetchUpdater(null)).toEqual({ web_fetch: true });
+    expect(codeExecutionUpdater({ web_fetch: true })).toEqual({
+      web_fetch: true,
+      anthropic_code_execution: false,
+    });
+    expect(advisorModelUpdater({ anthropic_code_execution: false })).toEqual({
+      anthropic_code_execution: false,
+      anthropic_advisor_model: 'claude-opus-4-7',
+    });
   });
 });

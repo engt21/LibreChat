@@ -145,6 +145,8 @@ export default function useSSE(
         createdHandler(data, { ...submission, userMessage } as EventSubmission);
       } else if (data.event === 'web_search_action') {
         setLatestWebSearchAction(data.data ?? null);
+      } else if (data.event === 'stream_finalizing') {
+        setShowStopButton(false);
       } else if (data.event != null) {
         stepHandler(data, { ...submission, userMessage } as EventSubmission);
       } else if (data.sync != null) {

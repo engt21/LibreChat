@@ -54,6 +54,7 @@ jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string, values?: Record<string, string>) =>
     values?.title ? `${key}:${values.title}` : key,
   useDebouncedInput: ({ initialValue }: { initialValue?: string }) => [jest.fn(), initialValue],
+  flushDebouncedInputs: jest.fn(),
   useSetIndexOptions: jest.fn(() => ({
     setOption: (key: string) => (value: string) => mockSetOptionValue(key, value),
     setOptions: mockSetOptions,

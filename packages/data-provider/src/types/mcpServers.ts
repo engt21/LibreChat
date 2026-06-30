@@ -9,6 +9,8 @@ export interface IMCPServerDB {
   serverName: string;
   config: MCPOptions;
   author?: string | null;
+  publishedBy?: string | null;
+  publishedAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
 }

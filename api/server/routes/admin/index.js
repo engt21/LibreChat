@@ -9,12 +9,14 @@ const {
 const {
   getAdminRolesController,
   getAdminUsageController,
+  getAdminMCPServersController,
   getAdminUserController,
   getAdminUsersController,
   getAdminSettingsController,
   getAdminPermissionsController,
   getAdminObservabilityController,
   updateAdminUserController,
+  updateAdminMCPServerPublicationController,
   updateAdminSettingsController,
   deleteAdminUserController,
   refreshAdminModelsController,
@@ -51,6 +53,16 @@ router.get(
   '/usage',
   requireAdminPermission(AdminPermissions.USAGE_READ),
   asyncHandler(getAdminUsageController),
+);
+router.get(
+  '/mcp/servers',
+  requireAdminPermission(AdminPermissions.SETTINGS_READ),
+  asyncHandler(getAdminMCPServersController),
+);
+router.patch(
+  '/mcp/servers/:serverName/publication',
+  requireAdminPermission(AdminPermissions.SETTINGS_WRITE),
+  asyncHandler(updateAdminMCPServerPublicationController),
 );
 router.get(
   '/settings',

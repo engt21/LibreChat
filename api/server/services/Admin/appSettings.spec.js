@@ -1,6 +1,10 @@
-jest.mock('@librechat/api', () => ({
-  isEnabled: jest.fn((value) => value === true || value === 'true'),
-}));
+jest.mock(
+  '@librechat/api',
+  () => ({
+    isEnabled: jest.fn((value) => value === true || value === 'true'),
+  }),
+  { virtual: true },
+);
 
 jest.mock('librechat-data-provider', () => ({
   CacheKeys: {
@@ -72,6 +76,19 @@ describe('Admin app settings service', () => {
     expect(settings.modelSteeringEnabled).toBe(false);
   });
 
+  it('defaults observability links to the VM sidecar ports', async () => {
+    mockFindOneDoc(null);
+
+    const settings = await getEffectiveAppSettings();
+
+    expect(settings.observability).toEqual({
+      langfuseUrl: 'http://localhost:3000',
+      grafanaUrl: 'http://localhost:3001',
+      metricsUrl: 'http://localhost:9091',
+      prometheusUrl: 'http://localhost:9092',
+    });
+  });
+
   it('normalizes empty or non-string platform prompt updates to null', () => {
     expect(normalizePlatformPrompt('  ')).toBeNull();
     expect(normalizePlatformPrompt(null)).toBeNull();
@@ -120,5 +137,99 @@ describe('Admin app settings service', () => {
       expect.objectContaining({ upsert: true, new: true, lean: true }),
     );
     expect(settings.modelSteeringEnabled).toBe(true);
+  });
+
+  it('returns null MCP published server allowlist by default to preserve existing YAML visibility', async () => {
+    mockFindOneDoc(null);
+
+    const settings = await getEffectiveAppSettings();
+
+    expect(settings.mcpPublishedServers).toBeNull();
+  });
+
+  it('returns BYOK provider policies disabled by default', async () => {
+    mockFindOneDoc(null);
+
+    const settings = await getEffectiveAppSettings();
+
+    expect(settings.byok.providers.openAI).toEqual({
+      enabled: false,
+      allowBaseURL: true,
+      fallbackToPlatform: true,
+    });
+  });
+
+  it('persists BYOK provider policy updates', async () => {
+    mockFindOneDoc({
+      settingsId: 'global',
+      observability: {},
+      byok: { providers: { openAI: { enabled: false } } },
+    });
+    mockFindOneAndUpdate.mockResolvedValue({
+      settingsId: 'global',
+      observability: {},
+      byok: {
+        providers: {
+          openAI: {
+            enabled: true,
+            allowBaseURL: true,
+            fallbackToPlatform: true,
+          },
+        },
+      },
+    });
+
+    const settings = await updateAppSettings({
+      byok: {
+        providers: {
+          openAI: {
+            enabled: true,
+            allowBaseURL: true,
+            fallbackToPlatform: true,
+          },
+        },
+      },
+    });
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { settingsId: 'global' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          byok: {
+            providers: expect.objectContaining({
+              openAI: {
+                enabled: true,
+                allowBaseURL: true,
+                fallbackToPlatform: true,
+              },
+            }),
+          },
+        }),
+      }),
+      expect.objectContaining({ upsert: true, new: true, lean: true }),
+    );
+    expect(settings.byok.providers.openAI.enabled).toBe(true);
+  });
+
+  it('persists MCP published server allowlist updates', async () => {
+    mockFindOneDoc({ settingsId: 'global', observability: {} });
+    mockFindOneAndUpdate.mockResolvedValue({
+      settingsId: 'global',
+      observability: {},
+      mcpPublishedServers: ['arcade-read'],
+    });
+
+    const settings = await updateAppSettings({ mcpPublishedServers: ['arcade-read'] });
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { settingsId: 'global' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          mcpPublishedServers: ['arcade-read'],
+        }),
+      }),
+      expect.objectContaining({ upsert: true, new: true, lean: true }),
+    );
+    expect(settings.mcpPublishedServers).toEqual(['arcade-read']);
   });
 });

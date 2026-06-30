@@ -50,6 +50,17 @@ export type UpdatePresetOptions = MutationOptions<types.TPreset, types.TPreset>;
 
 export type DeletePresetOptions = MutationOptions<PresetDeleteResponse, types.TPreset | undefined>;
 
+export type PresetOrderItem = {
+  presetId: string;
+  order: number;
+};
+
+export type PresetOrderUpdate = {
+  presetOrder: PresetOrderItem[];
+};
+
+export type ReorderPresetsOptions = MutationOptions<types.TPreset[], PresetOrderUpdate>;
+
 /* Assistant mutations */
 
 export type AssistantAvatarVariables = {

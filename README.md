@@ -46,6 +46,10 @@
   </a>
 </p>
 
+# Local Security
+
+This deployment uses Tailscale HTTPS, mandatory TOTP MFA for local accounts, short-lived access tokens, rotating server-backed refresh sessions, generic credential failures, and hardened browser headers. See [AUTH_SECURITY.md](./AUTH_SECURITY.md).
+
 # ✨ Features
 
 - 🖥️ **UI & Experience** inspired by ChatGPT with enhanced design and features
@@ -212,11 +216,14 @@ For setup, environment variables, and local verification, see [`SCHEDULED_RUNS.m
 
 ## Local Docker Workflow
 
-For this repo's local validation workflow, start the LibreChat stack in detached mode and then start the observability sidecars.
+Production `stable` now runs on the VM at `timeng@192.168.50.104` from
+`/opt/LibreChat-custom`. Keep source edits, builds, tests, and normal validation
+in this pve2 checkout, but do not start a duplicate pve2 stable stack unless the
+user explicitly approves production maintenance or a local-only stable exercise.
 
 Detached containers continue running after you close the shell. The LibreChat repo services use Docker restart policies, and the local Prometheus sidecar should also be started from its compose file so it is managed by Docker instead of the shell.
 
-Admin console observability links are host-aware: when LibreChat is opened on a host such as `http://192.168.50.4:3080`, the admin links use that same host instead of `localhost`.
+Admin console observability links are host-aware: when LibreChat is opened on a host such as `http://192.168.50.104:3080`, the admin links use that same host instead of `localhost`.
 
 ### VS Code devcontainer persistence
 
@@ -247,22 +254,37 @@ Only if you intentionally re-enable the `litellm` service should these paths exi
 
 If either path is accidentally created as a directory, `litellm` will fail to start because Docker will bind-mount a directory at `/app/config.yaml` or `/app/custom_callbacks.py`.
 
-### Start the full local stack
+### Current validation flow
 
-Recommended dual-rail startup from current repo source:
+Use the pve2 `dev` rail for source validation while VM `stable` stays live:
 
 ```bash
 cd /pool/home/timeng/LibreChat-custom
-./local-services/start-all.sh stable
 ./local-services/start-all.sh dev
 ```
 
-Use `stable` as the primary rail (`r1`, `:3080`) and `dev` as the validation / warm rollover rail (`r2`, `:3081`).
-Validate on `dev` first, keep `stable` serving traffic, and only rebuild `stable` after the `dev` rail passes.
+Use VM `stable` as the primary rail at `http://192.168.50.104:3080` and pve2
+`dev` as the validation / failover rail at `http://127.0.0.1:3081`. Validate on
+`dev` first, keep VM `stable` serving traffic, and only mutate VM `stable` after
+explicit approval.
 
-Both rails run the core LibreChat services, but only `stable` owns the shared Langfuse + metrics stack. `dev` reuses the stable traceability services on host ports (`3000`, `9091`, `9090`, `3001`) instead of starting duplicate Langfuse or exporter containers.
+VM `stable` owns the shared Langfuse + metrics stack. `dev` reuses stable
+traceability services instead of starting duplicate Langfuse or exporter
+containers when shared observability is available.
 
-Manual compose equivalent for the shared `stable` rail:
+Read-only VM checks:
+
+```bash
+ssh timeng@192.168.50.104 'cd /opt/LibreChat-custom && docker compose -p librechat-stable -f docker-compose.yml -f docker-compose.local.override.yml ps'
+curl -fsS http://192.168.50.104:3080/ >/dev/null
+curl -fsS http://192.168.50.104:3080/api/config >/dev/null
+ssh timeng@192.168.50.104 'curl -fsS http://127.0.0.1:8190/v1/health >/dev/null'
+ssh timeng@192.168.50.104 'curl -fsS http://127.0.0.1:8100/health >/dev/null'
+ssh timeng@192.168.50.104 'curl -fsS http://127.0.0.1:8101/health >/dev/null'
+ssh timeng@192.168.50.104 'curl -fsS http://127.0.0.1:8102/health >/dev/null'
+```
+
+Legacy local stable compose equivalent, only when explicitly requested:
 
 ```bash
 cd /pool/home/timeng/LibreChat-custom
@@ -271,7 +293,10 @@ docker compose -f "/pool/home/timeng/librechat_exporter/prometheus-dev/docker-co
 LIBRECHAT_LOG_DIR=/pool/home/timeng/LibreChat-custom/logs docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
 ```
 
-This is the default path agents should use. It builds `librechat-local:latest` from `Dockerfile`, so the running container includes the latest local backend, frontend, and shared-package changes from this checkout.
+This local-stable compose path builds `librechat-local:latest` from `Dockerfile`,
+so the running container includes the latest local backend, frontend, and
+shared-package changes from this checkout. It is not the current production
+maintenance path after the VM migration.
 
 `docker-compose.local.override.yml` is intentionally checked into this worktree so restart/rebuild flows do not depend on the upstream-sync worktree's `docker-compose.override.yml` symlink.
 
@@ -281,12 +306,33 @@ The Grafana/Loki sidecar should always follow `/pool/home/timeng/LibreChat-custo
 
 The Langfuse stack on port `3000` is also the shared tracing backend for Touchdown host runtimes. Reuse the same `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` values from `./langfuse/.env` when wiring Touchdown services, and use a `LANGFUSE_BASE_URL` that is reachable from both host processes and optional containers.
 
+### Host memory guardrails
+
+Stable LibreChat is the production rail and must stay constrained and running. Adjacent validation/test workloads should either be capped or stopped when the host is under memory pressure.
+
+- `oss-llama.service`: persistent user-systemd cap in `/home/timeng/.config/systemd/user/oss-llama.service.d/override.conf` with `MemoryHigh=5G`, `MemoryMax=6G`, and `MemorySwapMax=0`.
+- `grafana-loki-stable`: Loki `512m`, Grafana `512m`, Promtail `256m`, with `memswap_limit` equal to `mem_limit`.
+- `prometheus-stable`: Prometheus `1g`, Blackbox `128m`, with `memswap_limit` equal to `mem_limit`.
+- `touchdown-r1` and `touchdown-backwards-r1`: `768m` each, with `memswap_limit` equal to `mem_limit`.
+- `librechat-official-*`: live container caps are `rag=512m`, `vectordb=512m`, `mongodb=1g`, and `meili=768m`. Reapply these if the temporary upstream compose project recreates containers.
+
+To reclaim memory without deleting containers, stop only non-stable workloads:
+
+```bash
+docker stop touchdown-backwards-r1 touchdown-r1 \
+  grafana-loki-stable-promtail-1 grafana-loki-stable-grafana-1 grafana-loki-stable-loki-1 \
+  prometheus-stable-prometheus-1 prometheus-stable-blackbox-1 \
+  librechat-official-rag librechat-official-vectordb librechat-official-mongodb librechat-official-meili
+```
+
+Do not stop or reconfigure `librechat-stable-*` containers unless explicitly performing approved production maintenance.
+
 The linked dashboards then resolve on the same host as LibreChat:
 
 - Langfuse: `http://<same-host>:3000`
 - Grafana: `http://<same-host>:3001`
 - Metrics: `http://<same-host>:9091`
-- Prometheus: `http://<same-host>:9090`
+- Prometheus: `http://<same-host>:9092`
 
 Stock upstream app image, only when explicitly requested:
 
@@ -306,22 +352,37 @@ docker compose -f "/pool/home/timeng/librechat_exporter/prometheus-dev/docker-co
 LIBRECHAT_LOG_DIR=/pool/home/timeng/LibreChat-custom/logs TOUCHDOWN_LOG_DIR=/pool/home/timeng/touchdown/logs TOUCHDOWN_BACKWARDS_LOG_DIR=/pool/home/timeng/touchdown/logs_backward docker compose -f "/pool/home/timeng/librechat_exporter/grafana-loki-dev/docker-compose.yml" up -d
 ```
 
-### Restart the full local stack
+### Restart or refresh local validation
 
-Preferred warm-rollover workflow:
+Preferred source-validation workflow:
 
 ```bash
 cd /pool/home/timeng/LibreChat-custom
 ./local-services/start-all.sh dev
 ./local-services/status-all.sh all
-# validate dev on :3081 while stable stays live on :3080
-./local-services/start-all.sh stable
-./local-services/status-all.sh all
 ```
 
-That keeps `dev` (`r2`) warm while `stable` (`r1`) is rebuilt.
+That validates pve2 `dev` (`:3081`) while VM `stable`
+(`http://192.168.50.104:3080`) stays live. Do not run
+`./local-services/start-all.sh stable` on pve2 as part of normal work after the
+VM migration.
 
-Manual full restart:
+For small backend/config/runtime-loaded edits, prefer the guarded runtime-delta
+path before rebuilding:
+
+```bash
+cd /pool/home/timeng/LibreChat-custom
+./local-services/deploy-runtime-delta.sh dev --dry-run -- api/server/routes/presets.js
+./local-services/deploy-runtime-delta.sh dev -- api/server/routes/presets.js
+```
+
+The helper snapshots previous files, copies only safe runtime paths, restarts the
+API container when needed, and health-checks the rail. It refuses frontend
+source, direct `client/dist` edits, package source, dependency files, Dockerfiles,
+and compose files. Frontend source changes still require a complete host-built
+`client/dist` deployment through `local-services/deploy-built-client-dist.sh`.
+
+Manual local full restart, only for an explicitly requested local-only exercise:
 
 ```bash
 cd /pool/home/timeng/LibreChat-custom
@@ -338,22 +399,27 @@ LIBRECHAT_LOG_DIR=/pool/home/timeng/LibreChat-custom/logs TOUCHDOWN_LOG_DIR=/poo
 ```bash
 cd /pool/home/timeng/LibreChat-custom
 ./local-services/status-all.sh all
-curl -fsS http://127.0.0.1:3080 >/dev/null && echo "LibreChat OK"
+curl -fsS http://192.168.50.104:3080/ >/dev/null && echo "VM LibreChat OK"
+curl -fsS http://192.168.50.104:3080/api/config >/dev/null && echo "VM LibreChat config OK"
 curl -fsS http://127.0.0.1:3081 >/dev/null && echo "LibreChat dev OK"
 curl -fsS http://192.168.50.201:11434/api/tags >/dev/null && echo "Remote Ollama OK"
 systemctl --user is-active librechat-ollama-keepwarm.timer >/dev/null && echo "Ollama keep-warm timer OK"
-status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3080/api/admin/permissions)
+status=$(curl -s -o /dev/null -w '%{http_code}' http://192.168.50.104:3080/api/admin/permissions)
 if [ "$status" = "401" ] || [ "$status" = "403" ]; then echo "Admin route exists"; fi
-schedule_status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3080/api/schedules)
+schedule_status=$(curl -s -o /dev/null -w '%{http_code}' http://192.168.50.104:3080/api/schedules)
 if [ "$schedule_status" = "401" ]; then echo "Scheduled runs route exists"; fi
-realtime_status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3080/api/realtime/models)
+realtime_status=$(curl -s -o /dev/null -w '%{http_code}' http://192.168.50.104:3080/api/realtime/models)
 if [ "$realtime_status" = "401" ]; then echo "Realtime route exists"; fi
 realtime_status_dev=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3081/api/realtime/models)
 if [ "$realtime_status_dev" = "401" ]; then echo "Realtime dev route exists"; fi
-curl -fsS http://127.0.0.1:3000 >/dev/null && echo "Langfuse OK"
-curl -fsS http://127.0.0.1:9090/-/ready >/dev/null && echo "Prometheus OK"
-curl -fsS http://127.0.0.1:3100/ready >/dev/null && echo "Loki OK"
-curl -fsS http://127.0.0.1:3001 >/dev/null && echo "Grafana OK"
+curl -fsS http://192.168.50.104:3000 >/dev/null && echo "Langfuse OK"
+curl -fsS http://192.168.50.104:9092/-/healthy >/dev/null && echo "Prometheus OK"
+curl -fsS http://192.168.50.104:3100/ready >/dev/null && echo "Loki OK"
+curl -fsS http://192.168.50.104:3001/api/health >/dev/null && echo "Grafana OK"
+ssh timeng@192.168.50.104 'curl -fsS http://127.0.0.1:8190/v1/health >/dev/null' && echo "Code Interpreter OK"
+ssh timeng@192.168.50.104 'curl -fsS http://127.0.0.1:8100/health >/dev/null' && echo "OpenAI RAG OK"
+ssh timeng@192.168.50.104 'curl -fsS http://127.0.0.1:8101/health >/dev/null' && echo "Azure RAG OK"
+ssh timeng@192.168.50.104 'curl -fsS http://127.0.0.1:8102/health >/dev/null' && echo "Google RAG OK"
 ```
 
 ### Realtime voice notes
@@ -364,7 +430,7 @@ curl -fsS http://127.0.0.1:3001 >/dev/null && echo "Grafana OK"
 - Full setup and troubleshooting: [./REALTIME_VOICE.md](./REALTIME_VOICE.md)
 
 - The default local app image definition lives in `Dockerfile` and is wired into `docker-compose.local.override.yml`.
-- If you ask an agent to start or restart LibreChat locally, it should use the default local-build path above instead of the published upstream image.
+- If you ask an agent to start or restart LibreChat locally, it should use the default local-build path above instead of the published upstream image. If the request is only a small backend/config/runtime update, it should use `local-services/deploy-runtime-delta.sh` instead of a full rebuild.
 - MongoDB data persists across rebuilds through `./data-node:/data/db` from `docker-compose.yml`.
 
 For the admin-only patched-remote reference, see `PATCHED_REMOTE_IMAGE_REFERENCE.md`. For the current default local workflow, see `LOCAL_SERVICE_RUNBOOK.local.md`.
@@ -377,25 +443,31 @@ This branch includes additional MCP compatibility work beyond upstream LibreChat
 - Arcade-style OAuth refresh now uses protected-resource `authorization_servers` metadata to discover the token endpoint instead of guessing from the MCP server path.
 - MCP OAuth callbacks now resolve from `DOMAIN_SERVER` first, then forwarded/request host data. The local Docker override sets `DOMAIN_SERVER=http://localhost:${PORT:-3080}` so local Arcade Microsoft OAuth can use the loopback redirect exception.
 - Live local validation connected to Arcade `microsoft-tools`, listed 24 tools, and advanced `MicrosoftOnedrive_WhoAmI` plus `MicrosoftOnedrive_GetMyDrive` to provider authorization prompts instead of LibreChat MCP initialization errors.
+- MCP server lists are alphabetized by display title/name with `serverName` tie-breakers across the backend registry, admin surfaces, and user/agent MCP selection UIs.
+- Admins can publish/hide YAML/static MCP servers and publish user-managed MCP servers to all users from the admin console.
+- Arcade/Microsoft MCP servers are DB/user-managed rather than static YAML defaults; the old `arcade-read` YAML entry was removed to avoid duplicate entries and a broken/corrupted external favicon.
 - The local runtime also configures a read-only `internet-archive` MCP server at `http://192.168.50.4:8770/mcp` for Wayback Machine and archive.org research tools; see `INTERNET_ARCHIVE_MCP.md`.
+- The local runtime also configures a guarded `arxiv` MCP server at `http://192.168.50.4:8771/mcp/` for arXiv research tools; see `ARXIV_MCP.md`.
 
-For the detailed local-runtime version of these notes, see `README.local.md`, `CUSTOMIZATION_MASTER_DOC.md`, and `INTERNET_ARCHIVE_MCP.md`.
+For the detailed local-runtime version of these notes, see `README.local.md`, `CUSTOMIZATION_MASTER_DOC.md`, `INTERNET_ARCHIVE_MCP.md`, and `ARXIV_MCP.md`.
 
 ### Default model access for new non-admin users
 
-This local setup now assigns default per-user model restrictions to newly created non-admin accounts instead of globally shrinking the configured provider model lists.
+This local setup stores model restrictions per user instead of globally shrinking the configured provider model lists.
 
-- Default new non-admin access:
-  - `azureOpenAI`: all models
-  - `ollama`: all discovered Ollama models
-  - `openAI`: `gpt-5.3-chat-latest`, `gpt-5.4-mini`, `gpt-5.4-nano`
-  - `anthropic`: Claude Sonnet 4.5/4.6, all Haiku, all Claude 3.x (no Opus)
-  - `xai`: `grok-4-1-fast`
+- `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS` is currently disabled with empty rules, so new non-admin users start with unrestricted model visibility unless an admin sets per-user permissions.
 - Admins keep the full configured model catalog.
 - Existing users are not changed automatically.
-- The canonical default allowlist is defined in `api/server/services/ModelAccess.js` (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`).
+- The default access-policy source is `api/server/services/ModelAccess.js` (`DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`).
+- Admins can additionally set per-user/per-model 24-hour request and token budgets in the admin console; exhausted budgets return `429` with `type: "model_rate_limit"`.
 
 Use the admin console `Users -> Model access` controls if you want to override a specific user's defaults after account creation.
+
+### Admin console policy controls
+
+- Workspace settings include BYOK provider policies controlling whether user keys/base URLs are accepted and whether missing/expired user credentials fall back to platform credentials.
+- User detail pages show safe preferences, user MCP servers, BYOK key status, schedule/MCP/BYOK counts, and last active time.
+- Superadmins can manage model access and per-model rate limits per user.
 
 ### Google Gemini model discovery and grounding notes
 
@@ -412,7 +484,7 @@ The Google endpoint now supports API-driven Gemini model discovery and capabilit
 - Multipart Gemini responses are supported, so inline citations can still appear when the final answer is split across multiple text parts.
 - Citation placement now prefers exact grounded segment text and natural sentence or section endings when Google's raw indices drift, which avoids mid-word markers in grounded replies.
 - Grounding metadata is preserved through the agents response pipeline before the final message is saved and sent to the client.
-- Older saved messages do not retroactively gain citations; send a fresh grounded prompt after rebuilding or redeploying.
+- Older saved messages do not retroactively gain citations; send a fresh grounded prompt after redeploying the relevant runtime artifact.
 
 If you still want a fixed Google model list, keep using `GOOGLE_MODELS`; the manual env var continues to override live discovery.
 

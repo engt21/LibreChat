@@ -1,7 +1,13 @@
 import { Dispatcher, ProxyAgent } from 'undici';
 import { logger } from '@librechat/data-schemas';
 import { AnthropicClientOptions } from '@librechat/agents';
-import { anthropicSettings, removeNullishValues, AuthKeys } from 'librechat-data-provider';
+import {
+  AnthropicAdvisorModel,
+  anthropicSettings,
+  getAnthropicModelCapabilities,
+  removeNullishValues,
+  AuthKeys,
+} from 'librechat-data-provider';
 import type {
   AnthropicLLMConfigResult,
   AnthropicConfigOptions,
@@ -15,7 +21,15 @@ import {
   mergeAnthropicBetaHeaders,
   ANTHROPIC_CONTEXT_MANAGEMENT_BETA,
   ANTHROPIC_MCP_CLIENT_BETA,
+  ANTHROPIC_FAST_MODE_BETA,
+  ANTHROPIC_ADVISOR_BETA,
+  ANTHROPIC_ADVISOR_TOOL,
+  ANTHROPIC_CODE_EXECUTION_BETA,
+  ANTHROPIC_CODE_EXECUTION_TOOL,
+  ANTHROPIC_WEB_FETCH_TOOL,
+  ANTHROPIC_WEB_FETCH_DYNAMIC_TOOL,
   ANTHROPIC_WEB_SEARCH_TOOL,
+  ANTHROPIC_WEB_SEARCH_DYNAMIC_TOOL,
   ANTHROPIC_VERTEX_WEB_SEARCH_TOOL,
 } from './helpers';
 import {
@@ -63,6 +77,7 @@ export const knownAnthropicParams = new Set([
   'anthropicVersion',
   'anthropicApiUrl',
   'defaultHeaders',
+  'speed',
 ]);
 
 const knownAnthropicInvocationParams = new Set([
@@ -72,6 +87,87 @@ const knownAnthropicInvocationParams = new Set([
   'context_management',
   'container',
 ]);
+
+type AnthropicToolOptionState = {
+  web_search?: boolean;
+  web_fetch?: boolean;
+  anthropic_code_execution?: boolean;
+  anthropic_advisor?: boolean;
+  anthropic_advisor_model?: string | null;
+  fast_mode?: boolean;
+};
+
+const anthropicToolOptionKeys = new Set<keyof AnthropicToolOptionState>([
+  'web_search',
+  'web_fetch',
+  'anthropic_code_execution',
+  'anthropic_advisor',
+  'anthropic_advisor_model',
+  'fast_mode',
+]);
+
+function applyAnthropicToolOption(
+  state: AnthropicToolOptionState,
+  key: string,
+  value: unknown,
+  overwrite: boolean,
+): boolean {
+  if (!anthropicToolOptionKeys.has(key as keyof AnthropicToolOptionState)) {
+    return false;
+  }
+
+  if (!overwrite && state[key as keyof AnthropicToolOptionState] !== undefined) {
+    return true;
+  }
+
+  if (key === 'anthropic_advisor_model') {
+    if (typeof value === 'string' || value == null) {
+      state.anthropic_advisor_model = value ?? null;
+    }
+    return true;
+  }
+
+  if (typeof value === 'boolean') {
+    switch (key) {
+      case 'web_search':
+        state.web_search = value;
+        break;
+      case 'web_fetch':
+        state.web_fetch = value;
+        break;
+      case 'anthropic_code_execution':
+        state.anthropic_code_execution = value;
+        break;
+      case 'anthropic_advisor':
+        state.anthropic_advisor = value;
+        break;
+      case 'fast_mode':
+        state.fast_mode = value;
+        break;
+      default:
+        break;
+    }
+  }
+
+  return true;
+}
+
+function addAnthropicBetaHeader(
+  target: AnthropicClientOptions & { stream?: boolean },
+  value: string,
+) {
+  target.clientOptions = target.clientOptions ?? {};
+  target.clientOptions.defaultHeaders = mergeAnthropicBetaHeaders(
+    target.clientOptions.defaultHeaders,
+    value,
+  );
+}
+
+function getAdvisorModel(model?: string | null): AnthropicAdvisorModel {
+  return Object.values(AnthropicAdvisorModel).includes(model as AnthropicAdvisorModel)
+    ? (model as AnthropicAdvisorModel)
+    : anthropicSettings.advisor_model.default;
+}
 
 /**
  * Applies default parameters to the target object only if the field is undefined
@@ -133,6 +229,20 @@ function getLLMConfig(
     thinkingBudget:
       options.modelOptions?.thinkingBudget ?? anthropicSettings.thinkingBudget.default,
     effort: options.modelOptions?.effort ?? anthropicSettings.effort.default,
+    fast_mode: options.modelOptions?.fast_mode ?? anthropicSettings.fast_mode.default,
+    web_fetch: options.modelOptions?.web_fetch ?? anthropicSettings.web_fetch.default,
+    anthropic_code_execution:
+      options.modelOptions?.anthropic_code_execution ?? anthropicSettings.code_execution.default,
+    anthropic_advisor: options.modelOptions?.anthropic_advisor ?? anthropicSettings.advisor.default,
+    anthropic_advisor_model:
+      options.modelOptions?.anthropic_advisor_model ?? anthropicSettings.advisor_model.default,
+  };
+  const explicitToolOptions: AnthropicToolOptionState = {
+    fast_mode: options.modelOptions?.fast_mode,
+    web_fetch: options.modelOptions?.web_fetch,
+    anthropic_code_execution: options.modelOptions?.anthropic_code_execution,
+    anthropic_advisor: options.modelOptions?.anthropic_advisor,
+    anthropic_advisor_model: options.modelOptions?.anthropic_advisor_model,
   };
 
   if (options.modelOptions) {
@@ -140,6 +250,11 @@ function getLLMConfig(
     delete options.modelOptions.promptCache;
     delete options.modelOptions.thinkingBudget;
     delete options.modelOptions.effort;
+    delete options.modelOptions.fast_mode;
+    delete options.modelOptions.web_fetch;
+    delete options.modelOptions.anthropic_code_execution;
+    delete options.modelOptions.anthropic_advisor;
+    delete options.modelOptions.anthropic_advisor_model;
   } else {
     throw new Error('No modelOptions provided');
   }
@@ -151,7 +266,14 @@ function getLLMConfig(
 
   const mergedOptions = Object.assign(defaultOptions, options.modelOptions);
 
-  let enableWebSearch = mergedOptions.web_search;
+  const toolOptions: AnthropicToolOptionState = {
+    web_search: mergedOptions.web_search,
+    web_fetch: explicitToolOptions.web_fetch,
+    anthropic_code_execution: explicitToolOptions.anthropic_code_execution,
+    anthropic_advisor: explicitToolOptions.anthropic_advisor,
+    anthropic_advisor_model: explicitToolOptions.anthropic_advisor_model,
+    fast_mode: explicitToolOptions.fast_mode,
+  };
 
   let requestOptions: AnthropicClientOptions & { stream?: boolean } = {
     model: mergedOptions.model,
@@ -264,11 +386,8 @@ function getLLMConfig(
   /** Handle defaultParams first - only process Anthropic-native params if undefined */
   if (options.defaultParams && typeof options.defaultParams === 'object') {
     for (const [key, value] of Object.entries(options.defaultParams)) {
-      /** Handle web_search separately - don't add to config */
-      if (key === 'web_search') {
-        if (enableWebSearch === undefined && typeof value === 'boolean') {
-          enableWebSearch = value;
-        }
+      /** Handle Anthropic server-tool controls separately - don't add to config */
+      if (applyAnthropicToolOption(toolOptions, key, value, false)) {
         continue;
       }
 
@@ -285,11 +404,8 @@ function getLLMConfig(
   /** Handle addParams - can override defaultParams */
   if (options.addParams && typeof options.addParams === 'object') {
     for (const [key, value] of Object.entries(options.addParams)) {
-      /** Handle web_search separately - don't add to config */
-      if (key === 'web_search') {
-        if (typeof value === 'boolean') {
-          enableWebSearch = value;
-        }
+      /** Handle Anthropic server-tool controls separately - don't add to config */
+      if (applyAnthropicToolOption(toolOptions, key, value, true)) {
         continue;
       }
 
@@ -306,8 +422,12 @@ function getLLMConfig(
   /** Handle dropParams - only drop from Anthropic config */
   if (options.dropParams && Array.isArray(options.dropParams)) {
     options.dropParams.forEach((param) => {
-      if (param === 'web_search') {
-        enableWebSearch = false;
+      if (anthropicToolOptionKeys.has(param as keyof AnthropicToolOptionState)) {
+        if (param === 'anthropic_advisor_model') {
+          toolOptions.anthropic_advisor_model = null;
+        } else {
+          (toolOptions as Record<string, unknown>)[param] = false;
+        }
         return;
       }
 
@@ -340,25 +460,102 @@ function getLLMConfig(
     );
   }
 
-  const tools = [];
+  const isVertexAnthropic = isAnthropicVertexCredentials(creds);
+  const anthropicModelCapabilities = getAnthropicModelCapabilities(mergedOptions.model);
+  toolOptions.fast_mode ??= systemOptions.fast_mode;
+  toolOptions.web_fetch ??= systemOptions.web_fetch;
+  toolOptions.anthropic_code_execution ??= systemOptions.anthropic_code_execution;
+  toolOptions.anthropic_advisor ??= systemOptions.anthropic_advisor;
+  toolOptions.anthropic_advisor_model ??= systemOptions.anthropic_advisor_model;
 
-  if (enableWebSearch) {
-    tools.push({
-      type: isAnthropicVertexCredentials(creds)
-        ? ANTHROPIC_VERTEX_WEB_SEARCH_TOOL
-        : ANTHROPIC_WEB_SEARCH_TOOL,
-      name: 'web_search',
-    });
-
-    if (isAnthropicVertexCredentials(creds)) {
-      if (!requestOptions.clientOptions) {
-        requestOptions.clientOptions = {};
-      }
-
-      requestOptions.clientOptions.defaultHeaders = mergeAnthropicBetaHeaders(
-        requestOptions.clientOptions.defaultHeaders,
-        'web-search-2025-03-05',
+  if (toolOptions.fast_mode) {
+    if (isVertexAnthropic) {
+      logger.warn('[Anthropic] Fast mode was requested but is not available for Vertex AI.');
+    } else if (!anthropicModelCapabilities.supportsFastMode) {
+      logger.warn(
+        `[Anthropic] Fast mode was requested for unsupported model "${mergedOptions.model}".`,
       );
+    } else {
+      (requestOptions as Record<string, unknown>).speed = 'fast';
+      addAnthropicBetaHeader(requestOptions, ANTHROPIC_FAST_MODE_BETA);
+    }
+  }
+
+  const tools = [];
+  const canUseCodeExecution =
+    toolOptions.anthropic_code_execution === true &&
+    !isVertexAnthropic &&
+    anthropicModelCapabilities.supportsCodeExecution;
+
+  if (toolOptions.web_search) {
+    if (!anthropicModelCapabilities.supportsWebSearch) {
+      logger.warn(
+        `[Anthropic] Web search was requested for unsupported model "${mergedOptions.model}".`,
+      );
+    } else {
+      tools.push({
+        type: isVertexAnthropic
+          ? ANTHROPIC_VERTEX_WEB_SEARCH_TOOL
+          : canUseCodeExecution
+            ? ANTHROPIC_WEB_SEARCH_DYNAMIC_TOOL
+            : ANTHROPIC_WEB_SEARCH_TOOL,
+        name: 'web_search',
+      });
+
+      if (isVertexAnthropic) {
+        addAnthropicBetaHeader(requestOptions, 'web-search-2025-03-05');
+      }
+    }
+  }
+
+  if (toolOptions.web_fetch) {
+    if (isVertexAnthropic) {
+      logger.warn('[Anthropic] Web fetch was requested but is not available for Vertex AI.');
+    } else if (!anthropicModelCapabilities.supportsWebFetch) {
+      logger.warn(
+        `[Anthropic] Web fetch was requested for unsupported model "${mergedOptions.model}".`,
+      );
+    } else {
+      tools.push({
+        type: canUseCodeExecution ? ANTHROPIC_WEB_FETCH_DYNAMIC_TOOL : ANTHROPIC_WEB_FETCH_TOOL,
+        name: 'web_fetch',
+        citations: {
+          enabled: true,
+        },
+      });
+    }
+  }
+
+  if (toolOptions.anthropic_code_execution) {
+    if (isVertexAnthropic) {
+      logger.warn('[Anthropic] Code execution was requested but is not available for Vertex AI.');
+    } else if (!anthropicModelCapabilities.supportsCodeExecution) {
+      logger.warn(
+        `[Anthropic] Code execution was requested for unsupported model "${mergedOptions.model}".`,
+      );
+    } else {
+      tools.push({
+        type: ANTHROPIC_CODE_EXECUTION_TOOL,
+        name: 'code_execution',
+      });
+      addAnthropicBetaHeader(requestOptions, ANTHROPIC_CODE_EXECUTION_BETA);
+    }
+  }
+
+  if (toolOptions.anthropic_advisor) {
+    if (isVertexAnthropic) {
+      logger.warn('[Anthropic] Advisor was requested but is not available for Vertex AI.');
+    } else if (!anthropicModelCapabilities.supportsAdvisor) {
+      logger.warn(
+        `[Anthropic] Advisor was requested for unsupported model "${mergedOptions.model}".`,
+      );
+    } else {
+      tools.push({
+        type: ANTHROPIC_ADVISOR_TOOL,
+        name: 'advisor',
+        model: getAdvisorModel(toolOptions.anthropic_advisor_model),
+      });
+      addAnthropicBetaHeader(requestOptions, ANTHROPIC_ADVISOR_BETA);
     }
   }
 

@@ -55,7 +55,31 @@ const patchTargets = [
       },
       {
         description:
-          'Skip orphaned Anthropic web search blocks before building Messages API payloads',
+          'Preserve Anthropic server tool result block types before building Messages API payloads',
+        from: `  const toolTypes = [
+    'tool_use',
+    'tool_result',
+    'input_json_delta',
+    'server_tool_use',
+    'web_search_tool_result',
+    'web_search_result',
+  ];`,
+        to: `  const toolTypes = [
+    'tool_use',
+    'tool_result',
+    'input_json_delta',
+    'server_tool_use',
+    'web_search_tool_result',
+    'web_search_result',
+    'web_fetch_tool_result',
+    'web_fetch_result',
+    'code_execution_tool_result',
+    'advisor_tool_result',
+  ];`,
+      },
+      {
+        description:
+          'Skip orphaned Anthropic server tool blocks before building Messages API payloads',
         from: `    return contentBlocks.filter((block) => block !== null);`,
         legacy: [
           `    return contentBlocks.filter(
@@ -92,40 +116,167 @@ const patchTargets = [
 
       return true;
     });`,
+          `    const filteredContentBlocks = contentBlocks.filter((block) => block !== null);
+    const serverToolResultTypesByName = {
+      web_search: new Set(['web_search_tool_result']),
+      web_fetch: new Set(['web_fetch_tool_result']),
+      code_execution: new Set(['code_execution_tool_result']),
+      advisor: new Set(['advisor_tool_result']),
+    };
+    const serverToolUseNamesById = new Map<string, string>();
+    const serverToolResultNamesById = new Map<string, Set<string>>();
+    const getServerToolResultNames = (block: any): Set<string> | undefined => {
+      if (typeof block?.type !== 'string') {
+        return undefined;
+      }
+
+      for (const [name, resultTypes] of Object.entries(serverToolResultTypesByName)) {
+        if (resultTypes.has(block.type)) {
+          return new Set([name]);
+        }
+      }
+
+      return undefined;
+    };
+
+    for (const block of filteredContentBlocks) {
+      if (
+        block.type === 'server_tool_use' &&
+        typeof block.id === 'string' &&
+        typeof block.name === 'string' &&
+        block.name in serverToolResultTypesByName
+      ) {
+        serverToolUseNamesById.set(block.id, block.name);
+        continue;
+      }
+
+      const resultNames = getServerToolResultNames(block);
+      if (resultNames && typeof block.tool_use_id === 'string') {
+        const existingNames = serverToolResultNamesById.get(block.tool_use_id) ?? new Set<string>();
+        for (const name of resultNames) {
+          existingNames.add(name);
+        }
+        serverToolResultNamesById.set(block.tool_use_id, existingNames);
+      }
+    }
+
+    return filteredContentBlocks.filter((block) => {
+      if (block.type === 'server_tool_use') {
+        const toolName = typeof block.id === 'string' ? serverToolUseNamesById.get(block.id) : undefined;
+        const resultNames = typeof block.id === 'string' ? serverToolResultNamesById.get(block.id) : undefined;
+        return toolName != null && resultNames?.has(toolName) === true;
+      }
+
+      const resultNames = getServerToolResultNames(block);
+      if (resultNames) {
+        const toolName =
+          typeof block.tool_use_id === 'string'
+            ? serverToolUseNamesById.get(block.tool_use_id)
+            : undefined;
+        return toolName != null && resultNames.has(toolName);
+      }
+
+      return true;
+    });`,
         ],
         to: `    const filteredContentBlocks = contentBlocks.filter(
       (block) =>
         block !== null &&
         !(block.type === 'text' && 'text' in block && block.text === '')
     );
-    const serverToolUseIds = new Set<string>();
-    const webSearchToolResultIds = new Set<string>();
+    const serverToolResultTypesByName = {
+      web_search: new Set(['web_search_tool_result']),
+      web_fetch: new Set(['web_fetch_tool_result']),
+      code_execution: new Set(['code_execution_tool_result']),
+      advisor: new Set(['advisor_tool_result']),
+    };
+    const serverToolUseNamesById = new Map<string, string>();
+    const serverToolResultNamesById = new Map<string, Set<string>>();
+    const getServerToolResultNames = (block: any): Set<string> | undefined => {
+      if (typeof block?.type !== 'string') {
+        return undefined;
+      }
+
+      for (const [name, resultTypes] of Object.entries(serverToolResultTypesByName)) {
+        if (resultTypes.has(block.type)) {
+          return new Set([name]);
+        }
+      }
+
+      return undefined;
+    };
 
     for (const block of filteredContentBlocks) {
-      if (block.type === 'server_tool_use' && typeof block.id === 'string') {
-        serverToolUseIds.add(block.id);
-      } else if (
-        block.type === 'web_search_tool_result' &&
-        typeof block.tool_use_id === 'string'
+      if (
+        block.type === 'server_tool_use' &&
+        typeof block.id === 'string' &&
+        typeof block.name === 'string' &&
+        block.name in serverToolResultTypesByName
       ) {
-        webSearchToolResultIds.add(block.tool_use_id);
+        serverToolUseNamesById.set(block.id, block.name);
+        continue;
+      }
+
+      const resultNames = getServerToolResultNames(block);
+      if (resultNames && typeof block.tool_use_id === 'string') {
+        const existingNames = serverToolResultNamesById.get(block.tool_use_id) ?? new Set<string>();
+        for (const name of resultNames) {
+          existingNames.add(name);
+        }
+        serverToolResultNamesById.set(block.tool_use_id, existingNames);
       }
     }
 
     return filteredContentBlocks.filter((block) => {
       if (block.type === 'server_tool_use') {
-        return typeof block.id === 'string' && webSearchToolResultIds.has(block.id);
+        const toolName = typeof block.id === 'string' ? serverToolUseNamesById.get(block.id) : undefined;
+        const resultNames = typeof block.id === 'string' ? serverToolResultNamesById.get(block.id) : undefined;
+        return toolName != null && resultNames?.has(toolName) === true;
       }
 
-      if (block.type === 'web_search_tool_result') {
-        return (
-          typeof block.tool_use_id === 'string' &&
-          serverToolUseIds.has(block.tool_use_id)
-        );
+      const resultNames = getServerToolResultNames(block);
+      if (resultNames) {
+        const toolName =
+          typeof block.tool_use_id === 'string'
+            ? serverToolUseNamesById.get(block.tool_use_id)
+            : undefined;
+        return toolName != null && resultNames.has(toolName);
       }
 
       return true;
     });`,
+      },
+      {
+        description:
+          'Drop trailing Anthropic assistant prefill messages before sending normal chat requests',
+        from: `    } else {
+      return {
+        role,
+        content: _formatContent(message),
+      };
+    }
+  });
+  return {
+    messages: mergeMessages(formattedMessages),
+    system,
+  };`,
+        to: `    } else {
+      return {
+        role,
+        content: _formatContent(message),
+      };
+    }
+  });
+  while (
+    formattedMessages.length > 0 &&
+    formattedMessages[formattedMessages.length - 1].role === 'assistant'
+  ) {
+    formattedMessages.pop();
+  }
+  return {
+    messages: mergeMessages(formattedMessages),
+    system,
+  };`,
       },
     ],
   },
@@ -165,7 +316,31 @@ const patchTargets = [
       },
       {
         description:
-          'Skip orphaned Anthropic web search blocks before building Messages API payloads',
+          'Preserve Anthropic server tool result block types before building Messages API payloads',
+        from: `    const toolTypes = [
+        'tool_use',
+        'tool_result',
+        'input_json_delta',
+        'server_tool_use',
+        'web_search_tool_result',
+        'web_search_result',
+    ];`,
+        to: `    const toolTypes = [
+        'tool_use',
+        'tool_result',
+        'input_json_delta',
+        'server_tool_use',
+        'web_search_tool_result',
+        'web_search_result',
+        'web_fetch_tool_result',
+        'web_fetch_result',
+        'code_execution_tool_result',
+        'advisor_tool_result',
+    ];`,
+      },
+      {
+        description:
+          'Skip orphaned Anthropic server tool blocks before building Messages API payloads',
         from: `        return contentBlocks.filter((block) => block !== null);`,
         legacy: [
           `        return contentBlocks.filter((block) => block !== null &&
@@ -192,9 +367,7 @@ const patchTargets = [
             }
             return true;
         });`,
-        ],
-        to: `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
-            !(block.type === 'text' && 'text' in block && block.text === ''));
+          `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null);
         const serverToolUseIds = new Set();
         const webSearchToolResultIds = new Set();
         for (const block of filteredContentBlocks) {
@@ -216,6 +389,142 @@ const patchTargets = [
             }
             return true;
         });`,
+          `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null);
+        const serverToolResultTypesByName = {
+            web_search: new Set(['web_search_tool_result']),
+            web_fetch: new Set(['web_fetch_tool_result']),
+            code_execution: new Set(['code_execution_tool_result']),
+            advisor: new Set(['advisor_tool_result']),
+        };
+        const serverToolUseNamesById = new Map();
+        const serverToolResultNamesById = new Map();
+        const getServerToolResultNames = (block) => {
+            if (typeof block?.type !== 'string') {
+                return undefined;
+            }
+            for (const [name, resultTypes] of Object.entries(serverToolResultTypesByName)) {
+                if (resultTypes.has(block.type)) {
+                    return new Set([name]);
+                }
+            }
+            return undefined;
+        };
+        for (const block of filteredContentBlocks) {
+            if (block.type === 'server_tool_use' &&
+                typeof block.id === 'string' &&
+                typeof block.name === 'string' &&
+                block.name in serverToolResultTypesByName) {
+                serverToolUseNamesById.set(block.id, block.name);
+                continue;
+            }
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames && typeof block.tool_use_id === 'string') {
+                const existingNames = serverToolResultNamesById.get(block.tool_use_id) ?? new Set();
+                for (const name of resultNames) {
+                    existingNames.add(name);
+                }
+                serverToolResultNamesById.set(block.tool_use_id, existingNames);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === 'server_tool_use') {
+                const toolName = typeof block.id === 'string' ? serverToolUseNamesById.get(block.id) : undefined;
+                const resultNames = typeof block.id === 'string' ? serverToolResultNamesById.get(block.id) : undefined;
+                return toolName != null && resultNames?.has(toolName) === true;
+            }
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames) {
+                const toolName = typeof block.tool_use_id === 'string'
+                    ? serverToolUseNamesById.get(block.tool_use_id)
+                    : undefined;
+                return toolName != null && resultNames.has(toolName);
+            }
+            return true;
+        });`,
+        ],
+        to: `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
+            !(block.type === 'text' && 'text' in block && block.text === ''));
+        const serverToolResultTypesByName = {
+            web_search: new Set(['web_search_tool_result']),
+            web_fetch: new Set(['web_fetch_tool_result']),
+            code_execution: new Set(['code_execution_tool_result']),
+            advisor: new Set(['advisor_tool_result']),
+        };
+        const serverToolUseNamesById = new Map();
+        const serverToolResultNamesById = new Map();
+        const getServerToolResultNames = (block) => {
+            if (typeof block?.type !== 'string') {
+                return undefined;
+            }
+            for (const [name, resultTypes] of Object.entries(serverToolResultTypesByName)) {
+                if (resultTypes.has(block.type)) {
+                    return new Set([name]);
+                }
+            }
+            return undefined;
+        };
+        for (const block of filteredContentBlocks) {
+            if (block.type === 'server_tool_use' &&
+                typeof block.id === 'string' &&
+                typeof block.name === 'string' &&
+                block.name in serverToolResultTypesByName) {
+                serverToolUseNamesById.set(block.id, block.name);
+                continue;
+            }
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames && typeof block.tool_use_id === 'string') {
+                const existingNames = serverToolResultNamesById.get(block.tool_use_id) ?? new Set();
+                for (const name of resultNames) {
+                    existingNames.add(name);
+                }
+                serverToolResultNamesById.set(block.tool_use_id, existingNames);
+            }
+        }
+        return filteredContentBlocks.filter((block) => {
+            if (block.type === 'server_tool_use') {
+                const toolName = typeof block.id === 'string' ? serverToolUseNamesById.get(block.id) : undefined;
+                const resultNames = typeof block.id === 'string' ? serverToolResultNamesById.get(block.id) : undefined;
+                return toolName != null && resultNames?.has(toolName) === true;
+            }
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames) {
+                const toolName = typeof block.tool_use_id === 'string'
+                    ? serverToolUseNamesById.get(block.tool_use_id)
+                    : undefined;
+                return toolName != null && resultNames.has(toolName);
+            }
+        return true;
+        });`,
+      },
+      {
+        description:
+          'Drop trailing Anthropic assistant prefill messages before sending normal chat requests',
+        from: `        else {
+            return {
+                role,
+                content: _formatContent(message),
+            };
+        }
+    });
+    return {
+        messages: mergeMessages(formattedMessages),
+        system,
+    };`,
+        to: `        else {
+            return {
+                role,
+                content: _formatContent(message),
+            };
+        }
+    });
+    while (formattedMessages.length > 0 &&
+        formattedMessages[formattedMessages.length - 1].role === 'assistant') {
+        formattedMessages.pop();
+    }
+    return {
+        messages: mergeMessages(formattedMessages),
+        system,
+    };`,
       },
     ],
   },
@@ -255,7 +564,31 @@ const patchTargets = [
       },
       {
         description:
-          'Skip orphaned Anthropic web search blocks before building Messages API payloads',
+          'Preserve Anthropic server tool result block types before building Messages API payloads',
+        from: `    const toolTypes = [
+        'tool_use',
+        'tool_result',
+        'input_json_delta',
+        'server_tool_use',
+        'web_search_tool_result',
+        'web_search_result',
+    ];`,
+        to: `    const toolTypes = [
+        'tool_use',
+        'tool_result',
+        'input_json_delta',
+        'server_tool_use',
+        'web_search_tool_result',
+        'web_search_result',
+        'web_fetch_tool_result',
+        'web_fetch_result',
+        'code_execution_tool_result',
+        'advisor_tool_result',
+    ];`,
+      },
+      {
+        description:
+          'Skip orphaned Anthropic server tool blocks before building Messages API payloads',
         from: `        return contentBlocks.filter((block) => block !== null);`,
         legacy: [
           `        return contentBlocks.filter((block) => block !== null &&
@@ -285,27 +618,87 @@ const patchTargets = [
         ],
         to: `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
             !(block.type === 'text' && 'text' in block && block.text === ''));
-        const serverToolUseIds = new Set();
-        const webSearchToolResultIds = new Set();
-        for (const block of filteredContentBlocks) {
-            if (block.type === 'server_tool_use' && typeof block.id === 'string') {
-                serverToolUseIds.add(block.id);
+        const serverToolResultTypesByName = {
+            web_search: new Set(['web_search_tool_result']),
+            web_fetch: new Set(['web_fetch_tool_result']),
+            code_execution: new Set(['code_execution_tool_result']),
+            advisor: new Set(['advisor_tool_result']),
+        };
+        const serverToolUseNamesById = new Map();
+        const serverToolResultNamesById = new Map();
+        const getServerToolResultNames = (block) => {
+            if (typeof block?.type !== 'string') {
+                return undefined;
             }
-            else if (block.type === 'web_search_tool_result' &&
-                typeof block.tool_use_id === 'string') {
-                webSearchToolResultIds.add(block.tool_use_id);
+            for (const [name, resultTypes] of Object.entries(serverToolResultTypesByName)) {
+                if (resultTypes.has(block.type)) {
+                    return new Set([name]);
+                }
+            }
+            return undefined;
+        };
+        for (const block of filteredContentBlocks) {
+            if (block.type === 'server_tool_use' &&
+                typeof block.id === 'string' &&
+                typeof block.name === 'string' &&
+                block.name in serverToolResultTypesByName) {
+                serverToolUseNamesById.set(block.id, block.name);
+                continue;
+            }
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames && typeof block.tool_use_id === 'string') {
+                const existingNames = serverToolResultNamesById.get(block.tool_use_id) ?? new Set();
+                for (const name of resultNames) {
+                    existingNames.add(name);
+                }
+                serverToolResultNamesById.set(block.tool_use_id, existingNames);
             }
         }
         return filteredContentBlocks.filter((block) => {
             if (block.type === 'server_tool_use') {
-                return typeof block.id === 'string' && webSearchToolResultIds.has(block.id);
+                const toolName = typeof block.id === 'string' ? serverToolUseNamesById.get(block.id) : undefined;
+                const resultNames = typeof block.id === 'string' ? serverToolResultNamesById.get(block.id) : undefined;
+                return toolName != null && resultNames?.has(toolName) === true;
             }
-            if (block.type === 'web_search_tool_result') {
-                return (typeof block.tool_use_id === 'string' &&
-                    serverToolUseIds.has(block.tool_use_id));
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames) {
+                const toolName = typeof block.tool_use_id === 'string'
+                    ? serverToolUseNamesById.get(block.tool_use_id)
+                    : undefined;
+                return toolName != null && resultNames.has(toolName);
             }
             return true;
         });`,
+      },
+      {
+        description:
+          'Drop trailing Anthropic assistant prefill messages before sending normal chat requests',
+        from: `        else {
+            return {
+                role,
+                content: _formatContent(message),
+            };
+        }
+    });
+    return {
+        messages: mergeMessages(formattedMessages),
+        system,
+    };`,
+        to: `        else {
+            return {
+                role,
+                content: _formatContent(message),
+            };
+        }
+    });
+    while (formattedMessages.length > 0 &&
+        formattedMessages[formattedMessages.length - 1].role === 'assistant') {
+        formattedMessages.pop();
+    }
+    return {
+        messages: mergeMessages(formattedMessages),
+        system,
+    };`,
       },
     ],
   },
@@ -1241,6 +1634,78 @@ var events = require('./utils/events.cjs');`,
   // ── Graph.mjs/Graph.cjs web_search_action patches removed ──
   // @librechat/agents ≥3.1.63 includes native web_search_action dispatch in llm/invoke.mjs/cjs,
   // so the previous Graph.mjs/Graph.cjs patches are no longer needed.
+  // ── Preserve boundaries between completed OpenAI reasoning summaries during server aggregation ──
+  {
+    relativePath: 'src/stream.ts',
+    replacements: [
+      {
+        description: 'Separate completed OpenAI reasoning summary items in persisted content (src)',
+        from: `think: (currentContent.think || '') + contentPart.think,`,
+        to: `think: (() => {
+          const previous = currentContent.think || '';
+          const next = contentPart.think;
+          if (
+            previous &&
+            next &&
+            !next.startsWith('\\n') &&
+            !/\\s$/u.test(previous) &&
+            (/^(\\*\\*|#{1,6}\\s|[-*]\\s|\\d+\\.\\s)/u.test(next.trimStart()) ||
+              (/^[A-Z]/u.test(next.trimStart()) &&
+                /[.!?]$/u.test(previous.trimEnd())))
+          ) {
+            return previous + '\\n\\n' + next;
+          }
+          return previous + next;
+        })(),`,
+      },
+    ],
+  },
+  {
+    relativePath: 'dist/esm/stream.mjs',
+    replacements: [
+      {
+        description: 'Separate completed OpenAI reasoning summary items in persisted content (esm)',
+        from: `think: (currentContent.think || '') + contentPart.think,`,
+        to: `think: (() => {
+                    const previous = currentContent.think || '';
+                    const next = contentPart.think;
+                    if (previous &&
+                        next &&
+                        !next.startsWith('\\n') &&
+                        !/\\s$/u.test(previous) &&
+                        (/^(\\*\\*|#{1,6}\\s|[-*]\\s|\\d+\\.\\s)/u.test(next.trimStart()) ||
+                            (/^[A-Z]/u.test(next.trimStart()) &&
+                                /[.!?]$/u.test(previous.trimEnd())))) {
+                        return previous + '\\n\\n' + next;
+                    }
+                    return previous + next;
+                })(),`,
+      },
+    ],
+  },
+  {
+    relativePath: 'dist/cjs/stream.cjs',
+    replacements: [
+      {
+        description: 'Separate completed OpenAI reasoning summary items in persisted content (cjs)',
+        from: `think: (currentContent.think || '') + contentPart.think,`,
+        to: `think: (() => {
+                    const previous = currentContent.think || '';
+                    const next = contentPart.think;
+                    if (previous &&
+                        next &&
+                        !next.startsWith('\\n') &&
+                        !/\\s$/u.test(previous) &&
+                        (/^(\\*\\*|#{1,6}\\s|[-*]\\s|\\d+\\.\\s)/u.test(next.trimStart()) ||
+                            (/^[A-Z]/u.test(next.trimStart()) &&
+                                /[.!?]$/u.test(previous.trimEnd())))) {
+                        return previous + '\\n\\n' + next;
+                    }
+                    return previous + next;
+                })(),`,
+      },
+    ],
+  },
   // ── Fix reasoning item reconstruction to strip id (avoids "required following item" API error) (esm) ──
   {
     relativePath: 'dist/esm/llm/openai/utils/index.mjs',
@@ -1402,7 +1867,30 @@ const langchainAnthropicPatchTargets = [
       },
       {
         description:
-          'Skip orphaned Anthropic server web-search blocks before LangChain history replay',
+          'Preserve Anthropic server tool result block types before LangChain history replay',
+        from: `    const toolTypes = [
+        "tool_use",
+        "tool_result",
+        "input_json_delta",
+        "server_tool_use",
+        "web_search_tool_result",
+        "web_search_result",
+    ];`,
+        to: `    const toolTypes = [
+        "tool_use",
+        "tool_result",
+        "input_json_delta",
+        "server_tool_use",
+        "web_search_tool_result",
+        "web_search_result",
+        "web_fetch_tool_result",
+        "web_fetch_result",
+        "code_execution_tool_result",
+        "advisor_tool_result",
+    ];`,
+      },
+      {
+        description: 'Skip orphaned Anthropic server tool blocks before LangChain history replay',
         from: `        return contentBlocks;`,
         legacy: [
           `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
@@ -1431,27 +1919,86 @@ const langchainAnthropicPatchTargets = [
         ],
         to: `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
             !(block.type === "text" && "text" in block && block.text === ""));
-        const serverToolUseIds = new Set();
-        const webSearchToolResultIds = new Set();
-        for (const block of filteredContentBlocks) {
-            if (block.type === "server_tool_use" && typeof block.id === "string") {
-                serverToolUseIds.add(block.id);
+        const serverToolResultTypesByName = {
+            web_search: new Set(["web_search_tool_result"]),
+            web_fetch: new Set(["web_fetch_tool_result"]),
+            code_execution: new Set(["code_execution_tool_result"]),
+            advisor: new Set(["advisor_tool_result"]),
+        };
+        const serverToolUseNamesById = new Map();
+        const serverToolResultNamesById = new Map();
+        const getServerToolResultNames = (block) => {
+            if (typeof block?.type !== "string") {
+                return undefined;
             }
-            else if (block.type === "web_search_tool_result" &&
-                typeof block.tool_use_id === "string") {
-                webSearchToolResultIds.add(block.tool_use_id);
+            for (const [name, resultTypes] of Object.entries(serverToolResultTypesByName)) {
+                if (resultTypes.has(block.type)) {
+                    return new Set([name]);
+                }
+            }
+            return undefined;
+        };
+        for (const block of filteredContentBlocks) {
+            if (block.type === "server_tool_use" &&
+                typeof block.id === "string" &&
+                typeof block.name === "string" &&
+                block.name in serverToolResultTypesByName) {
+                serverToolUseNamesById.set(block.id, block.name);
+                continue;
+            }
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames && typeof block.tool_use_id === "string") {
+                const existingNames = serverToolResultNamesById.get(block.tool_use_id) ?? new Set();
+                for (const name of resultNames) {
+                    existingNames.add(name);
+                }
+                serverToolResultNamesById.set(block.tool_use_id, existingNames);
             }
         }
         return filteredContentBlocks.filter((block) => {
             if (block.type === "server_tool_use") {
-                return typeof block.id === "string" && webSearchToolResultIds.has(block.id);
+                const toolName = typeof block.id === "string" ? serverToolUseNamesById.get(block.id) : undefined;
+                const resultNames = typeof block.id === "string" ? serverToolResultNamesById.get(block.id) : undefined;
+                return toolName != null && resultNames?.has(toolName) === true;
             }
-            if (block.type === "web_search_tool_result") {
-                return (typeof block.tool_use_id === "string" &&
-                    serverToolUseIds.has(block.tool_use_id));
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames) {
+                const toolName = typeof block.tool_use_id === "string"
+                    ? serverToolUseNamesById.get(block.tool_use_id)
+                    : undefined;
+                return toolName != null && resultNames.has(toolName);
             }
             return true;
         });`,
+      },
+      {
+        description: 'Drop trailing Anthropic assistant prefill messages before LangChain requests',
+        from: `        else {
+            return {
+                role,
+                content: _formatContent(message),
+            };
+        }
+    });
+    return {
+        messages: mergeMessages(formattedMessages),
+        system,
+    };`,
+        to: `        else {
+            return {
+                role,
+                content: _formatContent(message),
+            };
+        }
+    });
+    while (formattedMessages.length > 0 &&
+        formattedMessages[formattedMessages.length - 1].role === "assistant") {
+        formattedMessages.pop();
+    }
+    return {
+        messages: mergeMessages(formattedMessages),
+        system,
+    };`,
       },
     ],
   },
@@ -1491,7 +2038,30 @@ const langchainAnthropicPatchTargets = [
       },
       {
         description:
-          'Skip orphaned Anthropic server web-search blocks before LangChain history replay',
+          'Preserve Anthropic server tool result block types before LangChain history replay',
+        from: `    const toolTypes = [
+        "tool_use",
+        "tool_result",
+        "input_json_delta",
+        "server_tool_use",
+        "web_search_tool_result",
+        "web_search_result",
+    ];`,
+        to: `    const toolTypes = [
+        "tool_use",
+        "tool_result",
+        "input_json_delta",
+        "server_tool_use",
+        "web_search_tool_result",
+        "web_search_result",
+        "web_fetch_tool_result",
+        "web_fetch_result",
+        "code_execution_tool_result",
+        "advisor_tool_result",
+    ];`,
+      },
+      {
+        description: 'Skip orphaned Anthropic server tool blocks before LangChain history replay',
         from: `        return contentBlocks;`,
         legacy: [
           `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
@@ -1520,27 +2090,86 @@ const langchainAnthropicPatchTargets = [
         ],
         to: `        const filteredContentBlocks = contentBlocks.filter((block) => block !== null &&
             !(block.type === "text" && "text" in block && block.text === ""));
-        const serverToolUseIds = new Set();
-        const webSearchToolResultIds = new Set();
-        for (const block of filteredContentBlocks) {
-            if (block.type === "server_tool_use" && typeof block.id === "string") {
-                serverToolUseIds.add(block.id);
+        const serverToolResultTypesByName = {
+            web_search: new Set(["web_search_tool_result"]),
+            web_fetch: new Set(["web_fetch_tool_result"]),
+            code_execution: new Set(["code_execution_tool_result"]),
+            advisor: new Set(["advisor_tool_result"]),
+        };
+        const serverToolUseNamesById = new Map();
+        const serverToolResultNamesById = new Map();
+        const getServerToolResultNames = (block) => {
+            if (typeof block?.type !== "string") {
+                return undefined;
             }
-            else if (block.type === "web_search_tool_result" &&
-                typeof block.tool_use_id === "string") {
-                webSearchToolResultIds.add(block.tool_use_id);
+            for (const [name, resultTypes] of Object.entries(serverToolResultTypesByName)) {
+                if (resultTypes.has(block.type)) {
+                    return new Set([name]);
+                }
+            }
+            return undefined;
+        };
+        for (const block of filteredContentBlocks) {
+            if (block.type === "server_tool_use" &&
+                typeof block.id === "string" &&
+                typeof block.name === "string" &&
+                block.name in serverToolResultTypesByName) {
+                serverToolUseNamesById.set(block.id, block.name);
+                continue;
+            }
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames && typeof block.tool_use_id === "string") {
+                const existingNames = serverToolResultNamesById.get(block.tool_use_id) ?? new Set();
+                for (const name of resultNames) {
+                    existingNames.add(name);
+                }
+                serverToolResultNamesById.set(block.tool_use_id, existingNames);
             }
         }
         return filteredContentBlocks.filter((block) => {
             if (block.type === "server_tool_use") {
-                return typeof block.id === "string" && webSearchToolResultIds.has(block.id);
+                const toolName = typeof block.id === "string" ? serverToolUseNamesById.get(block.id) : undefined;
+                const resultNames = typeof block.id === "string" ? serverToolResultNamesById.get(block.id) : undefined;
+                return toolName != null && resultNames?.has(toolName) === true;
             }
-            if (block.type === "web_search_tool_result") {
-                return (typeof block.tool_use_id === "string" &&
-                    serverToolUseIds.has(block.tool_use_id));
+            const resultNames = getServerToolResultNames(block);
+            if (resultNames) {
+                const toolName = typeof block.tool_use_id === "string"
+                    ? serverToolUseNamesById.get(block.tool_use_id)
+                    : undefined;
+                return toolName != null && resultNames.has(toolName);
             }
             return true;
         });`,
+      },
+      {
+        description: 'Drop trailing Anthropic assistant prefill messages before LangChain requests',
+        from: `        else {
+            return {
+                role,
+                content: _formatContent(message),
+            };
+        }
+    });
+    return {
+        messages: mergeMessages(formattedMessages),
+        system,
+    };`,
+        to: `        else {
+            return {
+                role,
+                content: _formatContent(message),
+            };
+        }
+    });
+    while (formattedMessages.length > 0 &&
+        formattedMessages[formattedMessages.length - 1].role === "assistant") {
+        formattedMessages.pop();
+    }
+    return {
+        messages: mergeMessages(formattedMessages),
+        system,
+    };`,
       },
     ],
   },
@@ -1591,12 +2220,25 @@ function applyReplacement(contents, replacement, filePath) {
     return contents;
   }
 
+  if (
+    replacement.description?.includes('Drop trailing Anthropic assistant') &&
+    contents.includes('formattedMessages.pop()') &&
+    contents.includes('mergeMessages(formattedMessages)')
+  ) {
+    return contents;
+  }
+
   if (replacement.legacy) {
     for (const legacyReplacement of replacement.legacy) {
       if (contents.includes(legacyReplacement)) {
         return contents.replace(legacyReplacement, replacement.to);
       }
     }
+  }
+
+  const structuralFallback = applyStructuralReplacement(contents, replacement);
+  if (structuralFallback != null) {
+    return structuralFallback;
   }
 
   if (!contents.includes(replacement.from)) {
@@ -1607,6 +2249,55 @@ function applyReplacement(contents, replacement, filePath) {
   }
 
   return contents.replace(replacement.from, replacement.to);
+}
+
+function applyStructuralReplacement(contents, replacement) {
+  if (replacement.description?.includes('Drop trailing Anthropic assistant')) {
+    return applyTrailingAssistantGuardReplacement(contents, replacement);
+  }
+
+  if (!replacement.description?.includes('Skip orphaned Anthropic server tool blocks')) {
+    return null;
+  }
+
+  const priorServerToolGuardPattern =
+    /([ \t]*)const filteredContentBlocks = contentBlocks\.filter\([\s\S]*?\n\1const serverToolUseIds = new Set(?:<[^>]+>)?\(\);[\s\S]*?\n\1const webSearchToolResultIds = new Set(?:<[^>]+>)?\(\);[\s\S]*?\n\1return filteredContentBlocks\.filter\(\(block\) => \{[\s\S]*?\n\1\}\);/;
+  const priorServerToolGuard = contents.match(priorServerToolGuardPattern);
+
+  if (
+    priorServerToolGuard == null ||
+    !priorServerToolGuard[0].includes('webSearchToolResultIds') ||
+    !priorServerToolGuard[0].includes('web_search_tool_result')
+  ) {
+    return null;
+  }
+
+  return contents.replace(priorServerToolGuard[0], replacement.to);
+}
+
+function applyTrailingAssistantGuardReplacement(contents, replacement) {
+  const returnBlockPattern =
+    /(\n([ \t]*)\}\);\n)([ \t]*)return \{\n([ \t]*)messages: mergeMessages\(formattedMessages\),\n\4system,\n\3\}( as AnthropicMessageCreateParams)?;/;
+  const returnBlock = contents.match(returnBlockPattern);
+
+  if (returnBlock == null) {
+    return null;
+  }
+
+  const [, mapClose, , returnIndent, propertyIndent, castSuffix = ''] = returnBlock;
+  const quote = replacement.to.includes('role === "assistant"') ? '"' : "'";
+  const guardedReturn = `${mapClose}${returnIndent}while (
+${propertyIndent}formattedMessages.length > 0 &&
+${propertyIndent}formattedMessages[formattedMessages.length - 1].role === ${quote}assistant${quote}
+${returnIndent}) {
+${propertyIndent}formattedMessages.pop();
+${returnIndent}}
+${returnIndent}return {
+${propertyIndent}messages: mergeMessages(formattedMessages),
+${propertyIndent}system,
+${returnIndent}}${castSuffix};`;
+
+  return contents.replace(returnBlock[0], guardedReturn);
 }
 
 function validatePatchedFile(relativePath, contents) {

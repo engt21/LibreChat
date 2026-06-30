@@ -15,6 +15,7 @@ The implementation set out to make the existing LibreChat chat-bar toggles use p
 - Gemini `execute_code`
 - Anthropic `web_search`
 - Anthropic `execute_code` with explicit local-vs-provider mode selection
+- Anthropic direct endpoint sidebar controls for `fast_mode`, `web_fetch`, `anthropic_code_execution`, `anthropic_advisor`, and `anthropic_advisor_model`
 - Anthropic live model discovery, capability metadata, and capability-aware model-parameter rendering
 
 At the same time, it needed to preserve existing LibreChat behavior when native routing was not available or not safe.
@@ -38,7 +39,7 @@ The OpenAI/Azure native web-search status UX depends on `config/apply-runtime-pa
 
 As of 2026-04-04, that patch layer also carries a hard validation guard plus Jest coverage to prevent a specific regression: dispatching `on_web_search_status` with `graph.getStepIdByKey(stepKey)` before the local `stepKey` declaration. That legacy snippet caused production Responses streams to abort with `Cannot access 'stepKey' before initialization`.
 
-Operational rule: after changing runtime patches, rebuild the affected rail so the containerized `node_modules/@librechat/agents` copy picks up the validated patch instead of keeping an older image layer.
+Operational rule: after changing runtime patches, use `local-services/deploy-runtime-delta.sh` first. The helper copies `config/apply-runtime-patches.js`, runs it inside the API container, restarts, and health-checks so the containerized `node_modules/@librechat/agents` copy picks up the validated patch without a full image rebuild. Schedule a later cached image refresh when appropriate so the patched dependency layer is baked into the next image.
 
 ## Files changed
 
@@ -137,6 +138,7 @@ Current rules:
 - Google supports native web search and code interpreter
 - Google does not claim native file search in this implementation
 - Anthropic supports native web search plus a selectable native code-execution mode when the Claude capability metadata says it is safe
+- Anthropic direct endpoint sidebar controls expose fast mode, web fetch, hosted code execution, and advisor only when the selected Claude capability metadata supports the requested feature
 
 ## Badge row context
 
@@ -192,7 +194,35 @@ Agent initialization now:
 
 ## Anthropic native web-search history safety
 
-`packages/api/src/utils/content.ts` filters malformed Anthropic native web-search content before replay. It preserves matched `server_tool_use` / `web_search_tool_result` pairs but drops orphaned `srvtoolu_...` web-search server-tool blocks, which avoids Anthropic request failures such as "web_search tool use ... was found without a corresponding web_search_tool_result block" on later turns.
+`packages/api/src/utils/content.ts` filters malformed Anthropic server-tool content before replay. It preserves matched `server_tool_use` / `*_tool_result` pairs for `web_search`, `web_fetch`, `code_execution`, and `advisor`, but drops orphaned or mismatched `srvtoolu_...` server-tool blocks. That avoids Anthropic request failures such as "tool use ... was found without a corresponding tool result block" on later turns.
+
+## Anthropic direct endpoint sidebar server tools
+
+`packages/data-provider/src/parameterSettings.ts` and `packages/data-provider/src/schemas.ts` add persisted model-parameter controls for:
+
+- `fast_mode`
+- `web_fetch`
+- `anthropic_code_execution`
+- `anthropic_advisor`
+- `anthropic_advisor_model`
+
+`packages/data-provider/src/anthropic.ts` derives model capability metadata for those controls. The client and agent-builder panels use that metadata to disable unsupported controls with a visible reason instead of letting users send invalid combinations.
+
+`packages/api/src/endpoints/anthropic/llm.ts` consumes those sidebar fields before the remaining model options are serialized. The fields are deliberately not leaked into the final LLM config object:
+
+- `fast_mode` sets `speed: fast` and adds `fast-mode-2026-02-01` for supported direct Anthropic Opus models
+- `web_search` adds `{ type: 'web_search_20250305', name: 'web_search' }` by default and switches to `{ type: 'web_search_20260209', name: 'web_search' }` only when Anthropic hosted code execution is also active
+- `web_fetch` adds `{ type: 'web_fetch_20250910', name: 'web_fetch', citations: { enabled: true } }` by default and switches to `{ type: 'web_fetch_20260209', name: 'web_fetch', citations: { enabled: true } }` only when Anthropic hosted code execution is also active
+- `anthropic_code_execution` adds `{ type: 'code_execution_20250825', name: 'code_execution' }` and `code-execution-2025-08-25`
+- `anthropic_advisor` adds `{ type: 'advisor_20260301', name: 'advisor', model: ... }` and `advisor-tool-2026-03-01`
+
+Endpoint `defaultParams`, `addParams`, and `dropParams` can control those sidebar-only fields. Defaults only apply when the conversation did not explicitly set a value; `addParams` can override; `dropParams` forces the tool off.
+
+These controls are direct Anthropic API features. Vertex Anthropic requests skip fast mode, web fetch, code execution, and advisor with warnings instead of sending provider-unsupported request bodies.
+
+The same basic-vs-dynamic web-search rule applies to ephemeral agent native tools in `packages/api/src/agents/nativeTools.ts`: chat-bar web search uses the basic descriptor unless `selection.anthropicCodeExecution` is true. This keeps the agent path aligned with direct endpoint request construction.
+
+The Anthropic docs also list client-side tools such as memory, bash, computer use, and text editor. They are intentionally not represented as LibreChat sidebar switches in this implementation. Those tools require a sandboxed executor, approval/error UI, and a continuation loop that returns client-side `tool_result` content back to Anthropic. Without that infrastructure, visible toggles would create broken chat turns rather than working tools.
 
 ## BYOK model refresh safety
 
@@ -275,6 +305,9 @@ Message-building logic was also updated so native tool files can bypass:
 3. server detects OpenAI/Azure native capability
 4. LibreChat enables the Responses API path if needed
 5. server adds the OpenAI-native web-search tool descriptor
+6. for OpenAI/Azure hosted Responses web search, `packages/api/src/endpoints/openai/llm.ts` adds `max_tool_calls = 6` by default and clamps configured overrides to `12`, preventing an endlessly searching reasoning turn from blocking its final answer
+7. when OpenAI sends multiple completed reasoning summaries for one THINK slot, the client preserves the live boundary and `config/apply-runtime-patches.js` patches `@librechat/agents` aggregation so the persisted/reloaded message preserves the same paragraph break
+8. `local-services/verify-openai-reasoning-preservation.sh` fail-closes production promotion and health verification if the bound, either separator layer, its mandatory regression coverage, or the deployed stable runtime is missing
 
 ## Code interpreter
 
@@ -318,7 +351,7 @@ Message-building logic was also updated so native tool files can bypass:
 
 1. server refreshes Anthropic models from Anthropic's live models endpoint
 2. model names are normalized into Claude family/version metadata
-3. capability metadata is derived for thinking mode, effort, prompt caching, web search, code execution, and token limits
+3. capability metadata is derived for thinking mode, effort, prompt caching, web search, web fetch, fast mode, code execution, advisor, and token limits
 4. startup config exposes the capability map so the client can render the Anthropic picker and parameter panels correctly
 5. Anthropic quick-select entries are sorted dynamically so newer/higher-tier Claude models stay at the top without hardcoded lists
 
@@ -339,6 +372,14 @@ Message-building logic was also updated so native tool files can bypass:
 6. if there are no local code files attached, LibreChat adds Anthropic-native code execution
 7. if local code files are attached, LibreChat falls back to the existing local code interpreter while preserving the local upload workflow
 
+## Direct sidebar tools
+
+1. user enables direct Anthropic model-parameter controls in the sidebar
+2. client persists those values on the conversation model options
+3. `getLLMConfig` extracts the sidebar-only fields before serializing standard Anthropic options
+4. model and provider capability checks decide whether each requested feature becomes an Anthropic request field/tool descriptor
+5. unsupported combinations warn and skip the tool, preserving a valid request instead of crashing the chat
+
 ## Anthropic parameter gating
 
 Anthropic parameter rendering is capability-aware in both the chat sidebar and the agent-builder model panel.
@@ -349,6 +390,10 @@ Important behaviors:
 - legacy fixed-budget models enable `Thinking Budget` and disable adaptive `Effort`
 - when Anthropic `thinking` is on, temperature/top_p/top_k are disabled
 - if the conversation has not yet stored an explicit `thinking` boolean, gating must use the parameter definition default to avoid a checked `Thinking` toggle with mismatched dependent controls
+- fast mode is only enabled for supported Opus models on the direct Anthropic endpoint
+- web fetch and advisor are only enabled for Claude models whose inferred capability metadata supports those direct server tools
+- hosted code execution is only enabled for supported Claude models; local-file code-interpreter uploads still use the local fallback path
+- memory, bash, computer-use, and text-editor Anthropic client tools remain out of scope until LibreChat implements an executor/sandbox/result-continuation loop
 
 ## Fallback strategy
 

@@ -91,9 +91,9 @@ const AuthContextProvider = ({
 
   const loginUser = useLoginUserMutation({
     onSuccess: (data: t.TLoginResponse) => {
-      const { user, token, twoFAPending, tempToken } = data;
+      const { user, token, twoFAPending, mfaEnrollmentRequired } = data;
       if (twoFAPending) {
-        navigate(`/login/2fa?tempToken=${tempToken}`, { replace: true });
+        navigate(mfaEnrollmentRequired ? '/login/2fa?enroll=true' : '/login/2fa', { replace: true });
         return;
       }
       setError(undefined);

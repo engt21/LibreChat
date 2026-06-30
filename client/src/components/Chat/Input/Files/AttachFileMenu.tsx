@@ -35,7 +35,7 @@ import useSharePointFileHandling from '~/hooks/Files/useSharePointFileHandling';
 import { SharePointPickerDialog } from '~/components/SharePoint';
 import { useGetStartupConfig } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
-import { MenuItemProps } from '~/common';
+import { isEphemeralAgent, MenuItemProps } from '~/common';
 import { cn } from '~/utils';
 
 type FileUploadType =
@@ -94,6 +94,10 @@ const AttachFileMenu = ({
     agentId,
     ephemeralAgent,
   );
+  const isEphemeralChat = isEphemeralAgent(agentId);
+  const canUploadForFileSearch =
+    capabilities.fileSearchEnabled && (isEphemeralChat || fileSearchAllowedByAgent);
+  const canUploadForCode = capabilities.codeEnabled && (isEphemeralChat || codeAllowedByAgent);
 
   const handleUploadClick = (fileType?: FileUploadType) => {
     if (!inputRef.current) {
@@ -173,7 +177,7 @@ const AttachFileMenu = ({
         });
       }
 
-      if (capabilities.fileSearchEnabled && fileSearchAllowedByAgent) {
+      if (canUploadForFileSearch) {
         items.push({
           label: localize('com_ui_upload_file_search'),
           onClick: () => {
@@ -188,7 +192,7 @@ const AttachFileMenu = ({
         });
       }
 
-      if (capabilities.codeEnabled && codeAllowedByAgent) {
+      if (canUploadForCode) {
         items.push({
           label: localize('com_ui_upload_code_files'),
           onClick: () => {
@@ -229,12 +233,12 @@ const AttachFileMenu = ({
     provider,
     endpointType,
     capabilities,
+    canUploadForCode,
+    canUploadForFileSearch,
     useResponsesApi,
     setToolResource,
     setEphemeralAgent,
     sharePointEnabled,
-    codeAllowedByAgent,
-    fileSearchAllowedByAgent,
     setIsSharePointDialogOpen,
   ]);
 

@@ -15,6 +15,9 @@ export const OAUTH_SESSION_COOKIE_PATH = '/api';
  * even when `NODE_ENV=production` (common in Docker Compose setups).
  */
 export function shouldUseSecureCookie(): boolean {
+  if (process.env.FORCE_SECURE_COOKIES === 'true') {
+    return true;
+  }
   const isProduction = process.env.NODE_ENV === 'production';
   const domainServer = process.env.DOMAIN_SERVER || '';
 

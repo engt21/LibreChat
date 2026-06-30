@@ -3,7 +3,14 @@ const { isAgentsEndpoint, removeNullishValues, Constants } = require('librechat-
 const { loadAgent } = require('~/models/Agent');
 
 const buildOptions = (req, endpoint, parsedBody, endpointType) => {
-  const { spec, iconURL, agent_id, ...model_parameters } = parsedBody;
+  const {
+    spec,
+    iconURL,
+    agent_id,
+    addedConvo: _addedConvo,
+    addedConvos: _addedConvos,
+    ...model_parameters
+  } = parsedBody;
   const agentPromise = loadAgent({
     req,
     spec,
@@ -17,6 +24,12 @@ const buildOptions = (req, endpoint, parsedBody, endpointType) => {
 
   /** @type {import('librechat-data-provider').TConversation | undefined} */
   const addedConvo = req.body?.addedConvo;
+  /** @type {import('librechat-data-provider').TConversation[] | undefined} */
+  const addedConvos = Array.isArray(req.body?.addedConvos)
+    ? req.body.addedConvos.filter(
+        (convo) => convo && typeof convo === 'object' && !Array.isArray(convo),
+      )
+    : undefined;
 
   return removeNullishValues({
     spec,
@@ -27,6 +40,7 @@ const buildOptions = (req, endpoint, parsedBody, endpointType) => {
     model_parameters,
     agent: agentPromise,
     addedConvo,
+    addedConvos,
   });
 };
 

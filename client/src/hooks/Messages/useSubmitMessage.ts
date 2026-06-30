@@ -10,7 +10,7 @@ import store from '~/store';
 export default function useSubmitMessage() {
   const { user } = useAuthContext();
   const methods = useChatFormContext();
-  const { conversation: addedConvo } = useAddedChatContext();
+  const { conversation: addedConvo, conversations: addedConvos } = useAddedChatContext();
   const {
     ask,
     index,
@@ -70,6 +70,7 @@ export default function useSubmitMessage() {
         },
         {
           addedConvo: addedConvo ?? undefined,
+          addedConvos: addedConvos.length > 0 ? addedConvos : undefined,
         },
       );
       clearMessageInput(conversation?.conversationId);
@@ -78,6 +79,7 @@ export default function useSubmitMessage() {
       ask,
       clearMessageInput,
       addedConvo,
+      addedConvos,
       setMessages,
       getMessages,
       latestMessage,

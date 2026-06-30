@@ -4,6 +4,7 @@ import {
   resolveHeaders,
   resolveAzureOpenAIDirectConfig,
   supportsAzureOpenAIModelListing,
+  checkUserKeyExpiry,
 } from '~/utils';
 import { mapModelToAzureConfig } from 'librechat-data-provider';
 import type { BaseInitializeParams } from '~/types';
@@ -40,6 +41,7 @@ const mockedResolveHeaders = jest.mocked(resolveHeaders);
 const mockedResolveAzureOpenAIDirectConfig = jest.mocked(resolveAzureOpenAIDirectConfig);
 const mockedSupportsAzureOpenAIModelListing = jest.mocked(supportsAzureOpenAIModelListing);
 const mockedMapModelToAzureConfig = jest.mocked(mapModelToAzureConfig);
+const mockedCheckUserKeyExpiry = jest.mocked(checkUserKeyExpiry);
 
 const createParams = (): BaseInitializeParams =>
   ({
@@ -79,6 +81,7 @@ describe('initializeOpenAI', () => {
     };
     mockedResolveHeaders.mockImplementation(({ headers }) => headers);
     mockedResolveAzureOpenAIDirectConfig.mockReturnValue(undefined);
+    mockedCheckUserKeyExpiry.mockImplementation(() => undefined);
     mockedGetOpenAIConfig.mockImplementation((_apiKey, clientOptions: Record<string, unknown>) => ({
       llmConfig: {
         model: (clientOptions.modelOptions as { model: string }).model,
@@ -134,5 +137,84 @@ describe('initializeOpenAI', () => {
     expect(result.configOptions?.defaultQuery).toEqual({
       'api-version': '2024-10-01-preview',
     });
+  });
+
+  it('uses an admin-enabled OpenAI BYOK override even when a platform key exists', async () => {
+    process.env.OPENAI_API_KEY = 'platform-openai-key';
+    process.env.OPENAI_REVERSE_PROXY = 'https://platform.example.test/v1';
+    const params = createParams();
+    params.endpoint = 'openAI';
+    params.req.appSettings = {
+      byok: {
+        providers: {
+          openAI: { enabled: true, allowBaseURL: true, fallbackToPlatform: true },
+        },
+      },
+    };
+    (params.db.getUserKeyValues as jest.Mock).mockResolvedValue({
+      apiKey: 'user-openai-key',
+      baseURL: 'https://user.example.test/v1',
+    });
+
+    await initializeOpenAI(params);
+
+    expect(params.db.getUserKeyValues).toHaveBeenCalledWith({
+      userId: 'user-1',
+      name: 'openAI',
+    });
+    expect(mockedGetOpenAIConfig).toHaveBeenCalledWith(
+      'user-openai-key',
+      expect.objectContaining({ reverseProxyUrl: 'https://user.example.test/v1' }),
+      'openAI',
+    );
+  });
+
+  it('falls back to the platform OpenAI key when an admin-enabled user key is missing', async () => {
+    process.env.OPENAI_API_KEY = 'platform-openai-key';
+    process.env.OPENAI_REVERSE_PROXY = 'https://platform.example.test/v1';
+    const params = createParams();
+    params.endpoint = 'openAI';
+    params.req.appSettings = {
+      byok: {
+        providers: {
+          openAI: { enabled: true, allowBaseURL: true, fallbackToPlatform: true },
+        },
+      },
+    };
+    (params.db.getUserKeyValues as jest.Mock).mockRejectedValue(new Error('missing user key'));
+
+    await initializeOpenAI(params);
+
+    expect(mockedGetOpenAIConfig).toHaveBeenCalledWith(
+      'platform-openai-key',
+      expect.objectContaining({ reverseProxyUrl: 'https://platform.example.test/v1' }),
+      'openAI',
+    );
+  });
+
+  it('falls back to the platform OpenAI key when the admin-enabled user key is expired', async () => {
+    process.env.OPENAI_API_KEY = 'platform-openai-key';
+    const params = createParams();
+    params.endpoint = 'openAI';
+    params.req.body = { key: '2000-01-01T00:00:00.000Z' };
+    params.req.appSettings = {
+      byok: {
+        providers: {
+          openAI: { enabled: true, allowBaseURL: true, fallbackToPlatform: true },
+        },
+      },
+    };
+    mockedCheckUserKeyExpiry.mockImplementationOnce(() => {
+      throw new Error('expired');
+    });
+
+    await initializeOpenAI(params);
+
+    expect(params.db.getUserKeyValues).not.toHaveBeenCalled();
+    expect(mockedGetOpenAIConfig).toHaveBeenCalledWith(
+      'platform-openai-key',
+      expect.any(Object),
+      'openAI',
+    );
   });
 });

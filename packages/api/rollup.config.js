@@ -13,6 +13,8 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
  * Check if we're in development mode
  */
 const isDevelopment = process.env.NODE_ENV === 'development';
+const sourcemapsEnabled =
+  process.env.LIBRECHAT_ROLLUP_SOURCEMAP !== 'false' && process.env.ROLLUP_SOURCEMAP !== 'false';
 
 const plugins = [
   peerDepsExternal(),
@@ -31,7 +33,7 @@ const plugins = [
   typescript({
     tsconfig: './tsconfig.build.json',
     outDir: './dist',
-    sourceMap: true,
+    sourceMap: sourcemapsEnabled,
     /**
      * Remove inline sourcemaps - they conflict with external sourcemaps
      */
@@ -39,7 +41,7 @@ const plugins = [
     /**
      * Always include source content in sourcemaps for better debugging
      */
-    inlineSources: true,
+    inlineSources: sourcemapsEnabled,
   }),
   json(),
 ];
@@ -49,7 +51,7 @@ const cjsBuild = {
   output: {
     dir: 'dist',
     format: 'cjs',
-    sourcemap: true,
+    sourcemap: sourcemapsEnabled,
     exports: 'named',
     entryFileNames: '[name].js',
     /**

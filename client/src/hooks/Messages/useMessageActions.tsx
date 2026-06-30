@@ -14,7 +14,7 @@ import type { TMessageProps } from '~/common';
 import { useChatContext, useAssistantsMapContext, useAgentsMapContext } from '~/Providers';
 import useCopyToClipboard from './useCopyToClipboard';
 import { useAuthContext } from '~/hooks/AuthContext';
-import { useGetAddedConvo } from '~/hooks/Chat';
+import { useGetAddedConvos } from '~/hooks/Chat';
 import { useLocalize } from '~/hooks';
 import store from '~/store';
 
@@ -42,7 +42,7 @@ export default function useMessageActions(props: TMessageActions) {
     handleContinue,
   } = useChatContext();
 
-  const getAddedConvo = useGetAddedConvo();
+  const getAddedConvos = useGetAddedConvos();
 
   const agentsMap = useAgentsMapContext();
   const assistantMap = useAssistantsMapContext();
@@ -103,8 +103,12 @@ export default function useMessageActions(props: TMessageActions) {
       return;
     }
 
-    regenerate(message, { addedConvo: getAddedConvo() });
-  }, [isSubmitting, isCreatedByUser, message, regenerate, getAddedConvo]);
+    const addedConvos = getAddedConvos();
+    regenerate(message, {
+      addedConvo: addedConvos[0],
+      addedConvos: addedConvos.length > 0 ? addedConvos : undefined,
+    });
+  }, [isSubmitting, isCreatedByUser, message, regenerate, getAddedConvos]);
 
   const copyToClipboard = useCopyToClipboard({ text, content, searchResults });
 

@@ -11,6 +11,7 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'bas
 
 const PROVIDER_LABELS = {
   [EModelEndpoint.openAI]: 'OpenAI',
+  [EModelEndpoint.azureOpenAI]: 'Azure OpenAI',
   [EModelEndpoint.anthropic]: 'Anthropic',
   [EModelEndpoint.google]: 'Google',
   xai: 'xAI',
@@ -25,6 +26,50 @@ const SIMPLE_SPEC_BEHAVIOR_KEYS = [
   'mcpServers',
   'default',
 ];
+
+const OPENAI_CHAT_LATEST_MODEL = 'chat-latest';
+const OPENAI_CHAT_LATEST_ALIASES = new Set([OPENAI_CHAT_LATEST_MODEL, 'gpt-chat-latest']);
+const OPENAI_VERSIONED_CHAT_LATEST_REGEX = /^gpt-\d+(?:\.\d+)?-chat-latest$/i;
+const OPENAI_SUGGESTION_ENDPOINTS = new Set([
+  EModelEndpoint.openAI,
+  EModelEndpoint.azureOpenAI,
+]);
+const OPENAI_DATED_SNAPSHOT_REGEX = /(?:-\d{4}-\d{2}-\d{2}|-\d{4}(?:-[a-z]+)?)$/;
+const OPENAI_RELEASE_ORDER = [
+  OPENAI_CHAT_LATEST_MODEL,
+  'gpt-chat-latest',
+  'gpt-5.5',
+  'gpt-5.5-pro',
+  'gpt-5.4',
+  'gpt-5.4-pro',
+  'gpt-5.4-mini',
+  'gpt-5.4-nano',
+  'gpt-5.2',
+  'gpt-5.2-pro',
+  'gpt-5.1',
+  'gpt-5',
+  'gpt-5-mini',
+  'gpt-5-nano',
+  'o4-mini',
+  'o3',
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'o1-pro',
+  'gpt-4.5-preview',
+  'o3-mini',
+  'o1',
+  'o1-mini',
+  'o1-preview',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'gpt-4-turbo',
+  'gpt-3.5-turbo',
+  'gpt-4',
+];
+const OPENAI_RELEASE_ORDER_SCORES = new Map(
+  OPENAI_RELEASE_ORDER.map((model, index) => [model, 900_000_000 - index * 10_000]),
+);
 
 function getOpenAIModelVersionScore(model) {
   if (typeof model !== 'string' || !model) {
@@ -50,41 +95,89 @@ function getOpenAIModelVersionScore(model) {
   return -1;
 }
 
+function getOpenAIStableModelId(model) {
+  return model.trim().replace(OPENAI_DATED_SNAPSHOT_REGEX, '');
+}
+
+function getOpenAIModelReleaseScore(model) {
+  if (typeof model !== 'string' || !model) {
+    return -1;
+  }
+
+  const lower = getOpenAIStableModelId(model).toLowerCase();
+  if (OPENAI_CHAT_LATEST_ALIASES.has(lower)) {
+    return lower === OPENAI_CHAT_LATEST_MODEL ? 2_000_000_100 : 2_000_000_000;
+  }
+  if (OPENAI_VERSIONED_CHAT_LATEST_REGEX.test(lower)) {
+    return 1_000_000_000 + getOpenAIModelVersionScore(lower);
+  }
+
+  const knownScore = OPENAI_RELEASE_ORDER_SCORES.get(lower);
+  if (knownScore != null) {
+    return knownScore;
+  }
+
+  for (const [knownModel, score] of OPENAI_RELEASE_ORDER_SCORES) {
+    if (lower.startsWith(`${knownModel}-`)) {
+      return score;
+    }
+  }
+
+  const versionScore = getOpenAIModelVersionScore(lower);
+  if (versionScore > getOpenAIModelVersionScore('gpt-5.5')) {
+    return 950_000_000 + versionScore;
+  }
+
+  return versionScore;
+}
+
+function isOpenAIAlphaModel(model) {
+  return typeof model === 'string' && model.toLowerCase().includes('-alpha');
+}
+
 function getOpenAIPreferredVariantRank(model) {
-  const lower = model.toLowerCase();
-  if (/^gpt-\d+(?:\.\d+)?$/.test(lower)) {
+  const lower = getOpenAIStableModelId(model).toLowerCase();
+  if (isOpenAIChatLatestModel(lower)) {
     return 0;
   }
-  if (/^gpt-\d+(?:\.\d+)?-mini(?:$|-)/.test(lower)) {
+  if (/^gpt-\d+(?:\.\d+)?$/.test(lower)) {
     return 1;
+  }
+  if (/^gpt-\d+(?:\.\d+)?-pro(?:$|-)/.test(lower)) {
+    return 2;
+  }
+  if (/^gpt-\d+(?:\.\d+)?-mini(?:$|-)/.test(lower)) {
+    return 3;
+  }
+  if (/^gpt-\d+(?:\.\d+)?-nano(?:$|-)/.test(lower)) {
+    return 4;
   }
   return 10;
 }
 
-function getOpenAILineageKey(model) {
-  const lower = model.toLowerCase();
-  const match = lower.match(/^gpt-(\d+)(?:\.(\d+))?(-mini)?/);
-  if (!match) {
-    return lower;
-  }
-  return `gpt:${match[1]}:${match[2] ?? '0'}:${match[3] ? 'mini' : 'base'}`;
+function isOpenAIStableFullModel(model) {
+  return /^gpt-\d+(?:\.\d+)?$/i.test(getOpenAIStableModelId(model));
+}
+
+function isOpenAIStableMiniModel(model) {
+  return /^gpt-\d+(?:\.\d+)?-mini$/i.test(getOpenAIStableModelId(model));
+}
+
+function isOpenAIChatLatestModel(model) {
+  const lower = getOpenAIStableModelId(model).toLowerCase();
+  return OPENAI_CHAT_LATEST_ALIASES.has(lower) || OPENAI_VERSIONED_CHAT_LATEST_REGEX.test(lower);
 }
 
 function isPreferredOpenAISuggestion(model) {
-  const lower = model.toLowerCase();
-  if (!/^gpt-\d/.test(lower)) {
+  const lower = getOpenAIStableModelId(model).toLowerCase();
+  if (isOpenAIAlphaModel(lower) || OPENAI_DATED_SNAPSHOT_REGEX.test(model)) {
     return false;
   }
-  if (/(?:^|-)instruct(?:$|-)|(?:^|-)pro(?:$|-)|(?:^|-)nano(?:$|-)/.test(lower)) {
-    return false;
-  }
-  if (/(?:^|-)thinking(?:$|-)|(?:^|-)codex(?:$|-)|(?:^|-)chat(?:$|-)/.test(lower)) {
-    return false;
-  }
-  if (/(?:^|-)search(?:$|-)|(?:^|-)preview(?:$|-)|vision/i.test(lower)) {
-    return false;
-  }
-  return getOpenAIPreferredVariantRank(lower) < 10;
+  return (
+    isOpenAIChatLatestModel(lower) ||
+    isOpenAIStableFullModel(lower) ||
+    isOpenAIStableMiniModel(lower)
+  );
 }
 
 function sortOpenAISuggestions(models) {
@@ -96,8 +189,8 @@ function sortOpenAISuggestions(models) {
   });
 
   return models.slice().sort((a, b) => {
-    const scoreA = getOpenAIModelVersionScore(a);
-    const scoreB = getOpenAIModelVersionScore(b);
+    const scoreA = getOpenAIModelReleaseScore(a);
+    const scoreB = getOpenAIModelReleaseScore(b);
     if (scoreA !== scoreB) {
       return scoreB - scoreA;
     }
@@ -112,7 +205,9 @@ function sortOpenAISuggestions(models) {
   });
 }
 
-function dedupeSuggestions(models, getKey, limit) {
+function dedupeSuggestions(models, getKeyOrLimit, maybeLimit) {
+  const getKey = typeof getKeyOrLimit === 'function' ? getKeyOrLimit : getOpenAIStableModelId;
+  const limit = typeof getKeyOrLimit === 'number' ? getKeyOrLimit : maybeLimit;
   const seen = new Set();
   const suggestions = [];
 
@@ -120,7 +215,7 @@ function dedupeSuggestions(models, getKey, limit) {
     if (suggestions.length >= limit) {
       break;
     }
-    const key = getKey(model);
+    const key = getKey(model).toLowerCase();
     if (seen.has(key)) {
       continue;
     }
@@ -134,18 +229,43 @@ function dedupeSuggestions(models, getKey, limit) {
 function getOpenAISuggestedModels(models, limit) {
   const uniqueModels = Array.from(
     new Set((models ?? []).filter((model) => typeof model === 'string')),
-  );
-  const preferred = sortOpenAISuggestions(uniqueModels.filter(isPreferredOpenAISuggestion));
-  const suggestions = dedupeSuggestions(preferred, getOpenAILineageKey, limit);
+  ).filter(isPreferredOpenAISuggestion);
+
+  const suggestions = [];
+  const chatLatestCandidates = uniqueModels.filter(isOpenAIChatLatestModel);
+  const chatLatest =
+    chatLatestCandidates.find(
+      (model) => getOpenAIStableModelId(model).toLowerCase() === OPENAI_CHAT_LATEST_MODEL,
+    ) ||
+    chatLatestCandidates.find(
+      (model) => getOpenAIStableModelId(model).toLowerCase() === 'gpt-chat-latest',
+    ) || sortOpenAISuggestions(chatLatestCandidates)[0];
+  if (chatLatest) {
+    suggestions.push(chatLatest);
+  }
+
+  const latestFull = sortOpenAISuggestions(
+    uniqueModels.filter((model) => isOpenAIStableFullModel(model) && !suggestions.includes(model)),
+  )[0];
+  if (latestFull) {
+    suggestions.push(latestFull);
+  }
+
+  const latestMini = sortOpenAISuggestions(
+    uniqueModels.filter((model) => isOpenAIStableMiniModel(model) && !suggestions.includes(model)),
+  )[0];
+  if (latestMini) {
+    suggestions.push(latestMini);
+  }
 
   if (suggestions.length >= limit) {
-    return suggestions;
+    return suggestions.slice(0, limit);
   }
 
   const fallback = sortOpenAISuggestions(
     uniqueModels.filter((model) => !suggestions.includes(model)),
   );
-  return [...suggestions, ...fallback].slice(0, limit);
+  return dedupeSuggestions([...suggestions, ...fallback], limit);
 }
 
 function getGoogleModelVersionScore(model) {
@@ -239,7 +359,7 @@ function getSuggestedModelsForEndpoint(endpoint, models, limit) {
     return [];
   }
 
-  if (endpoint === EModelEndpoint.openAI) {
+  if (OPENAI_SUGGESTION_ENDPOINTS.has(endpoint)) {
     return getOpenAISuggestedModels(models, limit);
   }
   if (endpoint === EModelEndpoint.anthropic) {
@@ -255,6 +375,11 @@ function getSuggestedModelsForEndpoint(endpoint, models, limit) {
   return models.slice(0, limit);
 }
 
+function getDynamicSuggestionLimit(endpoint, configuredSlotCount) {
+  const maxSuggestions = OPENAI_SUGGESTION_ENDPOINTS.has(endpoint) ? 3 : 1;
+  return Math.min(configuredSlotCount, maxSuggestions);
+}
+
 function isSimpleProviderShortcutSpec(spec) {
   const endpoint = spec?.preset?.endpoint;
   if (!endpoint || spec?.group !== endpoint) {
@@ -264,6 +389,10 @@ function isSimpleProviderShortcutSpec(spec) {
 }
 
 function humanizeModelName(model) {
+  if (isOpenAIChatLatestModel(model)) {
+    return 'Chat Latest';
+  }
+
   return model
     .replace(/^models\//, '')
     .replace(/^google\//, '')
@@ -306,10 +435,11 @@ function applyDynamicSuggestedModelSpecs(modelSpecsConfig, modelsConfig = {}) {
   const removeIndexes = new Set();
 
   for (const [endpoint, indexes] of Object.entries(simpleIndexesByEndpoint)) {
+    const suggestionLimit = getDynamicSuggestionLimit(endpoint, indexes.length);
     const suggestions = getSuggestedModelsForEndpoint(
       endpoint,
       modelsConfig[endpoint],
-      indexes.length,
+      suggestionLimit,
     );
     if (Array.isArray(modelsConfig[endpoint])) {
       indexes.slice(suggestions.length).forEach((index) => removeIndexes.add(index));

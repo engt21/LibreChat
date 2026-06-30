@@ -156,7 +156,11 @@ export const ParallelColumns = memo(function ParallelColumns({
   renderPart,
 }: ParallelColumnsProps) {
   return (
-    <div className={cn('flex w-full flex-col gap-3 md:flex-row', 'sibling-content-group')}>
+    <div
+      className={cn(
+        'sibling-content-group flex w-full flex-col gap-3 overflow-x-auto pb-1 md:flex-row',
+      )}
+    >
       {columns.map(({ agentId, parts: columnParts }, colIdx) => {
         // Show loading cursor if column has no content parts yet (empty array from placeholder)
         const showLoadingCursor = isSubmitting && columnParts.length === 0;
@@ -164,7 +168,7 @@ export const ParallelColumns = memo(function ParallelColumns({
         return (
           <div
             key={`column-${messageId}-${groupId}-${agentId || colIdx}`}
-            className="min-w-0 flex-1 rounded-lg border border-border-light p-3"
+            className="min-w-0 flex-1 rounded-lg border border-border-light p-3 md:min-w-80 md:flex-none"
           >
             <SiblingHeader
               agentId={agentId}

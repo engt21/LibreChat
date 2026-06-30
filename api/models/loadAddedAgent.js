@@ -24,6 +24,43 @@ const { mcp_all, mcp_delimiter } = Constants;
  */
 const ADDED_AGENT_ID = 'added_agent';
 
+const anthropicEphemeralModelParameterKeys = [
+  'fast_mode',
+  'web_fetch',
+  'anthropic_code_execution',
+  'anthropic_advisor',
+  'anthropic_advisor_model',
+];
+
+const addAnthropicEphemeralModelParameters = ({ target, conversation, ephemeralAgent }) => {
+  for (const key of anthropicEphemeralModelParameterKeys) {
+    if (conversation?.[key] != null) {
+      target[key] = conversation[key];
+    } else if (ephemeralAgent?.[key] != null) {
+      target[key] = ephemeralAgent[key];
+    }
+  }
+};
+
+const appendCurrentDateInstruction = ({ endpoint, instructions }) => {
+  if (endpoint !== 'anthropic') {
+    return instructions || '';
+  }
+
+  const currentDateInstruction =
+    'Current date and time: {{current_datetime}}. Use Anthropic web search or web fetch for current or changing information when those tools are enabled.';
+
+  if (typeof instructions === 'string' && instructions.includes('{{current_')) {
+    return instructions;
+  }
+
+  if (typeof instructions === 'string' && instructions.trim().length > 0) {
+    return `${instructions.trim()}\n\n${currentDateInstruction}`;
+  }
+
+  return currentDateInstruction;
+};
+
 /**
  * Get an agent document based on the provided ID.
  * @param {Object} searchParameter - The search parameters to find the agent.
@@ -50,13 +87,15 @@ const setGetAgent = (fn) => {
  * @param {import('librechat-data-provider').Agent} [params.primaryAgent] - The primary agent (used to duplicate tools when both are ephemeral)
  * @returns {Promise<import('librechat-data-provider').Agent|null>} The agent config as a plain object, or null if invalid.
  */
-const loadAddedAgent = async ({ req, conversation, primaryAgent }) => {
+const loadAddedAgent = async ({ req, conversation, primaryAgent, index = 1 }) => {
   if (!conversation) {
     return null;
   }
 
+  const addedIndex = Number.isInteger(index) && index > 0 ? index : 1;
+
   if (conversation.agent_id && !isEphemeralAgentId(conversation.agent_id)) {
-    let agent = req.resolvedAddedAgent;
+    let agent = req.resolvedAddedAgents?.[conversation.agent_id] ?? req.resolvedAddedAgent;
     if (!agent) {
       if (!getAgent) {
         throw new Error('getAgent not initialized - call setGetAgent first');
@@ -72,7 +111,7 @@ const loadAddedAgent = async ({ req, conversation, primaryAgent }) => {
     agent.version = agent.versions ? agent.versions.length : 0;
     // Append suffix to distinguish from primary agent (matches ephemeral format)
     // This is needed when both agents have the same ID or for consistent parallel content attribution
-    agent.id = appendAgentIdSuffix(agent.id, 1);
+    agent.id = appendAgentIdSuffix(agent.id, addedIndex);
     return agent;
   }
 
@@ -106,13 +145,21 @@ const loadAddedAgent = async ({ req, conversation, primaryAgent }) => {
     // then modelDisplayLabel from endpoint config, otherwise empty string to show model name
     const sender = rest.modelLabel ?? modelSpec?.label ?? endpointConfig?.modelDisplayLabel ?? '';
 
-    const ephemeralId = encodeEphemeralAgentId({ endpoint, model, sender, index: 1 });
+    const ephemeralId = encodeEphemeralAgentId({ endpoint, model, sender, index: addedIndex });
 
     return {
       id: ephemeralId,
-      instructions: promptPrefix || '',
+      instructions: appendCurrentDateInstruction({ endpoint, instructions: promptPrefix }),
       provider: endpoint,
-      model_parameters: {},
+      model_parameters: (() => {
+        const model_parameters = {};
+        addAnthropicEphemeralModelParameters({
+          target: model_parameters,
+          conversation,
+          ephemeralAgent: rest.ephemeralAgent,
+        });
+        return model_parameters;
+      })(),
       model,
       tools: [...primaryAgent.tools],
     };
@@ -234,6 +281,11 @@ const loadAddedAgent = async ({ req, conversation, primaryAgent }) => {
       model_parameters[key] = rest[key];
     }
   }
+  addAnthropicEphemeralModelParameters({
+    target: model_parameters,
+    conversation,
+    ephemeralAgent,
+  });
 
   // Get endpoint config for modelDisplayLabel fallback
   const appConfig = req.config;
@@ -250,12 +302,12 @@ const loadAddedAgent = async ({ req, conversation, primaryAgent }) => {
   // then modelDisplayLabel from endpoint config, otherwise empty string to show model name
   const sender = rest.modelLabel ?? modelSpec?.label ?? endpointConfig?.modelDisplayLabel ?? '';
 
-  /** Encoded ephemeral agent ID with endpoint, model, sender, and index=1 to distinguish from primary */
-  const ephemeralId = encodeEphemeralAgentId({ endpoint, model, sender, index: 1 });
+  /** Encoded ephemeral agent ID with endpoint, model, sender, and index to distinguish from primary */
+  const ephemeralId = encodeEphemeralAgentId({ endpoint, model, sender, index: addedIndex });
 
   const result = {
     id: ephemeralId,
-    instructions: promptPrefix || '',
+    instructions: appendCurrentDateInstruction({ endpoint, instructions: promptPrefix }),
     provider: endpoint,
     model_parameters,
     model,

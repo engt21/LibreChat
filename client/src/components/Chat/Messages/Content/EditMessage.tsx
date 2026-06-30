@@ -5,7 +5,7 @@ import { TextareaAutosize, TooltipAnchor } from '@librechat/client';
 import { useUpdateMessageMutation } from 'librechat-data-provider/react-query';
 import type { TEditProps } from '~/common';
 import { useMessagesOperations, useMessagesConversation } from '~/Providers';
-import { useGetAddedConvo } from '~/hooks/Chat';
+import { useGetAddedConvos } from '~/hooks/Chat';
 import { cn, removeFocusRings } from '~/utils';
 import { useLocalize } from '~/hooks';
 import Container from './Container';
@@ -34,7 +34,7 @@ const EditMessage = ({
   const chatDirection = useRecoilValue(store.chatDirection).toLowerCase();
   const isRTL = chatDirection === 'rtl';
 
-  const getAddedConvo = useGetAddedConvo();
+  const getAddedConvos = useGetAddedConvos();
 
   const { register, handleSubmit, setValue } = useForm({
     defaultValues: {
@@ -53,6 +53,7 @@ const EditMessage = ({
 
   const resubmitMessage = (data: { text: string }) => {
     if (message.isCreatedByUser) {
+      const addedConvos = getAddedConvos();
       ask(
         {
           text: data.text,
@@ -61,7 +62,8 @@ const EditMessage = ({
         },
         {
           overrideFiles: message.files,
-          addedConvo: getAddedConvo() || undefined,
+          addedConvo: addedConvos[0],
+          addedConvos: addedConvos.length > 0 ? addedConvos : undefined,
         },
       );
 
@@ -73,6 +75,7 @@ const EditMessage = ({
       if (!parentMessage) {
         return;
       }
+      const addedConvos = getAddedConvos();
       ask(
         { ...parentMessage },
         {
@@ -80,7 +83,8 @@ const EditMessage = ({
           editedMessageId: messageId,
           isRegenerate: true,
           isEdited: true,
-          addedConvo: getAddedConvo() || undefined,
+          addedConvo: addedConvos[0],
+          addedConvos: addedConvos.length > 0 ? addedConvos : undefined,
         },
       );
 

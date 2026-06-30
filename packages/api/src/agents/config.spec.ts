@@ -2,12 +2,12 @@ import type { TAgentsEndpoint } from 'librechat-data-provider';
 import { resolveRecursionLimit } from './config';
 
 describe('resolveRecursionLimit', () => {
-  it('returns default 50 when no config or agent provided', () => {
-    expect(resolveRecursionLimit(undefined, undefined)).toBe(50);
+  it('returns default 100 when no config or agent provided', () => {
+    expect(resolveRecursionLimit(undefined, undefined)).toBe(100);
   });
 
-  it('returns default 50 when config has no recursionLimit', () => {
-    expect(resolveRecursionLimit({} as TAgentsEndpoint, {})).toBe(50);
+  it('returns default 100 when config has no recursionLimit', () => {
+    expect(resolveRecursionLimit({} as TAgentsEndpoint, {})).toBe(100);
   });
 
   it('uses yaml recursionLimit when set', () => {

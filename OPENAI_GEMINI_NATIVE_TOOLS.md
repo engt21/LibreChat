@@ -21,14 +21,14 @@ That gives OpenAI, Gemini, and Anthropic chats a more native tool path while pre
 
 ## Support matrix
 
-| Provider | Web Search | Code Interpreter | File Search | Notes |
-| --- | --- | --- | --- | --- |
-| OpenAI | Native | Native | Native | Uses Responses API tools |
-| Azure OpenAI | Native | Native | Native | Uses the same OpenAI-native tool path where supported by configuration |
-| Google / Gemini | Native | Native | Not native | `file_search` remains a LibreChat-managed capability for Google |
-| Anthropic | Native | Native or local | Local upload + local fallback | Web search and `execute_code` route natively when supported; uploaded code files still live in LibreChat storage |
-| Ollama | Separate path | Separate path | N/A | See [./OLLAMA_WEB_SEARCH.md](./OLLAMA_WEB_SEARCH.md) |
-| Other providers | LibreChat path | LibreChat path | LibreChat path | No change |
+| Provider        | Web Search     | Code Interpreter | File Search                   | Notes                                                                                                                              |
+| --------------- | -------------- | ---------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI          | Native         | Native           | Native                        | Uses Responses API tools                                                                                                           |
+| Azure OpenAI    | Native         | Native           | Native                        | Uses the same OpenAI-native tool path where supported by configuration                                                             |
+| Google / Gemini | Native         | Native           | Not native                    | `file_search` remains a LibreChat-managed capability for Google                                                                    |
+| Anthropic       | Native         | Native or local  | Local upload + local fallback | Chat-bar web search and `execute_code` route natively when supported; sidebar also exposes supported direct Anthropic server tools |
+| Ollama          | Separate path  | Separate path    | N/A                           | See [./OLLAMA_WEB_SEARCH.md](./OLLAMA_WEB_SEARCH.md)                                                                               |
+| Other providers | LibreChat path | LibreChat path   | LibreChat path                | No change                                                                                                                          |
 
 ## User-facing behavior
 
@@ -50,6 +50,7 @@ That means:
 - Gemini `Web Search` and `Code Interpreter` toggles can be enabled directly from the chat bar
 - Anthropic `Web Search` can be enabled directly from the chat bar
 - Anthropic `Code Interpreter` can be enabled directly from the chat bar while still preserving local file upload handling
+- Anthropic model-parameter sidebar can enable direct provider features for supported direct Anthropic API models: fast mode, web fetch with citations, hosted code execution, advisor, and advisor model selection
 
 ## What gets sent from the client
 
@@ -75,6 +76,45 @@ For OpenAI and Azure OpenAI model chats:
 - `file_search` maps to OpenAI Files + Vector Stores
 
 When OpenAI-native web search is enabled, LibreChat automatically enables the Responses API path where needed. If the selected OpenAI/Azure model is not a search-capable model, the web-search toggle stays on the existing structured-tool path instead of sending an unsupported Responses native tool.
+
+For OpenAI/Azure hosted Responses web search, `packages/api/src/endpoints/openai/llm.ts` sets `max_tool_calls` to `6` by default and clamps any configured override to `12`. This is a production safety invariant: native-search reasoning may stream multiple separate thought summaries, but it must still terminate and return a final answer instead of searching indefinitely.
+
+Azure OpenAI / Foundry deployments are classified by model family before native
+tool selection:
+
+- GPT and Chat Latest deployments such as `chat-latest`, `gpt-chat-latest`,
+  `gpt-4.1-mini`, `gpt-4o`, `gpt-5.4`, `gpt-5.4-pro`,
+  `gpt-5.4-mini`, and `gpt-5.4-nano` can use OpenAI/Azure native
+  Responses web search when selected.
+- Azure-hosted non-OpenAI chat deployments such as `DeepSeek-V3.1`,
+  `DeepSeek-V4-Flash`, `grok-4-*`, `Phi-4`, `Phi-4-reasoning`,
+  `Mistral-Large-3`, plus `codex-mini` and `gpt-oss-120b`, keep streaming chat
+  settings but do not get OpenAI-native Responses web search/code/file tools.
+  Their chat-bar web search and code execution remain on the LibreChat
+  structured/local fallback path when available.
+- Embedding deployments such as `text-embedding-3-small` are marked
+  non-chat/non-streaming for chat parameter and native-tool toggles.
+
+Native OpenAI model discovery normalizes `/v1/models` for the text-chat picker before these tool decisions run: exactly one Chat Latest candidate is kept with priority `chat-latest` -> `gpt-chat-latest` -> highest-version `gpt-*-chat-latest`, current chat-capable GPT/o-series models are kept, non-chat families and dated snapshots are hidden, and `-alpha` models are only visible to admins under a separate OpenAI alpha subgroup. Azure deployments and OpenAI reverse proxies keep their configured catalog ids because those names are operator-controlled.
+
+## Reasoning summary display
+
+OpenAI/Azure reasoning summary items may arrive separately while sharing one THINK content slot, including Markdown-headed items such as `**Searching for sources**`. Both accumulation layers must preserve that structure: the client applies separator-aware merging to live SSE updates, and the `@librechat/agents` runtime patch applies the same boundary rule when persisting completed content for reloads. The client utility remains dependency-free so it does not introduce a rendering-module dependency during authenticated chat startup; the runtime patch is protected by `api/server/services/Config/applyRuntimePatches.spec.js`.
+
+### Mandatory preservation invariant
+
+<!-- OPENAI_REASONING_PRESERVATION_INVARIANT: DO_NOT_REMOVE -->
+
+This is a fail-closed production invariant, not an optional presentation tweak. The following protections must remain together through merges, dependency refreshes, builds, hot promotions, and image rebuilds:
+
+- `packages/api/src/endpoints/openai/llm.ts` bounds OpenAI/Azure hosted Responses web search with `max_tool_calls` (`6` default, `12` maximum) so a turn returns a final answer.
+- `client/src/utils/mergeThinkingText.ts` and its SSE callers preserve separate reasoning items while the message is streaming in the browser.
+- `config/apply-runtime-patches.js` patches `@librechat/agents` source/CJS/ESM aggregators so saved and reloaded conversations preserve the same boundaries, including Markdown-headed summaries.
+- Regression tests in `packages/api/src/endpoints/openai/llm.spec.ts` and `api/server/services/Config/applyRuntimePatches.spec.js` are mandatory preservation tests and must not be deleted as conflict cleanup.
+
+Run `npm run verify:openai-reasoning-preservation` before any deployment touching OpenAI reasoning, web search, runtime patches, or frontend thought rendering. After an explicitly approved VM stable change, run `ssh timeng@192.168.50.104 'cd /opt/LibreChat-custom && ./local-services/verify-openai-reasoning-preservation.sh --container LibreChat'`. Stable startup, stable frontend promotion, and `local-services/health-check.sh` invoke this verifier automatically; when stable is running, they additionally inspect the deployed API container and fail if either completion bounds or persisted reasoning separators have disappeared.
+
+Deployment guardrail: this reasoning behavior is served from compiled frontend assets at runtime. Never deploy a reasoning fix by copying `client/src` alone or by hand-patching hashed files in `client/dist/assets`, `client/dist/index.html`, or `client/dist/sw.js`. Build a complete client dist tree and deploy it only through `local-services/deploy-built-client-dist.sh`, which verifies the build manifest, promotes the whole artifact tree, and rolls back failed health checks.
 
 ## File lifecycle for OpenAI-native tools
 
@@ -137,12 +177,37 @@ For Anthropic model chats:
 
 - `web_search` maps to Anthropic's native web search tool when the selected Claude model supports it
 - `execute_code` can map to Anthropic-native code execution when the chat is in `provider_native` mode
+- multi-conversation added Claude responses must carry their own initialized runtime tool context, so selected web search/fetch and MCP tools are available to the side response and not only to the primary response
 - uploaded files still go through LibreChat's normal `/api/files` flow and stay stored locally
+- sidebar `fast_mode` maps to `speed: fast` plus Anthropic's fast-mode beta header on supported Opus models
+- Anthropic web search uses `web_search_20250305` by default and switches to `web_search_20260209` only when Anthropic-native code execution is also active
+- sidebar `web_fetch` adds `web_fetch_20250910` with citations enabled by default and switches to `web_fetch_20260209` only when Anthropic-native code execution is also active
+- sidebar `anthropic_code_execution` adds `code_execution_20250825` with the Anthropic code-execution beta header
+- sidebar `anthropic_advisor` adds `advisor_20260301` with the selected `anthropic_advisor_model`
+- unsupported model/tool combinations, and Vertex Anthropic requests for direct-only features, are skipped with warnings instead of being sent as invalid provider payloads
 
 Anthropic conversation replay also sanitizes malformed native-tool history:
 
-- paired `server_tool_use` + `web_search_tool_result` blocks are preserved, but orphaned web-search server-tool blocks are dropped before the next Claude request so Anthropic does not reject the turn
+- paired `server_tool_use` blocks for `web_search`, `web_fetch`, `code_execution`, and `advisor` are preserved only when their matching `*_tool_result` block is present and matches the same tool name; orphaned or mismatched server-tool blocks are dropped before the next Claude request so Anthropic does not reject the turn
 - incomplete signed `thinking` blocks from interrupted or cancelled Claude streams are dropped unless they contain non-empty `thinking` and `signature` fields, preventing Anthropic `messages.*.content.*.thinking.thinking: Field required` request failures while preserving valid signed thinking blocks exactly
+
+## Anthropic sidebar server tools
+
+The Anthropic sidebar controls are request-construction controls for the direct Anthropic endpoint, not replacements for the chat-bar tools menu.
+
+Supported sidebar controls:
+
+- `Fast mode`: direct Anthropic API only, supported Opus models only
+- `Web search`: existing native web-search server tool
+- `Web fetch`: direct Anthropic API only, with provider citations requested
+- `Code execution`: direct Anthropic hosted code execution server tool, separate from the chat-bar local-vs-native code-interpreter mode
+- `Advisor`: direct Anthropic advisor server tool with an explicit advisor model selector
+
+The Anthropic docs also describe client-side tools such as memory, bash, computer use, and text editor. LibreChat intentionally does not expose those as sidebar toggles yet. They require a real client executor, sandboxing/approval policy, durable error display, and tool-result continuation loop. Showing them before that infrastructure exists would create requests that can pause on unhandled `tool_use` blocks or crash the user flow.
+
+Do not change normal Anthropic web search/fetch to the dynamic filtering descriptors unless code execution is also selected. The dynamic descriptors are paired with hosted code execution; using them as the default web-search/fetch request shape can produce provider requests where Claude correctly reports that no web-search/fetch tool is available.
+
+Search-result content blocks are also not a generic sidebar switch. LibreChat can preserve provider web-search/web-fetch result blocks, and web fetch requests ask for citations, but user-supplied `search_result` content belongs in a retrieval/message-content pipeline rather than a provider parameter toggle.
 
 ## Anthropic code-interpreter mode selection
 
@@ -211,6 +276,10 @@ For OpenAI-native file uploads from the client:
 - the client also sends `native_tool`
 - the server stores the file as a native-tool upload
 - LibreChat skips the old vectorization / code-sandbox upload path for those native files
+- for local LibreChat code-interpreter uploads, `tool_resource=execute_code` is the explicit raw-file route; those uploads bypass MIME allowlists but still keep size, empty-file, file-id, and permission checks
+- the chat-bar attach menu and drag/drop modal show Code Interpreter as an upload destination for ephemeral chats based on Code Interpreter capability, not on whether the toggle was already enabled; selecting it enables the tool and sends arbitrary raw files such as `.wav` with `tool_resource=execute_code`
+- audio/video uploads are destination-specific: the same `.wav` can remain a normal attachment for explicit transcription or be routed to Code Interpreter for sandbox analysis
+- completed uploads keep the route metadata in compose state, and the inline transcription bar excludes Code Interpreter-routed audio/video so sending the message preserves the raw file attachment path unless the user explicitly clicks Transcribe
 
 Captured multipart upload verification showed:
 

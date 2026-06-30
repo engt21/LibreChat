@@ -20,6 +20,15 @@ const mcpServerSchema = new Schema<MCPServerDocument>(
       required: true,
       index: true,
     },
+    publishedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: undefined,
+    },
+    publishedAt: {
+      type: Date,
+      default: undefined,
+    },
   },
   {
     timestamps: true,

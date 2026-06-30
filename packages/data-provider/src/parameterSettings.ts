@@ -7,6 +7,7 @@ import {
   googleSettings,
   ReasoningEffort,
   AnthropicEffort,
+  AnthropicAdvisorModel,
   AnthropicServiceTier,
   ReasoningSummary,
   BedrockProviders,
@@ -551,6 +552,69 @@ const anthropic: Record<string, SettingDefinition> = {
     optionType: 'model',
     columnSpan: 4,
   },
+  fast_mode: {
+    key: 'fast_mode',
+    label: 'Fast mode',
+    description:
+      'Opt in to Anthropic fast mode for supported Claude Opus models. Requires Anthropic account access and may use premium pricing.',
+    type: 'boolean',
+    default: anthropicSettings.fast_mode.default,
+    component: 'switch',
+    optionType: 'conversation',
+    showDefault: false,
+    columnSpan: 2,
+  },
+  web_fetch: {
+    key: 'web_fetch',
+    label: 'Web fetch',
+    description:
+      'Allow Claude to fetch URLs that appear in the conversation. Fetched content is requested with citations enabled.',
+    type: 'boolean',
+    default: anthropicSettings.web_fetch.default,
+    component: 'switch',
+    optionType: 'conversation',
+    showDefault: false,
+    columnSpan: 2,
+  },
+  anthropic_code_execution: {
+    key: 'anthropic_code_execution',
+    label: 'Code execution',
+    description:
+      'Allow Claude to run code in Anthropic-hosted sandboxed code execution for supported models.',
+    type: 'boolean',
+    default: anthropicSettings.code_execution.default,
+    component: 'switch',
+    optionType: 'conversation',
+    showDefault: false,
+    columnSpan: 2,
+  },
+  anthropic_advisor: {
+    key: 'anthropic_advisor',
+    label: 'Advisor',
+    description:
+      'Allow Claude to consult an Anthropic advisor model during complex turns. Requires advisor-tool beta access.',
+    type: 'boolean',
+    default: anthropicSettings.advisor.default,
+    component: 'switch',
+    optionType: 'conversation',
+    showDefault: false,
+    columnSpan: 2,
+  },
+  anthropic_advisor_model: {
+    key: 'anthropic_advisor_model',
+    label: 'Advisor model',
+    description: 'Choose the Claude Opus model used by the Anthropic advisor tool.',
+    type: 'enum',
+    default: anthropicSettings.advisor_model.default,
+    component: 'slider',
+    options: anthropicSettings.advisor_model.options,
+    enumMappings: {
+      [AnthropicAdvisorModel.opus48]: 'Opus 4.8',
+      [AnthropicAdvisorModel.opus47]: 'Opus 4.7',
+    },
+    optionType: 'conversation',
+    columnSpan: 4,
+  },
 };
 
 const bedrock: Record<string, SettingDefinition> = {
@@ -973,7 +1037,12 @@ const anthropicConfig: SettingsConfiguration = [
   anthropic.thinkingBudget,
   anthropic.effort,
   anthropic.service_tier,
+  anthropic.fast_mode,
   anthropic.web_search,
+  anthropic.web_fetch,
+  anthropic.anthropic_code_execution,
+  anthropic.anthropic_advisor,
+  anthropic.anthropic_advisor_model,
   librechat.fileTokenLimit,
 ];
 
@@ -996,7 +1065,12 @@ const anthropicCol2: SettingsConfiguration = [
   anthropic.thinkingBudget,
   anthropic.effort,
   anthropic.service_tier,
+  anthropic.fast_mode,
   anthropic.web_search,
+  anthropic.web_fetch,
+  anthropic.anthropic_code_execution,
+  anthropic.anthropic_advisor,
+  anthropic.anthropic_advisor_model,
   librechat.fileTokenLimit,
 ];
 

@@ -8,6 +8,7 @@ const {
   verifyTOTP,
 } = require('~/server/services/twoFactorService');
 const { getUserById, updateUser } = require('~/models');
+const { requiresMFAEnrollment } = require('~/server/services/mfaPolicy');
 
 const safeAppTitle = (process.env.APP_TITLE || 'LibreChat').replace(/\s+/g, '');
 
@@ -141,6 +142,10 @@ const disable2FA = async (req, res) => {
 
     if (!user || !user.totpSecret) {
       return res.status(400).json({ message: '2FA is not setup for this user' });
+    }
+
+    if (requiresMFAEnrollment(user)) {
+      return res.status(403).json({ message: 'MFA is required for this account and cannot be disabled.' });
     }
 
     if (user.twoFactorEnabled) {

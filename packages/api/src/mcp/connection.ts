@@ -72,6 +72,7 @@ const DEFAULT_TIMEOUT = 60000;
 /** SSE connections through proxies may need longer initial handshake time */
 const SSE_CONNECT_TIMEOUT = 120000;
 const DEFAULT_INIT_TIMEOUT = 30000;
+const DEFAULT_MAX_RECONNECT_ATTEMPTS = 6;
 
 interface CircuitBreakerState {
   cycleCount: number;
@@ -260,7 +261,8 @@ export class MCPConnection extends EventEmitter {
   private transport: Transport | null = null; // Make this nullable
   private connectionState: t.ConnectionState = 'disconnected';
   private connectPromise: Promise<void> | null = null;
-  private readonly MAX_RECONNECT_ATTEMPTS = 3;
+  private readonly MAX_RECONNECT_ATTEMPTS =
+    mcpConfig.MAX_RECONNECT_ATTEMPTS ?? DEFAULT_MAX_RECONNECT_ATTEMPTS;
   public readonly serverName: string;
   private shouldStopReconnecting = false;
   private isReconnecting = false;

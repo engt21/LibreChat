@@ -16,7 +16,7 @@ import type {
   GuardrailConfiguration,
   InferenceProfileConfig,
 } from '~/types';
-import { checkUserKeyExpiry } from '~/utils';
+import { resolveUserKeyWithFallback } from '../byok';
 
 /**
  * Initializes Bedrock endpoint configuration.
@@ -69,15 +69,24 @@ export async function initializeBedrock({
   const { key: expiresAt } = req.body;
   const isUserProvided = BEDROCK_AWS_SECRET_ACCESS_KEY === AuthType.USER_PROVIDED;
 
-  let credentials: BedrockCredentials | undefined = isUserProvided
-    ? await db
-        .getUserKey({ userId: req.user?.id ?? '', name: EModelEndpoint.bedrock })
-        .then((key) => JSON.parse(key) as BedrockCredentials)
-    : {
-        accessKeyId: BEDROCK_AWS_ACCESS_KEY_ID,
-        secretAccessKey: BEDROCK_AWS_SECRET_ACCESS_KEY,
-        ...(BEDROCK_AWS_SESSION_TOKEN && { sessionToken: BEDROCK_AWS_SESSION_TOKEN }),
-      };
+  const platformCredentials = {
+    accessKeyId: BEDROCK_AWS_ACCESS_KEY_ID,
+    secretAccessKey: BEDROCK_AWS_SECRET_ACCESS_KEY,
+    ...(BEDROCK_AWS_SESSION_TOKEN && { sessionToken: BEDROCK_AWS_SESSION_TOKEN }),
+  };
+  const userKey = await resolveUserKeyWithFallback({
+    req,
+    db,
+    endpoint: EModelEndpoint.bedrock,
+    expiresAt,
+    userProvided: isUserProvided,
+    platformAvailable: !isUserProvided,
+  });
+  let credentials: BedrockCredentials | undefined = userKey
+    ? (JSON.parse(userKey) as BedrockCredentials)
+    : isUserProvided
+      ? undefined
+      : platformCredentials;
 
   if (!credentials) {
     throw new Error('Bedrock credentials not provided. Please provide them again.');
@@ -89,10 +98,6 @@ export async function initializeBedrock({
     (credentials.secretAccessKey === undefined || credentials.secretAccessKey === '')
   ) {
     credentials = undefined;
-  }
-
-  if (expiresAt && isUserProvided) {
-    checkUserKeyExpiry(expiresAt, EModelEndpoint.bedrock);
   }
 
   const requestOptions: Record<string, unknown> = {

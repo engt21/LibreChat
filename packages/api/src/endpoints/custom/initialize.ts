@@ -13,8 +13,9 @@ import { getOpenAIConfig } from '~/endpoints/openai/config';
 import { getCustomEndpointConfig } from '~/app/config';
 import { fetchModels, resolveOllamaBaseURL } from '~/endpoints/models';
 import { validateEndpointURL } from '~/auth';
-import { isUserProvided, checkUserKeyExpiry } from '~/utils';
+import { isUserProvided } from '~/utils';
 import { standardCache } from '~/cache';
+import { getAdminBYOKPolicy, isAdminBYOKEnabled, resolveUserKeyValuesWithFallback } from '../byok';
 
 const { PROXY } = process.env;
 
@@ -102,21 +103,27 @@ export async function initializeCustom({
 
   const userProvidesKey = isUserProvided(CUSTOM_API_KEY);
   const userProvidesURL = isUserProvided(CUSTOM_BASE_URL);
-
-  // Expiry is only checked when present: the Agents API sends an OpenAI-compatible
-  // request body that does not include `key` (the expiry timestamp), so expiresAt
-  // will be undefined in that flow. The key is still fetched regardless.
-  if (expiresAt && (userProvidesKey || userProvidesURL)) {
-    checkUserKeyExpiry(expiresAt, endpoint);
-  }
+  const byokPolicy = getAdminBYOKPolicy(req, endpoint);
+  const adminBYOKEnabled = isAdminBYOKEnabled(req, endpoint);
+  const allowAdminBaseURL = adminBYOKEnabled && byokPolicy.allowBaseURL !== false;
+  const fallbackToPlatform = adminBYOKEnabled && byokPolicy.fallbackToPlatform !== false;
 
   let userValues = null;
-  if (userProvidesKey || userProvidesURL) {
-    userValues = await db.getUserKeyValues({ userId: req.user?.id ?? '', name: endpoint });
-  }
+  userValues = await resolveUserKeyValuesWithFallback({
+    req,
+    db,
+    endpoint,
+    expiresAt,
+    userProvided: userProvidesKey || userProvidesURL,
+    platformAvailable: !!CUSTOM_API_KEY && !userProvidesKey,
+  });
 
-  const apiKey = userProvidesKey ? userValues?.apiKey : CUSTOM_API_KEY;
-  const baseURL = userProvidesURL ? userValues?.baseURL : CUSTOM_BASE_URL;
+  const apiKey =
+    (userProvidesKey || adminBYOKEnabled ? userValues?.apiKey : CUSTOM_API_KEY) ||
+    (fallbackToPlatform ? CUSTOM_API_KEY : '');
+  const baseURL =
+    (userProvidesURL || allowAdminBaseURL ? userValues?.baseURL : CUSTOM_BASE_URL) ||
+    (fallbackToPlatform ? CUSTOM_BASE_URL : '');
 
   if (userProvidesKey && !apiKey) {
     throw new Error(
@@ -126,7 +133,7 @@ export async function initializeCustom({
     );
   }
 
-  if (userProvidesURL && !baseURL) {
+  if ((userProvidesURL || allowAdminBaseURL) && !baseURL) {
     throw new Error(
       JSON.stringify({
         type: ErrorTypes.NO_BASE_URL,
@@ -134,7 +141,7 @@ export async function initializeCustom({
     );
   }
 
-  if (userProvidesURL && baseURL) {
+  if ((userProvidesURL || allowAdminBaseURL) && baseURL) {
     await validateEndpointURL(baseURL, endpoint);
   }
 

@@ -101,8 +101,8 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   } = useChatContext();
   const {
     generateConversation,
-    conversation: addedConvo,
-    setConversation: setAddedConvo,
+    entries: addedConvoEntries,
+    removeConversation: removeAddedConvo,
   } = useAddedChatContext();
   const assistantMap = useAssistantsMapContext();
 
@@ -270,7 +270,10 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
                 : 'border-border-light bg-surface-chat',
             )}
           >
-            <TextareaHeader addedConvo={addedConvo} setAddedConvo={setAddedConvo} />
+            <TextareaHeader
+              addedConvos={addedConvoEntries}
+              removeAddedConvo={removeAddedConvo}
+            />
             {/* WIP */}
             <EditBadges
               isEditingChatBadges={isEditingBadges}

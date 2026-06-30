@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const { logger } = require('@librechat/data-schemas');
-const { getPresets, savePreset, deletePresets } = require('~/models');
+const { getPresets, reorderPresets, savePreset, deletePresets } = require('~/models');
 const requireJwtAuth = require('~/server/middleware/requireJwtAuth');
 
 const router = express.Router();
@@ -23,6 +23,22 @@ router.post('/', async (req, res) => {
   } catch (error) {
     logger.error('[/presets] error saving preset', error);
     res.status(500).send('There was an error when saving the preset');
+  }
+});
+
+router.post('/order', async (req, res) => {
+  const { presetOrder } = req.body || {};
+
+  if (!Array.isArray(presetOrder)) {
+    return res.status(400).json({ message: 'presetOrder must be an array' });
+  }
+
+  try {
+    const presets = await reorderPresets(req.user.id, presetOrder);
+    res.status(200).json(presets);
+  } catch (error) {
+    logger.error('[/presets/order] error reordering presets', error);
+    res.status(500).send('There was an error when reordering presets');
   }
 });
 

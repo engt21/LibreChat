@@ -51,6 +51,42 @@ const ModelPermissionsSchema = new Schema(
   { _id: false },
 );
 
+const ModelRateLimitRuleSchema = new Schema(
+  {
+    endpoint: {
+      type: String,
+      required: true,
+    },
+    model: {
+      type: String,
+      required: true,
+    },
+    requestsPerDay: {
+      type: Number,
+      default: undefined,
+    },
+    tokensPerDay: {
+      type: Number,
+      default: undefined,
+    },
+  },
+  { _id: false },
+);
+
+const ModelRateLimitsSchema = new Schema(
+  {
+    enabled: {
+      type: Boolean,
+      default: false,
+    },
+    rules: {
+      type: [ModelRateLimitRuleSchema],
+      default: [],
+    },
+  },
+  { _id: false },
+);
+
 const ImageGenerationPrefsSchema = new Schema(
   {
     enabledByDefault: {
@@ -314,6 +350,10 @@ const userSchema = new Schema<IUser>(
     },
     modelPermissions: {
       type: ModelPermissionsSchema,
+      default: () => ({ enabled: false, rules: [] }),
+    },
+    modelRateLimits: {
+      type: ModelRateLimitsSchema,
       default: () => ({ enabled: false, rules: [] }),
     },
     imageGenerationPrefs: {

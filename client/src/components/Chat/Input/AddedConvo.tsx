@@ -1,17 +1,16 @@
 import { useMemo } from 'react';
 import { isAgentsEndpoint } from 'librechat-data-provider';
 import type { TConversation } from 'librechat-data-provider';
-import type { SetterOrUpdater } from 'recoil';
 import { useGetEndpointsQuery } from '~/data-provider';
 import { EndpointIcon } from '~/components/Endpoints';
 import { useAgentsMapContext } from '~/Providers';
 
 export default function AddedConvo({
   addedConvo,
-  setAddedConvo,
+  onRemove,
 }: {
   addedConvo: TConversation | null;
-  setAddedConvo: SetterOrUpdater<TConversation | null>;
+  onRemove: () => void;
 }) {
   const agentsMap = useAgentsMapContext();
   const { data: endpointsConfig } = useGetEndpointsQuery();
@@ -54,7 +53,7 @@ export default function AddedConvo({
         className="text-token-text-secondary flex-shrink-0"
         type="button"
         aria-label="Close added conversation"
-        onClick={() => setAddedConvo(null)}
+        onClick={onRemove}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

@@ -255,12 +255,14 @@ services:
     <<: *langfuse-env-file
     image: docker.io/langfuse/langfuse-worker:3
     mem_limit: ${LIBRECHAT_LANGFUSE_WORKER_MEM_LIMIT:-600m}
+    memswap_limit: ${LIBRECHAT_LANGFUSE_WORKER_MEM_LIMIT:-600m}
     depends_on: *langfuse-depends-on
     restart: unless-stopped
   langfuse-web:
     <<: *langfuse-env-file
     image: docker.io/langfuse/langfuse:3
     mem_limit: ${LIBRECHAT_LANGFUSE_WEB_MEM_LIMIT:-600m}
+    memswap_limit: ${LIBRECHAT_LANGFUSE_WEB_MEM_LIMIT:-600m}
     environment:
       NODE_OPTIONS: "${LIBRECHAT_LANGFUSE_NODE_OPTIONS:-}"
     depends_on: *langfuse-depends-on
@@ -274,6 +276,7 @@ services:
     image: ${LIBRECHAT_API_IMAGE:-librechat-local:latest}
     pull_policy: never
     mem_limit: ${LIBRECHAT_LANGFUSE_SYNC_MEM_LIMIT:-256m}
+    memswap_limit: ${LIBRECHAT_LANGFUSE_SYNC_MEM_LIMIT:-256m}
     depends_on:
       - langfuse-web
     command:
@@ -288,6 +291,7 @@ services:
     <<: *langfuse-env-file
     image: docker.io/clickhouse/clickhouse-server
     mem_limit: ${LIBRECHAT_LANGFUSE_CLICKHOUSE_MEM_LIMIT:-768m}
+    memswap_limit: ${LIBRECHAT_LANGFUSE_CLICKHOUSE_MEM_LIMIT:-768m}
     user: "101:101"
     volumes:
       - langfuse_clickhouse_data:/var/lib/clickhouse
@@ -307,6 +311,7 @@ services:
     <<: *langfuse-env-file
     image: cgr.dev/chainguard/minio
     mem_limit: ${LIBRECHAT_LANGFUSE_MINIO_MEM_LIMIT:-256m}
+    memswap_limit: ${LIBRECHAT_LANGFUSE_MINIO_MEM_LIMIT:-256m}
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     ports:
@@ -325,6 +330,7 @@ services:
     <<: *langfuse-env-file
     image: docker.io/redis:7
     mem_limit: ${LIBRECHAT_LANGFUSE_REDIS_MEM_LIMIT:-128m}
+    memswap_limit: ${LIBRECHAT_LANGFUSE_REDIS_MEM_LIMIT:-128m}
     command:
       - sh
       - -c
@@ -341,6 +347,7 @@ services:
     <<: *langfuse-env-file
     image: docker.io/postgres:17
     mem_limit: ${LIBRECHAT_LANGFUSE_POSTGRES_MEM_LIMIT:-128m}
+    memswap_limit: ${LIBRECHAT_LANGFUSE_POSTGRES_MEM_LIMIT:-128m}
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -355,6 +362,7 @@ services:
       dockerfile: Dockerfile
     image: librechat-exporter-local:latest
     mem_limit: ${LIBRECHAT_METRICS_MEM_LIMIT:-96m}
+    memswap_limit: ${LIBRECHAT_METRICS_MEM_LIMIT:-96m}
     depends_on:
       - mongodb
     ports:

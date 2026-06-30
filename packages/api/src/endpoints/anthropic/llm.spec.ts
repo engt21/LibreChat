@@ -1,4 +1,4 @@
-import { AnthropicEffort } from 'librechat-data-provider';
+import { AnthropicAdvisorModel, AnthropicEffort } from 'librechat-data-provider';
 import type * as t from '~/types';
 import { getLLMConfig } from './llm';
 
@@ -575,10 +575,212 @@ describe('getLLMConfig', () => {
         });
         expect(result.tools).toEqual([
           {
-            type: 'web_search_20260209',
+            type: 'web_search_20250305',
             name: 'web_search',
           },
         ]);
+      });
+
+      it('should enable Anthropic fast mode for supported Opus models', () => {
+        const result = getLLMConfig('sk-ant-fast-key', {
+          modelOptions: {
+            model: 'claude-opus-4-6',
+            fast_mode: true,
+            user: 'fast-user-404',
+          },
+        });
+
+        expect(result.llmConfig).toHaveProperty('speed', 'fast');
+        expect(result.llmConfig.clientOptions?.defaultHeaders).toMatchObject({
+          'anthropic-beta': expect.stringContaining('fast-mode-2026-02-01'),
+        });
+      });
+
+      it('should skip Anthropic fast mode for unsupported models without breaking config', () => {
+        const result = getLLMConfig('sk-ant-fast-key', {
+          modelOptions: {
+            model: 'claude-sonnet-4-6',
+            fast_mode: true,
+          },
+        });
+
+        expect(result.llmConfig).not.toHaveProperty('speed');
+        expect(result.tools).toEqual([]);
+      });
+
+      it('should add Anthropic web fetch with citations enabled', () => {
+        const result = getLLMConfig('sk-ant-webfetch-key', {
+          modelOptions: {
+            model: 'claude-opus-4-6',
+            web_fetch: true,
+            user: 'webfetch-user-404',
+          },
+        });
+
+        expect(result.tools).toEqual([
+          {
+            type: 'web_fetch_20250910',
+            name: 'web_fetch',
+            citations: {
+              enabled: true,
+            },
+          },
+        ]);
+      });
+
+      it('should add Anthropic code execution with the required beta header', () => {
+        const result = getLLMConfig('sk-ant-code-key', {
+          modelOptions: {
+            model: 'claude-opus-4-6',
+            anthropic_code_execution: true,
+            user: 'code-user-404',
+          },
+        });
+
+        expect(result.tools).toEqual([
+          {
+            type: 'code_execution_20250825',
+            name: 'code_execution',
+          },
+        ]);
+        expect(result.llmConfig.clientOptions?.defaultHeaders).toMatchObject({
+          'anthropic-beta': expect.stringContaining('code-execution-2025-08-25'),
+        });
+      });
+
+      it('should use dynamic Anthropic web tool variants only with code execution', () => {
+        const result = getLLMConfig('sk-ant-dynamic-tools-key', {
+          modelOptions: {
+            model: 'claude-opus-4-6',
+            web_search: true,
+            web_fetch: true,
+            anthropic_code_execution: true,
+            user: 'dynamic-tools-user-404',
+          },
+        });
+
+        expect(result.tools).toEqual([
+          {
+            type: 'web_search_20260209',
+            name: 'web_search',
+          },
+          {
+            type: 'web_fetch_20260209',
+            name: 'web_fetch',
+            citations: {
+              enabled: true,
+            },
+          },
+          {
+            type: 'code_execution_20250825',
+            name: 'code_execution',
+          },
+        ]);
+        expect(result.llmConfig.clientOptions?.defaultHeaders).toMatchObject({
+          'anthropic-beta': expect.stringContaining('code-execution-2025-08-25'),
+        });
+      });
+
+      it('should add Anthropic advisor with the selected advisor model and beta header', () => {
+        const result = getLLMConfig('sk-ant-advisor-key', {
+          modelOptions: {
+            model: 'claude-opus-4-6',
+            anthropic_advisor: true,
+            anthropic_advisor_model: AnthropicAdvisorModel.opus47,
+            user: 'advisor-user-404',
+          },
+        });
+
+        expect(result.tools).toEqual([
+          {
+            type: 'advisor_20260301',
+            name: 'advisor',
+            model: AnthropicAdvisorModel.opus47,
+          },
+        ]);
+        expect(result.llmConfig.clientOptions?.defaultHeaders).toMatchObject({
+          'anthropic-beta': expect.stringContaining('advisor-tool-2026-03-01'),
+        });
+      });
+
+      it('should use the default advisor model when the saved value is invalid', () => {
+        const result = getLLMConfig('sk-ant-advisor-key', {
+          modelOptions: {
+            model: 'claude-opus-4-6',
+            anthropic_advisor: true,
+            anthropic_advisor_model: 'claude-sonnet-4-6',
+          },
+        });
+
+        expect(result.tools).toEqual([
+          {
+            type: 'advisor_20260301',
+            name: 'advisor',
+            model: AnthropicAdvisorModel.opus48,
+          },
+        ]);
+      });
+
+      it('should let dropParams disable Anthropic sidebar tool controls', () => {
+        const result = getLLMConfig('sk-ant-drop-key', {
+          modelOptions: {
+            model: 'claude-opus-4-6',
+            promptCache: false,
+            fast_mode: true,
+            web_fetch: true,
+            anthropic_code_execution: true,
+            anthropic_advisor: true,
+          },
+          dropParams: ['fast_mode', 'web_fetch', 'anthropic_code_execution', 'anthropic_advisor'],
+        });
+
+        expect(result.llmConfig).not.toHaveProperty('speed');
+        expect(result.llmConfig.clientOptions?.defaultHeaders).toBeUndefined();
+        expect(result.tools).toEqual([]);
+      });
+
+      it('should route Anthropic sidebar tool defaults and addParams without leaking them into config', () => {
+        const result = getLLMConfig('sk-ant-defaults-key', {
+          modelOptions: {
+            model: 'claude-opus-4-6',
+          },
+          defaultParams: {
+            web_fetch: true,
+            anthropic_code_execution: true,
+          },
+          addParams: {
+            anthropic_advisor: true,
+            anthropic_advisor_model: AnthropicAdvisorModel.opus47,
+          },
+        });
+
+        expect(result.tools).toEqual([
+          {
+            type: 'web_fetch_20260209',
+            name: 'web_fetch',
+            citations: {
+              enabled: true,
+            },
+          },
+          {
+            type: 'code_execution_20250825',
+            name: 'code_execution',
+          },
+          {
+            type: 'advisor_20260301',
+            name: 'advisor',
+            model: AnthropicAdvisorModel.opus47,
+          },
+        ]);
+        expect(result.llmConfig).not.toHaveProperty('web_fetch');
+        expect(result.llmConfig).not.toHaveProperty('anthropic_code_execution');
+        expect(result.llmConfig).not.toHaveProperty('anthropic_advisor');
+        expect(result.llmConfig.clientOptions?.defaultHeaders).toMatchObject({
+          'anthropic-beta': expect.stringContaining('code-execution-2025-08-25'),
+        });
+        expect(result.llmConfig.clientOptions?.defaultHeaders).toMatchObject({
+          'anthropic-beta': expect.stringContaining('advisor-tool-2026-03-01'),
+        });
       });
 
       it('adds the current context management beta header when context_management is present', () => {
@@ -1507,9 +1709,10 @@ describe('getLLMConfig', () => {
           const key = Object.keys(testCase)[0] as keyof t.AnthropicModelOptions;
           const value = (testCase as unknown as t.AnthropicModelOptions)[key];
           const expected = testCase.expected;
+          const model = key === 'web_search' ? 'claude-3-5-sonnet-latest' : 'claude-3-opus';
 
           const result = getLLMConfig('test-key', {
-            modelOptions: { model: 'claude-3-opus', [key]: value },
+            modelOptions: { model, [key]: value },
           });
 
           const outputKey = key === 'maxOutputTokens' ? 'maxTokens' : key;
@@ -1559,15 +1762,16 @@ describe('getLLMConfig', () => {
           const key = Object.keys(testCase)[0] as keyof t.AnthropicModelOptions;
           const value = (testCase as unknown as t.AnthropicModelOptions)[key];
           const expected = testCase.expected;
+          const model = key === 'web_search' ? 'claude-3-5-sonnet-latest' : 'claude-3-opus';
 
           const result = getLLMConfig('test-key', {
-            modelOptions: { model: 'claude-3-opus', [key]: value },
+            modelOptions: { model, [key]: value },
           });
 
           if (key === 'stream') {
             expect(result.llmConfig.stream).toBe(expected);
           } else if (key === 'web_search' && expected) {
-            expect(result.tools).toEqual([{ type: 'web_search_20260209', name: 'web_search' }]);
+            expect(result.tools).toEqual([{ type: 'web_search_20250305', name: 'web_search' }]);
           }
         });
       });

@@ -5,7 +5,7 @@ import type { TMessageProps } from '~/common';
 import { useMessagesViewContext, useAssistantsMapContext, useAgentsMapContext } from '~/Providers';
 import { getTextKey, TEXT_KEY_DIVIDER, logger } from '~/utils';
 import useCopyToClipboard from './useCopyToClipboard';
-import { useGetAddedConvo } from '~/hooks/Chat';
+import { useGetAddedConvos } from '~/hooks/Chat';
 
 export default function useMessageHelpers(props: TMessageProps) {
   const latestText = useRef<string | number>('');
@@ -25,7 +25,7 @@ export default function useMessageHelpers(props: TMessageProps) {
   const agentsMap = useAgentsMapContext();
   const assistantMap = useAssistantsMapContext();
 
-  const getAddedConvo = useGetAddedConvo();
+  const getAddedConvos = useGetAddedConvos();
 
   const { text, content, children, messageId = null, isCreatedByUser } = message ?? {};
   const edit = messageId === currentEditId;
@@ -125,7 +125,11 @@ export default function useMessageHelpers(props: TMessageProps) {
       return;
     }
 
-    regenerate(message, { addedConvo: getAddedConvo() });
+    const addedConvos = getAddedConvos();
+    regenerate(message, {
+      addedConvo: addedConvos[0],
+      addedConvos: addedConvos.length > 0 ? addedConvos : undefined,
+    });
   };
 
   const copyToClipboard = useCopyToClipboard({ text, content });

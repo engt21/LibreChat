@@ -196,6 +196,29 @@ describe('cleanupPreset', () => {
       expect(result.tools).toEqual(['plugin1', 'plugin2']);
     });
 
+    it('should preserve Anthropic server-tool preset properties', () => {
+      const preset = {
+        ...basePreset,
+        endpoint: EModelEndpoint.anthropic,
+        model: 'claude-sonnet-4-6',
+        web_search: true,
+        web_fetch: true,
+        anthropic_code_execution: false,
+        anthropic_advisor: true,
+        anthropic_advisor_model: 'claude-opus-4-7',
+        fast_mode: true,
+      };
+
+      const result = cleanupPreset({ preset });
+
+      expect(result.web_search).toBe(true);
+      expect(result.web_fetch).toBe(true);
+      expect(result.anthropic_code_execution).toBe(false);
+      expect(result.anthropic_advisor).toBe(true);
+      expect(result.anthropic_advisor_model).toBe('claude-opus-4-7');
+      expect(result.fast_mode).toBe(true);
+    });
+
     it('should generate default title when title is missing', () => {
       const preset = {
         ...basePreset,

@@ -31,6 +31,7 @@ const {
   generateRefreshToken,
 } = require('~/models');
 const { registerSchema } = require('~/strategies/validators');
+const MIN_PASSWORD_LENGTH = parseInt(process.env.MIN_PASSWORD_LENGTH, 10) || 8;
 const { getAppConfig } = require('~/server/services/Config');
 const { applyDefaultModelPermissions } = require('~/server/services/ModelAccess');
 const { sendEmail } = require('~/server/utils');
@@ -334,6 +335,10 @@ const requestPasswordReset = async (req) => {
  * @returns
  */
 const resetPassword = async (userId, token, password) => {
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH || password.length > 128) {
+    return new Error(`Password must be between ${MIN_PASSWORD_LENGTH} and 128 characters.`);
+  }
+
   let passwordResetToken = await findToken(
     {
       userId,
@@ -519,9 +524,15 @@ const setOpenIDAuthTokens = (tokenset, req, res, userId, existingRefreshToken) =
     });
     if (userId && isEnabled(process.env.OPENID_REUSE_TOKENS)) {
       /** JWT-signed user ID cookie for image path validation when OPENID_REUSE_TOKENS is enabled */
-      const signedUserId = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET, {
-        expiresIn: expiryInMilliseconds / 1000,
-      });
+      const signedUserId = jwt.sign(
+        { id: userId, tokenType: 'openid_user' },
+        process.env.JWT_REFRESH_SECRET,
+        {
+          expiresIn: expiryInMilliseconds / 1000,
+          issuer: process.env.JWT_ISSUER || 'librechat',
+          audience: process.env.JWT_REFRESH_AUDIENCE || 'librechat-refresh',
+        },
+      );
       res.cookie('openid_user_id', signedUserId, {
         expires: expirationDate,
         httpOnly: true,

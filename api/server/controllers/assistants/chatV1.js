@@ -168,6 +168,8 @@ const chatV1 = async (req, res) => {
         ...run.usage,
         model: run.model,
         user: req.user.id,
+        userObject: req.user,
+        endpoint,
         conversationId,
       });
     } catch (error) {
@@ -635,6 +637,8 @@ const chatV1 = async (req, res) => {
         await recordUsage({
           ...completedRun.usage,
           user: req.user.id,
+          userObject: req.user,
+          endpoint,
           model: completedRun.model ?? model,
           conversationId,
         });
@@ -643,6 +647,8 @@ const chatV1 = async (req, res) => {
       await recordUsage({
         ...response.run.usage,
         user: req.user.id,
+        userObject: req.user,
+        endpoint,
         model: response.run.model ?? model,
         conversationId,
       });

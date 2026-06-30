@@ -27,6 +27,7 @@ const PresetsMenu: FC = () => {
     onChangePreset,
     clearAllPresets,
     onDeletePreset,
+    onReorderPresets,
     submitPreset,
     exportPreset,
     showDeleteDialog,
@@ -89,6 +90,7 @@ const PresetsMenu: FC = () => {
               onSelectPreset={onSelectPreset}
               onChangePreset={onChangePreset}
               onDeletePreset={onDeletePreset}
+              onReorderPresets={onReorderPresets}
               clearAllPresets={clearAllPresets}
               onFileSelected={onFileSelected}
             />

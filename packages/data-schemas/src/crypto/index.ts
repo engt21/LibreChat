@@ -14,8 +14,16 @@ export async function signPayload({
   payload,
   secret,
   expirationTime,
+  issuer,
+  audience,
+  jwtId,
 }: SignPayloadParams): Promise<string> {
-  return jwt.sign(payload, secret!, { expiresIn: expirationTime });
+  return jwt.sign(payload, secret!, {
+    expiresIn: expirationTime,
+    ...(issuer ? { issuer } : {}),
+    ...(audience ? { audience } : {}),
+    ...(jwtId ? { jwtid: jwtId } : {}),
+  });
 }
 
 export async function hashToken(str: string): Promise<string> {

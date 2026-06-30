@@ -54,6 +54,43 @@ const extractMCPServerNames = (tools) => {
   return Array.from(serverNames);
 };
 
+const anthropicEphemeralModelParameterKeys = [
+  'fast_mode',
+  'web_fetch',
+  'anthropic_code_execution',
+  'anthropic_advisor',
+  'anthropic_advisor_model',
+];
+
+const addAnthropicEphemeralModelParameters = ({ target, requestBody, ephemeralAgent }) => {
+  for (const key of anthropicEphemeralModelParameterKeys) {
+    if (requestBody?.[key] != null) {
+      target[key] = requestBody[key];
+    } else if (ephemeralAgent?.[key] != null) {
+      target[key] = ephemeralAgent[key];
+    }
+  }
+};
+
+const appendCurrentDateInstruction = ({ endpoint, instructions }) => {
+  if (endpoint !== 'anthropic') {
+    return instructions;
+  }
+
+  const currentDateInstruction =
+    'Current date and time: {{current_datetime}}. Use Anthropic web search or web fetch for current or changing information when those tools are enabled.';
+
+  if (typeof instructions === 'string' && instructions.includes('{{current_')) {
+    return instructions;
+  }
+
+  if (typeof instructions === 'string' && instructions.trim().length > 0) {
+    return `${instructions.trim()}\n\n${currentDateInstruction}`;
+  }
+
+  return currentDateInstruction;
+};
+
 /**
  * Create an agent with the provided data.
  * @param {Object} agentData - The agent data to create.
@@ -176,6 +213,11 @@ const loadEphemeralAgent = async ({ req, spec, endpoint, model_parameters: _m })
   }
   /** @type {TEphemeralAgent | null} */
   const ephemeralAgent = req.body.ephemeralAgent;
+  addAnthropicEphemeralModelParameters({
+    target: model_parameters,
+    requestBody: req.body,
+    ephemeralAgent,
+  });
   const mcpServers = new Set(ephemeralAgent?.mcp);
   const userId = req.user?.id; // note: userId cannot be undefined at runtime
   if (modelSpec?.mcpServers) {
@@ -273,7 +315,10 @@ const loadEphemeralAgent = async ({ req, spec, endpoint, model_parameters: _m })
     }
   }
 
-  const instructions = req.body.promptPrefix;
+  const instructions = appendCurrentDateInstruction({
+    endpoint,
+    instructions: req.body.promptPrefix,
+  });
 
   // Get endpoint config for modelDisplayLabel fallback
   const appConfig = req.config;

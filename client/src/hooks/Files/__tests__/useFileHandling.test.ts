@@ -1,5 +1,11 @@
 import { renderHook, act } from '@testing-library/react';
-import { Constants, EModelEndpoint, getEndpointFileConfig } from 'librechat-data-provider';
+import {
+  Constants,
+  EModelEndpoint,
+  EToolResources,
+  FileSources,
+  getEndpointFileConfig,
+} from 'librechat-data-provider';
 
 const mockNavigate = jest.fn();
 jest.mock('react-router-dom', () => ({
@@ -15,6 +21,14 @@ beforeAll(() => {
 const mockShowToast = jest.fn();
 const mockSetFilesLoading = jest.fn();
 const mockMutate = jest.fn();
+const mockAddFile = jest.fn();
+const mockReplaceFile = jest.fn();
+const mockUpdateFileById = jest.fn();
+const mockDeleteFileById = jest.fn();
+type UploadMutationOptions = {
+  onSuccess?: (data: Record<string, unknown>, variables: FormData) => void;
+};
+let mockUploadOptions: UploadMutationOptions | undefined;
 
 let mockConversation: Record<string, string | null | undefined> = {};
 
@@ -56,9 +70,12 @@ jest.mock('@tanstack/react-query', () => ({
 
 jest.mock('~/data-provider', () => ({
   useGetFileConfig: jest.fn(() => ({ data: null })),
-  useUploadFileMutation: jest.fn((_opts: Record<string, unknown>) => ({
-    mutate: mockMutate,
-  })),
+  useUploadFileMutation: jest.fn((opts: UploadMutationOptions) => {
+    mockUploadOptions = opts;
+    return {
+      mutate: mockMutate,
+    };
+  }),
 }));
 
 jest.mock('~/hooks/useLocalize', () => {
@@ -90,10 +107,10 @@ jest.mock('../useClientResize', () => ({
 jest.mock('../useUpdateFiles', () => ({
   __esModule: true,
   default: jest.fn(() => ({
-    addFile: jest.fn(),
-    replaceFile: jest.fn(),
-    updateFileById: jest.fn(),
-    deleteFileById: jest.fn(),
+    addFile: mockAddFile,
+    replaceFile: mockReplaceFile,
+    updateFileById: mockUpdateFileById,
+    deleteFileById: mockDeleteFileById,
   })),
 }));
 
@@ -110,6 +127,8 @@ describe('useFileHandling', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockConversation = {};
+    mockUploadOptions = undefined;
+    jest.useRealTimers();
   });
 
   const loadHook = async () => (await import('../useFileHandling')).default;
@@ -325,6 +344,120 @@ describe('useFileHandling', () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       );
       expect(formData.get('message_file')).toBe('true');
+    });
+
+    it('routes explicit wav uploads to Code Interpreter as raw message attachments', async () => {
+      mockConversation = {
+        conversationId: Constants.NEW_CONVO as string,
+        endpoint: EModelEndpoint.openAI,
+        endpointType: EModelEndpoint.openAI,
+        model: 'gpt-4o-mini',
+      };
+
+      const useFileHandling = await loadHook();
+      const { result } = renderHook(() => useFileHandling());
+
+      const audioFile = new File(['audio-data'], 'meeting.wav', { type: 'audio/wav' });
+
+      await act(async () => {
+        await result.current.handleFiles([audioFile], EToolResources.execute_code);
+      });
+
+      expect(mockValidateFiles).toHaveBeenCalledTimes(1);
+      expect(mockValidateFiles.mock.calls[0][0].toolResource).toBe(EToolResources.execute_code);
+      expect(mockMutate).toHaveBeenCalledTimes(1);
+      const formData: FormData = mockMutate.mock.calls[0][0];
+      expect(formData.get('message_file')).toBe('true');
+      expect(formData.get('tool_resource')).toBe(EToolResources.execute_code);
+      expect(formData.get('native_tool')).toBe(EToolResources.execute_code);
+    });
+
+    it('routes mixed wav and m4a uploads to Code Interpreter as raw message attachments', async () => {
+      mockConversation = {
+        conversationId: Constants.NEW_CONVO as string,
+        endpoint: EModelEndpoint.openAI,
+        endpointType: EModelEndpoint.openAI,
+        model: 'gpt-4o-mini',
+      };
+
+      const useFileHandling = await loadHook();
+      const { result } = renderHook(() => useFileHandling());
+
+      const wavFile = new File(['wav-data'], 'meeting.wav', { type: 'audio/wav' });
+      const m4aFile = new File(['m4a-data'], 'meeting.m4a', { type: 'audio/mp4' });
+
+      await act(async () => {
+        await result.current.handleFiles([wavFile, m4aFile], EToolResources.execute_code);
+      });
+
+      expect(mockValidateFiles).toHaveBeenCalledTimes(1);
+      expect(mockValidateFiles.mock.calls[0][0].toolResource).toBe(EToolResources.execute_code);
+      expect(mockMutate).toHaveBeenCalledTimes(2);
+
+      const formData1: FormData = mockMutate.mock.calls[0][0];
+      const formData2: FormData = mockMutate.mock.calls[1][0];
+      const ids = [formData1.get('file_id'), formData2.get('file_id')];
+      expect(ids[0]).toBeTruthy();
+      expect(ids[1]).toBeTruthy();
+      expect(ids[0]).not.toBe(ids[1]);
+
+      for (const formData of [formData1, formData2]) {
+        expect(formData.get('message_file')).toBe('true');
+        expect(formData.get('tool_resource')).toBe(EToolResources.execute_code);
+        expect(formData.get('native_tool')).toBe(EToolResources.execute_code);
+      }
+    });
+
+    it('keeps Code Interpreter routing metadata in compose state after upload completes', async () => {
+      jest.useFakeTimers();
+      mockConversation = {
+        conversationId: Constants.NEW_CONVO as string,
+        endpoint: EModelEndpoint.openAI,
+        endpointType: EModelEndpoint.openAI,
+        model: 'gpt-4o-mini',
+      };
+
+      const useFileHandling = await loadHook();
+      const { result } = renderHook(() => useFileHandling());
+
+      const audioFile = new File(['audio-data'], 'meeting.wav', { type: 'audio/wav' });
+
+      await act(async () => {
+        await result.current.handleFiles([audioFile], EToolResources.execute_code);
+      });
+
+      const formData: FormData = mockMutate.mock.calls[0][0];
+      const tempFileId = formData.get('file_id') as string;
+      const onSuccess = mockUploadOptions?.onSuccess;
+
+      expect(onSuccess).toBeDefined();
+      act(() => {
+        onSuccess(
+          {
+            temp_file_id: tempFileId,
+            file_id: 'server-file-id',
+            filepath: '/uploads/meeting.wav',
+            type: 'audio/wav',
+            filename: 'meeting.wav',
+            source: FileSources.local,
+            embedded: false,
+            metadata: { nativeTool: EToolResources.execute_code },
+          },
+          formData,
+        );
+        jest.advanceTimersByTime(300);
+      });
+
+      expect(mockUpdateFileById).toHaveBeenLastCalledWith(
+        tempFileId,
+        expect.objectContaining({
+          file_id: 'server-file-id',
+          tool_resource: EToolResources.execute_code,
+          metadata: { nativeTool: EToolResources.execute_code },
+        }),
+        false,
+      );
+      jest.useRealTimers();
     });
 
     it('includes file_id in upload FormData for video files from /c/new', async () => {
