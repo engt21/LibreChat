@@ -251,6 +251,7 @@ describe('AdminConsole – permission gating', () => {
     expect(screen.getByText('com_ui_usage')).toBeInTheDocument();
     expect(screen.getByText('com_admin_workspace_settings')).toBeInTheDocument();
     expect(screen.getByText('com_admin_observability')).toBeInTheDocument();
+    expect(screen.getByText('Loki Explorer')).toBeInTheDocument();
   });
 
   it('does not show Manage access section for non-superadmin', () => {

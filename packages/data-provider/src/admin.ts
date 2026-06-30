@@ -23,6 +23,7 @@ export enum DefaultAdminRoleIds {
 export const observabilityLinksSchema = z.object({
   langfuseUrl: z.string().optional(),
   grafanaUrl: z.string().optional(),
+  lokiUrl: z.string().optional(),
   metricsUrl: z.string().optional(),
   prometheusUrl: z.string().optional(),
 });

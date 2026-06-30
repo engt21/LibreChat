@@ -1831,6 +1831,7 @@ export default function AdminConsole() {
               {[
                 { label: 'Langfuse', url: adminObservabilityQuery.data?.links.langfuseUrl },
                 { label: 'Grafana', url: adminObservabilityQuery.data?.links.grafanaUrl },
+                { label: 'Loki Explorer', url: adminObservabilityQuery.data?.links.lokiUrl },
                 { label: 'Metrics', url: adminObservabilityQuery.data?.links.metricsUrl },
                 { label: 'Prometheus', url: adminObservabilityQuery.data?.links.prometheusUrl },
               ].map((link) => (

@@ -320,6 +320,8 @@ describe('AdminController – observability links', () => {
         links: {
           langfuseUrl: 'http://192.168.50.104:3000/',
           grafanaUrl: 'http://192.168.50.104:3001/',
+          lokiUrl:
+            'http://192.168.50.104:3001/d/loki-all-logs/loki-log-explorer-e28094-all-logs',
           metricsUrl: 'http://192.168.50.104:9091/',
           prometheusUrl: 'http://192.168.50.104:9092/',
         },

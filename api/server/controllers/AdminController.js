@@ -41,6 +41,7 @@ const USER_FIELDS =
 const LOCAL_OBSERVABILITY_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']);
 const OBSERVABILITY_LINK_KEYS = ['langfuseUrl', 'grafanaUrl', 'metricsUrl', 'prometheusUrl'];
 const LOCAL_OBSERVABILITY_PORTS = new Set(['3000', '3001', '9090', '9091', '9092']);
+const LOKI_EXPLORER_PATH = '/d/loki-all-logs/loki-log-explorer-e28094-all-logs';
 
 function getRequestOrigin(req) {
   const forwardedProto = req.headers['x-forwarded-proto'];
@@ -86,10 +87,21 @@ function resolveObservabilityUrl(rawUrl, reqOrigin) {
 
 function resolveObservabilityLinks(observability = {}, req) {
   const reqOrigin = getRequestOrigin(req);
+  const grafanaUrl = resolveObservabilityUrl(observability.grafanaUrl, reqOrigin);
+  let lokiUrl = '';
+
+  if (grafanaUrl) {
+    try {
+      lokiUrl = new URL(LOKI_EXPLORER_PATH, grafanaUrl).toString();
+    } catch {
+      lokiUrl = '';
+    }
+  }
 
   return {
     langfuseUrl: resolveObservabilityUrl(observability.langfuseUrl, reqOrigin),
-    grafanaUrl: resolveObservabilityUrl(observability.grafanaUrl, reqOrigin),
+    grafanaUrl,
+    lokiUrl,
     metricsUrl: resolveObservabilityUrl(observability.metricsUrl, reqOrigin),
     prometheusUrl: resolveObservabilityUrl(observability.prometheusUrl, reqOrigin),
   };
