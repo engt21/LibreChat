@@ -7,6 +7,7 @@ import type {
   TMessage,
 } from 'librechat-data-provider';
 import GraftBridgeCard from '../GraftBridgeCard';
+import MessageContent from '../../Messages/Content/MessageContent';
 import MessageParts from '../../Messages/MessageParts';
 import MessageRender from '../../Messages/ui/MessageRender';
 
@@ -41,8 +42,23 @@ jest.mock('@librechat/client', () => ({
     <button {...props}>{children}</button>
   ),
   DelayedRender: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  OGDialog: ({ open, children }: { open?: boolean; children: React.ReactNode }) =>
-    open ? <div data-testid="dialog-root">{children}</div> : null,
+  OGDialog: ({
+    open,
+    onOpenChange,
+    children,
+  }: {
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    children: React.ReactNode;
+  }) =>
+    open ? (
+      <div data-testid="dialog-root">
+        <button type="button" data-testid="dialog-dismiss" onClick={() => onOpenChange?.(false)}>
+          dismiss
+        </button>
+        {children}
+      </div>
+    ) : null,
   OGDialogClose: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   OGDialogContent: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
     <div {...props}>{children}</div>
@@ -98,6 +114,8 @@ jest.mock('~/hooks', () => ({
       com_ui_generation_graft_undo_confirm_title: 'Undo graft and delete later continuations?',
       com_ui_generation_graft_undo_confirm_description: `This deletes ${String(options?.copiedCount ?? 0)} copied messages and ${String(options?.continuationCount ?? 0)} later continuation messages from this branch only. The original source generation is not changed.`,
       com_ui_generation_graft_copied_messages: `Copied by graft: ${String(options?.count ?? 0)}`,
+      com_ui_generation_graft_details_error: 'Unable to load graft details.',
+      com_ui_generation_tree_mode: 'Mode',
       com_ui_generation_tree_source: 'Source',
       com_ui_generation_tree_destination: 'Destination',
       com_ui_generation_tree_mode_generation: 'Generation only',
@@ -249,6 +267,43 @@ const destructiveUndoDetails: TGenerationGraftDetailsResponse = {
   canUndoWithoutContinuations: false,
 };
 
+const createDeferred = <T,>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+};
+
+const renderOrdinaryMessageContent = (overrides: Partial<TMessage> = {}) =>
+  render(
+    <MessageContent
+      text={overrides.text ?? 'Ordinary message'}
+      message={
+        {
+          messageId: 'ordinary-1',
+          conversationId: 'conversation-1',
+          text: 'Ordinary message',
+          isCreatedByUser: true,
+          metadata: {},
+          ...overrides,
+        } as TMessage
+      }
+      edit={false}
+      error={false}
+      unfinished={false}
+      isSubmitting={false}
+      isLast={false}
+      isCreatedByUser={true}
+      siblingIdx={0}
+      setSiblingIdx={jest.fn()}
+      searchResults={{}}
+    />,
+  );
+
 describe('GraftBridgeCard', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -338,6 +393,27 @@ describe('GraftBridgeCard', () => {
     expect(screen.queryByTestId('dialog-root')).not.toBeInTheDocument();
   });
 
+  it('uses a synchronous single-flight lock for rapid safe undo clicks before state propagation', async () => {
+    const refetchDeferred = createDeferred<{ data: TGenerationGraftDetailsResponse }>();
+    const undoDeferred = createDeferred<{ deletedCount: number }>();
+    mockRefetchDetails.mockReturnValue(refetchDeferred.promise);
+    mockUndoMutateAsync.mockReturnValue(undoDeferred.promise);
+
+    render(<GraftBridgeCard message={createBridgeMessage()} />);
+
+    const undoButton = screen.getByRole('button', { name: 'Undo graft' });
+    fireEvent.click(undoButton);
+    fireEvent.click(undoButton);
+
+    expect(mockRefetchDetails).toHaveBeenCalledTimes(1);
+
+    refetchDeferred.resolve({ data: safeUndoDetails });
+    await waitFor(() => expect(mockUndoMutateAsync).toHaveBeenCalledTimes(1));
+
+    undoDeferred.resolve({ deletedCount: 4 });
+    await waitFor(() => expect(screen.queryByTestId('dialog-root')).not.toBeInTheDocument());
+  });
+
   it('requires an explicit destructive confirmation before undoing later continuations', async () => {
     mockRefetchDetails.mockResolvedValue({ data: destructiveUndoDetails });
     mockUndoMutateAsync.mockResolvedValue({ deletedCount: 6 });
@@ -362,6 +438,28 @@ describe('GraftBridgeCard', () => {
     );
   });
 
+  it('uses a synchronous single-flight lock for rapid destructive confirm clicks', async () => {
+    const destructiveDelete = createDeferred<{ deletedCount: number }>();
+    mockRefetchDetails.mockResolvedValue({ data: destructiveUndoDetails });
+    mockUndoMutateAsync.mockReturnValue(destructiveDelete.promise);
+
+    render(<GraftBridgeCard message={createBridgeMessage()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo graft' }));
+    expect(
+      await screen.findByText('Undo graft and delete later continuations?'),
+    ).toBeInTheDocument();
+
+    const destructiveButton = screen.getAllByRole('button', { name: 'Undo graft' })[1];
+    fireEvent.click(destructiveButton);
+    fireEvent.click(destructiveButton);
+
+    expect(mockUndoMutateAsync).toHaveBeenCalledTimes(1);
+
+    destructiveDelete.resolve({ deletedCount: 6 });
+    await waitFor(() => expect(screen.queryByTestId('dialog-root')).not.toBeInTheDocument());
+  });
+
   it('cancels a destructive undo without mutating the graft', async () => {
     mockRefetchDetails.mockResolvedValue({ data: destructiveUndoDetails });
 
@@ -381,10 +479,56 @@ describe('GraftBridgeCard', () => {
     );
     expect(mockUndoMutateAsync).not.toHaveBeenCalled();
   });
+
+  it('clears pending destructive details on dialog dismissal and refetches fresh scope on reopen', async () => {
+    mockRefetchDetails
+      .mockResolvedValueOnce({ data: destructiveUndoDetails })
+      .mockResolvedValueOnce({
+        data: {
+          ...destructiveUndoDetails,
+          copiedMessageIds: ['copy-1'],
+          continuationMessageIds: ['continuation-9'],
+        },
+      });
+
+    render(<GraftBridgeCard message={createBridgeMessage()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo graft' }));
+    expect(
+      await screen.findByText('Undo graft and delete later continuations?'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This deletes 4 copied messages and 2 later continuation messages from this branch only. The original source generation is not changed.',
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('dialog-dismiss'));
+    await waitFor(() => expect(screen.queryByTestId('dialog-root')).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo graft' }));
+    expect(
+      await screen.findByText(
+        'This deletes 1 copied messages and 1 later continuation messages from this branch only. The original source generation is not changed.',
+      ),
+    ).toBeInTheDocument();
+    expect(mockRefetchDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the localized fallback details error when the fetch does not return scope data', async () => {
+    mockRefetchDetails.mockResolvedValue({ data: null, error: {} });
+
+    render(<GraftBridgeCard message={createBridgeMessage()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo graft' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load graft details.');
+    expect(screen.queryByTestId('dialog-root')).not.toBeInTheDocument();
+  });
 });
 
 describe('graft bridge transcript integration', () => {
-  it('renders the provenance card in the text message path and suppresses normal user chrome while preserving controls and the anchor', () => {
+  it('renders the provenance card in the text message path and suppresses normal user chrome and hover actions while preserving controls and the anchor', () => {
     const message = createBridgeMessage({
       depth: 0,
     });
@@ -410,11 +554,11 @@ describe('graft bridge transcript integration', () => {
     expect(screen.queryByText('User heading')).not.toBeInTheDocument();
     expect(screen.queryByTestId('message-icon')).not.toBeInTheDocument();
     expect(screen.getByTestId('sibling-switch')).toBeInTheDocument();
-    expect(screen.getByTestId('hover-buttons')).toBeInTheDocument();
+    expect(screen.queryByTestId('hover-buttons')).not.toBeInTheDocument();
     expect(container.querySelector('#bridge-1')).toBeInTheDocument();
   });
 
-  it('renders the provenance card in the structured message path and preserves sibling controls without rendering normal structured content', () => {
+  it('renders the provenance card in the structured message path and preserves sibling controls without rendering normal structured content or hover actions', () => {
     const message = createBridgeMessage({
       content: [
         {
@@ -441,7 +585,110 @@ describe('graft bridge transcript integration', () => {
     expect(screen.queryByTestId('message-icon')).not.toBeInTheDocument();
     expect(screen.queryByTestId('content-parts')).not.toBeInTheDocument();
     expect(screen.getByTestId('sibling-switch')).toBeInTheDocument();
-    expect(screen.getByTestId('hover-buttons')).toBeInTheDocument();
+    expect(screen.queryByTestId('hover-buttons')).not.toBeInTheDocument();
     expect(container.querySelector('#bridge-1')).toBeInTheDocument();
+  });
+
+  it('keeps a bridge immutable when stale text-path edit state is active', () => {
+    mockUseMessageActions.mockImplementation(() => ({
+      ask: null,
+      edit: true,
+      index: 0,
+      agent: null,
+      assistant: null,
+      enterEdit: jest.fn(),
+      conversation: { conversationId: 'conversation-1', endpoint: 'openAI', model: 'gpt' },
+      messageLabel: 'User heading',
+      handleFeedback: jest.fn(),
+      handleContinue: jest.fn(),
+      latestMessageId: 'bridge-1',
+      copyToClipboard: jest.fn(),
+      regenerateMessage: jest.fn(),
+      latestMessageDepth: 0,
+    }));
+
+    render(
+      <MessageRender
+        message={createBridgeMessage({ depth: 0 })}
+        currentEditId={'bridge-1'}
+        setCurrentEditId={jest.fn()}
+        siblingIdx={0}
+        setSiblingIdx={jest.fn()}
+        siblingCount={2}
+        isSubmitting={false}
+      />,
+    );
+
+    expect(screen.getByRole('region', { name: 'Grafted generation' })).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'An alternate completed assistant generation was grafted into this branch. Treat the following assistant message and any copied continuation as prior conversation context.',
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('hover-buttons')).not.toBeInTheDocument();
+  });
+
+  it('keeps a bridge immutable when stale structured edit state is active', () => {
+    mockUseMessageHelpers.mockImplementation(() => ({
+      edit: true,
+      index: 0,
+      agent: null,
+      isLast: false,
+      enterEdit: jest.fn(),
+      assistant: null,
+      handleScroll: jest.fn(),
+      conversation: { conversationId: 'conversation-1', endpoint: 'openAI', model: 'gpt' },
+      isSubmitting: false,
+      latestMessageId: 'bridge-1',
+      handleContinue: jest.fn(),
+      copyToClipboard: jest.fn(),
+      regenerateMessage: jest.fn(),
+    }));
+
+    render(
+      <MessageParts
+        message={createBridgeMessage({
+          content: [{ type: ContentTypes.TEXT, text: 'Synthetic bridge text' }],
+          depth: 0,
+        })}
+        currentEditId={'bridge-1'}
+        setCurrentEditId={jest.fn()}
+        siblingIdx={0}
+        setSiblingIdx={jest.fn()}
+        siblingCount={2}
+      />,
+    );
+
+    expect(screen.getByRole('region', { name: 'Grafted generation' })).toBeInTheDocument();
+    expect(screen.queryByText('Synthetic bridge text')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('hover-buttons')).not.toBeInTheDocument();
+  });
+
+  it('renders the provenance card in MessageContent before stale edit or error text can expose the synthetic instruction', () => {
+    render(
+      <MessageContent
+        text="Synthetic bridge text"
+        message={createBridgeMessage()}
+        edit={true}
+        error={true}
+        unfinished={false}
+        isSubmitting={false}
+        isLast={false}
+        isCreatedByUser={true}
+        siblingIdx={0}
+        setSiblingIdx={jest.fn()}
+        searchResults={{}}
+      />,
+    );
+
+    expect(screen.getByRole('region', { name: 'Grafted generation' })).toBeInTheDocument();
+    expect(screen.queryByText('Synthetic bridge text')).not.toBeInTheDocument();
+  });
+
+  it('leaves ordinary message rendering unchanged', () => {
+    renderOrdinaryMessageContent();
+
+    expect(screen.getByText('Ordinary message')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Grafted generation' })).not.toBeInTheDocument();
   });
 });

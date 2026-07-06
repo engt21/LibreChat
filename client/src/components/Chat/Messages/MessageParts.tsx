@@ -15,7 +15,7 @@ import SubRow from './SubRow';
 import { cn, getMessageAriaLabel } from '~/utils';
 import store from '~/store';
 import GraftBridgeCard, {
-  getGenerationGraftMetadata,
+  isGenerationGraftBridgeMessage,
 } from '~/components/Chat/Tree/GraftBridgeCard';
 
 export default function Message(props: TMessageProps) {
@@ -46,7 +46,7 @@ export default function Message(props: TMessageProps) {
   const fontSize = useAtomValue(fontSizeAtom);
   const maximizeChatSpace = useRecoilValue(store.maximizeChatSpace);
   const { children, messageId = null, isCreatedByUser } = message ?? {};
-  const isGenerationGraftBridge = getGenerationGraftMetadata(message) != null;
+  const isGenerationGraftBridge = isGenerationGraftBridgeMessage(message);
 
   const name = useMemo(() => {
     let result = '';
@@ -180,19 +180,21 @@ export default function Message(props: TMessageProps) {
                       siblingCount={siblingCount}
                       setSiblingIdx={setSiblingIdx}
                     />
-                    <HoverButtons
-                      index={index}
-                      isEditing={edit}
-                      message={message}
-                      enterEdit={enterEdit}
-                      isSubmitting={isSubmitting}
-                      conversation={conversation ?? null}
-                      regenerate={() => regenerateMessage()}
-                      copyToClipboard={copyToClipboard}
-                      handleContinue={handleContinue}
-                      latestMessageId={latestMessageId}
-                      isLast={isLast}
-                    />
+                    {!isGenerationGraftBridge ? (
+                      <HoverButtons
+                        index={index}
+                        isEditing={edit}
+                        message={message}
+                        enterEdit={enterEdit}
+                        isSubmitting={isSubmitting}
+                        conversation={conversation ?? null}
+                        regenerate={() => regenerateMessage()}
+                        copyToClipboard={copyToClipboard}
+                        handleContinue={handleContinue}
+                        latestMessageId={latestMessageId}
+                        isLast={isLast}
+                      />
+                    ) : null}
                   </SubRow>
                 )}
               </div>

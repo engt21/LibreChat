@@ -1,4 +1,4 @@
-import { useMemo, useState, type ButtonHTMLAttributes } from 'react';
+import { useCallback, useMemo, useRef, useState, type ButtonHTMLAttributes } from 'react';
 import type {
   TGenerationGraftDetailsResponse,
   TGenerationGraftMetadata,
@@ -36,6 +36,12 @@ const generationGraftModeKeys: Record<TGenerationGraftMode, string> = {
   subtree: 'com_ui_generation_tree_mode_subtree',
 };
 
+const undoStateLabelKeys = {
+  idle: 'com_ui_generation_graft_undo',
+  fetching: 'com_ui_generation_graft_checking_undo',
+  deleting: 'com_ui_generation_graft_undoing',
+} as const;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
@@ -66,7 +72,11 @@ const getIdSuffix = (value: string | undefined, length = 8) => {
   return value.length > length ? value.slice(-length) : value;
 };
 
-const getErrorMessage = (error: unknown) => {
+const getActionErrorMessage = (
+  localize: ReturnType<typeof useLocalize>,
+  error: unknown,
+  fallbackKey: string,
+) => {
   if (isRecord(error)) {
     if (typeof error.message === 'string' && error.message.length > 0) {
       return error.message;
@@ -86,7 +96,7 @@ const getErrorMessage = (error: unknown) => {
     }
   }
 
-  return 'Unable to load graft details.';
+  return localize(fallbackKey);
 };
 
 const ActionButton = ({
@@ -108,18 +118,86 @@ const ActionButton = ({
   </button>
 );
 
-export default function GraftBridgeCard({ message }: { message: TMessage }) {
+const MetadataTile = ({ label, value }: { label: string; value: string }) => (
+  <div className="rounded-xl border border-violet-500/20 bg-surface-primary px-3 py-2">
+    <div className="text-xs uppercase tracking-wide text-text-secondary">{label}</div>
+    <div className="mt-1 break-words font-medium text-text-primary">{value}</div>
+  </div>
+);
+
+const DestructiveUndoDialog = ({
+  messageId,
+  open,
+  undoPending,
+  description,
+  onOpenChange,
+  onConfirm,
+}: {
+  messageId: string;
+  open: boolean;
+  undoPending: boolean;
+  description: string;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) => {
+  const localize = useLocalize();
+
+  return (
+    <OGDialog open={open} onOpenChange={onOpenChange}>
+      <OGDialogContent
+        className="w-11/12 max-w-md"
+        aria-describedby={
+          description.length > 0 ? `${messageId}-graft-dialog-description` : undefined
+        }
+      >
+        <OGDialogHeader>
+          <OGDialogTitle>{localize('com_ui_generation_graft_undo_confirm_title')}</OGDialogTitle>
+        </OGDialogHeader>
+        {description.length > 0 ? (
+          <OGDialogDescription id={`${messageId}-graft-dialog-description`}>
+            {description}
+          </OGDialogDescription>
+        ) : null}
+        <div className="mt-4 flex justify-end gap-3">
+          <Button variant="outline" disabled={undoPending} onClick={() => onOpenChange(false)}>
+            {localize('com_ui_cancel')}
+          </Button>
+          <Button
+            variant="destructive"
+            aria-busy={undoPending}
+            disabled={undoPending}
+            onClick={onConfirm}
+          >
+            {undoPending ? (
+              <span className="inline-flex items-center gap-2">
+                <Spinner className="size-4" />
+                <span>{localize('com_ui_generation_graft_undo')}</span>
+              </span>
+            ) : (
+              localize('com_ui_generation_graft_undo')
+            )}
+          </Button>
+        </div>
+      </OGDialogContent>
+    </OGDialog>
+  );
+};
+
+function GraftBridgeCardInner({
+  message,
+  generationGraft,
+}: {
+  message: TMessage;
+  generationGraft: TGenerationGraftMetadata;
+}) {
   const localize = useLocalize();
   const { openTree } = useGenerationTree();
-  const generationGraft = getGenerationGraftMetadata(message);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingUndoDetails, setPendingUndoDetails] =
     useState<TGenerationGraftDetailsResponse | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-
-  if (generationGraft == null) {
-    return null;
-  }
+  const detailsFlightRef = useRef<Promise<TGenerationGraftDetailsResponse | null> | null>(null);
+  const deleteFlightRef = useRef<Promise<void> | null>(null);
 
   const conversationId = message.conversationId ?? '';
   const messageId = message.messageId ?? '';
@@ -141,11 +219,13 @@ export default function GraftBridgeCard({ message }: { message: TMessage }) {
     generationGraftStateKeys[generationGraft.destinationState],
   );
   const modeLabel = localize(generationGraftModeKeys[generationGraft.mode]);
-  const undoLabel = isFetching
-    ? localize('com_ui_generation_graft_checking_undo')
-    : undoPending
-      ? localize('com_ui_generation_graft_undoing')
-      : localize('com_ui_generation_graft_undo');
+  let undoState: keyof typeof undoStateLabelKeys = 'idle';
+  if (isFetching) {
+    undoState = 'fetching';
+  } else if (undoPending) {
+    undoState = 'deleting';
+  }
+  const undoLabel = localize(undoStateLabelKeys[undoState]);
 
   const dialogDescription = useMemo(() => {
     if (pendingUndoDetails == null) {
@@ -158,48 +238,102 @@ export default function GraftBridgeCard({ message }: { message: TMessage }) {
     });
   }, [localize, pendingUndoDetails]);
 
-  const performUndo = async (payload: TGenerationGraftUndoRequest) => {
-    try {
-      setActionError(null);
-      await undoGenerationGraft.mutateAsync(payload);
-      setConfirmOpen(false);
-      setPendingUndoDetails(null);
-    } catch (error) {
-      setActionError(getErrorMessage(error));
-    }
-  };
+  const closeConfirmDialog = useCallback(() => {
+    setConfirmOpen(false);
+    setPendingUndoDetails(null);
+  }, []);
 
-  const handleUndo = async () => {
-    if (!conversationId || !generationGraft.graftId || actionPending) {
+  const performUndoLocked = useCallback(
+    async (payload: TGenerationGraftUndoRequest) => {
+      if (deleteFlightRef.current != null) {
+        return deleteFlightRef.current;
+      }
+
+      const deletePromise = (async () => {
+        try {
+          setActionError(null);
+          await undoGenerationGraft.mutateAsync(payload);
+          closeConfirmDialog();
+        } catch (error) {
+          setActionError(
+            getActionErrorMessage(localize, error, 'com_ui_generation_graft_details_error'),
+          );
+        }
+      })().finally(() => {
+        deleteFlightRef.current = null;
+      });
+
+      deleteFlightRef.current = deletePromise;
+      return deletePromise;
+    },
+    [closeConfirmDialog, localize, undoGenerationGraft],
+  );
+
+  const fetchExactDetailsLocked = useCallback(async () => {
+    if (detailsFlightRef.current != null) {
+      return detailsFlightRef.current;
+    }
+
+    const detailsPromise = (async () => {
+      const result = await refetch();
+      const exactDetails = result.data ?? null;
+
+      if (exactDetails == null) {
+        setActionError(
+          getActionErrorMessage(localize, result.error, 'com_ui_generation_graft_details_error'),
+        );
+      }
+
+      return exactDetails;
+    })().finally(() => {
+      detailsFlightRef.current = null;
+    });
+
+    detailsFlightRef.current = detailsPromise;
+    return detailsPromise;
+  }, [localize, refetch]);
+
+  const handleUndo = useCallback(async () => {
+    if (
+      !conversationId ||
+      !generationGraft.graftId ||
+      detailsFlightRef.current != null ||
+      deleteFlightRef.current != null
+    ) {
       return;
     }
 
     try {
       setActionError(null);
-      const result = await refetch();
-      const exactDetails = result.data ?? null;
+      const exactDetails = await fetchExactDetailsLocked();
 
       if (exactDetails == null) {
-        setActionError(getErrorMessage(result.error));
         return;
       }
 
       if (exactDetails.canUndoWithoutContinuations) {
-        await performUndo({});
+        await performUndoLocked({});
         return;
       }
 
       setPendingUndoDetails(exactDetails);
       setConfirmOpen(true);
     } catch (error) {
-      setActionError(getErrorMessage(error));
+      setActionError(
+        getActionErrorMessage(localize, error, 'com_ui_generation_graft_details_error'),
+      );
     }
-  };
+  }, [
+    conversationId,
+    fetchExactDetailsLocked,
+    generationGraft.graftId,
+    localize,
+    performUndoLocked,
+  ]);
 
   return (
     <>
       <section
-        role="region"
         aria-labelledby={regionTitleId}
         aria-describedby={regionSummaryId}
         className="text-message flex min-h-[20px] flex-col gap-3 overflow-visible"
@@ -224,34 +358,21 @@ export default function GraftBridgeCard({ message }: { message: TMessage }) {
           </div>
 
           <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-violet-500/20 bg-surface-primary px-3 py-2">
-              <div className="text-xs uppercase tracking-wide text-text-secondary">
-                {localize('com_ui_generation_tree_source')}
-              </div>
-              <div className="mt-1 break-words font-medium text-text-primary">
-                {localize('com_ui_generation_graft_source_id', {
-                  sourceId: sourceIdSuffix,
-                })}
-              </div>
-            </div>
-            <div className="rounded-xl border border-violet-500/20 bg-surface-primary px-3 py-2">
-              <div className="text-xs uppercase tracking-wide text-text-secondary">
-                {localize('com_ui_generation_tree_source')}
-              </div>
-              <div className="mt-1 font-medium text-text-primary">{sourceStateLabel}</div>
-            </div>
-            <div className="rounded-xl border border-violet-500/20 bg-surface-primary px-3 py-2">
-              <div className="text-xs uppercase tracking-wide text-text-secondary">
-                {localize('com_ui_generation_tree_destination')}
-              </div>
-              <div className="mt-1 font-medium text-text-primary">{destinationStateLabel}</div>
-            </div>
-            <div className="rounded-xl border border-violet-500/20 bg-surface-primary px-3 py-2">
-              <div className="text-xs uppercase tracking-wide text-text-secondary">
-                {localize('com_ui_generation_tree_mode')}
-              </div>
-              <div className="mt-1 font-medium text-text-primary">{modeLabel}</div>
-            </div>
+            <MetadataTile
+              label={localize('com_ui_generation_tree_source')}
+              value={localize('com_ui_generation_graft_source_id', {
+                sourceId: sourceIdSuffix,
+              })}
+            />
+            <MetadataTile
+              label={localize('com_ui_generation_tree_source')}
+              value={sourceStateLabel}
+            />
+            <MetadataTile
+              label={localize('com_ui_generation_tree_destination')}
+              value={destinationStateLabel}
+            />
+            <MetadataTile label={localize('com_ui_generation_tree_mode')} value={modeLabel} />
           </div>
 
           {actionError ? (
@@ -290,50 +411,30 @@ export default function GraftBridgeCard({ message }: { message: TMessage }) {
         </div>
       </section>
 
-      <OGDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <OGDialogContent
-          className="w-11/12 max-w-md"
-          aria-describedby={
-            pendingUndoDetails ? `${messageId}-graft-dialog-description` : undefined
+      <DestructiveUndoDialog
+        messageId={messageId}
+        open={confirmOpen}
+        undoPending={undoPending}
+        description={dialogDescription}
+        onOpenChange={(open) => {
+          if (open) {
+            return;
           }
-        >
-          <OGDialogHeader>
-            <OGDialogTitle>{localize('com_ui_generation_graft_undo_confirm_title')}</OGDialogTitle>
-          </OGDialogHeader>
-          {pendingUndoDetails ? (
-            <OGDialogDescription id={`${messageId}-graft-dialog-description`}>
-              {dialogDescription}
-            </OGDialogDescription>
-          ) : null}
-          <div className="mt-4 flex justify-end gap-3">
-            <Button
-              variant="outline"
-              disabled={undoPending}
-              onClick={() => {
-                setConfirmOpen(false);
-                setPendingUndoDetails(null);
-              }}
-            >
-              {localize('com_ui_cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              aria-busy={undoPending}
-              disabled={pendingUndoDetails == null || undoPending}
-              onClick={() => void performUndo({ includeContinuations: true })}
-            >
-              {undoPending ? (
-                <span className="inline-flex items-center gap-2">
-                  <Spinner className="size-4" />
-                  <span>{localize('com_ui_generation_graft_undo')}</span>
-                </span>
-              ) : (
-                localize('com_ui_generation_graft_undo')
-              )}
-            </Button>
-          </div>
-        </OGDialogContent>
-      </OGDialog>
+
+          closeConfirmDialog();
+        }}
+        onConfirm={() => void performUndoLocked({ includeContinuations: true })}
+      />
     </>
   );
+}
+
+export default function GraftBridgeCard({ message }: { message: TMessage }) {
+  const generationGraft = getGenerationGraftMetadata(message);
+
+  if (generationGraft == null) {
+    return null;
+  }
+
+  return <GraftBridgeCardInner message={message} generationGraft={generationGraft} />;
 }

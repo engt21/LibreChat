@@ -177,16 +177,16 @@ const MessageContent = ({
     [isSubmitting, unfinished, message],
   );
 
+  if (generationGraft != null) {
+    return <GraftBridgeCard message={message} />;
+  }
+
   if (error) {
     return <ErrorMessage message={message} text={text} />;
   }
 
   if (edit) {
     return <EditMessage text={text} isSubmitting={isSubmitting} {...props} />;
-  }
-
-  if (generationGraft != null) {
-    return <GraftBridgeCard message={message} />;
   }
 
   return (

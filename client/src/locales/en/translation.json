@@ -1068,6 +1068,7 @@
   "com_ui_generation_graft_undoing": "Undoing graft…",
   "com_ui_generation_graft_undo_confirm_title": "Undo graft and delete later continuations?",
   "com_ui_generation_graft_undo_confirm_description": "This deletes {{copiedCount}} copied messages and {{continuationCount}} later continuation messages from this branch only. The original source generation is not changed.",
+  "com_ui_generation_graft_details_error": "Unable to load graft details.",
   "com_ui_create": "Create",
   "com_ui_create_api_key": "Create API Key",
   "com_ui_create_assistant": "Create Assistant",

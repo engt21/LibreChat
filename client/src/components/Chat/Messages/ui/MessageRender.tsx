@@ -15,7 +15,7 @@ import { cn, getMessageAriaLabel } from '~/utils';
 import { fontSizeAtom } from '~/store/fontSize';
 import { MessageContext } from '~/Providers';
 import store from '~/store';
-import { getGenerationGraftMetadata } from '~/components/Chat/Tree/GraftBridgeCard';
+import { isGenerationGraftBridgeMessage } from '~/components/Chat/Tree/GraftBridgeCard';
 
 type MessageRenderProps = {
   message?: TMessage;
@@ -94,7 +94,7 @@ const MessageRender = memo(function MessageRender({
   );
 
   const { hasParallelContent } = useContentMetadata(msg);
-  const isGenerationGraftBridge = getGenerationGraftMetadata(msg) != null;
+  const isGenerationGraftBridge = isGenerationGraftBridgeMessage(msg);
   const messageId = msg?.messageId ?? '';
   const messageContextValue = useMemo(
     () => ({
@@ -190,20 +190,22 @@ const MessageRender = memo(function MessageRender({
                 siblingCount={siblingCount}
                 setSiblingIdx={setSiblingIdx}
               />
-              <HoverButtons
-                index={index}
-                isEditing={edit}
-                message={msg}
-                enterEdit={enterEdit}
-                isSubmitting={isSubmitting}
-                conversation={conversation ?? null}
-                regenerate={handleRegenerateMessage}
-                copyToClipboard={copyToClipboard}
-                handleContinue={handleContinue}
-                latestMessageId={latestMessageId}
-                handleFeedback={handleFeedback}
-                isLast={isLast}
-              />
+              {!isGenerationGraftBridge ? (
+                <HoverButtons
+                  index={index}
+                  isEditing={edit}
+                  message={msg}
+                  enterEdit={enterEdit}
+                  isSubmitting={isSubmitting}
+                  conversation={conversation ?? null}
+                  regenerate={handleRegenerateMessage}
+                  copyToClipboard={copyToClipboard}
+                  handleContinue={handleContinue}
+                  latestMessageId={latestMessageId}
+                  handleFeedback={handleFeedback}
+                  isLast={isLast}
+                />
+              ) : null}
             </SubRow>
           )}
         </div>
