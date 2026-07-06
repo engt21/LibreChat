@@ -361,6 +361,31 @@ function absoluteNumber(value) {
   return Number.isFinite(number) ? Math.abs(number) : 0;
 }
 
+function getTransactionCostUsd(transaction) {
+  if (transaction.tokenValue != null) {
+    const tokenValue = Number(transaction.tokenValue);
+    if (Number.isFinite(tokenValue)) {
+      return Math.abs(tokenValue) / 1_000_000;
+    }
+  }
+
+  if (transaction.rawAmount == null || transaction.rate == null) {
+    return null;
+  }
+
+  const rawAmount = Number(transaction.rawAmount);
+  const rate = Number(transaction.rate);
+  if (!Number.isFinite(rawAmount) || !Number.isFinite(rate)) {
+    return null;
+  }
+
+  return Math.abs(rawAmount * rate) / 1_000_000;
+}
+
+function normalizeCostUsd(value) {
+  return Number(value.toFixed(12));
+}
+
 function estimateMessageTokens(message) {
   if (Number.isFinite(message?.tokenCount)) {
     return Math.max(Number(message.tokenCount), 0);
@@ -536,7 +561,10 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
 
     const usageByMessage = new Map();
     for (const transaction of transactions) {
-      if (!transaction.messageId) {
+      if (
+        !transaction.messageId ||
+        (transaction.tokenType !== 'prompt' && transaction.tokenType !== 'completion')
+      ) {
         continue;
       }
       const usage = usageByMessage.get(transaction.messageId) ?? {
@@ -544,6 +572,9 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         outputTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
+        costUsd: 0,
+        pricedTransactions: 0,
+        unpricedTransactions: 0,
       };
 
       if (transaction.tokenType === 'prompt') {
@@ -562,6 +593,14 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         usage.outputTokens += absoluteNumber(transaction.rawAmount);
       }
 
+      const transactionCostUsd = getTransactionCostUsd(transaction);
+      if (transactionCostUsd == null) {
+        usage.unpricedTransactions += 1;
+      } else {
+        usage.costUsd += transactionCostUsd;
+        usage.pricedTransactions += 1;
+      }
+
       usageByMessage.set(transaction.messageId, usage);
     }
 
@@ -575,6 +614,8 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
       }
 
       const recorded = usageByMessage.get(message.messageId);
+      const costUsd =
+        recorded && recorded.pricedTransactions > 0 ? normalizeCostUsd(recorded.costUsd) : null;
       turns.push({
         messageId: message.messageId,
         createdAt: message.createdAt,
@@ -589,22 +630,50 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
           persistedToolCountsByMessage.get(message.messageId) ?? new Map(),
         ),
         estimated: recorded == null,
+        costUsd,
+        costComplete:
+          recorded != null &&
+          recorded.pricedTransactions > 0 &&
+          recorded.unpricedTransactions === 0,
       });
       priorVisibleTokens += estimatedMessageTokens;
     }
 
-    const totals = turns.reduce(
+    const numericTotals = turns.reduce(
       (total, turn) => ({
         inputTokens: total.inputTokens + turn.inputTokens,
         outputTokens: total.outputTokens + turn.outputTokens,
         cacheReadTokens: total.cacheReadTokens + turn.cacheReadTokens,
         cacheWriteTokens: total.cacheWriteTokens + turn.cacheWriteTokens,
         toolCalls: total.toolCalls + turn.toolCalls,
+        costUsd: total.costUsd + (turn.costUsd ?? 0),
+        pricedTurns: total.pricedTurns + (turn.costUsd == null ? 0 : 1),
+        unpricedTurns: total.unpricedTurns + (turn.costUsd == null ? 1 : 0),
       }),
-      { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, toolCalls: 0 },
+      {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: 0,
+        costUsd: 0,
+        pricedTurns: 0,
+        unpricedTurns: 0,
+      },
     );
+    const totals = {
+      ...numericTotals,
+      costUsd: numericTotals.pricedTurns > 0 ? normalizeCostUsd(numericTotals.costUsd) : null,
+      costComplete: turns.length > 0 && turns.every((turn) => turn.costComplete),
+    };
 
-    res.status(200).json({ conversationId, totals, turns });
+    res.status(200).json({
+      conversationId,
+      currency: 'USD',
+      costBasis: 'recorded_transactions',
+      totals,
+      turns,
+    });
   } catch (error) {
     logger.error('Error fetching conversation usage:', error);
     res.status(500).json({ error: 'Internal server error' });

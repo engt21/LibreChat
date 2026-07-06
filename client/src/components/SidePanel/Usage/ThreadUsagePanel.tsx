@@ -15,6 +15,30 @@ function formatCount(value: number) {
   return formatter.format(Math.max(value, 0));
 }
 
+function formatUsd(value: number | null) {
+  if (value == null) {
+    return '—';
+  }
+
+  let maximumFractionDigits = 2;
+  if (value > 0 && value < 0.01) {
+    maximumFractionDigits = 6;
+  } else if (value < 1) {
+    maximumFractionDigits = 4;
+  }
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits,
+  }).format(Math.max(value, 0));
+}
+
+function formatRecordedCost(value: number | null, complete: boolean) {
+  const formatted = formatUsd(value);
+  return !complete && value != null ? `≥${formatted}` : formatted;
+}
+
 function flattenMessages(messages: TMessage[]): TMessage[] {
   const result: TMessage[] = [];
   const visit = (message: TMessage) => {
@@ -53,13 +77,12 @@ export function getVisibleBranchMessageIds(
   return branchIds.reverse();
 }
 
-function UsageMetric({ label, value }: { label: string; value: number }) {
+function UsageMetric({ label, value, status }: { label: string; value: string; status?: string }) {
   return (
     <div className="rounded-md border border-border-light bg-surface-secondary px-3 py-2">
       <div className="text-xs text-text-secondary">{label}</div>
-      <div className="mt-1 text-base font-semibold tabular-nums text-text-primary">
-        {formatCount(value)}
-      </div>
+      <div className="mt-1 text-base font-semibold tabular-nums text-text-primary">{value}</div>
+      {status && <div className="mt-1 text-[10px] text-text-secondary">{status}</div>}
     </div>
   );
 }
@@ -119,26 +142,44 @@ export default function ThreadUsagePanel() {
       <div className="grid grid-cols-2 gap-2">
         <UsageMetric
           label={localize('com_sidepanel_usage_input')}
-          value={data.totals.inputTokens}
+          value={formatCount(data.totals.inputTokens)}
         />
         <UsageMetric
           label={localize('com_sidepanel_usage_output')}
-          value={data.totals.outputTokens}
+          value={formatCount(data.totals.outputTokens)}
         />
         <UsageMetric
           label={localize('com_sidepanel_usage_cache_read')}
-          value={data.totals.cacheReadTokens}
+          value={formatCount(data.totals.cacheReadTokens)}
         />
         <UsageMetric
           label={localize('com_sidepanel_usage_cache_write')}
-          value={data.totals.cacheWriteTokens}
+          value={formatCount(data.totals.cacheWriteTokens)}
         />
         <UsageMetric
           label={localize('com_sidepanel_usage_tool_calls')}
-          value={data.totals.toolCalls}
+          value={formatCount(data.totals.toolCalls)}
         />
-        <UsageMetric label={localize('com_sidepanel_usage_turns')} value={data.turns.length} />
+        <UsageMetric
+          label={localize('com_sidepanel_usage_cost')}
+          value={formatRecordedCost(data.totals.costUsd, data.totals.costComplete)}
+          status={
+            data.totals.costComplete
+              ? undefined
+              : localize(
+                  data.totals.costUsd == null
+                    ? 'com_sidepanel_usage_cost_unavailable'
+                    : 'com_sidepanel_usage_cost_partial',
+                )
+          }
+        />
+        <UsageMetric
+          label={localize('com_sidepanel_usage_turns')}
+          value={formatCount(data.turns.length)}
+        />
       </div>
+
+      <p className="text-[11px] text-text-secondary">{localize('com_sidepanel_usage_cost_hint')}</p>
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold text-text-primary">
@@ -173,6 +214,10 @@ export default function ThreadUsagePanel() {
               <dd className="text-right tabular-nums">{formatCount(turn.cacheWriteTokens)}</dd>
               <dt className="text-text-secondary">{localize('com_sidepanel_usage_tool_calls')}</dt>
               <dd className="text-right tabular-nums">{formatCount(turn.toolCalls)}</dd>
+              <dt className="text-text-secondary">{localize('com_sidepanel_usage_cost')}</dt>
+              <dd className="text-right tabular-nums">
+                {formatRecordedCost(turn.costUsd, turn.costComplete)}
+              </dd>
             </dl>
           </details>
         ))}

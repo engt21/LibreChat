@@ -45,7 +45,13 @@ describe('ThreadUsagePanel', () => {
           cacheReadTokens: 800,
           cacheWriteTokens: 25,
           toolCalls: 4,
+          costUsd: 0.00125,
+          costComplete: true,
+          pricedTurns: 1,
+          unpricedTurns: 0,
         },
+        currency: 'USD',
+        costBasis: 'recorded_transactions',
         turns: [
           {
             messageId: 'assistant-1',
@@ -56,6 +62,8 @@ describe('ThreadUsagePanel', () => {
             cacheWriteTokens: 25,
             toolCalls: 4,
             estimated: false,
+            costUsd: 0.00125,
+            costComplete: true,
           },
         ],
       },
@@ -69,12 +77,100 @@ describe('ThreadUsagePanel', () => {
     expect(screen.getByText('gpt-5.6-sol')).toBeInTheDocument();
     expect(screen.getAllByText('1.2K')).toHaveLength(2);
     expect(screen.getAllByText('4')).toHaveLength(2);
+    expect(screen.getAllByText('$0.00125')).toHaveLength(2);
     expect(mockUseGetConversationUsage).toHaveBeenCalledWith(
       'conversation-1',
       ['user-1', 'assistant-1'],
       true,
       10000,
     );
+  });
+
+  it('labels partial recorded costs instead of presenting them as complete', () => {
+    mockUseGetConversationUsage.mockReturnValueOnce({
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      data: {
+        conversationId: 'conversation-1',
+        currency: 'USD',
+        costBasis: 'recorded_transactions',
+        totals: {
+          inputTokens: 1200,
+          outputTokens: 300,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: 0,
+          costUsd: 0.0002,
+          costComplete: false,
+          pricedTurns: 1,
+          unpricedTurns: 0,
+        },
+        turns: [
+          {
+            messageId: 'assistant-1',
+            model: 'private-model',
+            inputTokens: 1200,
+            outputTokens: 300,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: 0,
+            estimated: false,
+            costUsd: 0.0002,
+            costComplete: false,
+          },
+        ],
+      },
+    });
+
+    render(<ThreadUsagePanel />);
+
+    expect(screen.getAllByText('≥$0.0002')).toHaveLength(2);
+    expect(screen.getByText('com_sidepanel_usage_cost_partial')).toBeInTheDocument();
+  });
+
+  it('shows unavailable pricing as unknown rather than zero dollars', () => {
+    mockUseGetConversationUsage.mockReturnValueOnce({
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      data: {
+        conversationId: 'conversation-1',
+        currency: 'USD',
+        costBasis: 'recorded_transactions',
+        totals: {
+          inputTokens: 1200,
+          outputTokens: 300,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: 0,
+          costUsd: null,
+          costComplete: false,
+          pricedTurns: 0,
+          unpricedTurns: 1,
+        },
+        turns: [
+          {
+            messageId: 'assistant-1',
+            model: 'unpriced-model',
+            inputTokens: 1200,
+            outputTokens: 300,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: 0,
+            estimated: true,
+            costUsd: null,
+            costComplete: false,
+          },
+        ],
+      },
+    });
+
+    render(<ThreadUsagePanel />);
+
+    expect(screen.getAllByText('—')).toHaveLength(2);
+    expect(screen.getByText('com_sidepanel_usage_cost_unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
   });
 });
 

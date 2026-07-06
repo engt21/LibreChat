@@ -2506,8 +2506,12 @@ This release is a single preservation boundary for every LibreChat customization
 ### Thread usage side panel
 
 - The right side panel includes `Thread Usage` for the currently visible conversation branch.
-- It shows totals and per-assistant-turn input tokens, output tokens, cache-read tokens, cache-write tokens, and tool-call count.
+- It shows totals and per-assistant-turn input tokens, output tokens, cache-read tokens, cache-write tokens, tool-call count, and recorded USD cost.
 - Provider-recorded transaction data is preferred. When provider usage is unavailable, text token counts are explicitly marked estimated.
+- Historical cost is calculated from the immutable transaction ledger using the same accounting basis as the Grafana exporter: `abs(tokenValue) / 1_000_000`. Older rows may fall back to `abs(rawAmount * rate) / 1_000_000`.
+- Cost is never inferred from estimated tokens. Fully recorded turns show their USD amount, partially priced turns use a `>=` indicator, and unavailable pricing renders as unknown rather than `$0.00`.
+- The sidebar does not depend on Langfuse at request time. LibreChat's provider pricing catalog produces the recorded transaction rate and is also the source synchronized into Langfuse.
+- `credits` transactions are excluded. The displayed amount is the recorded LibreChat historical cost, not a provider invoice, and remains partial when a provider/tool charge was not persisted.
 - The endpoint is user-scoped and accepts visible message IDs. The client derives those IDs from the selected latest-message ancestry so hidden sibling branches are not included in the displayed total.
 
 ### Full generation-tree deletion
