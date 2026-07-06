@@ -1,7 +1,8 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { dataService } from 'librechat-data-provider';
+import { renderWithQueryClient } from '../queryClientTestUtils';
 
 const mockUseGenerationGraft = jest.fn();
 
@@ -227,7 +228,7 @@ describe('ConversationTreeDialog', () => {
   });
 
   it('renders the full-screen shell and preserves focused/source ids', () => {
-    render(
+    renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -270,7 +271,7 @@ describe('ConversationTreeDialog', () => {
       }),
     );
 
-    render(
+    renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -287,15 +288,20 @@ describe('ConversationTreeDialog', () => {
       clientX: 10,
       clientY: 10,
     });
-    fireEvent.pointerMove(screen.getByTestId('tree-canvas-surface'), {
+    fireEvent.pointerMove(window, {
       pointerId: 1,
-      clientX: 20,
-      clientY: 20,
+      clientX: 220,
+      clientY: 80,
     });
-    fireEvent.pointerUp(screen.getByTestId('tree-canvas-surface'), {
+
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+
+    fireEvent.pointerUp(window, {
       pointerId: 1,
-      clientX: 20,
-      clientY: 20,
+      clientX: 220,
+      clientY: 80,
     });
 
     document.elementsFromPoint = originalElementsFromPoint;
@@ -336,7 +342,7 @@ describe('ConversationTreeDialog', () => {
       }),
     );
 
-    render(
+    renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -349,7 +355,7 @@ describe('ConversationTreeDialog', () => {
   });
 
   it('persists orientation and collapsed ids across reopen for the same conversation', () => {
-    const { unmount } = render(
+    const { unmount } = renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -363,7 +369,7 @@ describe('ConversationTreeDialog', () => {
 
     unmount();
 
-    render(
+    renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -380,7 +386,7 @@ describe('ConversationTreeDialog', () => {
   });
 
   it('isolates orientation between conversation ids', () => {
-    const { rerender } = render(
+    const { rerender } = renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -429,7 +435,7 @@ describe('ConversationTreeDialog', () => {
   it('renders a mobile summary bar and bottom-sheet list treatment on narrow screens', () => {
     mockIsMobile = true;
 
-    render(
+    renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -456,7 +462,7 @@ describe('ConversationTreeDialog', () => {
       },
     };
 
-    render(
+    renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -502,7 +508,7 @@ describe('ConversationTreeDialog', () => {
       },
     };
 
-    const { rerender } = render(
+    const { rerender } = renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -562,7 +568,7 @@ describe('ConversationTreeDialog', () => {
       },
     };
 
-    const { rerender } = render(
+    const { rerender } = renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -625,7 +631,7 @@ describe('ConversationTreeDialog', () => {
       },
     };
 
-    render(
+    renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"
@@ -659,7 +665,7 @@ describe('ConversationTreeDialog', () => {
   it('keeps the visual canvas out of the keyboard path while the tree list remains functional', async () => {
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
 
-    render(
+    renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-a"

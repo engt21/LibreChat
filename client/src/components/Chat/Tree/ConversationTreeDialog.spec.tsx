@@ -1,5 +1,6 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
+import { renderWithQueryClient } from './queryClientTestUtils';
 
 jest.mock('~/hooks/useLocalize', () => ({
   __esModule: true,
@@ -76,7 +77,7 @@ describe('ConversationTreeDialog', () => {
   it('uses the 200ms fallback exit callback and cancels it when reopened', () => {
     const onExitComplete = jest.fn();
     const onOpenChange = jest.fn();
-    const { rerender } = render(
+    const { rerender } = renderWithQueryClient(
       <ConversationTreeDialog
         open={true}
         focusMessageId="assistant-1"
