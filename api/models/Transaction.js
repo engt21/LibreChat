@@ -1,16 +1,38 @@
 const { logger, CANCEL_RATE } = require('@librechat/data-schemas');
-const { getMultiplier, getCacheMultiplier } = require('./tx');
+const { getRateInfo, getCacheRateInfo } = require('./tx');
 const { Transaction } = require('~/db/models');
 const { updateBalance } = require('~/models');
+
+function aggregatePricingSource(sources = []) {
+  if (sources.includes('fallback')) {
+    return 'fallback';
+  }
+
+  if (sources.includes('endpoint_config')) {
+    return 'endpoint_config';
+  }
+
+  return 'catalog';
+}
+
+function normalizeInputTokenCount(inputTokenCount) {
+  return Number.isFinite(inputTokenCount) ? inputTokenCount : undefined;
+}
 
 /** Method to calculate and set the tokenValue for a transaction */
 function calculateTokenValue(txn) {
   const { valueKey, tokenType, model, endpointTokenConfig, inputTokenCount } = txn;
-  const multiplier = Math.abs(
-    getMultiplier({ valueKey, tokenType, model, endpointTokenConfig, inputTokenCount }),
-  );
+  const { rate, source } = getRateInfo({
+    valueKey,
+    tokenType,
+    model,
+    endpointTokenConfig,
+    inputTokenCount,
+  });
+  const multiplier = Math.abs(rate);
   txn.rate = multiplier;
   txn.tokenValue = txn.rawAmount * multiplier;
+  txn.pricingSource = source;
   if (txn.context && txn.tokenType === 'completion' && txn.context === 'incomplete') {
     txn.tokenValue = Math.ceil(txn.tokenValue * CANCEL_RATE);
     txn.rate *= CANCEL_RATE;
@@ -32,7 +54,7 @@ async function createAutoRefillTransaction(txData) {
   }
   const transaction = new Transaction(txData);
   transaction.endpointTokenConfig = txData.endpointTokenConfig;
-  transaction.inputTokenCount = txData.inputTokenCount;
+  transaction.inputTokenCount = normalizeInputTokenCount(txData.inputTokenCount);
   calculateTokenValue(transaction);
   await transaction.save();
 
@@ -67,7 +89,7 @@ async function createTransaction(_txData) {
 
   const transaction = new Transaction(txData);
   transaction.endpointTokenConfig = txData.endpointTokenConfig;
-  transaction.inputTokenCount = txData.inputTokenCount;
+  transaction.inputTokenCount = normalizeInputTokenCount(txData.inputTokenCount);
   calculateTokenValue(transaction);
 
   await transaction.save();
@@ -101,7 +123,7 @@ async function createStructuredTransaction(_txData) {
 
   const transaction = new Transaction(txData);
   transaction.endpointTokenConfig = txData.endpointTokenConfig;
-  transaction.inputTokenCount = txData.inputTokenCount;
+  transaction.inputTokenCount = normalizeInputTokenCount(txData.inputTokenCount);
 
   calculateStructuredTokenValue(transaction);
 
@@ -136,27 +158,58 @@ function calculateStructuredTokenValue(txn) {
   const { model, endpointTokenConfig, inputTokenCount } = txn;
 
   if (txn.tokenType === 'prompt') {
-    const inputMultiplier = getMultiplier({
+    const inputRateInfo = getRateInfo({
       tokenType: 'prompt',
       model,
       endpointTokenConfig,
       inputTokenCount,
     });
-    const writeMultiplier =
-      getCacheMultiplier({ cacheType: 'write', model, endpointTokenConfig }) ?? inputMultiplier;
-    const readMultiplier =
-      getCacheMultiplier({ cacheType: 'read', model, endpointTokenConfig }) ?? inputMultiplier;
+    const writeRateInfo = getCacheRateInfo({
+      cacheType: 'write',
+      model,
+      endpointTokenConfig,
+      inputTokenCount,
+    });
+    const readRateInfo = getCacheRateInfo({
+      cacheType: 'read',
+      model,
+      endpointTokenConfig,
+      inputTokenCount,
+    });
+    const inputMultiplier = inputRateInfo.rate;
+    const writeMultiplier = writeRateInfo.rate ?? inputMultiplier;
+    const readMultiplier = readRateInfo.rate ?? inputMultiplier;
+    const inputAbs = Math.abs(txn.inputTokens || 0);
+    const writeAbs = Math.abs(txn.writeTokens || 0);
+    const readAbs = Math.abs(txn.readTokens || 0);
+    const pricingSourceDetail = {
+      input: inputRateInfo.source,
+      write: writeRateInfo.rate == null ? inputRateInfo.source : writeRateInfo.source,
+      read: readRateInfo.rate == null ? inputRateInfo.source : readRateInfo.source,
+    };
+    const appliedSources = [];
+    if (inputAbs > 0) {
+      appliedSources.push(pricingSourceDetail.input);
+    }
+    if (writeAbs > 0) {
+      appliedSources.push(pricingSourceDetail.write);
+    }
+    if (readAbs > 0) {
+      appliedSources.push(pricingSourceDetail.read);
+    }
 
     txn.rateDetail = {
       input: inputMultiplier,
       write: writeMultiplier,
       read: readMultiplier,
     };
+    txn.pricingSourceDetail = pricingSourceDetail;
+    txn.pricingSource =
+      appliedSources.length > 0
+        ? aggregatePricingSource(appliedSources)
+        : pricingSourceDetail.input;
 
-    const totalPromptTokens =
-      Math.abs(txn.inputTokens || 0) +
-      Math.abs(txn.writeTokens || 0) +
-      Math.abs(txn.readTokens || 0);
+    const totalPromptTokens = inputAbs + writeAbs + readAbs;
 
     if (totalPromptTokens > 0) {
       txn.rate =
@@ -176,14 +229,15 @@ function calculateStructuredTokenValue(txn) {
 
     txn.rawAmount = -totalPromptTokens;
   } else if (txn.tokenType === 'completion') {
-    const multiplier = getMultiplier({
+    const rateInfo = getRateInfo({
       tokenType: txn.tokenType,
       model,
       endpointTokenConfig,
       inputTokenCount,
     });
-    txn.rate = Math.abs(multiplier);
-    txn.tokenValue = -Math.abs(txn.rawAmount) * multiplier;
+    txn.rate = Math.abs(rateInfo.rate);
+    txn.tokenValue = -Math.abs(txn.rawAmount) * rateInfo.rate;
+    txn.pricingSource = rateInfo.source;
     txn.rawAmount = -Math.abs(txn.rawAmount);
   }
 

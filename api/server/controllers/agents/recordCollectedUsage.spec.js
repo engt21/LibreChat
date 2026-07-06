@@ -12,6 +12,8 @@ const mockSpendTokens = jest.fn().mockResolvedValue();
 const mockSpendStructuredTokens = jest.fn().mockResolvedValue();
 const mockGetMultiplier = jest.fn().mockReturnValue(1);
 const mockGetCacheMultiplier = jest.fn().mockReturnValue(null);
+const mockGetRateInfo = jest.fn().mockReturnValue({ rate: 1, source: 'catalog' });
+const mockGetCacheRateInfo = jest.fn().mockReturnValue({ rate: null, source: 'fallback' });
 const mockUpdateBalance = jest.fn().mockResolvedValue({});
 const mockBulkInsertTransactions = jest.fn().mockResolvedValue(undefined);
 const mockRecordCollectedUsage = jest
@@ -26,6 +28,8 @@ jest.mock('~/models/spendTokens', () => ({
 jest.mock('~/models/tx', () => ({
   getMultiplier: mockGetMultiplier,
   getCacheMultiplier: mockGetCacheMultiplier,
+  getRateInfo: mockGetRateInfo,
+  getCacheRateInfo: mockGetCacheRateInfo,
 }));
 
 jest.mock('~/models', () => ({
@@ -110,9 +114,12 @@ describe('AgentClient - recordCollectedUsage', () => {
 
       expect(deps).toHaveProperty('spendTokens');
       expect(deps).toHaveProperty('spendStructuredTokens');
-      expect(deps).toHaveProperty('pricing');
-      expect(deps.pricing).toHaveProperty('getMultiplier');
-      expect(deps.pricing).toHaveProperty('getCacheMultiplier');
+      expect(deps.pricing).toEqual({
+        getMultiplier: mockGetMultiplier,
+        getCacheMultiplier: mockGetCacheMultiplier,
+        getRateInfo: mockGetRateInfo,
+        getCacheRateInfo: mockGetCacheRateInfo,
+      });
       expect(deps).toHaveProperty('bulkWriteOps');
       expect(deps.bulkWriteOps).toHaveProperty('insertMany');
       expect(deps.bulkWriteOps).toHaveProperty('updateBalance');

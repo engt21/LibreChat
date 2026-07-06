@@ -20,6 +20,8 @@ const mockFilterMalformedContentParts = jest.fn((parts) => parts);
 
 const mockGetMultiplier = jest.fn().mockReturnValue(1);
 const mockGetCacheMultiplier = jest.fn().mockReturnValue(null);
+const mockGetRateInfo = jest.fn().mockReturnValue({ rate: 1, source: 'catalog' });
+const mockGetCacheRateInfo = jest.fn().mockReturnValue({ rate: null, source: 'fallback' });
 const mockSaveMessage = jest.fn().mockResolvedValue();
 
 jest.mock('~/models/spendTokens', () => ({
@@ -30,6 +32,8 @@ jest.mock('~/models/spendTokens', () => ({
 jest.mock('~/models/tx', () => ({
   getMultiplier: mockGetMultiplier,
   getCacheMultiplier: mockGetCacheMultiplier,
+  getRateInfo: mockGetRateInfo,
+  getCacheRateInfo: mockGetCacheRateInfo,
 }));
 
 jest.mock('@librechat/data-schemas', () => ({
@@ -193,6 +197,8 @@ describe('abortMiddleware - spendCollectedUsage', () => {
           pricing: {
             getMultiplier: mockGetMultiplier,
             getCacheMultiplier: mockGetCacheMultiplier,
+            getRateInfo: mockGetRateInfo,
+            getCacheRateInfo: mockGetCacheRateInfo,
           },
           bulkWriteOps: {
             insertMany: mockBulkInsertTransactions,

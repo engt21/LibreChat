@@ -85,9 +85,13 @@ jest.mock('~/models/spendTokens', () => ({
 
 const mockGetMultiplier = jest.fn().mockReturnValue(1);
 const mockGetCacheMultiplier = jest.fn().mockReturnValue(null);
+const mockGetRateInfo = jest.fn().mockReturnValue({ rate: 1, source: 'catalog' });
+const mockGetCacheRateInfo = jest.fn().mockReturnValue({ rate: null, source: 'fallback' });
 jest.mock('~/models/tx', () => ({
   getMultiplier: mockGetMultiplier,
   getCacheMultiplier: mockGetCacheMultiplier,
+  getRateInfo: mockGetRateInfo,
+  getCacheRateInfo: mockGetCacheRateInfo,
 }));
 
 jest.mock('~/server/controllers/agents/callbacks', () => ({
@@ -181,7 +185,12 @@ describe('OpenAIChatCompletionController', () => {
         {
           spendTokens: mockSpendTokens,
           spendStructuredTokens: mockSpendStructuredTokens,
-          pricing: { getMultiplier: mockGetMultiplier, getCacheMultiplier: mockGetCacheMultiplier },
+          pricing: {
+            getMultiplier: mockGetMultiplier,
+            getCacheMultiplier: mockGetCacheMultiplier,
+            getRateInfo: mockGetRateInfo,
+            getCacheRateInfo: mockGetCacheRateInfo,
+          },
           bulkWriteOps: {
             insertMany: mockBulkInsertTransactions,
             updateBalance: mockUpdateBalance,
@@ -222,6 +231,8 @@ describe('OpenAIChatCompletionController', () => {
       expect(deps).toHaveProperty('pricing');
       expect(deps.pricing).toHaveProperty('getMultiplier', mockGetMultiplier);
       expect(deps.pricing).toHaveProperty('getCacheMultiplier', mockGetCacheMultiplier);
+      expect(deps.pricing).toHaveProperty('getRateInfo', mockGetRateInfo);
+      expect(deps.pricing).toHaveProperty('getCacheRateInfo', mockGetCacheRateInfo);
       expect(deps).toHaveProperty('bulkWriteOps');
       expect(deps.bulkWriteOps).toHaveProperty('insertMany', mockBulkInsertTransactions);
       expect(deps.bulkWriteOps).toHaveProperty('updateBalance', mockUpdateBalance);

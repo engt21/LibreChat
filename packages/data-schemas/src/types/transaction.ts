@@ -1,3 +1,5 @@
+export type TransactionPricingSource = 'catalog' | 'endpoint_config' | 'fallback';
+
 export interface TransactionData {
   user: string;
   conversationId: string;
@@ -15,4 +17,6 @@ export interface TransactionData {
   messageId?: string;
   inputTokenCount?: number;
   rateDetail?: Record<string, number>;
+  pricingSource?: TransactionPricingSource;
+  pricingSourceDetail?: Record<string, TransactionPricingSource>;
 }

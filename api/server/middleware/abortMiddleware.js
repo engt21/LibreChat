@@ -12,7 +12,7 @@ const { isAssistantsEndpoint, ErrorTypes } = require('librechat-data-provider');
 const { saveMessage, getConvo, updateBalance, bulkInsertTransactions } = require('~/models');
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
 const { truncateText, smartTruncateText } = require('~/app/clients/prompts');
-const { getMultiplier, getCacheMultiplier } = require('~/models/tx');
+const { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo } = require('~/models/tx');
 const clearPendingReq = require('~/cache/clearPendingReq');
 const { sendError } = require('~/server/middleware/error');
 const { abortRun } = require('./abortRun');
@@ -47,7 +47,7 @@ async function spendCollectedUsage({
     {
       spendTokens,
       spendStructuredTokens,
-      pricing: { getMultiplier, getCacheMultiplier },
+      pricing: { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo },
       bulkWriteOps: { insertMany: bulkInsertTransactions, updateBalance },
     },
     {

@@ -1,5 +1,33 @@
 const { matchModelName, findMatchingPattern } = require('@librechat/api');
 const defaultRate = 6;
+const OPENAI_LONG_CONTEXT_THRESHOLD = 272000;
+const CLAUDE_SONNET_5_STANDARD_PRICING_EPOCH_MS = Date.parse('2026-09-01T00:00:00.000Z');
+const PRICING_SOURCE_CATALOG = 'catalog';
+const PRICING_SOURCE_ENDPOINT_CONFIG = 'endpoint_config';
+const PRICING_SOURCE_FALLBACK = 'fallback';
+
+const isUnpublishedGpt56Model = (model) =>
+  typeof model === 'string' && /\bgpt-5\.6(?:[-/.]|$)/i.test(model);
+
+const getCatalogPricingSource = (model) =>
+  isUnpublishedGpt56Model(model) ? PRICING_SOURCE_FALLBACK : PRICING_SOURCE_CATALOG;
+
+const getClaudeSonnet5TokenRates = () =>
+  Date.now() >= CLAUDE_SONNET_5_STANDARD_PRICING_EPOCH_MS
+    ? { prompt: 3, completion: 15 }
+    : { prompt: 2, completion: 10 };
+
+const getClaudeSonnet5CacheRates = () =>
+  Date.now() >= CLAUDE_SONNET_5_STANDARD_PRICING_EPOCH_MS
+    ? { write: 3.75, read: 0.3 }
+    : { write: 2.5, read: 0.2 };
+
+const defineDynamicRateEntry = (target, key, resolver) =>
+  Object.defineProperty(target, key, {
+    enumerable: true,
+    configurable: true,
+    get: resolver,
+  });
 
 /**
  * Token Pricing Configuration
@@ -143,8 +171,11 @@ const tokenValues = Object.assign(
     'gpt-5.2': { prompt: 1.75, completion: 14 },
     'gpt-5.3': { prompt: 1.75, completion: 14 },
     'gpt-5.4': { prompt: 2.5, completion: 15 },
-    // TODO: gpt-5.4-pro pricing not yet officially published — verify before release
-    'gpt-5.4-pro': { prompt: 5, completion: 30 },
+    'gpt-5.4-mini': { prompt: 0.75, completion: 4.5 },
+    'gpt-5.4-nano': { prompt: 0.2, completion: 1.25 },
+    'gpt-5.4-pro': { prompt: 30, completion: 180 },
+    'gpt-5.5': { prompt: 5, completion: 30 },
+    'gpt-5.5-pro': { prompt: 30, completion: 180 },
     'gpt-5-nano': { prompt: 0.05, completion: 0.4 },
     'gpt-5-mini': { prompt: 0.25, completion: 2 },
     'gpt-5-pro': { prompt: 15, completion: 120 },
@@ -170,7 +201,11 @@ const tokenValues = Object.assign(
     'claude-haiku-4-5': { prompt: 1, completion: 5 },
     'claude-opus-4': { prompt: 15, completion: 75 },
     'claude-opus-4-5': { prompt: 5, completion: 25 },
+    'claude-opus-4-7': { prompt: 5, completion: 25 },
+    'claude-opus-4-8': { prompt: 5, completion: 25 },
     'claude-opus-4-6': { prompt: 5, completion: 25 },
+    'claude-fable-5': { prompt: 10, completion: 50 },
+    'claude-mythos-5': { prompt: 10, completion: 50 },
     'claude-sonnet-4': { prompt: 3, completion: 15 },
     'claude-sonnet-4-6': { prompt: 3, completion: 15 },
     'command-r': { prompt: 0.5, completion: 1.5 },
@@ -297,6 +332,8 @@ const tokenValues = Object.assign(
   bedrockValues,
 );
 
+defineDynamicRateEntry(tokenValues, 'claude-sonnet-5', getClaudeSonnet5TokenRates);
+
 /**
  * Mapping of model token sizes to their respective multipliers for cached input, read and write.
  * See Anthropic's documentation on this: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching#pricing
@@ -316,12 +353,16 @@ const cacheTokenValues = {
   'claude-sonnet-4-6': { write: 3.75, read: 0.3 },
   'claude-opus-4': { write: 18.75, read: 1.5 },
   'claude-opus-4-5': { write: 6.25, read: 0.5 },
+  'claude-opus-4-7': { write: 6.25, read: 0.5 },
+  'claude-opus-4-8': { write: 6.25, read: 0.5 },
   'claude-opus-4-6': { write: 6.25, read: 0.5 },
+  'claude-fable-5': { write: 12.5, read: 1 },
+  'claude-mythos-5': { write: 12.5, read: 1 },
   // OpenAI models — cached input discount varies by family:
   //   gpt-4o (incl. mini), o1 (incl. mini/preview): 50% off
   //   gpt-4.1 (incl. mini/nano), o3 (incl. mini), o4-mini: 75% off
   //   gpt-5.x (excl. pro variants): 90% off
-  //   gpt-5-pro, gpt-5.2-pro, gpt-5.4-pro: no caching
+  //   gpt-5-pro, gpt-5.2-pro, gpt-5.4-pro, gpt-5.5-pro: no caching
   'gpt-4o': { write: 2.5, read: 1.25 },
   'gpt-4o-mini': { write: 0.15, read: 0.075 },
   'gpt-4.1': { write: 2, read: 0.5 },
@@ -332,6 +373,9 @@ const cacheTokenValues = {
   'gpt-5.2': { write: 1.75, read: 0.175 },
   'gpt-5.3': { write: 1.75, read: 0.175 },
   'gpt-5.4': { write: 2.5, read: 0.25 },
+  'gpt-5.4-mini': { write: 0.75, read: 0.075 },
+  'gpt-5.4-nano': { write: 0.2, read: 0.02 },
+  'gpt-5.5': { write: 5, read: 0.5 },
   'gpt-5-mini': { write: 0.25, read: 0.025 },
   'gpt-5-nano': { write: 0.05, read: 0.005 },
   o1: { write: 15, read: 7.5 },
@@ -364,12 +408,30 @@ const cacheTokenValues = {
   'gemini-flash-lite-latest': { write: 0.25, read: 0.025 },
 };
 
+defineDynamicRateEntry(cacheTokenValues, 'claude-sonnet-5', getClaudeSonnet5CacheRates);
+
 /**
  * Premium (tiered) pricing for models whose rates change based on prompt size.
  * Each entry specifies the token threshold and the rates that apply above it.
  * @type {Object.<string, {threshold: number, prompt: number, completion: number}>}
  */
 const premiumTokenValues = {
+  'gpt-5.4': {
+    threshold: OPENAI_LONG_CONTEXT_THRESHOLD,
+    prompt: 5,
+    write: 5,
+    read: 0.5,
+    completion: 22.5,
+  },
+  'gpt-5.4-pro': { threshold: OPENAI_LONG_CONTEXT_THRESHOLD, prompt: 60, completion: 270 },
+  'gpt-5.5': {
+    threshold: OPENAI_LONG_CONTEXT_THRESHOLD,
+    prompt: 10,
+    write: 10,
+    read: 1,
+    completion: 45,
+  },
+  'gpt-5.5-pro': { threshold: OPENAI_LONG_CONTEXT_THRESHOLD, prompt: 60, completion: 270 },
   'claude-opus-4-6': { threshold: 200000, prompt: 10, completion: 37.5 },
   'claude-sonnet-4-6': { threshold: 200000, prompt: 6, completion: 22.5 },
   'gemini-3.1': { threshold: 200000, prompt: 4, completion: 18 },
@@ -439,7 +501,7 @@ const getValueKey = (model, endpoint) => {
  * @param {number} [params.inputTokenCount] - Total input token count for tiered pricing.
  * @returns {number} The multiplier for the given parameters, or a default value if not found.
  */
-const getMultiplier = ({
+const getRateInfo = ({
   model,
   valueKey,
   endpoint,
@@ -448,33 +510,52 @@ const getMultiplier = ({
   endpointTokenConfig,
 }) => {
   if (endpointTokenConfig) {
-    return endpointTokenConfig?.[model]?.[tokenType] ?? defaultRate;
+    const endpointRate = endpointTokenConfig?.[model]?.[tokenType];
+    if (endpointRate != null) {
+      return { rate: endpointRate, source: PRICING_SOURCE_ENDPOINT_CONFIG };
+    }
+    return { rate: defaultRate, source: PRICING_SOURCE_FALLBACK };
   }
+
+  const catalogPricingSource = getCatalogPricingSource(model);
 
   if (valueKey && tokenType) {
     const premiumRate = getPremiumRate(valueKey, tokenType, inputTokenCount);
     if (premiumRate != null) {
-      return premiumRate;
+      return { rate: premiumRate, source: catalogPricingSource };
     }
-    return tokenValues[valueKey]?.[tokenType] ?? defaultRate;
+
+    const rate = tokenValues[valueKey]?.[tokenType];
+    if (rate != null) {
+      return { rate, source: catalogPricingSource };
+    }
+
+    return { rate: defaultRate, source: PRICING_SOURCE_FALLBACK };
   }
 
   if (!tokenType || !model) {
-    return 1;
+    return { rate: 1, source: PRICING_SOURCE_FALLBACK };
   }
 
   valueKey = getValueKey(model, endpoint);
   if (!valueKey) {
-    return defaultRate;
+    return { rate: defaultRate, source: PRICING_SOURCE_FALLBACK };
   }
 
   const premiumRate = getPremiumRate(valueKey, tokenType, inputTokenCount);
   if (premiumRate != null) {
-    return premiumRate;
+    return { rate: premiumRate, source: catalogPricingSource };
   }
 
-  return tokenValues[valueKey]?.[tokenType] ?? defaultRate;
+  const rate = tokenValues[valueKey]?.[tokenType];
+  if (rate != null) {
+    return { rate, source: catalogPricingSource };
+  }
+
+  return { rate: defaultRate, source: PRICING_SOURCE_FALLBACK };
 };
+
+const getMultiplier = (params) => getRateInfo(params).rate;
 
 /**
  * Checks if premium (tiered) pricing applies and returns the premium rate.
@@ -485,7 +566,7 @@ const getMultiplier = ({
  * @returns {number|null}
  */
 const getPremiumRate = (valueKey, tokenType, inputTokenCount) => {
-  if (inputTokenCount == null) {
+  if (inputTokenCount == null || !Number.isFinite(inputTokenCount)) {
     return null;
   }
   const premiumEntry = premiumTokenValues[valueKey];
@@ -505,37 +586,74 @@ const getPremiumRate = (valueKey, tokenType, inputTokenCount) => {
  * @param {string} [params.model] - The model name to derive the value key from if not provided.
  * @param {string} [params.endpoint] - The endpoint name to derive the value key from if not provided.
  * @param {EndpointTokenConfig} [params.endpointTokenConfig] - The token configuration for the endpoint.
+ * @param {number} [params.inputTokenCount] - Total input token count for tiered pricing.
  * @returns {number | null} The multiplier for the given parameters, or `null` if not found.
  */
-const getCacheMultiplier = ({ valueKey, cacheType, model, endpoint, endpointTokenConfig }) => {
+const getCacheRateInfo = ({
+  valueKey,
+  cacheType,
+  model,
+  endpoint,
+  endpointTokenConfig,
+  inputTokenCount,
+}) => {
   if (endpointTokenConfig) {
-    return endpointTokenConfig?.[model]?.[cacheType] ?? null;
+    const endpointRate = endpointTokenConfig?.[model]?.[cacheType];
+    if (endpointRate != null) {
+      return { rate: endpointRate, source: PRICING_SOURCE_ENDPOINT_CONFIG };
+    }
+    return { rate: null, source: PRICING_SOURCE_FALLBACK };
   }
 
+  const catalogPricingSource = getCatalogPricingSource(model);
+
   if (valueKey && cacheType) {
-    return cacheTokenValues[valueKey]?.[cacheType] ?? null;
+    const premiumRate = getPremiumRate(valueKey, cacheType, inputTokenCount);
+    if (premiumRate != null) {
+      return { rate: premiumRate, source: catalogPricingSource };
+    }
+
+    const rate = cacheTokenValues[valueKey]?.[cacheType];
+    if (rate != null) {
+      return { rate, source: catalogPricingSource };
+    }
+
+    return { rate: null, source: PRICING_SOURCE_FALLBACK };
   }
 
   if (!cacheType || !model) {
-    return null;
+    return { rate: null, source: PRICING_SOURCE_FALLBACK };
   }
 
   valueKey = getValueKey(model, endpoint);
   if (!valueKey) {
-    return null;
+    return { rate: null, source: PRICING_SOURCE_FALLBACK };
   }
 
-  // If we got this far, and values[cacheType] is undefined somehow, return a rough average of default multipliers
-  return cacheTokenValues[valueKey]?.[cacheType] ?? null;
+  const premiumRate = getPremiumRate(valueKey, cacheType, inputTokenCount);
+  if (premiumRate != null) {
+    return { rate: premiumRate, source: catalogPricingSource };
+  }
+
+  const rate = cacheTokenValues[valueKey]?.[cacheType];
+  if (rate != null) {
+    return { rate, source: catalogPricingSource };
+  }
+
+  return { rate: null, source: PRICING_SOURCE_FALLBACK };
 };
+
+const getCacheMultiplier = (params) => getCacheRateInfo(params).rate;
 
 module.exports = {
   tokenValues,
   premiumTokenValues,
   getValueKey,
   getMultiplier,
+  getRateInfo,
   getPremiumRate,
   getCacheMultiplier,
+  getCacheRateInfo,
   defaultRate,
   cacheTokenValues,
 };

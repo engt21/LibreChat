@@ -18,7 +18,7 @@ import {
   createMethods,
   balanceSchema,
   transactionSchema,
-} from '@librechat/data-schemas';
+} from '../../../data-schemas/dist/index.cjs';
 import type { PricingFns, TxMetadata } from './transactions';
 import {
   prepareStructuredTokenSpend,
@@ -34,17 +34,31 @@ jest.mock('@librechat/data-schemas', () => {
   };
 });
 
+jest.mock(
+  '@librechat/api',
+  () => ({
+    matchModelName: (model: string) => model,
+    findMatchingPattern: (model: string, patterns: Record<string, unknown>) =>
+      Object.keys(patterns)
+        .filter((key) => model.includes(key))
+        .sort((a, b) => b.length - a.length)[0],
+  }),
+  { virtual: true },
+);
+
 // Real pricing functions from api/models/tx.js — same ones the legacy path uses
 /* eslint-disable @typescript-eslint/no-require-imports */
 const {
   getMultiplier,
   getCacheMultiplier,
+  getRateInfo,
+  getCacheRateInfo,
   tokenValues,
   premiumTokenValues,
 } = require('../../../../api/models/tx.js');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-const pricing: PricingFns = { getMultiplier, getCacheMultiplier };
+const pricing: PricingFns = { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo };
 
 let mongoServer: MongoMemoryServer;
 let Transaction: mongoose.Model<unknown>;
@@ -216,6 +230,26 @@ describe('Standard token parity', () => {
     expect(txns).toHaveLength(2);
     expect(txns.every((t) => t.rawAmount === 0)).toBe(true);
     expect(txns.every((t) => t.tokenValue === 0)).toBe(true);
+  });
+
+  test('unknown gpt-5.6 variants are charged with fallback balance math but persisted as fallback-priced', async () => {
+    const userId = new mongoose.Types.ObjectId().toString();
+    await Balance.create({ user: userId, tokenCredits: 10000 });
+
+    const entries = prepareTokenSpend(
+      txMeta(userId, { model: 'gpt-5.6-terra' }),
+      { promptTokens: 100, completionTokens: 50 },
+      pricing,
+    );
+    await bulkWriteTransactions({ user: userId, docs: entries }, dbOps());
+
+    const txns = (await Transaction.find({ user: userId }).sort({ tokenType: 1 }).lean()) as Record<
+      string,
+      unknown
+    >[];
+    expect(txns).toHaveLength(2);
+    expect(txns.every((txn) => txn.pricingSource === 'fallback')).toBe(true);
+    expect(txns.map((txn) => txn.rate)).toEqual([10, 1.25]);
   });
 });
 
