@@ -254,6 +254,126 @@ export type TUpdateMessageRequest = {
   text: string;
 };
 
+export type TGenerationGraftStableState =
+  | 'complete'
+  | 'stopped_partial'
+  | 'aborted_partial'
+  | 'errored_partial';
+
+export type TGenerationGraftLifecycleState = TGenerationGraftStableState | 'streaming';
+export type TGenerationGraftMode = 'generation' | 'subtree';
+
+export type TGenerationGraftSelection = {
+  sourceMessageId: string;
+  destinationMessageId: string;
+  mode: TGenerationGraftMode;
+  sourceActiveLeafMessageId?: string;
+};
+
+export type TGenerationGraftCounts = {
+  messages: number;
+  toolCalls: number;
+  files: number;
+  images: number;
+  approximateTokens: number;
+};
+
+export type TGenerationGraftPreviewRequest = TGenerationGraftSelection & {
+  expectedTreeRevision?: string;
+};
+
+export type TGenerationGraftPreviewResponse = TGenerationGraftSelection & {
+  conversationId: string;
+  sourceState: TGenerationGraftLifecycleState;
+  destinationState: TGenerationGraftLifecycleState;
+  copiedMessageIds: string[];
+  activeSourceLeafMessageId: string;
+  destinationChildCount: number;
+  counts: TGenerationGraftCounts;
+  warnings: string[];
+  treeRevision: string;
+  requiresStabilization: boolean;
+  activeMessageIds: string[];
+  conversationActiveWithoutMessageId: boolean;
+  canCreate: boolean;
+};
+
+export type TGenerationGraftCreateRequest = TGenerationGraftSelection & {
+  idempotencyKey: string;
+  expectedTreeRevision: string;
+};
+
+export type TGenerationGraftCreateResponse = {
+  graftId: string;
+  bridgeMessageId: string;
+  copiedRootMessageId: string;
+  activeCopiedMessageId: string;
+  copiedMessageCount: number;
+  createdMessages: TMessage[];
+};
+
+export type TGenerationGraftDetailsResponse = {
+  graftId: string;
+  bridgeMessageId: string;
+  copiedMessageIds: string[];
+  continuationMessageIds: string[];
+  copiedCounts: TGenerationGraftCounts;
+  continuationCounts: TGenerationGraftCounts;
+  canUndoWithoutContinuations: boolean;
+};
+
+export type TGenerationGraftUndoRequest = {
+  includeContinuations?: boolean;
+};
+
+export type TGenerationGraftUndoResponse = {
+  graftId: string;
+  deletedMessageIds: string[];
+  deletedCount: number;
+};
+
+export type TGenerationGraftMetadata = {
+  kind: 'generation_graft';
+  graftId: string;
+  idempotencyKey: string;
+  sourceConversationId: string;
+  sourceRootMessageId: string;
+  sourceMessageIds: string[];
+  destinationMessageId: string;
+  copiedRootMessageId: string;
+  copiedMessageIds: string[];
+  activeCopiedMessageId: string;
+  mode: TGenerationGraftMode;
+  sourceState: TGenerationGraftStableState;
+  destinationState: TGenerationGraftStableState;
+  createdAt: string;
+};
+
+export type TGenerationGraftCopyMetadata = {
+  kind: 'generation_graft_copy';
+  graftId: string;
+  clonedFromMessageId: string;
+};
+
+export type TGenerationGraftErrorCode =
+  | 'MESSAGE_NOT_FOUND'
+  | 'INVALID_SOURCE'
+  | 'INVALID_DESTINATION'
+  | 'OVERLAPPING_BRANCHES'
+  | 'GRAFT_REQUIRES_STABILIZATION'
+  | 'TREE_CHANGED'
+  | 'GRAFT_HAS_CONTINUATIONS'
+  | 'GRAFT_TOO_LARGE'
+  | 'GRAFT_BUSY';
+
+export type TGenerationGraftErrorResponse = {
+  message?: string;
+  error: string;
+  code: TGenerationGraftErrorCode;
+  activeMessageIds?: string[];
+  conversationActiveWithoutMessageId?: boolean;
+};
+
 export type TUpdateMessageContent = {
   conversationId: string;
   messageId: string;
