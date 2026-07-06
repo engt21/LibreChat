@@ -13,11 +13,7 @@ const {
   deleteMessageBranch,
 } = require('~/models');
 const { findAllArtifacts, replaceArtifactContent } = require('~/server/services/Artifacts/update');
-const {
-  requireJwtAuth,
-  validateMessageReq,
-  createGraftLimiters,
-} = require('~/server/middleware');
+const { requireJwtAuth, validateMessageReq, createGraftLimiters } = require('~/server/middleware');
 const { getConvosQueried } = require('~/models/Conversation');
 const { Message, ToolCall } = require('~/db/models');
 const { getTransactions } = require('~/models/Transaction');
@@ -28,6 +24,7 @@ const {
   getGenerationGraft,
   undoGenerationGraft,
 } = require('~/server/services/MessageGrafts');
+const { MAX_GRAFT_MESSAGES } = require('~/server/services/MessageGrafts/constants');
 
 const router = express.Router();
 router.use(requireJwtAuth);
@@ -52,6 +49,35 @@ requireFunction('createGenerationGraft', createGenerationGraft);
 requireFunction('getGenerationGraft', getGenerationGraft);
 requireFunction('undoGenerationGraft', undoGenerationGraft);
 
+function sanitizeMessageIdArray(values, maxItems = MAX_GRAFT_MESSAGES) {
+  if (!Array.isArray(values)) {
+    return undefined;
+  }
+
+  const sanitizedValues = [];
+  const seenValues = new Set();
+
+  for (const value of values) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+
+    const trimmedValue = value.trim();
+    if (trimmedValue.length === 0 || seenValues.has(trimmedValue)) {
+      continue;
+    }
+
+    seenValues.add(trimmedValue);
+    sanitizedValues.push(trimmedValue);
+
+    if (sanitizedValues.length >= maxItems) {
+      break;
+    }
+  }
+
+  return sanitizedValues.length > 0 ? sanitizedValues : undefined;
+}
+
 function sendGraftError(res, error) {
   const statusCode = error?.statusCode ?? 500;
 
@@ -64,7 +90,7 @@ function sendGraftError(res, error) {
     code: error.code,
     activeMessageIds: error.activeMessageIds,
     conversationActiveWithoutMessageId: error.conversationActiveWithoutMessageId === true,
-    continuationMessageIds: error.continuationMessageIds,
+    continuationMessageIds: sanitizeMessageIdArray(error.continuationMessageIds),
   });
 }
 
@@ -413,20 +439,25 @@ router.post(
   },
 );
 
-router.post('/:conversationId/grafts', graftMutationIpLimiter, graftMutationUserLimiter, async (req, res) => {
-  try {
-    const result = await createGenerationGraft({
-      userId: req.user.id,
-      conversationId: req.params.conversationId,
-      payload: req.body ?? {},
-    });
+router.post(
+  '/:conversationId/grafts',
+  graftMutationIpLimiter,
+  graftMutationUserLimiter,
+  async (req, res) => {
+    try {
+      const result = await createGenerationGraft({
+        userId: req.user.id,
+        conversationId: req.params.conversationId,
+        payload: req.body ?? {},
+      });
 
-    res.status(201).json(result);
-  } catch (error) {
-    logger.error('Error creating generation graft:', error);
-    sendGraftError(res, error);
-  }
-});
+      res.status(201).json(result);
+    } catch (error) {
+      logger.error('Error creating generation graft:', error);
+      sendGraftError(res, error);
+    }
+  },
+);
 
 router.get('/:conversationId/grafts/:graftId', async (req, res) => {
   try {
@@ -461,7 +492,6 @@ router.delete(
     }
   },
 );
-
 
 router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
   try {

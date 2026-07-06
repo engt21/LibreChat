@@ -90,6 +90,51 @@ function CountCard({ label, value }: { label: string; value: number }) {
   );
 }
 
+function normalizeWarningText(warning: string) {
+  return warning.trim().toLowerCase();
+}
+
+function formatMessageIdSuffix(messageId: string) {
+  const trimmedMessageId = messageId.trim();
+  if (trimmedMessageId.length <= 8) {
+    return trimmedMessageId;
+  }
+
+  return `...${trimmedMessageId.slice(-8)}`;
+}
+
+function CountSection({
+  title,
+  counts,
+  localize,
+}: {
+  title: string;
+  counts: TGenerationGraftDetailsResponse['copiedCounts'];
+  localize: ReturnType<typeof useLocalize>;
+}) {
+  return (
+    <div className="grid gap-2 rounded-2xl border border-border-medium bg-surface-secondary p-3">
+      <div className="text-sm font-medium text-text-primary">{title}</div>
+      <div className="grid grid-cols-2 gap-2">
+        <CountCard
+          label={localize('com_ui_generation_tree_counts_messages')}
+          value={counts.messages}
+        />
+        <CountCard
+          label={localize('com_ui_generation_tree_counts_tool_calls')}
+          value={counts.toolCalls}
+        />
+        <CountCard label={localize('com_ui_generation_tree_counts_files')} value={counts.files} />
+        <CountCard label={localize('com_ui_generation_tree_counts_images')} value={counts.images} />
+        <CountCard
+          label={localize('com_ui_generation_tree_counts_tokens')}
+          value={counts.approximateTokens}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function ConversationTreeInspector({
   sourceNode,
   destinationNode,
@@ -119,15 +164,63 @@ export default function ConversationTreeInspector({
     getLifecycleLabel(localize, preview?.destinationState ?? destinationNode?.lifecycle ?? null) ??
     null;
   const counts = preview?.counts ?? null;
-  const showPartialWarning =
+  const hasPartialSelection =
     preview?.sourceState != null &&
     (preview.sourceState !== 'complete' || preview.destinationState !== 'complete');
+  const warningMessages = (() => {
+    const nextWarnings: string[] = [];
+    const seenWarnings = new Set<string>();
+    const appendWarning = (warning: string | null | undefined) => {
+      if (typeof warning !== 'string') {
+        return;
+      }
+
+      const trimmedWarning = warning.trim();
+      if (trimmedWarning.length === 0) {
+        return;
+      }
+
+      const normalizedWarning = normalizeWarningText(trimmedWarning);
+      if (seenWarnings.has(normalizedWarning)) {
+        return;
+      }
+
+      seenWarnings.add(normalizedWarning);
+      nextWarnings.push(trimmedWarning);
+    };
+
+    for (const warning of preview?.warnings ?? []) {
+      appendWarning(warning);
+    }
+
+    if (hasPartialSelection) {
+      appendWarning(localize('com_ui_generation_tree_partial_warning'));
+    }
+
+    return nextWarnings;
+  })();
   const createDisabled = phase !== 'ready' || preview?.canCreate !== true;
   const isBusy =
     phase === 'previewing' ||
     phase === 'creating' ||
     phase === 'stabilization' ||
     phase === 'undoing';
+  const continuationScope = (() => {
+    const continuationIds = undoDetails?.continuationMessageIds ?? [];
+    const visibleIds = continuationIds
+      .filter(
+        (messageId): messageId is string =>
+          typeof messageId === 'string' && messageId.trim().length > 0,
+      )
+      .slice(0, 5)
+      .map((messageId) => formatMessageIdSuffix(messageId));
+    const hiddenCount = Math.max(continuationIds.length - visibleIds.length, 0);
+
+    return {
+      visibleIds,
+      hiddenCount,
+    };
+  })();
 
   return (
     <div
@@ -211,9 +304,16 @@ export default function ConversationTreeInspector({
         </div>
       ) : null}
 
-      {showPartialWarning ? (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-text-primary">
-          {localize('com_ui_generation_tree_partial_warning')}
+      {warningMessages.length > 0 ? (
+        <div className="grid gap-2">
+          {warningMessages.map((warning) => (
+            <div
+              key={warning}
+              className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-text-primary"
+            >
+              {warning}
+            </div>
+          ))}
         </div>
       ) : null}
 
@@ -240,6 +340,44 @@ export default function ConversationTreeInspector({
           className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-text-primary"
         >
           {error.error}
+        </div>
+      ) : null}
+
+      {created && undoDetails ? (
+        <div className="grid gap-3 rounded-2xl border border-border-medium bg-surface-primary p-3">
+          <div>
+            <div className="text-sm font-medium text-text-primary">
+              {localize('com_ui_generation_tree_undo_scope_title')}
+            </div>
+            <div className="text-xs text-text-secondary">
+              {localize('com_ui_generation_tree_undo_scope_description')}
+            </div>
+          </div>
+          <CountSection
+            title={localize('com_ui_generation_tree_copied_counts')}
+            counts={undoDetails.copiedCounts}
+            localize={localize}
+          />
+          <CountSection
+            title={localize('com_ui_generation_tree_continuation_counts')}
+            counts={undoDetails.continuationCounts}
+            localize={localize}
+          />
+          {continuationScope.visibleIds.length > 0 ? (
+            <div className="rounded-xl border border-border-medium bg-surface-secondary px-3 py-2 text-sm text-text-primary">
+              <div className="text-xs uppercase tracking-wide text-text-secondary">
+                {localize('com_ui_generation_tree_continuation_scope')}
+              </div>
+              <div className="mt-1 break-words">
+                {continuationScope.visibleIds.join(', ')}
+                {continuationScope.hiddenCount > 0
+                  ? ` ${localize('com_ui_generation_tree_continuation_scope_more', {
+                      count: continuationScope.hiddenCount,
+                    })}`
+                  : null}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

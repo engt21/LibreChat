@@ -219,6 +219,27 @@ function getLocalStabilizationState(
   };
 }
 
+function getCreatedFitMessageIds(createdResponse: TGenerationGraftCreateResponse): string[] {
+  const seenMessageIds = new Set<string>();
+  const fitMessageIds: string[] = [];
+
+  for (const messageId of [
+    createdResponse.bridgeMessageId,
+    createdResponse.copiedRootMessageId,
+    ...createdResponse.createdMessages.map((message) => message.messageId),
+    createdResponse.activeCopiedMessageId,
+  ]) {
+    if (typeof messageId !== 'string' || messageId.length === 0 || seenMessageIds.has(messageId)) {
+      continue;
+    }
+
+    seenMessageIds.add(messageId);
+    fitMessageIds.push(messageId);
+  }
+
+  return fitMessageIds;
+}
+
 export default function useGenerationGraft({
   conversationId,
   graph,
@@ -731,7 +752,7 @@ export default function useGenerationGraft({
         } as TMessage);
       setLatestMessage?.(latestMessage);
       onFocusMessage?.(createdResponse.activeCopiedMessageId);
-      onFitCreated?.([createdResponse.bridgeMessageId, createdResponse.activeCopiedMessageId]);
+      onFitCreated?.(getCreatedFitMessageIds(createdResponse));
       showToast({
         message: localize('com_ui_generation_tree_created_success'),
         status: 'success',

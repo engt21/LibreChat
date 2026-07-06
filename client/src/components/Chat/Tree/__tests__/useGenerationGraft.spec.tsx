@@ -194,8 +194,8 @@ const createResult: TGenerationGraftCreateResponse = {
   graftId: 'graft-1',
   bridgeMessageId: 'bridge-1',
   copiedRootMessageId: 'copy-1',
-  activeCopiedMessageId: 'copy-2',
-  copiedMessageCount: 2,
+  activeCopiedMessageId: 'copy-3',
+  copiedMessageCount: 3,
   createdMessages: [
     {
       messageId: 'bridge-1',
@@ -203,9 +203,19 @@ const createResult: TGenerationGraftCreateResponse = {
       text: 'Bridge',
     } as never,
     {
+      messageId: 'copy-1',
+      conversationId: 'convo-1',
+      text: 'Copy 1',
+    } as never,
+    {
       messageId: 'copy-2',
       conversationId: 'convo-1',
       text: 'Copy 2',
+    } as never,
+    {
+      messageId: 'copy-3',
+      conversationId: 'convo-1',
+      text: 'Copy 3',
     } as never,
   ],
 };
@@ -687,10 +697,10 @@ describe('useGenerationGraft', () => {
 
     expect(result.current.phase).toBe('created');
     expect(mockSetLatestMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ messageId: 'copy-2' }),
+      expect.objectContaining({ messageId: 'copy-3' }),
     );
-    expect(onFocusMessage).toHaveBeenCalledWith('copy-2');
-    expect(onFitCreated).toHaveBeenCalledWith(['bridge-1', 'copy-2']);
+    expect(onFocusMessage).toHaveBeenCalledWith('copy-3');
+    expect(onFitCreated).toHaveBeenCalledWith(['bridge-1', 'copy-1', 'copy-2', 'copy-3']);
     expect(mockShowToast).toHaveBeenCalledWith(
       expect.objectContaining({
         message: 'Generation graft created.',

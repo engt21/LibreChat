@@ -1,5 +1,6 @@
 const express = require('express');
 const request = require('supertest');
+const { MAX_GRAFT_MESSAGES } = require('~/server/services/MessageGrafts/constants');
 
 const GRAFT_ENV_KEYS = [
   'GRAFT_RATE_WINDOW_MINUTES',
@@ -138,21 +139,23 @@ function mockMessagesRouteDependencies({
   jest.doMock(
     '~/server/services/MessageGrafts',
     () =>
-      (messageGraftsModuleFactory?.({
+      messageGraftsModuleFactory?.({
         previewGenerationGraft,
         createGenerationGraft,
         getGenerationGraft,
         undoGenerationGraft,
-      }) ?? defaultMessageGraftsModule),
+      }) ?? defaultMessageGraftsModule,
   );
 
-  jest.doMock('~/server/middleware', () =>
-    middlewareFactory?.() ?? {
-      requireJwtAuth: (req, res, next) => next(),
-      validateMessageReq: (req, res, next) => next(),
-      createGraftLimiters:
-        jest.requireActual('~/server/middleware/limiters/graftLimiters').createGraftLimiters,
-    },
+  jest.doMock(
+    '~/server/middleware',
+    () =>
+      middlewareFactory?.() ?? {
+        requireJwtAuth: (req, res, next) => next(),
+        validateMessageReq: (req, res, next) => next(),
+        createGraftLimiters: jest.requireActual('~/server/middleware/limiters/graftLimiters')
+          .createGraftLimiters,
+      },
   );
 
   return {
@@ -254,7 +257,9 @@ describe('generation graft message routes', () => {
     configureEnv();
     jest.resetModules();
 
-    jest.doMock('@librechat/api', () => ({ limiterCache: jest.fn(() => undefined) }), { virtual: true });
+    jest.doMock('@librechat/api', () => ({ limiterCache: jest.fn(() => undefined) }), {
+      virtual: true,
+    });
     jest.doMock('@librechat/data-schemas', () => ({ logger: createRouteLogger() }));
     jest.doMock('~/cache/logViolation', () => jest.fn().mockResolvedValue(undefined));
     jest.doMock('~/server/middleware/limiters/ttsLimiters', () => jest.fn());
@@ -326,7 +331,11 @@ describe('generation graft message routes', () => {
   it('router module load fails when a graft service export is absent', () => {
     expect(() =>
       loadMessagesRouter({
-        messageGraftsModuleFactory: ({ previewGenerationGraft, createGenerationGraft, undoGenerationGraft }) => ({
+        messageGraftsModuleFactory: ({
+          previewGenerationGraft,
+          createGenerationGraft,
+          undoGenerationGraft,
+        }) => ({
           previewGenerationGraft,
           createGenerationGraft,
           getGenerationGraft: undefined,
@@ -582,6 +591,47 @@ describe('generation graft message routes', () => {
       conversationActiveWithoutMessageId: false,
     });
     expect(routeLogger.error).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes continuation ids in 409 undo responses', async () => {
+    const { app, undoGenerationGraft } = setupApp();
+    const excessIds = Array.from(
+      { length: MAX_GRAFT_MESSAGES + 5 },
+      (_, index) => `extra-${index}`,
+    );
+
+    undoGenerationGraft.mockRejectedValueOnce(
+      createTestError('Undo requires deleting continuations first.', {
+        statusCode: 409,
+        code: 'GRAFT_HAS_CONTINUATIONS',
+        continuationMessageIds: [
+          'continuation-1',
+          '  continuation-2  ',
+          '',
+          '   ',
+          null,
+          42,
+          'continuation-1',
+          ...excessIds,
+        ],
+        leakedPayload: { unsafe: true },
+      }),
+    );
+
+    const response = await request(app)
+      .delete('/api/messages/convo-1/grafts/graft-1')
+      .send({ includeContinuations: false });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe('Undo requires deleting continuations first.');
+    expect(response.body.code).toBe('GRAFT_HAS_CONTINUATIONS');
+    expect(response.body.conversationActiveWithoutMessageId).toBe(false);
+    expect(response.body.continuationMessageIds).toEqual([
+      'continuation-1',
+      'continuation-2',
+      ...excessIds.slice(0, MAX_GRAFT_MESSAGES - 2),
+    ]);
+    expect(response.body).not.toHaveProperty('leakedPayload');
   });
 
   it('rate limits preview requests per user and keeps user counters separate', async () => {

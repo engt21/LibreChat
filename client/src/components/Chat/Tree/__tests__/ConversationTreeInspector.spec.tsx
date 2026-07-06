@@ -6,7 +6,7 @@ import { layoutConversationTree } from '../layout';
 
 jest.mock('~/hooks/useLocalize', () => ({
   __esModule: true,
-  default: () => (key: string) =>
+  default: () => (key: string, options?: Record<string, unknown>) =>
     ({
       com_sidepanel_conversation_tree: 'Conversation Tree',
       com_ui_generation_tree_source: 'Source',
@@ -25,6 +25,13 @@ jest.mock('~/hooks/useLocalize', () => ({
       com_ui_generation_tree_counts_tokens: 'Approximate tokens',
       com_ui_generation_tree_before_after: 'Branch preview',
       com_ui_generation_tree_create: 'Create graft',
+      com_ui_generation_tree_copied_counts: 'Copied by graft',
+      com_ui_generation_tree_continuation_counts: 'Later continuations',
+      com_ui_generation_tree_undo_scope_title: 'Undo scope',
+      com_ui_generation_tree_undo_scope_description:
+        'Deleting later continuations will remove the copied grafted branch and any later follow-up messages.',
+      com_ui_generation_tree_continuation_scope: 'Continuation scope',
+      com_ui_generation_tree_continuation_scope_more: `+${options?.count ?? 0} more`,
       com_ui_generation_tree_wait_to_finish: 'Wait for it to finish',
       com_ui_generation_tree_stop_and_graft: 'Stop and graft',
       com_ui_cancel: 'Cancel',
@@ -89,7 +96,11 @@ describe('ConversationTreeInspector', () => {
             images: 1,
             approximateTokens: 64,
           },
-          warnings: ['Partial'],
+          warnings: [
+            'Server warning',
+            'Partial generations are copied as incomplete prior context.',
+            'Server warning',
+          ],
           treeRevision: 'server-rev-1',
           requiresStabilization: false,
           activeMessageIds: [],
@@ -114,9 +125,11 @@ describe('ConversationTreeInspector', () => {
     expect(screen.getByText('Stopped partial')).toBeInTheDocument();
     expect(screen.getByText('Messages')).toBeInTheDocument();
     expect(screen.getByText('64')).toBeInTheDocument();
+    expect(screen.getByText('Server warning')).toBeInTheDocument();
     expect(
-      screen.getByText('Partial generations are copied as incomplete prior context.'),
-    ).toBeInTheDocument();
+      screen.getAllByText('Partial generations are copied as incomplete prior context.'),
+    ).toHaveLength(1);
+    expect(screen.getAllByText('Server warning')).toHaveLength(1);
     expect(screen.getByRole('radio', { name: 'Generation only' })).not.toBeChecked();
     expect(screen.getByRole('radio', { name: 'Generation and subtree' })).toBeChecked();
     expect(screen.getByRole('button', { name: 'Create graft' })).toBeDisabled();
@@ -151,20 +164,27 @@ describe('ConversationTreeInspector', () => {
           graftId: 'graft-1',
           bridgeMessageId: 'bridge-1',
           copiedMessageIds: ['copy-1'],
-          continuationMessageIds: ['later-1'],
+          continuationMessageIds: [
+            'continuation-message-0001',
+            'continuation-message-0002',
+            'continuation-message-0003',
+            'continuation-message-0004',
+            'continuation-message-0005',
+            'continuation-message-0006',
+          ],
           copiedCounts: {
-            messages: 1,
-            toolCalls: 0,
-            files: 0,
+            messages: 3,
+            toolCalls: 2,
+            files: 1,
             images: 0,
-            approximateTokens: 10,
+            approximateTokens: 120,
           },
           continuationCounts: {
-            messages: 1,
-            toolCalls: 0,
-            files: 0,
-            images: 0,
-            approximateTokens: 12,
+            messages: 6,
+            toolCalls: 1,
+            files: 2,
+            images: 1,
+            approximateTokens: 240,
           },
           canUndoWithoutContinuations: false,
           mode: 'generation',
@@ -198,6 +218,15 @@ describe('ConversationTreeInspector', () => {
       screen.getByRole('button', { name: 'Undo graft and delete later continuation' }),
     );
 
+    expect(screen.getByText('Undo scope')).toBeInTheDocument();
+    expect(screen.getByText('Copied by graft')).toBeInTheDocument();
+    expect(screen.getByText('Later continuations')).toBeInTheDocument();
+    expect(screen.getByText('120')).toBeInTheDocument();
+    expect(screen.getByText('240')).toBeInTheDocument();
+    expect(screen.getByText('Continuation scope')).toBeInTheDocument();
+    expect(
+      screen.getByText('...age-0001, ...age-0002, ...age-0003, ...age-0004, ...age-0005 +1 more'),
+    ).toBeInTheDocument();
     expect(onStopAndGraft).toHaveBeenCalled();
     expect(onWaitForCompletion).toHaveBeenCalled();
     expect(onCancelStabilization).toHaveBeenCalled();
