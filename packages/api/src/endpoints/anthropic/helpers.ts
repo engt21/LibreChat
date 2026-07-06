@@ -4,6 +4,7 @@ import {
   EModelEndpoint,
   AnthropicEffort,
   anthropicSettings,
+  hasAlwaysOnAdaptiveThinking,
   supportsContext1m,
   supportsAdaptiveThinking,
 } from 'librechat-data-provider';
@@ -182,9 +183,14 @@ function configureReasoning(
   const updatedOptions = { ...anthropicInput };
   const currentMaxTokens = updatedOptions.max_tokens ?? updatedOptions.maxTokens;
   const modelName = updatedOptions.model ?? '';
+  const hasImplicitAdaptiveThinking = modelName ? hasAlwaysOnAdaptiveThinking(modelName) : false;
 
   if (extendedOptions.thinking && modelName && supportsAdaptiveThinking(modelName)) {
-    updatedOptions.thinking = { type: 'adaptive' };
+    if (hasImplicitAdaptiveThinking) {
+      delete updatedOptions.thinking;
+    } else {
+      updatedOptions.thinking = { type: 'adaptive' };
+    }
 
     const effort = extendedOptions.effort;
     if (effort && effort !== AnthropicEffort.unset) {

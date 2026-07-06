@@ -57,8 +57,50 @@ function parseSonnetVersion(model: string): { major: number; minor: number } | n
   return null;
 }
 
+function parseAnthropicFamilyVersion(
+  model: string,
+  family: 'fable' | 'mythos',
+): { major: number; minor: number } | null {
+  const nameFirst = model.match(new RegExp(`claude-${family}[-.]?(\\d+)(?:[-.](\\d+))?`));
+  if (nameFirst) {
+    return {
+      major: parseInt(nameFirst[1], 10),
+      minor: nameFirst[2] != null ? parseInt(nameFirst[2], 10) : 0,
+    };
+  }
+
+  const numFirst = model.match(new RegExp(`claude-(\\d+)(?:[-.](\\d+))?-${family}`));
+  if (numFirst) {
+    return {
+      major: parseInt(numFirst[1], 10),
+      minor: numFirst[2] != null ? parseInt(numFirst[2], 10) : 0,
+    };
+  }
+
+  return null;
+}
+
+/** Checks if a model has always-on adaptive thinking (Fable 5+, Mythos 5+) */
+export function hasAlwaysOnAdaptiveThinking(model: string): boolean {
+  const mythos = parseAnthropicFamilyVersion(model, 'mythos');
+  if (mythos && mythos.major >= 5) {
+    return true;
+  }
+
+  const fable = parseAnthropicFamilyVersion(model, 'fable');
+  if (fable && fable.major >= 5) {
+    return true;
+  }
+
+  return false;
+}
+
 /** Checks if a model supports adaptive thinking (Opus 4.6+, Sonnet 4.6+) */
 export function supportsAdaptiveThinking(model: string): boolean {
+  if (hasAlwaysOnAdaptiveThinking(model)) {
+    return true;
+  }
+
   const opus = parseOpusVersion(model);
   if (opus && (opus.major > 4 || (opus.major === 4 && opus.minor >= 6))) {
     return true;
@@ -231,6 +273,7 @@ export const bedrockInputParser = s.tConversationSchema
         ))
     ) {
       const isAdaptive = supportsAdaptiveThinking(typedData.model as string);
+      const hasImplicitAdaptiveThinking = hasAlwaysOnAdaptiveThinking(typedData.model as string);
 
       if (isAdaptive) {
         const effort = additionalFields.effort;
@@ -239,12 +282,18 @@ export const bedrockInputParser = s.tConversationSchema
         }
         delete additionalFields.effort;
 
-        if (additionalFields.thinking === false) {
+        if (hasImplicitAdaptiveThinking || additionalFields.thinking === false) {
           delete additionalFields.thinking;
           delete additionalFields.thinkingBudget;
         } else {
           additionalFields.thinking = { type: 'adaptive' };
           delete additionalFields.thinkingBudget;
+        }
+
+        if (hasImplicitAdaptiveThinking) {
+          delete typedData.temperature;
+          delete typedData.topP;
+          delete additionalFields.top_k;
         }
       } else {
         if (additionalFields.thinking === undefined) {
@@ -305,6 +354,13 @@ export const bedrockInputParser = s.tConversationSchema
       } else {
         delete amrf.reasoning_config;
         delete amrf.reasoning_effort;
+        delete amrf.effort;
+
+        if (typeof typedData.model === 'string' && hasAlwaysOnAdaptiveThinking(typedData.model)) {
+          delete amrf.thinking;
+          delete amrf.thinkingBudget;
+          delete amrf.top_k;
+        }
       }
     }
 

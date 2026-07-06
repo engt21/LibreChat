@@ -5,6 +5,7 @@ import {
   AnthropicAdvisorModel,
   anthropicSettings,
   getAnthropicModelCapabilities,
+  hasAlwaysOnAdaptiveThinking,
   removeNullishValues,
   AuthKeys,
 } from 'librechat-data-provider';
@@ -314,6 +315,15 @@ function getLLMConfig(
   }
 
   requestOptions = configureReasoning(requestOptions, systemOptions);
+  const hasImplicitAdaptiveThinking = hasAlwaysOnAdaptiveThinking(mergedOptions.model);
+
+  if (hasImplicitAdaptiveThinking) {
+    delete requestOptions.thinking;
+    requestOptions.invocationKwargs = {
+      ...requestOptions.invocationKwargs,
+      thinking: undefined,
+    };
+  }
 
   if (supportsAdaptiveThinking(mergedOptions.model)) {
     if (
@@ -336,14 +346,6 @@ function getLLMConfig(
     if (requestOptions.invocationKwargs?.output_config) {
       delete requestOptions.invocationKwargs.output_config;
     }
-  }
-
-  const hasActiveThinking = requestOptions.thinking != null;
-  const isThinkingModel =
-    /claude-3[-.]7/.test(mergedOptions.model) || supportsAdaptiveThinking(mergedOptions.model);
-  if (!isThinkingModel || !hasActiveThinking) {
-    requestOptions.topP = mergedOptions.topP;
-    requestOptions.topK = mergedOptions.topK;
   }
 
   const supportsCacheControl =
@@ -493,12 +495,15 @@ function getLLMConfig(
         `[Anthropic] Web search was requested for unsupported model "${mergedOptions.model}".`,
       );
     } else {
+      let webSearchToolType = ANTHROPIC_WEB_SEARCH_TOOL;
+      if (isVertexAnthropic) {
+        webSearchToolType = ANTHROPIC_VERTEX_WEB_SEARCH_TOOL;
+      } else if (canUseCodeExecution) {
+        webSearchToolType = ANTHROPIC_WEB_SEARCH_DYNAMIC_TOOL;
+      }
+
       tools.push({
-        type: isVertexAnthropic
-          ? ANTHROPIC_VERTEX_WEB_SEARCH_TOOL
-          : canUseCodeExecution
-            ? ANTHROPIC_WEB_SEARCH_DYNAMIC_TOOL
-            : ANTHROPIC_WEB_SEARCH_TOOL,
+        type: webSearchToolType,
         name: 'web_search',
       });
 
@@ -557,6 +562,21 @@ function getLLMConfig(
       });
       addAnthropicBetaHeader(requestOptions, ANTHROPIC_ADVISOR_BETA);
     }
+  }
+
+  const hasActiveThinking = requestOptions.thinking != null;
+  const isThinkingModel =
+    /claude-3[-.]7/.test(mergedOptions.model) || supportsAdaptiveThinking(mergedOptions.model);
+  if (hasImplicitAdaptiveThinking) {
+    delete requestOptions.temperature;
+    delete requestOptions.topP;
+    delete requestOptions.topK;
+  } else if (isThinkingModel && hasActiveThinking) {
+    delete requestOptions.topP;
+    delete requestOptions.topK;
+  } else {
+    requestOptions.topP = requestOptions.topP ?? mergedOptions.topP;
+    requestOptions.topK = requestOptions.topK ?? mergedOptions.topK;
   }
 
   return {
