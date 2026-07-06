@@ -105,6 +105,7 @@ export type ConversationTreeViewportCommands = {
   fitTree: () => void;
   fitActiveBranch: () => void;
   fitSelection: () => void;
+  fitMessageIds: (messageIds: Iterable<string>) => void;
   recenterOnWorldPoint: (point: { x: number; y: number }) => void;
 };
 

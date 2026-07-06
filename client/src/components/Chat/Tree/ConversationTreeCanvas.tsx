@@ -148,6 +148,13 @@ export default function ConversationTreeCanvas({
     fitBounds(getBoundsForNodeIds(layout, selectionIds));
   }, [destinationMessageId, fitBounds, layout, sourceMessageId]);
 
+  const fitMessageIds = useCallback(
+    (messageIds: Iterable<string>) => {
+      fitBounds(getBoundsForNodeIds(layout, messageIds));
+    },
+    [fitBounds, layout],
+  );
+
   const recenterOnWorldPoint = useCallback(
     (point: { x: number; y: number }) => {
       applyTransform(recenterTransformAtWorldPoint(point, viewportSize, transformState));
@@ -160,9 +167,17 @@ export default function ConversationTreeCanvas({
       fitTree,
       fitActiveBranch,
       fitSelection,
+      fitMessageIds,
       recenterOnWorldPoint,
     });
-  }, [fitActiveBranch, fitSelection, fitTree, onRegisterViewportCommands, recenterOnWorldPoint]);
+  }, [
+    fitActiveBranch,
+    fitMessageIds,
+    fitSelection,
+    fitTree,
+    onRegisterViewportCommands,
+    recenterOnWorldPoint,
+  ]);
 
   useEffect(() => {
     const element = wrapperRef.current;
@@ -311,7 +326,11 @@ export default function ConversationTreeCanvas({
     localStatusText || statusText || localize('com_ui_generation_tree_announcer_opened');
 
   return (
-    <div ref={wrapperRef} className="relative h-full min-h-0 overflow-hidden bg-surface-secondary">
+    <div
+      ref={wrapperRef}
+      data-testid="tree-canvas-surface"
+      className="relative h-full min-h-0 overflow-hidden bg-surface-secondary"
+    >
       <TransformWrapper
         ref={transformRef}
         initialScale={initialTransformState?.scale ?? 1}

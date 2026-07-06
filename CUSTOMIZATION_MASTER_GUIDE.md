@@ -55,6 +55,7 @@ The custom work falls into these main buckets:
 16. UX preservation fixes and ordering controls, including local-upload persistence across model/preset switches, fixed sidebar chat recency/month buckets, user-sortable presets, and safe preset duplication
 17. Owner-only linked-chat references that let normal chats and Agents resolve explicitly pasted LibreChat `/c/<UUID>` URLs and owned `/share/<shareId>` snapshots into bounded, ephemeral historical context
 18. Admin-controlled deterministic default `calculator`, `text_analyzer`, `string_utility`, and `json_utility` structured tools attached server-side to every interactive model request
+19. Interactive generation-tree graft preview stabilization, create, focus, and undo flow in the conversation tree dialog
 
 ---
 
@@ -960,6 +961,17 @@ These are the files and areas most likely to need careful manual review when mer
 - `api/server/services/Files/process.js`
 - `packages/data-schemas/src/schema/file.ts`
 - related file metadata/types/methods
+
+### Generation-tree grafting
+
+- `client/src/components/Chat/Tree/{ConversationTreeDialog,ConversationTreeInspector,ConversationTreeCanvas,useGenerationGraft,types}.tsx`
+- `client/src/components/Chat/Tree/__tests__/{ConversationTreeDialog,ConversationTreeInspector,useGenerationGraft}.spec.tsx`
+- `client/src/locales/en/translation.json`
+- `client/src/data-provider/Messages/generationGrafts.ts`
+- `client/src/data-provider/Messages/generationGrafts.spec.tsx`
+- `packages/data-provider/src/types.ts`
+- `api/server/routes/messages.js`
+- `api/server/routes/__tests__/messages-grafts.spec.js`
 
 ### Sidebar grouping and preset ordering
 

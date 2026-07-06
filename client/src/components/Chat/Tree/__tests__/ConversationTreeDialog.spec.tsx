@@ -3,6 +3,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { dataService } from 'librechat-data-provider';
 
+const mockUseGenerationGraft = jest.fn();
+
 let mockIsMobile = false;
 let mockConversationId = 'convo-1';
 let mockLatestMessageId = 'assistant-b';
@@ -110,6 +112,11 @@ jest.mock('~/hooks/useLocalize', () => ({
       com_ui_generation_tree_state_aborted_partial: 'Aborted partial',
       com_ui_generation_tree_state_errored_partial: 'Errored partial',
       com_ui_generation_tree_state_streaming: 'Streaming',
+      com_ui_generation_tree_create: 'Create graft',
+      com_ui_generation_tree_undo: 'Undo',
+      com_ui_generation_tree_stop_and_graft: 'Stop and graft',
+      com_ui_generation_tree_undo_destructive: 'Undo graft and delete later continuation',
+      com_ui_cancel: 'Cancel',
     })[key] ?? key,
 }));
 
@@ -135,7 +142,40 @@ jest.mock('~/data-provider', () => ({
   useStreamStatus: jest.fn(() => mockStreamStatus),
 }));
 
+jest.mock(
+  '../useGenerationGraft',
+  () => ({
+    __esModule: true,
+    default: (...args: unknown[]) => mockUseGenerationGraft(...args),
+  }),
+  { virtual: true },
+);
+
 import ConversationTreeDialog from '../ConversationTreeDialog';
+
+const createGenerationGraftState = (overrides: Record<string, unknown> = {}) => ({
+  phase: 'selecting',
+  mode: 'generation',
+  sourceMessageId: 'assistant-b',
+  destinationMessageId: null,
+  preview: null,
+  created: null,
+  undoDetails: null,
+  error: null,
+  stabilization: null,
+  canCreate: false,
+  selectSourceMessage: jest.fn(),
+  selectDestinationMessage: jest.fn(),
+  setMode: jest.fn(),
+  requestPreview: jest.fn(),
+  createGraft: jest.fn(),
+  undoGraft: jest.fn(),
+  confirmUndoContinuations: jest.fn(),
+  stopAndGraft: jest.fn(),
+  waitForCompletion: jest.fn(),
+  cancelStabilization: jest.fn(),
+  ...overrides,
+});
 
 function dispatchPointerEvent(
   target: EventTarget,
@@ -175,6 +215,7 @@ describe('ConversationTreeDialog', () => {
     jest.useFakeTimers();
     (dataService.createGenerationGraft as jest.Mock).mockReset();
     (dataService.createGenerationGraft as jest.Mock).mockResolvedValue({} as never);
+    mockUseGenerationGraft.mockReturnValue(createGenerationGraftState());
   });
 
   afterEach(() => {
@@ -210,6 +251,101 @@ describe('ConversationTreeDialog', () => {
     expect(
       screen.getByText('Browse conversation branches and choose a generation to graft.'),
     ).toBeInTheDocument();
+  });
+
+  it('requests a preview from drag and drop without creating immediately', () => {
+    mockIsSubmitting = false;
+    mockStreamStatus = {
+      data: {
+        active: false,
+        responseMessageId: null,
+      },
+    };
+    const requestPreview = jest.fn();
+    const createGraft = jest.fn();
+    mockUseGenerationGraft.mockReturnValue(
+      createGenerationGraftState({
+        requestPreview,
+        createGraft,
+      }),
+    );
+
+    render(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    const originalElementsFromPoint = document.elementsFromPoint;
+    document.elementsFromPoint = jest.fn(() => [screen.getByTestId('tree-node-assistant-a')]);
+
+    fireEvent.pointerDown(screen.getByTestId('graft-handle-assistant-b'), {
+      pointerId: 1,
+      clientX: 10,
+      clientY: 10,
+    });
+    fireEvent.pointerMove(screen.getByTestId('tree-canvas-surface'), {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+    });
+    fireEvent.pointerUp(screen.getByTestId('tree-canvas-surface'), {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+    });
+
+    document.elementsFromPoint = originalElementsFromPoint;
+
+    expect(requestPreview).toHaveBeenCalled();
+    expect(createGraft).not.toHaveBeenCalled();
+  });
+
+  it('renders the create action disabled until the hook reaches the ready phase', () => {
+    mockUseGenerationGraft.mockReturnValue(
+      createGenerationGraftState({
+        phase: 'previewing',
+        canCreate: false,
+        preview: {
+          conversationId: 'convo-1',
+          sourceMessageId: 'assistant-b',
+          destinationMessageId: 'assistant-a',
+          mode: 'generation',
+          sourceState: 'complete',
+          destinationState: 'complete',
+          copiedMessageIds: ['assistant-b'],
+          activeSourceLeafMessageId: 'assistant-b',
+          destinationChildCount: 0,
+          counts: {
+            messages: 1,
+            toolCalls: 0,
+            files: 0,
+            images: 0,
+            approximateTokens: 24,
+          },
+          warnings: [],
+          treeRevision: 'server-rev-1',
+          requiresStabilization: false,
+          activeMessageIds: [],
+          conversationActiveWithoutMessageId: false,
+          canCreate: true,
+        },
+      }),
+    );
+
+    render(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Create graft' })).toBeDisabled();
   });
 
   it('persists orientation and collapsed ids across reopen for the same conversation', () => {

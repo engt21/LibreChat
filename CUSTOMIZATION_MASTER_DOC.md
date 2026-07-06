@@ -2570,3 +2570,37 @@ picker and max/Ultra reasoning, explicit post-response memory routing, direct hi
 vision plus original-file Code Interpreter staging, actual partial-image streaming, immediate
 Send/Retry status, per-thread/per-turn usage, valid conversation fork trees, full generation-tree
 deletion, picker ordering, and local-upload persistence across model/preset/configuration switches.
+
+---
+
+### 3.25 Interactive generation-tree graft preview stabilization and undo flow
+
+#### What it does
+
+- Replaces the Task 11 placeholder inspector with an authoritative graft workflow for the conversation tree dialog and bottom-sheet variant.
+- Adds a client-side `useGenerationGraft()` state machine with explicit phases for selection, preview, stabilization, create, created, undo-preview, undoing, and recoverable error handling.
+- Treats complete, stopped partial, aborted partial, and errored partial assistant generations as valid graft endpoints. Only actively streaming selections require stabilization.
+- Uses server preview responses as the source of truth for copied counts, warnings, source/destination lifecycle badges, create eligibility, and before/after preview content.
+- Supports both `generation` and `subtree` modes, idempotent create retries keyed to `(source, destination, mode, active leaf, tree revision)`, and safe undo with continuation inspection before destructive deletion.
+- Stops or waits on canonical stream status at 500 ms intervals, refetches `[QueryKeys.messages, conversationId]` before retrying preview, and times out after 30 seconds with actionable UI copy.
+- After creation, focuses the grafted `activeCopiedMessageId`, updates the chat latest message, fits the created bridge/copy selection in the tree viewport, and shows a 10-second Undo toast action.
+
+#### Key files
+
+- `client/src/components/Chat/Tree/useGenerationGraft.ts`
+- `client/src/components/Chat/Tree/ConversationTreeDialog.tsx`
+- `client/src/components/Chat/Tree/ConversationTreeInspector.tsx`
+- `client/src/components/Chat/Tree/ConversationTreeCanvas.tsx`
+- `client/src/components/Chat/Tree/types.ts`
+- `client/src/components/Chat/Tree/__tests__/{useGenerationGraft,ConversationTreeInspector,ConversationTreeDialog}.spec.tsx`
+- `client/src/locales/en/translation.json`
+- `packages/data-provider/src/types.ts`
+- `client/src/data-provider/Messages/generationGrafts.spec.tsx`
+- `api/server/routes/{messages.js,__tests__/messages-grafts.spec.js}`
+
+#### Validation
+
+- `api`: `jest --config jest.config.js --runInBand server/routes/__tests__/messages-grafts.spec.js`
+- `client`: `jest --config jest.config.cjs --runInBand src/data-provider/Messages/generationGrafts.spec.tsx`
+- `client`: `jest --config jest.config.cjs --runInBand src/components/Chat/Tree/__tests__/useGenerationGraft.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeInspector.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeDialog.spec.tsx`
+- `client`: `jest --config jest.config.cjs --runInBand src/components/Chat/Tree/__tests__/ConversationTreeCanvas.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeList.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeMiniMap.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeViewport.spec.ts src/components/Chat/Tree/__tests__/visibleItems.spec.ts src/components/Chat/Tree/__tests__/ConversationTreeDialog.spec.tsx`

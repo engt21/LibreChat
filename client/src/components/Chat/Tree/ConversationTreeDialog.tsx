@@ -21,8 +21,10 @@ import ConversationTreeInspector from './ConversationTreeInspector';
 import ConversationTreeList from './ConversationTreeList';
 import ConversationTreeToolbar from './ConversationTreeToolbar';
 import useConversationTreeViewModel from './useConversationTreeViewModel';
+import useGenerationGraft from './useGenerationGraft';
 
 const EXIT_RESET_DELAY_MS = 200;
+const EMPTY_MESSAGES: ReturnType<ReturnType<typeof useChatContext>['getMessages']> = [];
 
 type ConversationTreeDialogProps = {
   open: boolean;
@@ -60,17 +62,35 @@ export default function ConversationTreeDialog({
     () => new Set(loadCollapsedTreeIds(conversationId)),
   );
   const [manualPositions, setManualPositions] = useState<Map<string, TreeNodePosition>>(new Map());
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(sourceMessageId);
-  const [selectedDestinationId, setSelectedDestinationId] = useState<string | null>(null);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(focusMessageId);
-  const [previewRequested, setPreviewRequested] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [arrangeMode, setArrangeMode] = useState(false);
   const [listOpen, setListOpen] = useState(true);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [autoFitToken, setAutoFitToken] = useState(0);
   const { data: streamStatus } = useStreamStatus(conversationId, open, open ? 1_000 : false);
-  const rawMessages = getMessages() ?? [];
+  const rawMessages = getMessages() ?? EMPTY_MESSAGES;
+  const activeLeafMessageId =
+    (streamStatus?.active ? streamStatus.responseMessageId : null) ??
+    (isSubmitting ? latestMessageId : null) ??
+    focusMessageId ??
+    null;
+  const sessionKey = `${conversationId}::${focusMessageId ?? ''}::${sourceMessageId ?? ''}`;
+  const treeRevision = useMemo(
+    () =>
+      [
+        streamStatus?.active === true ? 'active' : 'inactive',
+        streamStatus?.responseMessageId ?? 'none',
+        activeLeafMessageId ?? 'no-leaf',
+        ...rawMessages.map(
+          (message) =>
+            `${message.messageId}:${message.parentMessageId ?? ''}:${message.unfinished ? 1 : 0}:${
+              message.error ? 1 : 0
+            }:${message.finish_reason ?? ''}`,
+        ),
+      ].join('|'),
+    [activeLeafMessageId, rawMessages, streamStatus?.active, streamStatus?.responseMessageId],
+  );
 
   latestMessageIdRef.current = latestMessageId;
   isMobileRef.current = isMobile;
@@ -156,23 +176,19 @@ export default function ConversationTreeDialog({
 
     previousOpenRef.current = true;
 
-    const sessionKey = `${conversationId}::${focusMessageId ?? ''}::${sourceMessageId ?? ''}`;
     if (initializedSessionRef.current === sessionKey) {
       return;
     }
 
     initializedSessionRef.current = sessionKey;
-    setSelectedSourceId(sourceMessageId);
-    setSelectedDestinationId(null);
     setFocusedNodeId(focusMessageId ?? sourceMessageId ?? latestMessageIdRef.current ?? null);
-    setPreviewRequested(false);
     setArrangeMode(false);
     setManualPositions(new Map());
     setStatusText(localize('com_ui_generation_tree_announcer_opened'));
     setListOpen(!isMobileRef.current);
     setMobileSheetOpen(false);
     setAutoFitToken((currentToken) => currentToken + 1);
-  }, [conversationId, focusMessageId, localize, open, sourceMessageId]);
+  }, [focusMessageId, localize, open, sessionKey, sourceMessageId]);
 
   const activeMessageIds = useMemo(() => {
     const ids = new Set<string>();
@@ -198,16 +214,29 @@ export default function ConversationTreeDialog({
     orientation,
     collapsedIds,
     manualPositions,
-    activeLeafMessageId:
-      (streamStatus?.active ? streamStatus.responseMessageId : null) ??
-      (isSubmitting ? latestMessageId : null) ??
-      focusMessageId ??
-      null,
+    activeLeafMessageId,
   });
 
-  const sourceNode = selectedSourceId != null ? (layout.nodes.get(selectedSourceId) ?? null) : null;
+  const generationGraft = useGenerationGraft({
+    conversationId,
+    graph,
+    initialSourceMessageId: sourceMessageId,
+    treeRevision,
+    activeLeafMessageId,
+    sessionKey,
+    onFocusMessage: setFocusedNodeId,
+    onFitSelection: () => viewportCommandsRef.current?.fitSelection(),
+    onFitCreated: (messageIds) => viewportCommandsRef.current?.fitMessageIds(messageIds),
+  });
+
+  const sourceNode =
+    generationGraft.sourceMessageId != null
+      ? (layout.nodes.get(generationGraft.sourceMessageId) ?? null)
+      : null;
   const destinationNode =
-    selectedDestinationId != null ? (layout.nodes.get(selectedDestinationId) ?? null) : null;
+    generationGraft.destinationMessageId != null
+      ? (layout.nodes.get(generationGraft.destinationMessageId) ?? null)
+      : null;
 
   const updateCollapsedIds = useCallback((nextCollapsedIds: Set<string>) => {
     setCollapsedIds(new Set(nextCollapsedIds));
@@ -218,27 +247,27 @@ export default function ConversationTreeDialog({
       graph={graph}
       collapsedIds={collapsedIds}
       focusedMessageId={focusedNodeId}
-      sourceMessageId={selectedSourceId}
-      destinationMessageId={selectedDestinationId}
+      sourceMessageId={generationGraft.sourceMessageId}
+      destinationMessageId={generationGraft.destinationMessageId}
       onFocusMessage={setFocusedNodeId}
       onSelectSource={(messageId) => {
-        setSelectedSourceId(messageId);
+        generationGraft.selectSourceMessage(messageId);
         setFocusedNodeId(messageId);
       }}
       onSelectDestination={(messageId) => {
-        setSelectedDestinationId(messageId);
+        generationGraft.selectDestinationMessage(messageId);
         setFocusedNodeId(messageId);
       }}
       onPreviewRequest={() => {
-        setPreviewRequested(true);
         setStatusText(localize('com_ui_generation_tree_status_preview'));
+        void generationGraft.requestPreview(generationGraft.destinationMessageId);
         if (isMobile) {
           setMobileSheetOpen(true);
         }
       }}
       onCollapsedIdsChange={updateCollapsedIds}
       onCancelSelection={() => {
-        setSelectedDestinationId(null);
+        generationGraft.selectDestinationMessage(null);
         setStatusText(localize('com_ui_generation_tree_announcer_closed'));
       }}
       announceStatus={false}
@@ -322,8 +351,8 @@ export default function ConversationTreeDialog({
                   graph={graph}
                   layout={layout}
                   focusedMessageId={focusedNodeId}
-                  sourceMessageId={selectedSourceId}
-                  destinationMessageId={selectedDestinationId}
+                  sourceMessageId={generationGraft.sourceMessageId}
+                  destinationMessageId={generationGraft.destinationMessageId}
                   collapsedIds={collapsedIds}
                   arrangeMode={arrangeMode}
                   manualPositions={manualPositions}
@@ -334,16 +363,16 @@ export default function ConversationTreeDialog({
                   statusText={statusText}
                   onFocusMessage={setFocusedNodeId}
                   onSelectSource={(messageId) => {
-                    setSelectedSourceId(messageId);
+                    generationGraft.selectSourceMessage(messageId);
                     setFocusedNodeId(messageId);
                   }}
                   onSelectDestination={(messageId) => {
-                    setSelectedDestinationId(messageId);
+                    generationGraft.selectDestinationMessage(messageId);
                     setFocusedNodeId(messageId);
                   }}
                   onPreviewRequest={() => {
-                    setPreviewRequested(true);
                     setStatusText(localize('com_ui_generation_tree_status_preview'));
+                    void generationGraft.requestPreview(generationGraft.destinationMessageId);
                     setMobileSheetOpen(true);
                   }}
                   onManualPositionChange={(messageId, position) =>
@@ -366,11 +395,13 @@ export default function ConversationTreeDialog({
                   <div className="min-w-0">
                     <div className="truncate text-xs text-text-secondary">
                       {localize('com_ui_generation_tree_source')}:{' '}
-                      {selectedSourceId ?? localize('com_ui_none')}
+                      {generationGraft.sourceMessageId ?? localize('com_ui_none')}
                     </div>
                     <div className="truncate text-sm text-text-primary">
                       {localize('com_ui_generation_tree_destination')}:{' '}
-                      {selectedDestinationId ?? focusMessageId ?? localize('com_ui_none')}
+                      {generationGraft.destinationMessageId ??
+                        focusMessageId ??
+                        localize('com_ui_none')}
                     </div>
                   </div>
                   <button
@@ -389,11 +420,26 @@ export default function ConversationTreeDialog({
                     <ConversationTreeInspector
                       sourceNode={sourceNode}
                       destinationNode={destinationNode}
-                      previewRequested={previewRequested}
                       statusText={statusText}
+                      phase={generationGraft.phase}
+                      mode={generationGraft.mode}
+                      preview={generationGraft.preview}
+                      created={generationGraft.created}
+                      undoDetails={generationGraft.undoDetails}
+                      error={generationGraft.error}
+                      stabilization={generationGraft.stabilization}
                       listOpen={true}
                       onToggleList={() => setMobileSheetOpen(false)}
                       listContent={listContent}
+                      onModeChange={generationGraft.setMode}
+                      onCreate={() => void generationGraft.createGraft()}
+                      onUndo={() => void generationGraft.undoGraft()}
+                      onConfirmUndoContinuations={() =>
+                        void generationGraft.confirmUndoContinuations()
+                      }
+                      onStopAndGraft={() => void generationGraft.stopAndGraft()}
+                      onWaitForCompletion={() => void generationGraft.waitForCompletion()}
+                      onCancelStabilization={generationGraft.cancelStabilization}
                     />
                   </div>
                 ) : null}
@@ -404,8 +450,8 @@ export default function ConversationTreeDialog({
                   graph={graph}
                   layout={layout}
                   focusedMessageId={focusedNodeId}
-                  sourceMessageId={selectedSourceId}
-                  destinationMessageId={selectedDestinationId}
+                  sourceMessageId={generationGraft.sourceMessageId}
+                  destinationMessageId={generationGraft.destinationMessageId}
                   collapsedIds={collapsedIds}
                   arrangeMode={arrangeMode}
                   manualPositions={manualPositions}
@@ -416,16 +462,16 @@ export default function ConversationTreeDialog({
                   statusText={statusText}
                   onFocusMessage={setFocusedNodeId}
                   onSelectSource={(messageId) => {
-                    setSelectedSourceId(messageId);
+                    generationGraft.selectSourceMessage(messageId);
                     setFocusedNodeId(messageId);
                   }}
                   onSelectDestination={(messageId) => {
-                    setSelectedDestinationId(messageId);
+                    generationGraft.selectDestinationMessage(messageId);
                     setFocusedNodeId(messageId);
                   }}
                   onPreviewRequest={() => {
-                    setPreviewRequested(true);
                     setStatusText(localize('com_ui_generation_tree_status_preview'));
+                    void generationGraft.requestPreview(generationGraft.destinationMessageId);
                     setListOpen(true);
                   }}
                   onManualPositionChange={(messageId, position) =>
@@ -448,11 +494,26 @@ export default function ConversationTreeDialog({
                   <ConversationTreeInspector
                     sourceNode={sourceNode}
                     destinationNode={destinationNode}
-                    previewRequested={previewRequested}
                     statusText={statusText}
+                    phase={generationGraft.phase}
+                    mode={generationGraft.mode}
+                    preview={generationGraft.preview}
+                    created={generationGraft.created}
+                    undoDetails={generationGraft.undoDetails}
+                    error={generationGraft.error}
+                    stabilization={generationGraft.stabilization}
                     listOpen={listOpen}
                     onToggleList={() => setListOpen((current) => !current)}
                     listContent={listContent}
+                    onModeChange={generationGraft.setMode}
+                    onCreate={() => void generationGraft.createGraft()}
+                    onUndo={() => void generationGraft.undoGraft()}
+                    onConfirmUndoContinuations={() =>
+                      void generationGraft.confirmUndoContinuations()
+                    }
+                    onStopAndGraft={() => void generationGraft.stopAndGraft()}
+                    onWaitForCompletion={() => void generationGraft.waitForCompletion()}
+                    onCancelStabilization={generationGraft.cancelStabilization}
                   />
                 </aside>
               </div>
