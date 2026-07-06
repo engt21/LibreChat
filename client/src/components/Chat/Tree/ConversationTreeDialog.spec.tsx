@@ -14,6 +14,51 @@ jest.mock('~/hooks/useLocalize', () => ({
     })[key] ?? key,
 }));
 
+jest.mock('@librechat/client', () => {
+  const actual = jest.requireActual('@librechat/client');
+
+  return {
+    ...actual,
+    useMediaQuery: jest.fn(() => false),
+  };
+});
+
+jest.mock('~/Providers/ChatContext', () => ({
+  useChatContext: () => ({
+    conversation: { conversationId: 'convo-1' },
+    getMessages: () => [
+      {
+        messageId: 'prompt',
+        text: 'Prompt',
+        isCreatedByUser: true,
+      },
+      {
+        messageId: 'assistant-1',
+        parentMessageId: 'prompt',
+        text: 'Assistant 1',
+        isCreatedByUser: false,
+      },
+      {
+        messageId: 'assistant-2',
+        parentMessageId: 'prompt',
+        text: 'Assistant 2',
+        isCreatedByUser: false,
+      },
+    ],
+    latestMessageId: 'assistant-2',
+    isSubmitting: false,
+  }),
+}));
+
+jest.mock('~/data-provider', () => ({
+  useStreamStatus: jest.fn(() => ({
+    data: {
+      active: false,
+      responseMessageId: null,
+    },
+  })),
+}));
+
 import ConversationTreeDialog from './ConversationTreeDialog';
 
 describe('ConversationTreeDialog', () => {

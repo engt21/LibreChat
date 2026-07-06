@@ -1,6 +1,26 @@
-import { useCallback, useEffect, useId, useRef } from 'react';
-import { OGDialog, OGDialogContent, OGDialogDescription, OGDialogTitle } from '@librechat/client';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  OGDialog,
+  OGDialogContent,
+  OGDialogDescription,
+  OGDialogTitle,
+  useMediaQuery,
+} from '@librechat/client';
 import useLocalize from '~/hooks/useLocalize';
+import { useChatContext } from '~/Providers/ChatContext';
+import { useStreamStatus } from '~/data-provider';
+import type { ConversationTreeViewportCommands, TreeNodePosition, TreeOrientation } from './types';
+import {
+  loadCollapsedTreeIds,
+  loadTreeOrientation,
+  saveCollapsedTreeIds,
+  saveTreeOrientation,
+} from './storage';
+import ConversationTreeCanvas from './ConversationTreeCanvas';
+import ConversationTreeInspector from './ConversationTreeInspector';
+import ConversationTreeList from './ConversationTreeList';
+import ConversationTreeToolbar from './ConversationTreeToolbar';
+import useConversationTreeViewModel from './useConversationTreeViewModel';
 
 const EXIT_RESET_DELAY_MS = 200;
 
@@ -23,6 +43,32 @@ export default function ConversationTreeDialog({
   const descriptionId = useId();
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitCompletedRef = useRef(false);
+  const viewportCommandsRef = useRef<ConversationTreeViewportCommands | null>(null);
+  const initializedSessionRef = useRef<string | null>(null);
+  const latestMessageIdRef = useRef<string | null>(null);
+  const isMobileRef = useRef(false);
+  const { conversation, getMessages, latestMessageId, isSubmitting } = useChatContext();
+  const conversationId = conversation?.conversationId ?? '';
+  const isMobile = useMediaQuery('(max-width: 767px)');
+  const [orientation, setOrientation] = useState<TreeOrientation>(() => loadTreeOrientation());
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
+    () => new Set(loadCollapsedTreeIds(conversationId)),
+  );
+  const [manualPositions, setManualPositions] = useState<Map<string, TreeNodePosition>>(new Map());
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(sourceMessageId);
+  const [selectedDestinationId, setSelectedDestinationId] = useState<string | null>(null);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(focusMessageId);
+  const [previewRequested, setPreviewRequested] = useState(false);
+  const [statusText, setStatusText] = useState('');
+  const [arrangeMode, setArrangeMode] = useState(false);
+  const [listOpen, setListOpen] = useState(true);
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const [autoFitToken, setAutoFitToken] = useState(0);
+  const { data: streamStatus } = useStreamStatus(conversationId, open, open ? 1_000 : false);
+  const rawMessages = getMessages() ?? [];
+
+  latestMessageIdRef.current = latestMessageId;
+  isMobileRef.current = isMobile;
 
   const finishExit = useCallback(() => {
     if (exitCompletedRef.current || onExitComplete == null) {
@@ -65,6 +111,118 @@ export default function ConversationTreeDialog({
     };
   }, [open, focusMessageId, sourceMessageId, onExitComplete, finishExit]);
 
+  useEffect(() => {
+    saveTreeOrientation(orientation);
+  }, [orientation]);
+
+  useEffect(() => {
+    if (!conversationId) {
+      return;
+    }
+
+    saveCollapsedTreeIds(conversationId, collapsedIds);
+  }, [collapsedIds, conversationId]);
+
+  useEffect(() => {
+    setCollapsedIds(new Set(loadCollapsedTreeIds(conversationId)));
+    setManualPositions(new Map());
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!open) {
+      initializedSessionRef.current = null;
+      setStatusText(localize('com_ui_generation_tree_announcer_closed'));
+      return;
+    }
+
+    const sessionKey = `${conversationId}::${focusMessageId ?? ''}::${sourceMessageId ?? ''}`;
+    if (initializedSessionRef.current === sessionKey) {
+      return;
+    }
+
+    initializedSessionRef.current = sessionKey;
+    setSelectedSourceId(sourceMessageId);
+    setSelectedDestinationId(null);
+    setFocusedNodeId(focusMessageId ?? sourceMessageId ?? latestMessageIdRef.current ?? null);
+    setPreviewRequested(false);
+    setArrangeMode(false);
+    setStatusText(localize('com_ui_generation_tree_announcer_opened'));
+    setListOpen(!isMobileRef.current);
+    setMobileSheetOpen(false);
+    setAutoFitToken((currentToken) => currentToken + 1);
+  }, [conversationId, focusMessageId, localize, open, sourceMessageId]);
+
+  const activeMessageIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    if (!open) {
+      return ids;
+    }
+
+    if (streamStatus?.active && streamStatus.responseMessageId != null) {
+      ids.add(streamStatus.responseMessageId);
+    }
+
+    if (isSubmitting && latestMessageId != null) {
+      ids.add(latestMessageId);
+    }
+
+    return ids;
+  }, [isSubmitting, latestMessageId, open, streamStatus?.active, streamStatus?.responseMessageId]);
+
+  const { graph, layout, activeBranchIds } = useConversationTreeViewModel({
+    messages: rawMessages,
+    activeMessageIds,
+    orientation,
+    collapsedIds,
+    manualPositions,
+    activeLeafMessageId:
+      (streamStatus?.active ? streamStatus.responseMessageId : null) ??
+      (isSubmitting ? latestMessageId : null) ??
+      focusMessageId ??
+      null,
+  });
+
+  const sourceNode = selectedSourceId != null ? (layout.nodes.get(selectedSourceId) ?? null) : null;
+  const destinationNode =
+    selectedDestinationId != null ? (layout.nodes.get(selectedDestinationId) ?? null) : null;
+
+  const updateCollapsedIds = useCallback((nextCollapsedIds: Set<string>) => {
+    setCollapsedIds(new Set(nextCollapsedIds));
+  }, []);
+
+  const listContent = (
+    <ConversationTreeList
+      graph={graph}
+      collapsedIds={collapsedIds}
+      focusedMessageId={focusedNodeId}
+      sourceMessageId={selectedSourceId}
+      destinationMessageId={selectedDestinationId}
+      onFocusMessage={setFocusedNodeId}
+      onSelectSource={(messageId) => {
+        setSelectedSourceId(messageId);
+        setFocusedNodeId(messageId);
+      }}
+      onSelectDestination={(messageId) => {
+        setSelectedDestinationId(messageId);
+        setFocusedNodeId(messageId);
+      }}
+      onPreviewRequest={() => {
+        setPreviewRequested(true);
+        setStatusText(localize('com_ui_generation_tree_status_preview'));
+        if (isMobile) {
+          setMobileSheetOpen(true);
+        }
+      }}
+      onCollapsedIdsChange={updateCollapsedIds}
+      onCancelSelection={() => {
+        setSelectedDestinationId(null);
+        setStatusText(localize('com_ui_generation_tree_announcer_closed'));
+      }}
+      onStatusTextChange={setStatusText}
+    />
+  );
+
   return (
     <OGDialog open={open} onOpenChange={onOpenChange}>
       <OGDialogContent
@@ -72,7 +230,7 @@ export default function ConversationTreeDialog({
         data-focused-message-id={focusMessageId ?? ''}
         data-source-message-id={sourceMessageId ?? ''}
         aria-describedby={descriptionId}
-        className="h-[85vh] max-h-[85vh] w-[96vw] max-w-5xl overflow-hidden border-border-light bg-surface-primary p-0 text-text-primary"
+        className="h-[100dvh] max-h-[100dvh] w-screen max-w-none overflow-hidden rounded-none border-0 bg-surface-primary p-0 text-text-primary"
         onAnimationEnd={(event) => {
           if ((event.currentTarget as HTMLElement).dataset.state === 'closed') {
             finishExit();
@@ -84,28 +242,186 @@ export default function ConversationTreeDialog({
           }
         }}
       >
-        <div className="flex h-full flex-col">
-          <OGDialogTitle className="border-b border-border-light px-4 py-3 text-base font-semibold">
-            {localize('com_sidepanel_conversation_tree')}
-          </OGDialogTitle>
-          <div className="flex flex-1 flex-col gap-3 px-4 py-3">
-            <OGDialogDescription id={descriptionId} className="text-sm text-text-secondary">
+        <div className="grid h-full grid-rows-[auto_auto_1fr]">
+          <div className="border-b border-border-light px-4 py-3">
+            <OGDialogTitle className="text-base font-semibold">
+              {localize('com_sidepanel_conversation_tree')}
+            </OGDialogTitle>
+            <OGDialogDescription id={descriptionId} className="mt-1 text-sm text-text-secondary">
               {localize('com_ui_conversation_tree_description')}
             </OGDialogDescription>
-            <div className="grid gap-2 rounded-lg border border-dashed border-border-medium bg-surface-secondary p-3 text-sm text-text-secondary">
-              <div>
-                <span className="font-medium text-text-primary">
-                  {localize('com_ui_generation_tree_source')}:
-                </span>{' '}
-                {sourceMessageId ?? localize('com_ui_none')}
+          </div>
+
+          <ConversationTreeToolbar
+            orientation={orientation}
+            arrangeMode={arrangeMode}
+            onFitTree={() => viewportCommandsRef.current?.fitTree()}
+            onFitActiveBranch={() => viewportCommandsRef.current?.fitActiveBranch()}
+            onFitSelection={() => viewportCommandsRef.current?.fitSelection()}
+            onToggleOrientation={() => {
+              setAutoFitToken((currentToken) => currentToken + 1);
+              setOrientation((currentOrientation) =>
+                currentOrientation === 'horizontal' ? 'vertical' : 'horizontal',
+              );
+            }}
+            onToggleArrangeMode={() => {
+              setArrangeMode((currentArrangeMode) => !currentArrangeMode);
+              setStatusText(localize('com_ui_generation_tree_arrange'));
+            }}
+            onResetLayout={() => {
+              setManualPositions(new Map());
+              setArrangeMode(false);
+              viewportCommandsRef.current?.fitTree();
+            }}
+            onExpandActiveBranch={() => {
+              const nextCollapsedIds = new Set(collapsedIds);
+              for (const messageId of activeBranchIds) {
+                nextCollapsedIds.delete(messageId);
+              }
+              setCollapsedIds(nextCollapsedIds);
+            }}
+          />
+
+          <div className="relative min-h-0">
+            {isMobile ? (
+              <div className="grid h-full grid-rows-[1fr_auto]">
+                <ConversationTreeCanvas
+                  graph={graph}
+                  layout={layout}
+                  focusedMessageId={focusedNodeId}
+                  sourceMessageId={selectedSourceId}
+                  destinationMessageId={selectedDestinationId}
+                  collapsedIds={collapsedIds}
+                  arrangeMode={arrangeMode}
+                  manualPositions={manualPositions}
+                  activeBranchIds={activeBranchIds}
+                  orientation={orientation}
+                  autoFitToken={autoFitToken}
+                  statusText={statusText}
+                  onFocusMessage={setFocusedNodeId}
+                  onSelectSource={(messageId) => {
+                    setSelectedSourceId(messageId);
+                    setFocusedNodeId(messageId);
+                  }}
+                  onSelectDestination={(messageId) => {
+                    setSelectedDestinationId(messageId);
+                    setFocusedNodeId(messageId);
+                  }}
+                  onPreviewRequest={() => {
+                    setPreviewRequested(true);
+                    setStatusText(localize('com_ui_generation_tree_status_preview'));
+                    setMobileSheetOpen(true);
+                  }}
+                  onManualPositionChange={(messageId, position) =>
+                    setManualPositions((currentPositions) => {
+                      const nextPositions = new Map(currentPositions);
+                      nextPositions.set(messageId, position);
+                      return nextPositions;
+                    })
+                  }
+                  onCollapsedIdsChange={updateCollapsedIds}
+                  onStatusTextChange={setStatusText}
+                  onRegisterViewportCommands={(commands) => {
+                    viewportCommandsRef.current = commands;
+                  }}
+                />
+                <div
+                  data-testid="generation-tree-mobile-summary"
+                  className="flex items-center justify-between gap-3 border-t border-border-light px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-xs text-text-secondary">
+                      {localize('com_ui_generation_tree_source')}:{' '}
+                      {selectedSourceId ?? localize('com_ui_none')}
+                    </div>
+                    <div className="truncate text-sm text-text-primary">
+                      {localize('com_ui_generation_tree_destination')}:{' '}
+                      {selectedDestinationId ?? focusMessageId ?? localize('com_ui_none')}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-secondary"
+                    onClick={() => setMobileSheetOpen((current) => !current)}
+                  >
+                    {localize('com_ui_generation_tree_open_sheet')}
+                  </button>
+                </div>
+                {mobileSheetOpen ? (
+                  <div
+                    data-testid="generation-tree-mobile-sheet"
+                    className="absolute inset-x-0 bottom-0 z-10 max-h-[55vh] rounded-t-3xl border border-border-light bg-surface-primary shadow-2xl"
+                  >
+                    <ConversationTreeInspector
+                      sourceNode={sourceNode}
+                      destinationNode={destinationNode}
+                      previewRequested={previewRequested}
+                      statusText={statusText}
+                      listOpen={true}
+                      onToggleList={() => setMobileSheetOpen(false)}
+                      listContent={listContent}
+                    />
+                  </div>
+                ) : null}
               </div>
-              <div>
-                <span className="font-medium text-text-primary">
-                  {localize('com_ui_generation_tree_destination')}:
-                </span>{' '}
-                {focusMessageId ?? localize('com_ui_none')}
+            ) : (
+              <div className="grid h-full min-h-0 md:grid-cols-[minmax(0,1fr)_360px]">
+                <ConversationTreeCanvas
+                  graph={graph}
+                  layout={layout}
+                  focusedMessageId={focusedNodeId}
+                  sourceMessageId={selectedSourceId}
+                  destinationMessageId={selectedDestinationId}
+                  collapsedIds={collapsedIds}
+                  arrangeMode={arrangeMode}
+                  manualPositions={manualPositions}
+                  activeBranchIds={activeBranchIds}
+                  orientation={orientation}
+                  autoFitToken={autoFitToken}
+                  statusText={statusText}
+                  onFocusMessage={setFocusedNodeId}
+                  onSelectSource={(messageId) => {
+                    setSelectedSourceId(messageId);
+                    setFocusedNodeId(messageId);
+                  }}
+                  onSelectDestination={(messageId) => {
+                    setSelectedDestinationId(messageId);
+                    setFocusedNodeId(messageId);
+                  }}
+                  onPreviewRequest={() => {
+                    setPreviewRequested(true);
+                    setStatusText(localize('com_ui_generation_tree_status_preview'));
+                    setListOpen(true);
+                  }}
+                  onManualPositionChange={(messageId, position) =>
+                    setManualPositions((currentPositions) => {
+                      const nextPositions = new Map(currentPositions);
+                      nextPositions.set(messageId, position);
+                      return nextPositions;
+                    })
+                  }
+                  onCollapsedIdsChange={updateCollapsedIds}
+                  onStatusTextChange={setStatusText}
+                  onRegisterViewportCommands={(commands) => {
+                    viewportCommandsRef.current = commands;
+                  }}
+                />
+                <aside
+                  data-testid="generation-tree-sidebar"
+                  className="min-h-0 border-l border-border-light"
+                >
+                  <ConversationTreeInspector
+                    sourceNode={sourceNode}
+                    destinationNode={destinationNode}
+                    previewRequested={previewRequested}
+                    statusText={statusText}
+                    listOpen={listOpen}
+                    onToggleList={() => setListOpen((current) => !current)}
+                    listContent={listContent}
+                  />
+                </aside>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </OGDialogContent>

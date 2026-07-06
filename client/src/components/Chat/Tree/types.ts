@@ -81,3 +81,39 @@ export type NormalizeConversationGraphOptions = {
 };
 
 export type InvalidGraftReason = TGenerationGraftErrorCode | null;
+
+export type ConversationTreeVisibleItem = {
+  id: string;
+  node: ConversationTreeNode;
+  depth: number;
+  hasChildren: boolean;
+  expanded: boolean;
+};
+
+export type ConversationTreeTransformState = {
+  scale: number;
+  positionX: number;
+  positionY: number;
+};
+
+export type TreeViewportSize = {
+  width: number;
+  height: number;
+};
+
+export type ConversationTreeViewportCommands = {
+  fitTree: () => void;
+  fitActiveBranch: () => void;
+  fitSelection: () => void;
+  recenterOnWorldPoint: (point: { x: number; y: number }) => void;
+};
+
+export type MiniMapGeometry = {
+  bounds: ConversationTreeLayoutBounds;
+  width: number;
+  height: number;
+  padding: number;
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+};

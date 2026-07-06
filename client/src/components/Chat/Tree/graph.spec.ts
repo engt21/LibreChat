@@ -337,7 +337,7 @@ describe('conversation tree graph normalization', () => {
     expect(getInvalidGraftReason(graph, 'assistant-a', 'assistant-b')).toBeNull();
   });
 
-  it('keeps stopped and streaming assistant nodes valid when they are on separate branches', () => {
+  it('keeps stable partial assistant nodes valid and blocks actively streaming nodes', () => {
     const graph = normalizeConversationGraph(
       [
         createMessage({
@@ -352,6 +352,21 @@ describe('conversation tree graph normalization', () => {
           isCreatedByUser: false,
           unfinished: true,
           finish_reason: 'length',
+        }),
+        createMessage({
+          messageId: 'aborted-assistant',
+          parentMessageId: 'root-a',
+          text: 'aborted assistant',
+          isCreatedByUser: false,
+          unfinished: true,
+          finish_reason: 'cancelled',
+        }),
+        createMessage({
+          messageId: 'errored-assistant',
+          parentMessageId: 'root-a',
+          text: 'errored assistant',
+          isCreatedByUser: false,
+          error: true,
         }),
         createMessage({
           messageId: 'root-b',
@@ -372,9 +387,18 @@ describe('conversation tree graph normalization', () => {
     );
 
     expect(graph.nodes.get('partial-assistant')?.lifecycle).toBe('stopped_partial');
+    expect(graph.nodes.get('aborted-assistant')?.lifecycle).toBe('aborted_partial');
+    expect(graph.nodes.get('errored-assistant')?.lifecycle).toBe('errored_partial');
     expect(graph.nodes.get('streaming-assistant')?.lifecycle).toBe('streaming');
-    expect(getInvalidGraftReason(graph, 'partial-assistant', 'streaming-assistant')).toBeNull();
-    expect(getInvalidGraftReason(graph, 'streaming-assistant', 'partial-assistant')).toBeNull();
+    expect(getInvalidGraftReason(graph, 'partial-assistant', 'aborted-assistant')).toBeNull();
+    expect(getInvalidGraftReason(graph, 'aborted-assistant', 'errored-assistant')).toBeNull();
+    expect(getInvalidGraftReason(graph, 'errored-assistant', 'partial-assistant')).toBeNull();
+    expect(getInvalidGraftReason(graph, 'partial-assistant', 'streaming-assistant')).toBe(
+      'GRAFT_REQUIRES_STABILIZATION',
+    );
+    expect(getInvalidGraftReason(graph, 'streaming-assistant', 'partial-assistant')).toBe(
+      'GRAFT_REQUIRES_STABILIZATION',
+    );
   });
 
   it('builds case-folded searchable text and applies semantic detail thresholds', () => {

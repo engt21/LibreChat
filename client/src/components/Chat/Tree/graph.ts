@@ -444,6 +444,10 @@ export function getInvalidGraftReason(
     return 'INVALID_SOURCE';
   }
 
+  if (source.lifecycle === 'streaming' || destination?.lifecycle === 'streaming') {
+    return 'GRAFT_REQUIRES_STABILIZATION';
+  }
+
   if (destination.role !== 'assistant') {
     return 'INVALID_DESTINATION';
   }
