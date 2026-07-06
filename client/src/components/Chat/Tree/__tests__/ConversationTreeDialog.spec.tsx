@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { dataService } from 'librechat-data-provider';
 
 let mockIsMobile = false;
@@ -516,6 +517,34 @@ describe('ConversationTreeDialog', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent(
       'Choose an assistant generation as the destination.',
+    );
+  });
+
+  it('keeps the visual canvas out of the keyboard path while the tree list remains functional', async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    render(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('graft-handle-assistant-a')).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByTestId('collapse-toggle-assistant-a')).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByTestId('generation-tree-minimap')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('generation-tree-minimap')).toHaveAttribute('focusable', 'false');
+    expect(screen.queryByRole('button', { name: /graft generation/i })).not.toBeInTheDocument();
+
+    const source = screen.getAllByRole('treeitem', { name: /generation 1/i })[0];
+    await user.click(source);
+    await user.keyboard(' ');
+
+    expect(screen.getByRole('tree')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Source selected. Choose a destination generation.',
     );
   });
 });

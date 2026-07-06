@@ -269,18 +269,24 @@ export default function ConversationTreeCanvas({
     [applyTransform, transformState],
   );
 
+  const layoutPositions = useMemo(
+    () =>
+      new Map(
+        Array.from(layout.nodes.entries()).map(([messageId, node]) => [
+          messageId,
+          { x: node.x, y: node.y },
+        ]),
+      ),
+    [layout.nodes],
+  );
+
   const { hoveredTargetId, invalidReason, handlePropsFor } = useGenerationTreeDrag({
     graph,
     arrangeMode,
     scale: transformState.scale,
     collapsedIds,
     manualPositions,
-    layoutPositions: new Map(
-      Array.from(layout.nodes.entries()).map(([messageId, node]) => [
-        messageId,
-        { x: node.x, y: node.y },
-      ]),
-    ),
+    layoutPositions,
     onSelectSource,
     onSelectDestination,
     onPreviewRequest,
@@ -381,8 +387,10 @@ export default function ConversationTreeCanvas({
                   onCollapsedIdsChange(nextCollapsedIds);
                 }}
                 onPointerDownHandle={onPointerDownHandle}
-                onPointerDownBody={onPointerDownBody}
-                onFocusMessage={onFocusMessage}
+                onPointerDownBody={(event) => {
+                  onFocusMessage(node.id);
+                  onPointerDownBody(event);
+                }}
               />
             );
           })}

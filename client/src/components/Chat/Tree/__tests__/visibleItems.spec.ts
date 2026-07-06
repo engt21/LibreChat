@@ -63,4 +63,40 @@ describe('buildVisibleTreeItems', () => {
     expect(items.map((item) => item.id)).toEqual(['root', 'child', 'orphan']);
     expect(items.find((item) => item.id === 'child')?.depth).toBe(2);
   });
+
+  it('handles large root and disconnected sets without duplicating traversal entries', () => {
+    const count = 400;
+    const nodes = new Map(createGraph().nodes);
+    const orderedIds = ['root', 'child', 'orphan'];
+
+    for (let index = 0; index < count; index += 1) {
+      const id = `bulk-${index}`;
+      nodes.set(id, {
+        id,
+        parentId: null,
+        childIds: [],
+        message: { messageId: id, text: `Bulk ${index}`, isCreatedByUser: false },
+        role: 'assistant',
+        lifecycle: 'complete',
+        generationIndex: index + 3,
+        searchableText: id,
+      });
+      orderedIds.push(id);
+    }
+
+    const items = buildVisibleTreeItems(
+      {
+        ...createGraph(),
+        nodes,
+        orderedIds,
+        rootIds: ['root', 'root'],
+      },
+      new Set(),
+    );
+
+    expect(items).toHaveLength(count + 3);
+    expect(new Set(items.map((item) => item.id)).size).toBe(count + 3);
+    expect(items[0]?.id).toBe('root');
+    expect(items.at(-1)?.id).toBe(`bulk-${count - 1}`);
+  });
 });

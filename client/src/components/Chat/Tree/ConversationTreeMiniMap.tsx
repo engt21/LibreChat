@@ -92,6 +92,9 @@ export default function ConversationTreeMiniMap({
       height={geometry.height}
       viewBox={`0 0 ${geometry.width} ${geometry.height}`}
       className="rounded-xl border border-border-medium bg-surface-primary"
+      tabIndex={-1}
+      aria-hidden="true"
+      focusable="false"
       onPointerDown={(event) => {
         draggingRef.current = true;
         handlePointer(event.clientX, event.clientY, event.currentTarget);
@@ -107,6 +110,9 @@ export default function ConversationTreeMiniMap({
         draggingRef.current = false;
       }}
       onPointerLeave={() => {
+        draggingRef.current = false;
+      }}
+      onPointerCancel={() => {
         draggingRef.current = false;
       }}
     >

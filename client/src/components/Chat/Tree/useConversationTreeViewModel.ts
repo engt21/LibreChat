@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { layoutConversationTree } from './layout';
 import { normalizeConversationGraph } from './graph';
 import type { ConversationTreeMessageLike, TreeNodePosition, TreeOrientation } from './types';
-import { buildVisibleTreeItems } from './visibleItems';
 
 function collectBranchIds(
   orderedIds: string[],
@@ -66,15 +65,9 @@ export default function useConversationTreeViewModel({
     [graph.orderedIds, graph.parentById, activeLeafMessageId],
   );
 
-  const visibleItems = useMemo(
-    () => buildVisibleTreeItems(graph, collapsedIds),
-    [collapsedIds, graph],
-  );
-
   return {
     graph,
     layout,
     activeBranchIds,
-    visibleItems,
   };
 }

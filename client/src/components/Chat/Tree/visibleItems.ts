@@ -1,26 +1,42 @@
 import type { ConversationTreeGraph, ConversationTreeVisibleItem } from './types';
 
+function collectTraversalRoots(graph: ConversationTreeGraph): string[] {
+  const roots: string[] = [];
+  const seenRoots = new Set<string>();
+
+  for (const messageId of graph.rootIds) {
+    if (!graph.nodes.has(messageId) || seenRoots.has(messageId)) {
+      continue;
+    }
+
+    seenRoots.add(messageId);
+    roots.push(messageId);
+  }
+
+  for (const messageId of graph.orderedIds) {
+    if (!graph.nodes.has(messageId) || seenRoots.has(messageId)) {
+      continue;
+    }
+
+    seenRoots.add(messageId);
+    roots.push(messageId);
+  }
+
+  return roots;
+}
+
 export function buildVisibleTreeItems(
   graph: ConversationTreeGraph,
   collapsedIds: Set<string>,
 ): ConversationTreeVisibleItem[] {
   const visibleItems: ConversationTreeVisibleItem[] = [];
   const seen = new Set<string>();
-  const roots = [...graph.rootIds];
+  const roots = collectTraversalRoots(graph);
 
-  for (const messageId of graph.orderedIds) {
-    if (!roots.includes(messageId)) {
-      roots.push(messageId);
-    }
-  }
-
-  const stack = roots
-    .filter((messageId) => graph.nodes.has(messageId))
-    .reverse()
-    .map((messageId) => ({
-      messageId,
-      depth: 1,
-    }));
+  const stack = roots.reverse().map((messageId) => ({
+    messageId,
+    depth: 1,
+  }));
 
   while (stack.length > 0) {
     const current = stack.pop();

@@ -466,6 +466,128 @@ describe('ConversationTreeCanvas', () => {
     expect(onCollapsedIdsChange).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels graft preview and pending auto-expand on pointercancel', () => {
+    const { graph, layout } = createGraph();
+    const onSelectDestination = jest.fn();
+    const onPreviewRequest = jest.fn();
+    const onCollapsedIdsChange = jest.fn();
+
+    render(
+      <ConversationTreeCanvas
+        graph={graph}
+        layout={layout}
+        focusedMessageId="assistant-b"
+        sourceMessageId="assistant-b"
+        destinationMessageId={null}
+        collapsedIds={new Set(['assistant-a'])}
+        arrangeMode={false}
+        manualPositions={new Map()}
+        onFocusMessage={jest.fn()}
+        onSelectSource={jest.fn()}
+        onSelectDestination={onSelectDestination}
+        onPreviewRequest={onPreviewRequest}
+        onManualPositionChange={jest.fn()}
+        onCollapsedIdsChange={onCollapsedIdsChange}
+      />,
+    );
+
+    const destinationNode = screen.getByTestId('tree-node-assistant-a');
+    document.elementsFromPoint = jest.fn(() => [destinationNode]);
+
+    fireEvent.pointerDown(screen.getByTestId('graft-handle-assistant-b'), {
+      pointerId: 7,
+      clientX: 40,
+      clientY: 40,
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 7,
+      clientX: 220,
+      clientY: 80,
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(599);
+    });
+
+    fireEvent.pointerCancel(window, {
+      pointerId: 7,
+      clientX: 220,
+      clientY: 80,
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+
+    fireEvent.pointerUp(window, {
+      pointerId: 7,
+      clientX: 220,
+      clientY: 80,
+    });
+
+    expect(onCollapsedIdsChange).not.toHaveBeenCalled();
+    expect(onSelectDestination).not.toHaveBeenCalled();
+    expect(onPreviewRequest).not.toHaveBeenCalled();
+    expect(releasePointerCapture).toHaveBeenCalled();
+  });
+
+  it('cancels graft preview after lost pointer capture', () => {
+    const { graph, layout } = createGraph();
+    const onSelectDestination = jest.fn();
+    const onPreviewRequest = jest.fn();
+
+    render(
+      <ConversationTreeCanvas
+        graph={graph}
+        layout={layout}
+        focusedMessageId="assistant-b"
+        sourceMessageId="assistant-b"
+        destinationMessageId={null}
+        collapsedIds={new Set()}
+        arrangeMode={false}
+        manualPositions={new Map()}
+        onFocusMessage={jest.fn()}
+        onSelectSource={jest.fn()}
+        onSelectDestination={onSelectDestination}
+        onPreviewRequest={onPreviewRequest}
+        onManualPositionChange={jest.fn()}
+        onCollapsedIdsChange={jest.fn()}
+      />,
+    );
+
+    const destinationNode = screen.getByTestId('tree-node-assistant-a');
+    const graftHandle = screen.getByTestId('graft-handle-assistant-b');
+    document.elementsFromPoint = jest.fn(() => [destinationNode]);
+
+    fireEvent.pointerDown(graftHandle, {
+      pointerId: 8,
+      clientX: 40,
+      clientY: 40,
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 8,
+      clientX: 220,
+      clientY: 80,
+    });
+
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+
+    act(() => {
+      graftHandle.dispatchEvent(new Event('lostpointercapture'));
+    });
+    fireEvent.pointerUp(window, {
+      pointerId: 8,
+      clientX: 220,
+      clientY: 80,
+    });
+
+    expect(onSelectDestination).not.toHaveBeenCalled();
+    expect(onPreviewRequest).not.toHaveBeenCalled();
+    expect(releasePointerCapture).toHaveBeenCalled();
+  });
+
   it('renders graft handles for stable partial assistants but not for streaming or prompt nodes', () => {
     const { graph, layout } = createLifecycleGraph();
 

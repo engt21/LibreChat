@@ -137,15 +137,6 @@ function getBadgeLabel(localize: ReturnType<typeof useLocalize>, badge: string):
   }
 }
 
-function getConversationTreeItemLabel(
-  localize: ReturnType<typeof useLocalize>,
-  node: PositionedTreeNode,
-): string {
-  const title = getNodeTitle(localize, node);
-  const excerpt = getExcerpt(localize, node);
-  return `${title}. ${excerpt}`;
-}
-
 function getNodeIndicator(
   invalidReason: InvalidGraftReason,
   lifecycle: PositionedTreeNode['lifecycle'],
@@ -198,7 +189,6 @@ type ConversationTreeNodeProps = {
   onToggleCollapsed: (messageId: string) => void;
   onPointerDownHandle: React.PointerEventHandler<HTMLButtonElement>;
   onPointerDownBody: React.PointerEventHandler<HTMLDivElement>;
-  onFocusMessage: (messageId: string) => void;
 };
 
 const ConversationTreeNode = React.memo(function ConversationTreeNode({
@@ -214,7 +204,6 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
   onToggleCollapsed,
   onPointerDownHandle,
   onPointerDownBody,
-  onFocusMessage,
 }: ConversationTreeNodeProps) {
   const localize = useLocalize();
   const excerpt = getExcerpt(localize, node);
@@ -232,6 +221,7 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
         type="button"
         data-testid={`collapse-toggle-${node.id}`}
         className="tree-node-control ml-auto flex items-center gap-1 rounded-full border border-border-medium px-2 py-0.5"
+        tabIndex={-1}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => onToggleCollapsed(node.id)}
         aria-expanded={!isCollapsed}
@@ -246,6 +236,7 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
         type="button"
         data-testid={`collapse-toggle-${node.id}`}
         className="tree-node-control ml-auto rounded-full border border-border-medium px-2 py-0.5"
+        tabIndex={-1}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => onToggleCollapsed(node.id)}
         aria-expanded={!isCollapsed}
@@ -272,10 +263,8 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
         left: node.x,
         top: node.y,
       }}
-      tabIndex={0}
+      aria-hidden="true"
       onPointerDown={onPointerDownBody}
-      onFocus={() => onFocusMessage(node.id)}
-      aria-label={getConversationTreeItemLabel(localize, node)}
     >
       <div className="flex flex-1 flex-col gap-2 p-3 text-left">
         <div className="flex items-start justify-between gap-2">
@@ -295,6 +284,7 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
               type="button"
               data-testid={`graft-handle-${node.id}`}
               className="graft-handle tree-node-control rounded-lg border border-border-medium p-1 text-text-secondary hover:text-text-primary"
+              tabIndex={-1}
               onPointerDown={(event) => {
                 event.stopPropagation();
                 onPointerDownHandle(event);
