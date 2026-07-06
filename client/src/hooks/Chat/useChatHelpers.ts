@@ -4,9 +4,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilState, useRecoilValue, useResetRecoilState, useSetRecoilState } from 'recoil';
 import type { TMessage } from 'librechat-data-provider';
 import {
-  useAbortStreamMutation,
   useGetStartupConfig,
   useGetUserQuery,
+  useStopGenerationMutation,
   type ActiveJobsResponse,
 } from '~/data-provider';
 import useChatFunctions from '~/hooks/Chat/useChatFunctions';
@@ -20,7 +20,7 @@ export default function useChatHelpers(index = 0, paramId?: string) {
   const [filesLoading, setFilesLoading] = useState(false);
 
   const queryClient = useQueryClient();
-  const abortMutation = useAbortStreamMutation();
+  const stopMutation = useStopGenerationMutation();
   const { data: startupConfig } = useGetStartupConfig();
   const { data: user } = useGetUserQuery();
 
@@ -129,10 +129,7 @@ export default function useChatHelpers(index = 0, paramId?: string) {
   }, [getMessages, ask]);
 
   /**
-   * Stop generation - for non-assistants endpoints, calls abort endpoint first.
-   * The abort endpoint will cause the backend to emit a `done` event with `aborted: true`,
-   * which will be handled by the SSE event handler to clean up UI.
-   * Assistants endpoint has its own abort mechanism via useEventHandlers.abortConversation.
+   * Stop generation and allow the server to persist any partial content before refetch.
    */
   const stopGenerating = useCallback(async () => {
     const actualEndpoint = endpointType ?? endpoint;
@@ -155,25 +152,28 @@ export default function useChatHelpers(index = 0, paramId?: string) {
       queryClient.setQueryData<ActiveJobsResponse>([QueryKeys.activeJobs], (old) => ({
         activeJobIds: (old?.activeJobIds ?? []).filter((id) => id !== targetConversationId),
       }));
-
-      try {
-        console.log('[useChatHelpers] Calling abort mutation for:', targetConversationId);
-        await abortMutation.mutateAsync({ conversationId: targetConversationId });
-        console.log('[useChatHelpers] Abort mutation succeeded');
-        // The SSE will receive a `done` event with `aborted: true` and clean up
-        // We still clear submissions as a fallback
-        clearAllSubmissions();
-      } catch (error) {
-        console.error('[useChatHelpers] Abort failed:', error);
-        // Fall back to clearing submissions
-        clearAllSubmissions();
-      }
-    } else {
-      // For assistants endpoints, just clear submissions (existing behavior)
-      console.log('[useChatHelpers] Assistants endpoint, just clearing submissions');
-      clearAllSubmissions();
     }
-  }, [conversationId, endpoint, endpointType, abortMutation, clearAllSubmissions, queryClient]);
+
+    if (!targetConversationId) {
+      clearAllSubmissions();
+      return;
+    }
+
+    try {
+      console.log('[useChatHelpers] Calling abort mutation for:', targetConversationId);
+      await stopMutation.mutateAsync({
+        conversationId: targetConversationId,
+        endpoint: actualEndpoint,
+        latestMessageId: latestMessageRef.current?.messageId,
+      });
+      console.log('[useChatHelpers] Abort mutation succeeded');
+    } catch (error) {
+      console.error('[useChatHelpers] Abort failed:', error);
+    } finally {
+      clearAllSubmissions();
+      await queryClient.invalidateQueries([QueryKeys.messages, targetConversationId]);
+    }
+  }, [conversationId, endpoint, endpointType, stopMutation, clearAllSubmissions, queryClient]);
 
   const handleStopGenerating = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
