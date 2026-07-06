@@ -58,6 +58,36 @@ write_value() { printf '%s\n' "$2" > "$1"; }
 now_epoch() { date +%s; }
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+record_action() {
+  local kind="$1" action="$2" file tmp
+  file="$STATE_DIR/$kind.actions"
+  printf '%s | %s\n' "$(now_utc)" "$action" >> "$file"
+  tmp="$file.tmp"
+  tail -n 20 "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+record_mutation() {
+  local kind="$1" action="$2"
+  record_action "$kind" "$action"
+  : > "$STATE_DIR/$kind.mutated"
+}
+
+remember_diagnostics() {
+  local kind="$1" file="$2"
+  write_value "$STATE_DIR/$kind.last-diagnostics" "$file"
+}
+
+incident_actions() {
+  local kind="$1" file
+  file="$STATE_DIR/$kind.actions"
+  if [[ -s "$file" ]]; then
+    tail -n 20 "$file"
+  else
+    printf '%s\n' 'No watchdog mutation was recorded; recovery was external/manual or the dependency recovered naturally.'
+  fi
+}
+
 truncate_text() {
   local limit="$1"
   head -c "$limit" | tr '\000-\010\013\014\016-\037' ' '
@@ -134,12 +164,17 @@ drain_remote_events() {
 }
 
 azure_signal() {
-  local event="$1" summary="$2" details="$3"
+  local event="$1" summary="$2" details="$3" pager_event="$1"
   [[ "$MODE" == "host" && "$AZURE_PAGER_ENABLED" == "true" ]] || return 0
   command -v az >/dev/null 2>&1 || return 1
 
-  local signal_name="${AZURE_SIGNAL_PREFIX}-${event}-signal"
-  local rule_name="${AZURE_SIGNAL_PREFIX}-${event}-pager"
+  case "$event" in
+    mongodb-down) pager_event=app-down ;;
+    mongodb-healed) pager_event=app-healed ;;
+    mongodb-heal-failed|mongodb-heal-blocked|app-heal-blocked) pager_event=app-heal-failed ;;
+  esac
+  local signal_name="${AZURE_SIGNAL_PREFIX}-${pager_event}-signal"
+  local rule_name="${AZURE_SIGNAL_PREFIX}-${pager_event}-pager"
   local signal_id description
   description="$(printf '%s\n\n%s' "$summary" "$details" | truncate_text 3500)"
   az monitor activity-log alert update -g "$AZURE_RESOURCE_GROUP" -n "$rule_name" \
@@ -165,45 +200,193 @@ notify_event() {
 }
 
 capture_host_diagnostics() {
-  local kind="$1" output="$STATE_DIR/${kind}-diagnostics-$(date -u +%Y%m%dT%H%M%SZ).txt"
+  local kind="$1" output
+  output="$STATE_DIR/${kind}-diagnostics-$(date -u +%Y%m%dT%H%M%SZ).txt"
   {
     echo "captured=$(now_utc) source=$MONITOR_SOURCE kind=$kind"
     echo "vm_host=$VM_HOST vm_id=$VM_ID"
     echo "qm_status=$(sudo -n qm status "$VM_ID" 2>&1 || true)"
+    echo "host_loadavg=$(cat /proc/loadavg 2>/dev/null || true)"
+    echo "host_memory_available_kb=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || true)"
     echo "ping:"
     ping -c 2 -W 2 "$VM_HOST" 2>&1 || true
     echo "tcp_22:"
     timeout 3 bash -c "exec 3<>/dev/tcp/$VM_HOST/$VM_SSH_PORT" 2>&1 || true
     echo "http:"
-    curl -sS -o /dev/null -w 'http_code=%{http_code} connect=%{time_connect} total=%{time_total}\n' \
+    curl -sS -o /dev/null -w 'http_code=%{http_code} connect=%{time_connect} start=%{time_starttransfer} total=%{time_total}\n' \
       --max-time "$HEALTH_TIMEOUT_SECONDS" "$VM_HEALTH_URL" 2>&1 || true
+    echo "remote_snapshot:"
+    timeout "$HEALTH_TIMEOUT_SECONDS" ssh -o BatchMode=yes -o ConnectTimeout="$HEALTH_TIMEOUT_SECONDS" \
+      "timeng@$VM_HOST" 'bash -s' 2>&1 <<'REMOTE_SNAPSHOT' || true
+cores=$(nproc 2>/dev/null || echo 1)
+load1=$(awk '{print $1}' /proc/loadavg)
+load_class=$(awk -v l="$load1" -v c="$cores" 'BEGIN { if (l >= c * 2) print "critical"; else if (l >= c) print "high"; else print "normal" }')
+mem_available_kb=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+mem_total_kb=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+mem_available_pct=$(awk -v available="$mem_available_kb" -v total="$mem_total_kb" 'BEGIN { if (total > 0) printf "%.1f", available * 100 / total; else print "0.0" }')
+benchmark_pids=$(pgrep -f '[p]ython3 data/run_benchmark.py' || true)
+benchmark_processes=$(for pid in $benchmark_pids; do ps -o pid=,stat=,%cpu=,%mem=,comm= -p "$pid"; done | tr '\n' ';')
+sandbox_count=$(docker ps --format '{{.Names}}' | awk '/^librechat-code-/ {count++} END {print count+0}')
+if [ "$sandbox_count" -ge 12 ]; then sandbox_class=critical; elif [ "$sandbox_count" -ge 6 ]; then sandbox_class=high; else sandbox_class=normal; fi
+cpu_pressure=$(awk '/^some / {for (i = 1; i <= NF; i++) if ($i ~ /^avg10=/) {sub(/^avg10=/, "", $i); print $i}}' /proc/pressure/cpu 2>/dev/null || echo 0)
+io_pressure=$(awk '/^some / {for (i = 1; i <= NF; i++) if ($i ~ /^avg10=/) {sub(/^avg10=/, "", $i); print $i}}' /proc/pressure/io 2>/dev/null || echo 0)
+cpu_pressure_class=$(awk -v value="$cpu_pressure" 'BEGIN { if (value >= 50) print "critical"; else if (value >= 20) print "high"; else print "normal" }')
+io_pressure_class=$(awk -v value="$io_pressure" 'BEGIN { if (value >= 20) print "critical"; else if (value >= 5) print "high"; else print "normal" }')
+echo "load_assessment=$load_class load1=$load1 cores=$cores loadavg=$(cat /proc/loadavg)"
+echo "memory_assessment=$(awk -v p="$mem_available_pct" 'BEGIN { print (p < 10) ? "critical" : "normal" }') available_pct=$mem_available_pct available_kb=$mem_available_kb total_kb=$mem_total_kb"
+echo "sandbox_assessment=$sandbox_class count=$sandbox_count threshold_high=6 threshold_critical=12"
+echo "cpu_pressure_assessment=$cpu_pressure_class avg10=$cpu_pressure threshold_high=20 threshold_critical=50"
+echo "io_pressure_assessment=$io_pressure_class avg10=$io_pressure threshold_high=5 threshold_critical=20"
+echo "benchmark_processes=$benchmark_processes"
+docker inspect LibreChat --format 'librechat_state={{.State.Status}} running={{.State.Running}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} restarts={{.RestartCount}}' 2>/dev/null || true
+docker inspect chat-mongodb --format 'mongodb_state={{.State.Status}} running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{end}} oom={{.State.OOMKilled}} restarts={{.RestartCount}}' 2>/dev/null || true
+docker stats --no-stream --format 'resource={{.Name}}|cpu={{.CPUPerc}}|memory={{.MemUsage}}|pids={{.PIDs}}' 2>/dev/null | grep -E '^resource=(LibreChat|chat-mongodb|.*langfuse.*|.*clickhouse.*|.*minio.*)' || true
+REMOTE_SNAPSHOT
     echo "host_memory:"
     free -h || true
   } > "$output"
+  chmod 600 "$output"
+  find "$STATE_DIR" -maxdepth 1 -type f -name '*diagnostics-*.txt' -mtime +14 -delete 2>/dev/null || true
   printf '%s' "$output"
 }
 
 capture_vm_diagnostics() {
-  local output="$STATE_DIR/app-diagnostics-$(date -u +%Y%m%dT%H%M%SZ).txt"
+  local kind="${1:-app}" output
+  output="$STATE_DIR/${kind}-diagnostics-$(date -u +%Y%m%dT%H%M%SZ).txt"
+  local cores load1 load_class mem_available_kb mem_total_kb mem_available_pct sandbox_count sandbox_class
+  local cpu_pressure io_pressure cpu_pressure_class io_pressure_class
+  cores="$(nproc 2>/dev/null || echo 1)"
+  load1="$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0)"
+  load_class="$(awk -v l="$load1" -v c="$cores" 'BEGIN { if (l >= c * 2) print "critical"; else if (l >= c) print "high"; else print "normal" }')"
+  mem_available_kb="$(awk '/MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  mem_total_kb="$(awk '/MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 1)"
+  mem_available_pct="$(awk -v available="$mem_available_kb" -v total="$mem_total_kb" 'BEGIN { if (total > 0) printf "%.1f", available * 100 / total; else print "0.0" }')"
+  sandbox_count="$(docker ps --format '{{.Names}}' 2>/dev/null | awk '/^librechat-code-/ {count++} END {print count+0}')"
+  if (( sandbox_count >= 12 )); then sandbox_class=critical; elif (( sandbox_count >= 6 )); then sandbox_class=high; else sandbox_class=normal; fi
+  cpu_pressure="$(awk '/^some / {for (i = 1; i <= NF; i++) if ($i ~ /^avg10=/) {sub(/^avg10=/, "", $i); print $i}}' /proc/pressure/cpu 2>/dev/null || echo 0)"
+  io_pressure="$(awk '/^some / {for (i = 1; i <= NF; i++) if ($i ~ /^avg10=/) {sub(/^avg10=/, "", $i); print $i}}' /proc/pressure/io 2>/dev/null || echo 0)"
+  cpu_pressure_class="$(awk -v value="$cpu_pressure" 'BEGIN { if (value >= 50) print "critical"; else if (value >= 20) print "high"; else print "normal" }')"
+  io_pressure_class="$(awk -v value="$io_pressure" 'BEGIN { if (value >= 20) print "critical"; else if (value >= 5) print "high"; else print "normal" }')"
   {
-    echo "captured=$(now_utc) source=$MONITOR_SOURCE"
+    echo "captured=$(now_utc) source=$MONITOR_SOURCE kind=$kind"
+    echo "load_assessment=$load_class load1=$load1 cores=$cores loadavg=$(cat /proc/loadavg 2>/dev/null || true)"
+    echo "memory_assessment=$([[ $(awk -v p="$mem_available_pct" 'BEGIN { print (p < 10) ? 1 : 0 }') == 1 ]] && echo critical || echo normal) available_pct=$mem_available_pct available_kb=$mem_available_kb total_kb=$mem_total_kb"
+    echo "sandbox_assessment=$sandbox_class count=$sandbox_count threshold_high=6 threshold_critical=12"
+    echo "cpu_pressure_assessment=$cpu_pressure_class avg10=$cpu_pressure threshold_high=20 threshold_critical=50"
+    echo "io_pressure_assessment=$io_pressure_class avg10=$io_pressure threshold_high=5 threshold_critical=20"
+    benchmark_pids="$(pgrep -f '[p]ython3 data/run_benchmark.py' || true)"
+    echo "benchmark_processes=$(for pid in $benchmark_pids; do ps -o pid=,stat=,%cpu=,%mem=,comm= -p "$pid"; done | tr '\n' ';')"
+    echo "sandbox_containers=$(docker ps --format '{{.Names}}|{{.Status}}|{{.Image}}' | awk -F'|' '$1 ~ /^librechat-code-/ {printf "%s;", $0}')"
     docker inspect "$LIBRECHAT_CONTAINER" --format \
-      'container={{.Name}} status={{.State.Status}} running={{.State.Running}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}} restarts={{.RestartCount}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' 2>&1 || true
-    curl -sS -o /dev/null -w 'http_code=%{http_code} connect=%{time_connect} total=%{time_total}\n' \
+      'librechat_state={{.State.Status}} running={{.State.Running}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}} restarts={{.RestartCount}} started={{.State.StartedAt}} finished={{.State.FinishedAt}} image={{.Config.Image}}' 2>&1 || true
+    docker inspect "$MONGODB_CONTAINER" --format \
+      'mongodb_state={{.State.Status}} running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{end}} oom={{.State.OOMKilled}} error={{.State.Error}} restarts={{.RestartCount}}' 2>&1 || true
+    curl -sS -o /dev/null -w 'http_code=%{http_code} connect=%{time_connect} start=%{time_starttransfer} total=%{time_total}\n' \
       --max-time "$HEALTH_TIMEOUT_SECONDS" "$LOCAL_HEALTH_URL" 2>&1 || true
-    echo "docker_logs:"
-    docker logs --tail "$DIAGNOSTIC_LINES" "$LIBRECHAT_CONTAINER" 2>&1 || true
+    echo "pressure_cpu=$(tr '\n' ' ' </proc/pressure/cpu 2>/dev/null || true)"
+    echo "pressure_memory=$(tr '\n' ' ' </proc/pressure/memory 2>/dev/null || true)"
+    echo "pressure_io=$(tr '\n' ' ' </proc/pressure/io 2>/dev/null || true)"
+    echo "docker_resources:"
+    docker stats --no-stream --format 'resource={{.Name}}|cpu={{.CPUPerc}}|memory={{.MemUsage}}|pids={{.PIDs}}' 2>&1 || true
+    echo "top_cpu_processes:"
+    ps -eo pid,ppid,stat,%cpu,%mem,etimes,cmd --sort=-%cpu | head -25 || true
+    echo "top_memory_processes:"
+    ps -eo pid,ppid,stat,%cpu,%mem,etimes,cmd --sort=-%mem | head -20 || true
+    echo "kernel_oom_and_pressure_events:"
+    journalctl -k --since '-20 min' --no-pager 2>/dev/null | grep -Ei 'oom|out of memory|killed process|memory pressure|blocked for more than' | tail -30 || true
+    echo "mongodb_logs:"
+    docker logs --since 10m --tail "$DIAGNOSTIC_LINES" "$MONGODB_CONTAINER" 2>&1 || true
+    echo "librechat_logs:"
+    docker logs --since 10m --tail "$DIAGNOSTIC_LINES" "$LIBRECHAT_CONTAINER" 2>&1 || true
     echo "memory:"
     free -h || true
     echo "disk:"
     df -h / /var/lib/docker 2>&1 || true
+    echo "routing:"
+    tailscale serve status 2>&1 || true
   } > "$output"
+  chmod 600 "$output"
+  find "$STATE_DIR" -maxdepth 1 -type f -name '*diagnostics-*.txt' -mtime +14 -delete 2>/dev/null || true
   printf '%s' "$output"
+}
+
+diagnostic_findings() {
+  local file="$1" line found=false
+  [[ -s "$file" ]] || { printf '%s\n' 'No outage diagnostic snapshot was retained.'; return 0; }
+  printf '%s\n' 'Evidence-based suspected causes (preliminary, not a final RCA):'
+  line="$(grep -E '^load_assessment=(high|critical)' "$file" | head -1 || true)"
+  if [[ -n "$line" ]]; then printf -- '- Host saturation: %s\n' "$line"; found=true; fi
+  line="$(grep -E '^memory_assessment=critical' "$file" | head -1 || true)"
+  if [[ -n "$line" ]]; then printf -- '- Low available memory: %s\n' "$line"; found=true; fi
+  line="$(grep -E '^sandbox_assessment=(high|critical)' "$file" | head -1 || true)"
+  if [[ -n "$line" ]]; then printf -- '- Excess Code Interpreter children: %s\n' "$line"; found=true; fi
+  line="$(grep -E '^cpu_pressure_assessment=(high|critical)' "$file" | head -1 || true)"
+  if [[ -n "$line" ]]; then printf -- '- Sustained CPU scheduling pressure: %s\n' "$line"; found=true; fi
+  line="$(grep -E '^io_pressure_assessment=(high|critical)' "$file" | head -1 || true)"
+  if [[ -n "$line" ]]; then printf -- '- Sustained I/O pressure: %s\n' "$line"; found=true; fi
+  line="$(grep -E '^benchmark_processes=.' "$file" | head -1 || true)"
+  if [[ -n "$line" ]]; then printf -- '- Detached benchmark activity was present: %s\n' "$line"; found=true; fi
+  line="$(grep -E '^librechat_state=.*oom=true|^mongodb_state=.*oom=true' "$file" | head -1 || true)"
+  if [[ -n "$line" ]]; then printf -- '- Docker recorded an OOM kill: %s\n' "$line"; found=true; fi
+  line="$(grep -E '^mongodb_state=.*(health=unhealthy|running=false|state=exited)' "$file" | head -1 || true)"
+  if [[ -n "$line" ]]; then printf -- '- MongoDB was not healthy: %s\n' "$line"; found=true; fi
+  line="$(grep -Ei 'server selection|server monitor|timed out|ECONNREFUSED|heap out of memory|out of memory|killed process' "$file" | head -3 || true)"
+  if [[ -n "$line" ]]; then printf -- '- Matching failure signatures:\n%s\n' "$line"; found=true; fi
+  line="$(grep -E '^resource=(LibreChat|chat-mongodb|.*langfuse.*|.*clickhouse.*|.*minio.*)' "$file" | head -8 || true)"
+  if [[ -n "$line" ]]; then printf -- '- Core and auxiliary resource snapshot:\n%s\n' "$line"; fi
+  if [[ "$found" == "false" ]]; then
+    printf '%s\n' '- No single high-confidence cause matched; inspect the attached state, resource, pressure, and log snapshot.'
+  fi
+}
+
+recovery_comparison() {
+  local outage_file="$1" recovery_file="$2"
+  printf '%s\n' 'Outage snapshot:'
+  diagnostic_findings "$outage_file"
+  printf '%s\n' 'Recovery snapshot:'
+  diagnostic_findings "$recovery_file"
+}
+
+
+healing_method() {
+  local kind="$1" last_action="$2" mutated="$3"
+  case "$last_action" in
+    container-restart-success)
+      if [[ "$kind" == "mongodb" ]]; then
+        printf '%s' 'The in-VM watchdog restarted the MongoDB container, retained persistent data and session/MFA state, and waited for the MongoDB healthcheck to return healthy.'
+      else
+        printf '%s' 'The in-VM watchdog restarted the LibreChat container, waited for local HTTP recovery, and re-ran the authentication/session, canonical-runtime, and heap-headroom safety checks.'
+      fi
+      ;;
+    last-stable-rollback-success)
+      printf '%s' 'The in-VM watchdog first attempted a LibreChat restart, then restored the deployment-recorded last-stable snapshot because restart alone did not recover service; local HTTP and safety contracts passed afterward.'
+      ;;
+    host-ssh-container-restart)
+      printf '%s' 'The pve2 watchdog used the VM SSH fallback to restart the LibreChat container after the in-VM recovery window was exceeded; external HTTP subsequently passed.'
+      ;;
+    graceful-reboot-success)
+      printf '%s' 'The pve2 watchdog issued a graceful Proxmox reboot of VM 112 and declared recovery only after VM SSH and LibreChat HTTP both passed.'
+      ;;
+    hard-reset-success)
+      printf '%s' 'The pve2 watchdog hard-reset Proxmox VM 112 after the prolonged-outage threshold and declared recovery only after VM SSH and LibreChat HTTP both passed.'
+      ;;
+    restart-safety-blocked|dependency-mongodb-unhealthy)
+      printf '%s' 'The watchdog intentionally did not restart LibreChat because a safety or dependency gate blocked mutation; service recovered after the blocking dependency or an external/manual action cleared the condition.'
+      ;;
+    *)
+      if [[ "$mutated" == "true" ]]; then
+        printf 'The watchdog performed a recovery mutation recorded as %s; the ordered action timeline below contains the exact command path and verification result.' "${last_action:-unknown}"
+      else
+        printf '%s' 'This watchdog did not mutate production. It observed recovery after another watchdog, an operator/external action, or the dependency recovered naturally; the timeline and before/after evidence below distinguish what was observed.'
+      fi
+      ;;
+  esac
 }
 
 diagnostic_summary() {
   local file="$1"
-  tail -n 80 "$file" | truncate_text 3000
+  [[ -s "$file" ]] || { printf '%s\n' 'Diagnostics unavailable.'; return 0; }
+  sed -n '1,140p' "$file" | truncate_text 3000
 }
 
 mark_failure() {
@@ -233,7 +416,8 @@ mark_failure() {
 
 mark_success() {
   local kind="$1" detail="$2" event="$3" title="$4"
-  local state successes started duration details
+  local state successes started duration details outage_diagnostics recovery_diagnostics action_summary ownership
+  local last_action mutated healing_summary
   state="$(read_value "$STATE_DIR/$kind.state" unknown)"
   write_value "$STATE_DIR/$kind.failures" 0
   successes="$(read_value "$STATE_DIR/$kind.successes" 0)"
@@ -242,10 +426,27 @@ mark_success() {
   if [[ "$state" == "down" && "$successes" -ge "$RECOVERY_THRESHOLD" ]]; then
     started="$(read_value "$STATE_DIR/$kind.outage-started" "$(now_epoch)")"
     duration=$(( $(now_epoch) - started ))
-    details="Recovered after ${duration}s. $detail\nLast failure: $(read_value "$STATE_DIR/$kind.last-detail" unknown)\nSelf-heal action: $(read_value "$STATE_DIR/$kind.last-action" none)."
+    outage_diagnostics="$(read_value "$STATE_DIR/$kind.last-diagnostics" '')"
+    if [[ "$MODE" == "vm" ]]; then
+      recovery_diagnostics="$(capture_vm_diagnostics "$kind-recovery")"
+    else
+      recovery_diagnostics="$(capture_host_diagnostics "$kind-recovery")"
+    fi
+    action_summary="$(incident_actions "$kind")"
+    last_action="$(read_value "$STATE_DIR/$kind.last-action" none)"
+    mutated=false
+    if [[ -e "$STATE_DIR/$kind.mutated" ]]; then
+      mutated=true
+      ownership="The watchdog performed one or more recovery mutations."
+    else
+      ownership="No mutation by this watchdog was recorded."
+    fi
+    healing_summary="$(healing_method "$kind" "$last_action" "$mutated")"
+    details="HOW IT WAS HEALED\n- Exact recovery: $healing_summary\n- Recovery actor: $ownership\n- Last recovery state: $last_action\n- Recovery verification: $detail\n\nINCIDENT SUMMARY\n- Status: HEALED after ${duration}s.\n- Original failure: $(read_value "$STATE_DIR/$kind.last-detail" unknown)\n\nRECOVERY ACTION TIMELINE\n$action_summary\n\nPRELIMINARY RCA AND BEFORE/AFTER EVIDENCE\n$(recovery_comparison "$outage_diagnostics" "$recovery_diagnostics")\n\nDIAGNOSTIC FILES\n- Outage: ${outage_diagnostics:-unavailable}\n- Recovery: $recovery_diagnostics"
     write_value "$STATE_DIR/$kind.state" healthy
     rm -f "$STATE_DIR/$kind.outage-started"
-    notify_event "$event" "$title" "$detail" "$details" high
+    notify_event "$event" "$title" "HEALED after ${duration}s — $healing_summary" "$details" high
+    rm -f "$STATE_DIR/$kind.actions" "$STATE_DIR/$kind.mutated"
   elif [[ "$state" == "unknown" ]]; then
     write_value "$STATE_DIR/$kind.state" healthy
     log "$kind check healthy: $detail"
@@ -278,7 +479,8 @@ heal_vm_if_needed() {
     return 0
   fi
 
-  diagnostics="$(capture_host_diagnostics vm)"
+  diagnostics="$(capture_host_diagnostics vm-recovery-attempt)"
+  record_mutation vm "Beginning $action for Proxmox VM $VM_ID after $failures failed checks."
   write_value "$STATE_DIR/vm.last-recovery-at" "$now"
   write_value "$STATE_DIR/vm.last-action" "$action"
   if [[ "$action" == "graceful-reboot" ]]; then
@@ -294,11 +496,13 @@ heal_vm_if_needed() {
 
   if wait_for_vm; then
     write_value "$STATE_DIR/vm.last-action" "$action-success"
+    record_action vm "$action completed and VM SSH plus LibreChat HTTP passed."
     mark_success vm "VM SSH and LibreChat HTTP recovered after $action." vm-healed "LibreChat VM HEALED"
   else
     if [[ "$action" == "graceful-reboot" ]]; then
       write_value "$STATE_DIR/vm.last-recovery-at" $(( $(now_epoch) - VM_RECOVERY_COOLDOWN_SECONDS + 120 ))
     fi
+    record_action vm "$action completed or timed out, but VM health did not recover within ${VM_RECOVERY_WAIT_SECONDS}s."
     summary="VM remains unavailable after $action."
     notify_event vm-heal-failed "LibreChat VM HEAL FAILED" "$summary" \
       "Action: $action on Proxmox VM $VM_ID.\nDiagnostics file: $diagnostics\n$(diagnostic_summary "$diagnostics")"
@@ -340,9 +544,11 @@ heal_mongodb_if_needed() {
   now="$(now_epoch)"
   last_restart="$(read_value "$STATE_DIR/mongodb.last-restart" 0)"
   (( now - last_restart >= MONGODB_RESTART_COOLDOWN_SECONDS )) || return 0
-  diagnostics="$(capture_vm_diagnostics)"
+  diagnostics="$(capture_vm_diagnostics mongodb-recovery-attempt)"
+  record_action mongodb "Running persistence, runtime-shape, and heap safety contracts before MongoDB restart."
   if ! verify_restart_safety; then
     write_value "$STATE_DIR/mongodb.last-action" "restart-safety-blocked"
+    record_action mongodb "Automatic MongoDB restart blocked because restart-safety contracts failed; no mutation performed."
     notify_event mongodb-heal-blocked "MongoDB AUTO-RESTART BLOCKED" \
       "MongoDB restart was blocked because LibreChat persistence/runtime safeguards failed." \
       "No credentials, sessions, MFA state, database files, or containers were changed. Diagnostics file: $diagnostics"
@@ -350,12 +556,15 @@ heal_mongodb_if_needed() {
   fi
   write_value "$STATE_DIR/mongodb.last-restart" "$now"
   write_value "$STATE_DIR/mongodb.last-action" "container-restart"
+  record_mutation mongodb "Restarting $MONGODB_CONTAINER; persistent database files, credentials, sessions, and MFA state are retained."
   log "Restarting $MONGODB_CONTAINER after sustained unhealthy status; persistent database files are retained."
   if docker restart "$MONGODB_CONTAINER" >/dev/null && wait_for_mongodb; then
     write_value "$STATE_DIR/mongodb.last-action" "container-restart-success"
+    record_action mongodb "MongoDB container restart completed and its healthcheck returned healthy."
     mark_success mongodb "MongoDB recovered after a guarded container restart." mongodb-healed "LibreChat MongoDB HEALED"
     return 0
   fi
+  record_action mongodb "MongoDB remained unhealthy after the guarded restart window."
   notify_event mongodb-heal-failed "MongoDB HEAL FAILED" \
     "MongoDB remained unhealthy after a guarded restart." \
     "No database/session deletion was attempted. Diagnostics file: $diagnostics"
@@ -370,7 +579,8 @@ rollback_recent_last_stable() {
   (( age <= ROLLBACK_MAX_AGE_SECONDS )) || return 1
   log "Attempting rollback to deployment-recorded last stable snapshot (age ${age}s)."
   write_value "$STATE_DIR/app.last-action" "last-stable-rollback"
-  "$ROLLBACK_COMMAND"
+  record_mutation app "Invoking the deployment-recorded last-stable rollback command."
+  "$ROLLBACK_COMMAND" execute
 }
 
 heal_app_if_needed() {
@@ -382,30 +592,43 @@ heal_app_if_needed() {
   last_restart="$(read_value "$STATE_DIR/app.last-restart" 0)"
   (( now - last_restart >= APP_RESTART_COOLDOWN_SECONDS )) || return 0
 
-  diagnostics="$(capture_vm_diagnostics)"
+  diagnostics="$(capture_vm_diagnostics app-recovery-attempt)"
+  local mongodb_state
+  mongodb_state="$(docker inspect "$MONGODB_CONTAINER" --format '{{.State.Running}}:{{if .State.Health}}{{.State.Health.Status}}{{end}}' 2>/dev/null || true)"
+  if [[ "$mongodb_state" != "true:healthy" ]]; then
+    write_value "$STATE_DIR/app.last-action" "dependency-mongodb-unhealthy"
+    record_action app "LibreChat restart deferred because MongoDB state is '$mongodb_state'; MongoDB recovery remains the first dependency action."
+    return 0
+  fi
+  record_action app "Running auth/session, runtime-shape, and heap safety contracts before LibreChat restart."
   write_value "$STATE_DIR/app.last-restart" "$now"
   write_value "$STATE_DIR/app.last-action" "container-restart"
   log "Validating auth/session, runtime-shape, and heap contracts before automatic restart."
   if ! verify_restart_safety; then
     write_value "$STATE_DIR/app.last-action" "restart-safety-blocked"
+    record_action app "Automatic LibreChat restart blocked because restart-safety contracts failed; no mutation performed."
     notify_event app-heal-blocked "LibreChat AUTO-RESTART BLOCKED" \
       "Automatic restart was blocked because a persistence/runtime contract failed." \
       "No credentials, sessions, MFA state, or containers were changed. Diagnostics file: $diagnostics"
     return 0
   fi
+  record_mutation app "Restarting $LIBRECHAT_CONTAINER after sustained application failure."
   log "Restarting $LIBRECHAT_CONTAINER after sustained application failure."
   if docker restart "$LIBRECHAT_CONTAINER" >/dev/null && wait_for_app && verify_restart_safety; then
     write_value "$STATE_DIR/app.last-action" "container-restart-success"
+    record_action app "LibreChat restart completed; container, HTTP, auth/runtime, and heap checks passed."
     mark_success app "LibreChat container and HTTP endpoint recovered after automatic restart." app-healed "LibreChat APP HEALED"
     return 0
   fi
 
   if rollback_recent_last_stable && wait_for_app; then
     write_value "$STATE_DIR/app.last-action" "last-stable-rollback-success"
+    record_action app "Last-stable rollback completed and local LibreChat health passed."
     mark_success app "LibreChat recovered after rollback to the deployment-recorded last stable snapshot." app-healed "LibreChat APP HEALED"
     return 0
   fi
 
+  record_action app "LibreChat remained unhealthy after restart and any eligible last-stable rollback."
   summary="LibreChat remained unhealthy after container restart and eligible last-stable rollback."
   notify_event app-heal-failed "LibreChat APP HEAL FAILED" "$summary" \
     "Actions attempted: docker restart $LIBRECHAT_CONTAINER; recent last-stable rollback when available.\nRollback pointer: $ROLLBACK_POINTER\nDiagnostics file: $diagnostics\n$(diagnostic_summary "$diagnostics")"
@@ -421,6 +644,7 @@ host_app_fallback_restart() {
   (( now - last_restart >= APP_RESTART_COOLDOWN_SECONDS )) || return 0
   write_value "$STATE_DIR/app.last-restart" "$now"
   write_value "$STATE_DIR/app.last-action" "host-ssh-container-restart"
+  record_mutation app "Host watchdog is invoking the SSH fallback restart for $LIBRECHAT_CONTAINER after $failures failures."
   ssh -o BatchMode=yes -o ConnectTimeout="$HEALTH_TIMEOUT_SECONDS" "timeng@$VM_HOST" \
     "docker restart '$LIBRECHAT_CONTAINER' >/dev/null" || true
 }
@@ -439,8 +663,10 @@ host_iteration() {
     detail="VM SSH $VM_HOST:$VM_SSH_PORT is unreachable; Proxmox VM $(sudo -n qm status "$VM_ID" 2>&1 || true)."
     if mark_failure vm "$detail"; then
       diagnostics="$(capture_host_diagnostics vm)"
+      remember_diagnostics vm "$diagnostics"
+      record_action vm "Outage declared after $(read_value "$STATE_DIR/vm.failures" 0) consecutive failures; automatic VM recovery remains threshold- and cooldown-gated."
       notify_event vm-down "LibreChat VM DOWN" "$detail" \
-        "Failure threshold: $(read_value "$STATE_DIR/vm.failures" 0). Planned recovery: graceful VM reboot at $VM_REBOOT_FAILURE_THRESHOLD failures, hard reset at $VM_RESET_FAILURE_THRESHOLD failures.\nDiagnostics file: $diagnostics\n$(diagnostic_summary "$diagnostics")"
+        "Failure threshold: $(read_value "$STATE_DIR/vm.failures" 0). Planned recovery: graceful VM reboot at $VM_REBOOT_FAILURE_THRESHOLD failures, hard reset at $VM_RESET_FAILURE_THRESHOLD failures.\n\n$(diagnostic_findings "$diagnostics")\n\nDiagnostics file: $diagnostics\n$(diagnostic_summary "$diagnostics")"
     fi
     heal_vm_if_needed
     return 0
@@ -460,8 +686,10 @@ host_iteration() {
     detail="VM is reachable but LibreChat HTTP endpoint $VM_HEALTH_URL failed."
     if mark_failure app "$detail"; then
       diagnostics="$(capture_host_diagnostics app)"
+      remember_diagnostics app "$diagnostics"
+      record_action app "Outage declared after $(read_value "$STATE_DIR/app.failures" 0) consecutive external HTTP failures."
       notify_event app-down "LibreChat APP DOWN" "$detail" \
-        "The in-VM watchdog should restart the LibreChat container. Host SSH fallback begins at $HOST_APP_RESTART_FAILURE_THRESHOLD failures.\nDiagnostics file: $diagnostics\n$(diagnostic_summary "$diagnostics")"
+        "The in-VM watchdog should restart the LibreChat container. Host SSH fallback begins at $HOST_APP_RESTART_FAILURE_THRESHOLD failures.\n\n$(diagnostic_findings "$diagnostics")\n\nDiagnostics file: $diagnostics\n$(diagnostic_summary "$diagnostics")"
     fi
     host_app_fallback_restart
   fi
@@ -480,10 +708,12 @@ vm_iteration() {
     mark_success mongodb "MongoDB container healthcheck is healthy." mongodb-healed "LibreChat MongoDB HEALED"
   else
     if mark_failure mongodb "MongoDB container health is '$mongodb_state'."; then
-      diagnostics="$(capture_vm_diagnostics)"
+      diagnostics="$(capture_vm_diagnostics mongodb)"
+      remember_diagnostics mongodb "$diagnostics"
+      record_action mongodb "MongoDB incident declared after $(read_value "$STATE_DIR/mongodb.failures" 0) consecutive unhealthy checks."
       notify_event mongodb-down "LibreChat MongoDB UNHEALTHY" \
         "MongoDB container health is '$mongodb_state'." \
-        "A guarded restart is eligible after $MONGODB_RESTART_FAILURE_THRESHOLD failures; no database or session deletion is permitted. Diagnostics file: $diagnostics"
+        "A guarded restart is eligible after $MONGODB_RESTART_FAILURE_THRESHOLD failures; no database or session deletion is permitted.\n\n$(diagnostic_findings "$diagnostics")\n\nDiagnostics file: $diagnostics\n$(diagnostic_summary "$diagnostics")"
     fi
     heal_mongodb_if_needed
   fi
@@ -499,12 +729,29 @@ vm_iteration() {
 
   detail="Container state: $state; local /api/config HTTP: $http_code."
   if mark_failure app "$detail"; then
-    diagnostics="$(capture_vm_diagnostics)"
+    diagnostics="$(capture_vm_diagnostics app)"
+    remember_diagnostics app "$diagnostics"
+    record_action app "Application outage declared after $(read_value "$STATE_DIR/app.failures" 0) consecutive container/HTTP failures."
     notify_event app-down "LibreChat APP DOWN" "$detail" \
-      "Automatic action: restart $LIBRECHAT_CONTAINER at $APP_RESTART_FAILURE_THRESHOLD failures; cooldown ${APP_RESTART_COOLDOWN_SECONDS}s.\nDiagnostics file: $diagnostics\n$(diagnostic_summary "$diagnostics")"
+      "Automatic action: restart $LIBRECHAT_CONTAINER at $APP_RESTART_FAILURE_THRESHOLD failures; cooldown ${APP_RESTART_COOLDOWN_SECONDS}s.\n\n$(diagnostic_findings "$diagnostics")\n\nDiagnostics file: $diagnostics\n$(diagnostic_summary "$diagnostics")"
   fi
   heal_app_if_needed
 }
+
+RUN_MODE="${2:-loop}"
+case "$RUN_MODE" in
+  diagnostics)
+    if [[ "$MODE" == "host" ]]; then capture_host_diagnostics manual; else capture_vm_diagnostics manual; fi
+    printf '\n'
+    exit 0
+    ;;
+  once)
+    if [[ "$MODE" == "host" ]]; then host_iteration; else vm_iteration; fi
+    exit 0
+    ;;
+  loop) ;;
+  *) echo "Usage: $0 host|vm [loop|once|diagnostics]" >&2; exit 2 ;;
+esac
 
 log "Starting LibreChat health monitor from $MONITOR_SOURCE."
 while true; do

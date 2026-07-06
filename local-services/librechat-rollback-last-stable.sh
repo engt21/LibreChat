@@ -5,6 +5,12 @@ pointer="${LIBRECHAT_LAST_STABLE_POINTER:-$HOME/.local/state/librechat-health-mo
 maintenance_file="${LIBRECHAT_HEALTH_MAINTENANCE_FILE:-$HOME/.local/state/librechat-health-monitor/maintenance}"
 health_url="${LIBRECHAT_ROLLBACK_HEALTH_URL:-http://127.0.0.1:3080/api/config}"
 health_timeout="${LIBRECHAT_ROLLBACK_HEALTH_TIMEOUT:-120}"
+command="${1:-}"
+[[ "$command" == "execute" || "$command" == "status" || "$command" == "--check" ]] || {
+  echo "Usage: $0 <execute|status|--check>" >&2
+  echo "Rollback is never executed implicitly; pass 'execute' explicitly." >&2
+  exit 2
+}
 
 [[ -s "$pointer" ]] || { echo "No last-stable rollback pointer exists." >&2; exit 1; }
 get_value() { sed -n "s/^$1=//p" "$pointer" | head -1; }
@@ -14,6 +20,30 @@ container="$(get_value container)"
 root="$(get_value root)"
 [[ -n "$type" && -n "$snapshot" && -n "$container" ]] || { echo "Invalid rollback pointer: $pointer" >&2; exit 1; }
 [[ -d "$snapshot" ]] || { echo "Rollback snapshot is missing: $snapshot" >&2; exit 1; }
+case "$type" in
+  runtime)
+    [[ -f "$snapshot/host-files.txt" && -f "$snapshot/container-files.txt" && -f "$snapshot/container-dirs.txt" ]] || {
+      echo "Runtime rollback manifests are incomplete: $snapshot" >&2
+      exit 1
+    }
+    ;;
+  client)
+    [[ -d "$snapshot/client-dist" && -f "$snapshot/client-dist/index.html" ]] || {
+      echo "Client rollback snapshot is incomplete: $snapshot/client-dist" >&2
+      exit 1
+    }
+    ;;
+  *) echo "Unsupported rollback type: $type" >&2; exit 1 ;;
+esac
+
+if [[ "$command" == "status" || "$command" == "--check" ]]; then
+  created_epoch="$(get_value created_epoch)"
+  age=unknown
+  if [[ "$created_epoch" =~ ^[0-9]+$ ]]; then age="$(( $(date +%s) - created_epoch ))s"; fi
+  printf 'rollback_pointer=valid type=%s container=%s snapshot=%s root=%s age=%s mode=%s\n' \
+    "$type" "$container" "$snapshot" "$root" "$age" "$(stat -c %a "$pointer" 2>/dev/null || echo unknown)"
+  exit 0
+fi
 
 mkdir -p "$(dirname "$maintenance_file")"
 printf 'expires=%s\nreason=%s\nstarted=%s\n' "$(( $(date +%s) + 1800 ))" \

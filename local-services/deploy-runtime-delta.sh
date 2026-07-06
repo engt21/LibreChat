@@ -475,7 +475,7 @@ clear_remote_maintenance() {
 
 deployment_cleanup() {
   if $remote_changes_staged; then
-    if remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/librechat-rollback-last-stable.sh" >/dev/null 2>&1; then
+    if remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/librechat-rollback-last-stable.sh execute" >/dev/null 2>&1; then
       remote_changes_staged=false
       if $fallback_started; then
         run_deployment_fallback finish >/dev/null 2>&1 || true
