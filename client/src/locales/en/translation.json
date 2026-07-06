@@ -1016,6 +1016,7 @@
   "com_ui_generation_tree_continuation_counts": "Later continuations",
   "com_ui_generation_tree_undo_scope_title": "Undo scope",
   "com_ui_generation_tree_undo_scope_description": "Deleting later continuations will remove the copied grafted branch and any later follow-up messages.",
+  "com_ui_generation_tree_undo_target": "Undo target",
   "com_ui_generation_tree_continuation_scope": "Continuation scope",
   "com_ui_generation_tree_continuation_scope_more": "+{{count}} more",
   "com_ui_generation_tree_partial_warning": "Partial generations are copied as incomplete prior context.",

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 let mockConversationId = 'conversation-1';
 let latestExitComplete: (() => void) | undefined;
+let mockNextDialogInstanceId = 0;
 const renderSnapshots: Array<{
   conversationId: string;
   open: boolean;
@@ -36,6 +37,7 @@ jest.mock('~/components/Chat/Tree/ConversationTreeDialog', () => ({
   }) => {
     const React = jest.requireActual<typeof import('react')>('react');
     latestExitComplete = onExitComplete;
+    const instanceIdRef = React.useRef(++mockNextDialogInstanceId);
 
     React.useEffect(() => {
       if (open || onExitComplete == null) {
@@ -53,6 +55,7 @@ jest.mock('~/components/Chat/Tree/ConversationTreeDialog', () => ({
         data-focused-message-id={focusMessageId ?? ''}
         data-source-message-id={sourceMessageId ?? ''}
         data-session-key={sessionKey ?? ''}
+        data-instance-id={String(instanceIdRef.current)}
       >
         <button type="button" onClick={() => onOpenChange(false)}>
           close dialog
@@ -107,6 +110,7 @@ describe('GenerationTreeProvider', () => {
   beforeEach(() => {
     mockConversationId = 'conversation-1';
     latestExitComplete = undefined;
+    mockNextDialogInstanceId = 0;
     renderSnapshots.length = 0;
     jest.useFakeTimers();
   });
@@ -260,6 +264,28 @@ describe('GenerationTreeProvider', () => {
     );
     expect(screen.getByTestId('generation-tree-dialog').getAttribute('data-session-key')).not.toBe(
       firstSessionKey,
+    );
+  });
+
+  it('remounts the dialog instance when the same source is reopened in a new session', async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    render(
+      <GenerationTreeProvider>
+        <Controls />
+      </GenerationTreeProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Graft assistant-2' }));
+    const firstInstanceId = screen
+      .getByTestId('generation-tree-dialog')
+      .getAttribute('data-instance-id');
+
+    await user.click(screen.getByRole('button', { name: 'Close tree' }));
+    await user.click(screen.getByRole('button', { name: 'Graft assistant-2' }));
+
+    expect(screen.getByTestId('generation-tree-dialog').getAttribute('data-instance-id')).not.toBe(
+      firstInstanceId,
     );
   });
 

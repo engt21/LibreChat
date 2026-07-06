@@ -142,6 +142,7 @@ export function GenerationTreeProvider({ children }: { children: React.ReactNode
     <GenerationTreeContext.Provider value={value}>
       {children}
       <ConversationTreeDialog
+        key={`${session.ownerConversationId ?? ''}:${session.sessionId}`}
         open={open}
         focusMessageId={focusMessageId}
         sourceMessageId={sourceMessageId}

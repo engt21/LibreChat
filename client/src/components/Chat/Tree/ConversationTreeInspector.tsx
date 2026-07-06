@@ -358,6 +358,12 @@ export default function ConversationTreeInspector({
               {localize('com_ui_generation_tree_undo_scope_description')}
             </div>
           </div>
+          <div className="rounded-xl border border-border-medium bg-surface-secondary px-3 py-2 text-sm text-text-primary">
+            <div className="text-xs uppercase tracking-wide text-text-secondary">
+              {localize('com_ui_generation_tree_undo_target')}
+            </div>
+            <div className="mt-1 break-all font-medium">{undoDetails.graftId}</div>
+          </div>
           <CountSection
             title={localize('com_ui_generation_tree_copied_counts')}
             counts={undoDetails.copiedCounts}

@@ -30,6 +30,7 @@ jest.mock('~/hooks/useLocalize', () => ({
       com_ui_generation_tree_undo_scope_title: 'Undo scope',
       com_ui_generation_tree_undo_scope_description:
         'Deleting later continuations will remove the copied grafted branch and any later follow-up messages.',
+      com_ui_generation_tree_undo_target: 'Undo target',
       com_ui_generation_tree_continuation_scope: 'Continuation scope',
       com_ui_generation_tree_continuation_scope_more: `+${options?.count ?? 0} more`,
       com_ui_generation_tree_wait_to_finish: 'Wait for it to finish',
@@ -233,6 +234,69 @@ describe('ConversationTreeInspector', () => {
     expect(onWaitForCompletion).toHaveBeenCalled();
     expect(onCancelStabilization).toHaveBeenCalled();
     expect(onConfirmUndoContinuations).toHaveBeenCalled();
+  });
+
+  it('labels the exact destructive undo target when the current created graft differs from the pending continuation details', () => {
+    render(
+      <ConversationTreeInspector
+        sourceNode={sourceNode}
+        destinationNode={destinationNode}
+        statusText="Preview requested"
+        listOpen={false}
+        onToggleList={jest.fn()}
+        listContent={<div>List content</div>}
+        phase="undo-preview"
+        pendingAction={null}
+        mode="generation"
+        preview={null}
+        created={{
+          graftId: 'graft-b',
+          bridgeMessageId: 'bridge-b',
+          copiedRootMessageId: 'copy-b-1',
+          activeCopiedMessageId: 'copy-b-2',
+          copiedMessageCount: 2,
+          createdMessages: [],
+        }}
+        undoDetails={{
+          graftId: 'graft-a',
+          bridgeMessageId: 'bridge-a',
+          copiedMessageIds: ['copy-a-1'],
+          continuationMessageIds: ['continuation-message-0001'],
+          copiedCounts: {
+            messages: 1,
+            toolCalls: 0,
+            files: 0,
+            images: 0,
+            approximateTokens: 32,
+          },
+          continuationCounts: {
+            messages: 1,
+            toolCalls: 0,
+            files: 0,
+            images: 0,
+            approximateTokens: 16,
+          },
+          canUndoWithoutContinuations: false,
+          mode: 'generation',
+          sourceState: 'complete',
+          destinationState: 'complete',
+          copiedRootMessageId: 'copy-a-1',
+          activeCopiedMessageId: 'copy-a-2',
+        }}
+        error={null}
+        stabilization={null}
+        onModeChange={jest.fn()}
+        onCreate={jest.fn()}
+        onUndo={jest.fn()}
+        onConfirmUndoContinuations={jest.fn()}
+        onStopAndGraft={jest.fn()}
+        onWaitForCompletion={jest.fn()}
+        onCancelStabilization={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Undo target')).toBeInTheDocument();
+    expect(screen.getByText('graft-a')).toBeInTheDocument();
   });
 
   it('disables destructive controls and exposes busy state while an action is already pending', () => {

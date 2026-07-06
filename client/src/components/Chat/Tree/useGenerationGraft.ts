@@ -25,6 +25,7 @@ import type { ConversationTreeGraph } from './types';
 
 const STABILIZATION_POLL_INTERVAL_MS = 500;
 const STABILIZATION_TIMEOUT_MS = 30_000;
+const MAX_IDEMPOTENCY_TUPLES = 32;
 
 export type GenerationGraftPhase =
   | 'idle'
@@ -63,6 +64,12 @@ type SelectionState = {
 
 type SelectionSnapshot = SelectionState & {
   activeSourceLeafMessageId: string | null;
+};
+
+type PendingUndoTarget = {
+  graftId: string;
+  created: TGenerationGraftCreateResponse | null;
+  details: TGenerationGraftDetailsResponse | null;
 };
 
 type UseGenerationGraftOptions = {
@@ -287,7 +294,7 @@ export default function useGenerationGraft({
   const [preview, setPreview] = useState<TGenerationGraftPreviewResponse | null>(null);
   const [previewRevision, setPreviewRevision] = useState<string | null>(null);
   const [created, setCreated] = useState<TGenerationGraftCreateResponse | null>(null);
-  const [undoDetails, setUndoDetails] = useState<TGenerationGraftDetailsResponse | null>(null);
+  const [pendingUndoTarget, setPendingUndoTarget] = useState<PendingUndoTarget | null>(null);
   const [error, setError] = useState<ParsedGenerationGraftError | null>(null);
   const [stabilization, setStabilization] = useState<GenerationGraftStabilizationState | null>(
     null,
@@ -311,21 +318,18 @@ export default function useGenerationGraft({
     activeSourceLeafMessageId,
   });
   const createdRef = useRef<TGenerationGraftCreateResponse | null>(null);
-  const undoDetailsRef = useRef<TGenerationGraftDetailsResponse | null>(null);
+  const pendingUndoTargetRef = useRef<PendingUndoTarget | null>(null);
   const stabilizationRef = useRef<GenerationGraftStabilizationState | null>(stabilization);
   const operationTokenRef = useRef(0);
   const isMountedRef = useRef(true);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingActionRef = useRef<GenerationGraftPendingAction | null>(null);
-  const idempotencyStateRef = useRef<{ tupleKey: string | null; key: string | null }>({
-    tupleKey: null,
-    key: null,
-  });
+  const idempotencyKeysRef = useRef<Map<string, string>>(new Map());
   const previousTreeSignalRef = useRef({
     treeRevision,
     activeSourceLeafMessageId,
   });
-  const currentGraftId = created?.graftId ?? undoDetails?.graftId ?? '';
+  const undoDetails = pendingUndoTarget?.details ?? null;
 
   graphRef.current = graph;
   activeLeafMessageIdRef.current = activeLeafMessageId;
@@ -336,7 +340,7 @@ export default function useGenerationGraft({
     activeSourceLeafMessageId,
   };
   createdRef.current = created;
-  undoDetailsRef.current = undoDetails;
+  pendingUndoTargetRef.current = pendingUndoTarget;
   stabilizationRef.current = stabilization;
 
   const clearPendingTimeout = useCallback(() => {
@@ -366,18 +370,34 @@ export default function useGenerationGraft({
     return true;
   }, []);
 
-  const resetIdempotencyState = useCallback(() => {
-    idempotencyStateRef.current = {
-      tupleKey: null,
-      key: null,
-    };
+  const clearIdempotencyKeys = useCallback(() => {
+    idempotencyKeysRef.current.clear();
+  }, []);
+
+  const storeIdempotencyKey = useCallback((nextTupleKey: string, nextKey: string) => {
+    const map = idempotencyKeysRef.current;
+
+    if (map.has(nextTupleKey)) {
+      map.delete(nextTupleKey);
+    }
+
+    map.set(nextTupleKey, nextKey);
+
+    while (map.size > MAX_IDEMPOTENCY_TUPLES) {
+      const oldestTupleKey = map.keys().next().value;
+      if (typeof oldestTupleKey !== 'string') {
+        break;
+      }
+
+      map.delete(oldestTupleKey);
+    }
   }, []);
 
   const resetTransientState = useCallback(
     ({ preserveCreated = false }: { preserveCreated?: boolean } = {}) => {
       setPreview(null);
       setPreviewRevision(null);
-      setUndoDetails(null);
+      setPendingUndoTarget(null);
       setError(null);
       setStabilization(null);
       if (!preserveCreated) {
@@ -392,7 +412,6 @@ export default function useGenerationGraft({
       clearPendingTimeout();
       bumpOperationToken();
       clearPendingAction();
-      resetIdempotencyState();
       setQueuedStabilizationRetry(null);
       selectionRef.current = {
         ...nextSelection,
@@ -406,13 +425,7 @@ export default function useGenerationGraft({
       resetTransientState();
       setPhase(getBasePhase(nextSelection));
     },
-    [
-      bumpOperationToken,
-      clearPendingAction,
-      clearPendingTimeout,
-      resetIdempotencyState,
-      resetTransientState,
-    ],
+    [bumpOperationToken, clearPendingAction, clearPendingTimeout, resetTransientState],
   );
 
   const previewMatchesCurrentSelection = useCallback(
@@ -497,29 +510,15 @@ export default function useGenerationGraft({
       return null;
     }
 
-    if (
-      idempotencyStateRef.current.tupleKey === tupleKey &&
-      idempotencyStateRef.current.key != null
-    ) {
-      return idempotencyStateRef.current.key;
+    const existingKey = idempotencyKeysRef.current.get(tupleKey);
+    if (existingKey != null) {
+      return existingKey;
     }
 
     const nextKey = v4();
-    idempotencyStateRef.current = {
-      tupleKey,
-      key: nextKey,
-    };
+    storeIdempotencyKey(tupleKey, nextKey);
     return nextKey;
-  }, [tupleKey]);
-
-  const invalidateTupleIdempotencyKey = useCallback(() => {
-    if (tupleKey != null && idempotencyStateRef.current.tupleKey === tupleKey) {
-      idempotencyStateRef.current = {
-        tupleKey,
-        key: null,
-      };
-    }
-  }, [tupleKey]);
+  }, [storeIdempotencyKey, tupleKey]);
 
   const requestPreview = useCallback(
     async (
@@ -561,7 +560,7 @@ export default function useGenerationGraft({
       setPreview(null);
       setPreviewRevision(null);
       setCreated(null);
-      setUndoDetails(null);
+      setPendingUndoTarget(null);
       setStabilization(null);
       setPhase('previewing');
 
@@ -602,10 +601,6 @@ export default function useGenerationGraft({
           return null;
         }
 
-        if (parsedError.code === 'TREE_CHANGED') {
-          invalidateTupleIdempotencyKey();
-        }
-
         setError(parsedError);
         setPhase('error');
         return null;
@@ -614,7 +609,6 @@ export default function useGenerationGraft({
     [
       bumpOperationToken,
       clearPendingTimeout,
-      invalidateTupleIdempotencyKey,
       localize,
       onFitSelection,
       previewMutation,
@@ -643,7 +637,7 @@ export default function useGenerationGraft({
       setPreview(null);
       setPreviewRevision(null);
       setCreated(null);
-      setUndoDetails(null);
+      setPendingUndoTarget(null);
       setStabilization(null);
       setPhase('previewing');
 
@@ -673,16 +667,12 @@ export default function useGenerationGraft({
         }
 
         const parsedError = parseGenerationGraftError(caughtError, localize);
-        if (parsedError.code === 'TREE_CHANGED') {
-          invalidateTupleIdempotencyKey();
-        }
-
         setError(parsedError);
         setPhase('error');
         return null;
       }
     },
-    [invalidateTupleIdempotencyKey, localize, onFitSelection, previewMutation],
+    [localize, onFitSelection, previewMutation],
   );
 
   const waitForStabilization = useCallback(
@@ -790,54 +780,60 @@ export default function useGenerationGraft({
         return null;
       }
 
-      const details = await queryClient.fetchQuery({
+      return queryClient.fetchQuery({
         queryKey: generationGraftDetailsQueryKey(conversationId, graftId),
         queryFn: () => dataService.getGenerationGraft(conversationId, graftId),
         retry: false,
       });
-
-      if (isMountedRef.current) {
-        setUndoDetails(details);
-      }
-
-      return details;
     },
     [conversationId, queryClient],
   );
 
-  const resetDisplayedGraftState = useCallback((graftId: string) => {
-    const isCurrentDisplayedGraft =
-      createdRef.current?.graftId === graftId || undoDetailsRef.current?.graftId === graftId;
+  const resetDeletedGraftState = useCallback((graftId: string) => {
+    const isCurrentCreated = createdRef.current?.graftId === graftId;
+    const isPendingUndoTarget = pendingUndoTargetRef.current?.graftId === graftId;
 
-    if (!isCurrentDisplayedGraft) {
+    if (!isCurrentCreated && !isPendingUndoTarget) {
       return null;
     }
 
-    setCreated(null);
-    setUndoDetails(null);
-    setPreview(null);
-    setPreviewRevision(null);
-    setStabilization(null);
-    setPhase(getBasePhase(selectionRef.current));
+    setError(null);
+
+    if (isPendingUndoTarget) {
+      setPendingUndoTarget(null);
+    }
+
+    if (isCurrentCreated) {
+      setCreated(null);
+      setPreview(null);
+      setPreviewRevision(null);
+      setStabilization(null);
+      setPhase(getBasePhase(selectionRef.current));
+      return null;
+    }
+
+    setPhase(createdRef.current != null ? 'created' : getBasePhase(selectionRef.current));
     return null;
   }, []);
 
   const undoSpecificGraft = useCallback(
-    async (graftId: string, includeContinuations: boolean) => {
-      if (graftId.length === 0) {
+    async (target: PendingUndoTarget | null, includeContinuations: boolean) => {
+      if (target == null || target.graftId.length === 0) {
         return null;
       }
 
+      const graftId = target.graftId;
       const action = includeContinuations ? 'undo-destructive' : 'undo-safe';
       if (!beginPendingAction(action)) {
         return null;
       }
 
       const operationToken = operationTokenRef.current;
-      const isCurrentDisplayedGraft =
-        createdRef.current?.graftId === graftId || undoDetailsRef.current?.graftId === graftId;
+      const isCurrentCreated = createdRef.current?.graftId === graftId;
+      const isPendingUndoTarget = pendingUndoTargetRef.current?.graftId === graftId;
+      const affectsDisplayedInspector = isCurrentCreated || isPendingUndoTarget;
 
-      if (isCurrentDisplayedGraft) {
+      if (affectsDisplayedInspector) {
         setError(null);
         setPhase('undoing');
       }
@@ -852,7 +848,7 @@ export default function useGenerationGraft({
           return undoResponse;
         }
 
-        resetDisplayedGraftState(graftId);
+        resetDeletedGraftState(graftId);
         return undoResponse;
       } catch (caughtError) {
         if (!isMountedRef.current || operationToken !== operationTokenRef.current) {
@@ -861,34 +857,35 @@ export default function useGenerationGraft({
 
         const parsedError = parseGenerationGraftError(caughtError, localize);
         if (!includeContinuations && parsedError.code === 'GRAFT_HAS_CONTINUATIONS') {
-          if (isCurrentDisplayedGraft) {
-            setError(parsedError);
-          }
+          setError(parsedError);
 
           try {
-            await loadUndoDetails(graftId);
-            if (
-              isCurrentDisplayedGraft &&
-              isMountedRef.current &&
-              operationToken === operationTokenRef.current
-            ) {
+            const details = await loadUndoDetails(graftId);
+            if (isMountedRef.current && operationToken === operationTokenRef.current) {
+              setPendingUndoTarget({
+                graftId,
+                created: target.created,
+                details,
+              });
               setPhase('undo-preview');
             }
           } catch {
-            if (
-              isCurrentDisplayedGraft &&
-              isMountedRef.current &&
-              operationToken === operationTokenRef.current
-            ) {
-              setUndoDetails(null);
+            if (isMountedRef.current && operationToken === operationTokenRef.current) {
+              setPendingUndoTarget(null);
               setError(createUndoDetailsError(localize));
-              setPhase('created');
+              setPhase(
+                isCurrentCreated
+                  ? 'created'
+                  : createdRef.current != null
+                    ? 'created'
+                    : getBasePhase(selectionRef.current),
+              );
             }
           }
           return null;
         }
 
-        if (isCurrentDisplayedGraft) {
+        if (affectsDisplayedInspector) {
           setError(parsedError);
           setPhase(includeContinuations ? 'undo-preview' : 'error');
         }
@@ -906,22 +903,32 @@ export default function useGenerationGraft({
       invalidateUndoRelatedQueries,
       loadUndoDetails,
       localize,
-      resetDisplayedGraftState,
+      resetDeletedGraftState,
     ],
   );
 
   const undoGraft = useCallback(
-    () => undoSpecificGraft(currentGraftId, false),
-    [currentGraftId, undoSpecificGraft],
+    () =>
+      undoSpecificGraft(
+        createdRef.current == null
+          ? null
+          : {
+              graftId: createdRef.current.graftId,
+              created: createdRef.current,
+              details: null,
+            },
+        false,
+      ),
+    [undoSpecificGraft],
   );
 
   const confirmUndoContinuations = useCallback(() => {
-    if (currentGraftId.length === 0 || undoDetails == null) {
+    if (pendingUndoTargetRef.current?.details == null) {
       return null;
     }
 
-    return undoSpecificGraft(currentGraftId, true);
-  }, [currentGraftId, undoDetails, undoSpecificGraft]);
+    return undoSpecificGraft(pendingUndoTargetRef.current, true);
+  }, [undoSpecificGraft]);
 
   const createGraft = useCallback(async () => {
     if (!previewMatchesCurrentSelection(preview) || preview?.canCreate !== true) {
@@ -957,7 +964,7 @@ export default function useGenerationGraft({
       }
 
       setCreated(createdResponse);
-      setUndoDetails(null);
+      setPendingUndoTarget(null);
       setStabilization(null);
       setPhase('created');
 
@@ -978,15 +985,19 @@ export default function useGenerationGraft({
         duration: 10_000,
         actionLabel: localize('com_ui_generation_tree_undo'),
         onAction: () => {
-          void undoSpecificGraft(createdResponse.graftId, false);
+          void undoSpecificGraft(
+            {
+              graftId: createdResponse.graftId,
+              created: createdResponse,
+              details: null,
+            },
+            false,
+          );
         },
       });
       return createdResponse;
     } catch (caughtError) {
       const parsedError = parseGenerationGraftError(caughtError, localize);
-      if (parsedError.code === 'TREE_CHANGED') {
-        invalidateTupleIdempotencyKey();
-      }
       setError(parsedError);
       setPhase('error');
       throw caughtError;
@@ -1002,7 +1013,6 @@ export default function useGenerationGraft({
     conversationId,
     createMutation,
     getIdempotencyKey,
-    invalidateTupleIdempotencyKey,
     localize,
     onFitCreated,
     onFocusMessage,
@@ -1021,9 +1031,10 @@ export default function useGenerationGraft({
       clearPendingTimeout();
       bumpOperationToken();
       clearPendingAction();
+      clearIdempotencyKeys();
       setQueuedStabilizationRetry(null);
     };
-  }, [bumpOperationToken, clearPendingAction, clearPendingTimeout]);
+  }, [bumpOperationToken, clearIdempotencyKeys, clearPendingAction, clearPendingTimeout]);
 
   useEffect(() => {
     if (queuedStabilizationRetry == null) {
@@ -1073,7 +1084,6 @@ export default function useGenerationGraft({
     clearPendingTimeout();
     bumpOperationToken();
     clearPendingAction();
-    resetIdempotencyState();
     setQueuedStabilizationRetry(null);
     resetTransientState();
     setPhase(getBasePhase(selectionRef.current));
@@ -1083,7 +1093,6 @@ export default function useGenerationGraft({
     clearPendingAction,
     clearPendingTimeout,
     phase,
-    resetIdempotencyState,
     setQueuedStabilizationRetry,
     resetTransientState,
     treeRevision,
@@ -1099,7 +1108,7 @@ export default function useGenerationGraft({
     clearPendingTimeout();
     bumpOperationToken();
     clearPendingAction();
-    resetIdempotencyState();
+    clearIdempotencyKeys();
     setQueuedStabilizationRetry(null);
     selectionRef.current = {
       ...nextSelection,
@@ -1114,10 +1123,10 @@ export default function useGenerationGraft({
     resetTransientState();
   }, [
     bumpOperationToken,
+    clearIdempotencyKeys,
     clearPendingAction,
     clearPendingTimeout,
     initialSourceMessageId,
-    resetIdempotencyState,
     setQueuedStabilizationRetry,
     resetTransientState,
     sessionIdentity,

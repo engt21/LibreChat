@@ -595,7 +595,7 @@ describe('useGenerationGraft', () => {
     expect(result.current.phase).toBe('selecting');
   });
 
-  it('reuses an idempotency key for the same create retry and regenerates it after selection, revision, and TREE_CHANGED refreshes', async () => {
+  it('reuses the same tuple idempotency key across selection churn after a transient failure and allocates a new key for a new revision', async () => {
     mockPreviewMutateAsync
       .mockResolvedValueOnce(createPreviewResponse())
       .mockResolvedValueOnce(
@@ -605,12 +605,7 @@ describe('useGenerationGraft', () => {
       )
       .mockResolvedValueOnce(
         createPreviewResponse({
-          destinationMessageId: 'errored-destination',
-        }),
-      )
-      .mockResolvedValueOnce(
-        createPreviewResponse({
-          destinationMessageId: 'errored-destination',
+          destinationMessageId: 'complete-destination',
         }),
       );
     const { result, rerender } = setup();
@@ -640,19 +635,6 @@ describe('useGenerationGraft', () => {
     expect(temporaryFailure).toBeInstanceOf(Error);
     expect((temporaryFailure as Error).message).toBe('temporary failure');
 
-    await act(async () => {
-      await result.current.createGraft();
-    });
-
-    expect(mockCreateMutateAsync).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ idempotencyKey: 'uuid-1' }),
-    );
-    expect(mockCreateMutateAsync).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ idempotencyKey: 'uuid-1' }),
-    );
-
     act(() => {
       result.current.selectDestinationMessage('errored-destination');
     });
@@ -666,8 +648,31 @@ describe('useGenerationGraft', () => {
       await result.current.createGraft();
     });
 
-    expect(mockCreateMutateAsync).toHaveBeenLastCalledWith(
+    expect(mockCreateMutateAsync).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ idempotencyKey: 'uuid-1' }),
+    );
+    expect(mockCreateMutateAsync).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({ idempotencyKey: 'uuid-2' }),
+    );
+
+    act(() => {
+      result.current.selectDestinationMessage('complete-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('complete-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+
+    expect(mockCreateMutateAsync).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ idempotencyKey: 'uuid-1' }),
     );
 
     rerender({
@@ -685,40 +690,9 @@ describe('useGenerationGraft', () => {
       await result.current.createGraft();
     });
 
-    expect(mockCreateMutateAsync).toHaveBeenLastCalledWith(
+    expect(mockCreateMutateAsync).toHaveBeenNthCalledWith(
+      4,
       expect.objectContaining({ idempotencyKey: 'uuid-3' }),
-    );
-
-    mockCreateMutateAsync.mockRejectedValueOnce(
-      createGraftError({
-        error: 'The conversation tree changed before the graft could be created.',
-        code: 'TREE_CHANGED',
-      }),
-    );
-
-    let treeChangedFailure: unknown;
-    await act(async () => {
-      try {
-        await result.current.createGraft();
-      } catch (error) {
-        treeChangedFailure = error;
-      }
-    });
-
-    expect(treeChangedFailure).toBeInstanceOf(Error);
-
-    mockCreateMutateAsync.mockResolvedValueOnce(createResult);
-    await act(async () => {
-      await result.current.requestPreview('errored-destination');
-    });
-    await waitFor(() => expect(result.current.phase).toBe('ready'));
-
-    await act(async () => {
-      await result.current.createGraft();
-    });
-
-    expect(mockCreateMutateAsync).toHaveBeenLastCalledWith(
-      expect.objectContaining({ idempotencyKey: 'uuid-4' }),
     );
   });
 
@@ -950,6 +924,121 @@ describe('useGenerationGraft', () => {
       'graft-b',
       expect.anything(),
     );
+  });
+
+  it('keeps destructive undo bound to the original toast graft when a newer graft is currently selected', async () => {
+    const continuationConflict = createGraftError({
+      error: 'The graft has continuations.',
+      code: 'GRAFT_HAS_CONTINUATIONS',
+      continuationMessageIds: ['later-a-1'],
+    });
+    mockPreviewMutateAsync.mockResolvedValueOnce(createPreviewResponse()).mockResolvedValueOnce(
+      createPreviewResponse({
+        destinationMessageId: 'errored-destination',
+      }),
+    );
+    mockCreateMutateAsync
+      .mockResolvedValueOnce(
+        createCreateResult({
+          graftId: 'graft-a',
+          bridgeMessageId: 'bridge-a',
+          copiedRootMessageId: 'copy-a-1',
+          activeCopiedMessageId: 'copy-a-2',
+          createdMessages: [
+            { messageId: 'bridge-a', conversationId: 'convo-1', text: 'Bridge A' } as never,
+            { messageId: 'copy-a-1', conversationId: 'convo-1', text: 'Copy A1' } as never,
+            { messageId: 'copy-a-2', conversationId: 'convo-1', text: 'Copy A2' } as never,
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        createCreateResult({
+          graftId: 'graft-b',
+          bridgeMessageId: 'bridge-b',
+          copiedRootMessageId: 'copy-b-1',
+          activeCopiedMessageId: 'copy-b-2',
+          createdMessages: [
+            { messageId: 'bridge-b', conversationId: 'convo-1', text: 'Bridge B' } as never,
+            { messageId: 'copy-b-1', conversationId: 'convo-1', text: 'Copy B1' } as never,
+            { messageId: 'copy-b-2', conversationId: 'convo-1', text: 'Copy B2' } as never,
+          ],
+        }),
+      );
+    mockedDataService.undoGenerationGraft
+      .mockRejectedValueOnce(continuationConflict as never)
+      .mockResolvedValueOnce({
+        graftId: 'graft-a',
+        deletedMessageIds: ['bridge-a', 'copy-a-1', 'later-a-1'],
+        deletedCount: 3,
+      } as never);
+    mockedDataService.getGenerationGraft.mockResolvedValueOnce(
+      createDetails({
+        graftId: 'graft-a',
+        bridgeMessageId: 'bridge-a',
+        copiedMessageIds: ['copy-a-1'],
+        continuationMessageIds: ['later-a-1'],
+        copiedRootMessageId: 'copy-a-1',
+        activeCopiedMessageId: 'copy-a-2',
+      }),
+    );
+
+    const { result } = setup();
+
+    act(() => {
+      result.current.selectDestinationMessage('complete-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('complete-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+    await waitFor(() => expect(result.current.created?.graftId).toBe('graft-a'));
+
+    act(() => {
+      result.current.selectDestinationMessage('errored-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('errored-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+    await waitFor(() => expect(result.current.created?.graftId).toBe('graft-b'));
+
+    const firstToast = mockShowToast.mock.calls[0]?.[0];
+    expect(firstToast).toBeDefined();
+
+    await act(async () => {
+      firstToast.onAction();
+      await Promise.resolve();
+    });
+
+    expect(mockedDataService.undoGenerationGraft).toHaveBeenNthCalledWith(1, 'convo-1', 'graft-a', {
+      includeContinuations: false,
+    });
+    expect(mockedDataService.getGenerationGraft).toHaveBeenCalledWith('convo-1', 'graft-a');
+    expect(result.current.created?.graftId).toBe('graft-b');
+    expect(result.current.undoDetails?.graftId).toBe('graft-a');
+    expect(result.current.phase).toBe('undo-preview');
+
+    await act(async () => {
+      await result.current.confirmUndoContinuations();
+    });
+
+    expect(mockedDataService.undoGenerationGraft).toHaveBeenNthCalledWith(2, 'convo-1', 'graft-a', {
+      includeContinuations: true,
+    });
+    expect(mockedDataService.undoGenerationGraft).not.toHaveBeenCalledWith('convo-1', 'graft-b', {
+      includeContinuations: true,
+    });
+    expect(result.current.created?.graftId).toBe('graft-b');
   });
 
   it('performs a safe undo and exits created state on success', async () => {
