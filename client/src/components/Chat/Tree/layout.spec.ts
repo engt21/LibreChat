@@ -181,6 +181,37 @@ describe('conversation tree layout', () => {
     ]);
   });
 
+  it('does not confuse a real message id with the internal visible-owner state', () => {
+    const graph = normalizeConversationGraph([
+      createMessage({
+        messageId: '__visible__',
+        text: 'sentinel root',
+        isCreatedByUser: true,
+      }),
+      createMessage({
+        messageId: 'hidden-child',
+        parentMessageId: '__visible__',
+        text: 'hidden child',
+        isCreatedByUser: false,
+      }),
+      createMessage({
+        messageId: 'hidden-grandchild',
+        parentMessageId: 'hidden-child',
+        text: 'hidden grandchild',
+        isCreatedByUser: true,
+      }),
+    ]);
+
+    const layout = layoutConversationTree(graph, {
+      orientation: 'horizontal',
+      collapsedIds: ['__visible__'],
+    });
+
+    expect([...layout.nodes.keys()]).toEqual(['__visible__']);
+    expect(layout.hiddenDescendantCounts.get('__visible__')).toBe(2);
+    expect(layout.edges).toEqual([]);
+  });
+
   it('applies manual positions last and expands bounds to the overridden coordinates', () => {
     const graph = normalizeConversationGraph([
       createMessage({ messageId: 'root', text: 'root', isCreatedByUser: true }),

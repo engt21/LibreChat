@@ -13,8 +13,6 @@ export const NODE_HEIGHT = 92;
 export const HORIZONTAL_GAP = 96;
 export const VERTICAL_GAP = 28;
 
-const VISIBLE_OWNER = '__visible__';
-
 type Span = {
   start: number;
   end: number;
@@ -129,13 +127,9 @@ function collectVisibilityState(
 } {
   const visibleIds = new Set<string>();
   const hiddenDescendantCounts = new Map<string, number>();
-  const assignedOwners = new Map<string, string>();
+  const assignedOwners = new Map<string, string | null>();
 
-  const visit = (messageId: string, ownerId: string, path: Set<string>) => {
-    if (path.has(messageId)) {
-      return;
-    }
-
+  const visit = (messageId: string, ownerId: string | null) => {
     if (assignedOwners.has(messageId)) {
       return;
     }
@@ -146,27 +140,25 @@ function collectVisibilityState(
     }
 
     assignedOwners.set(messageId, ownerId);
-    const nextPath = new Set(path);
-    nextPath.add(messageId);
 
-    if (ownerId === VISIBLE_OWNER) {
+    if (ownerId === null) {
       visibleIds.add(messageId);
 
-      const childOwnerId = collapsedIds.has(messageId) ? messageId : VISIBLE_OWNER;
+      const childOwnerId = collapsedIds.has(messageId) ? messageId : null;
       for (const childId of graphNode.childIds) {
-        visit(childId, childOwnerId, nextPath);
+        visit(childId, childOwnerId);
       }
       return;
     }
 
     hiddenDescendantCounts.set(ownerId, (hiddenDescendantCounts.get(ownerId) ?? 0) + 1);
     for (const childId of graphNode.childIds) {
-      visit(childId, ownerId, nextPath);
+      visit(childId, ownerId);
     }
   };
 
   for (const rootId of getTraversalRoots(graph)) {
-    visit(rootId, VISIBLE_OWNER, new Set());
+    visit(rootId, null);
   }
 
   return {
@@ -222,13 +214,10 @@ export function layoutConversationTree(
   const secondarySize = getSecondarySize(orientation);
   const secondaryGap = getSecondaryGap(orientation);
   const { visibleIds, hiddenDescendantCounts } = collectVisibilityState(graph, collapsedIds);
+  const placing = new Set<string>();
   let nextSecondaryStart = 0;
 
-  const placeNode = (messageId: string, depth: number, path: Set<string>): Span | null => {
-    if (path.has(messageId)) {
-      return null;
-    }
-
+  const placeNode = (messageId: string, depth: number): Span | null => {
     const existingNode = positionedById.get(messageId);
     if (existingNode != null) {
       const start = getSecondaryStart(orientation, existingNode);
@@ -238,22 +227,25 @@ export function layoutConversationTree(
       };
     }
 
+    if (placing.has(messageId)) {
+      return null;
+    }
+
     const graphNode = graph.nodes.get(messageId);
     if (graphNode == null) {
       return null;
     }
 
-    const nextPath = new Set(path);
-    nextPath.add(messageId);
+    placing.add(messageId);
 
     const visibleChildren: Array<{ id: string; span: Span }> = [];
     if (!collapsedIds.has(messageId)) {
       for (const childId of graphNode.childIds) {
-        if (!visibleIds.has(childId) || !graph.nodes.has(childId) || nextPath.has(childId)) {
+        if (!visibleIds.has(childId) || !graph.nodes.has(childId)) {
           continue;
         }
 
-        const childSpan = placeNode(childId, depth + 1, nextPath);
+        const childSpan = placeNode(childId, depth + 1);
         if (childSpan != null) {
           visibleChildren.push({ id: childId, span: childSpan });
         }
@@ -285,6 +277,8 @@ export function layoutConversationTree(
       });
     }
 
+    placing.delete(messageId);
+
     return {
       start: secondaryStart,
       end: secondaryStart + secondarySize,
@@ -295,7 +289,7 @@ export function layoutConversationTree(
     if (!visibleIds.has(rootId)) {
       continue;
     }
-    placeNode(rootId, 0, new Set());
+    placeNode(rootId, 0);
   }
 
   const nodes = new Map<string, PositionedTreeNode>();
