@@ -59,6 +59,7 @@ type ConversationTreeCanvasProps = {
   initialTransformState?: ConversationTreeTransformState;
   orientation?: TreeOrientation;
   autoFitToken?: string | number;
+  announceStatus?: boolean;
   statusText?: string;
   onFocusMessage: (messageId: string) => void;
   onSelectSource: (messageId: string) => void;
@@ -83,6 +84,7 @@ export default function ConversationTreeCanvas({
   initialTransformState,
   orientation = 'horizontal',
   autoFitToken = 'default',
+  announceStatus = true,
   statusText,
   onFocusMessage,
   onSelectSource,
@@ -130,7 +132,7 @@ export default function ConversationTreeCanvas({
 
       applyTransform(calculateFitTransform(bounds, viewportSize, 40));
     },
-    [applyTransform, viewportSize],
+    [applyTransform, layout, viewportSize],
   );
 
   const fitTree = useCallback(() => fitBounds(layout.bounds), [fitBounds, layout.bounds]);
@@ -388,7 +390,14 @@ export default function ConversationTreeCanvas({
       </TransformWrapper>
 
       <div className="bg-surface-primary/95 pointer-events-none absolute bottom-4 left-4 rounded-xl border border-border-medium px-3 py-2 text-xs text-text-secondary">
-        <span data-testid="generation-tree-status">{resolvedStatusText}</span>
+        <span
+          data-testid="generation-tree-status"
+          role={announceStatus ? 'status' : undefined}
+          aria-live={announceStatus ? 'polite' : undefined}
+          aria-atomic={announceStatus ? 'true' : undefined}
+        >
+          {resolvedStatusText}
+        </span>
       </div>
 
       <div className="absolute bottom-4 right-4">

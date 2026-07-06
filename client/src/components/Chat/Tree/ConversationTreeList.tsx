@@ -37,6 +37,7 @@ type ConversationTreeListProps = {
   onPreviewRequest: () => void;
   onCollapsedIdsChange: (collapsedIds: Set<string>) => void;
   onCancelSelection: () => void;
+  announceStatus?: boolean;
   onStatusTextChange?: (statusText: string) => void;
 };
 
@@ -70,6 +71,7 @@ export default function ConversationTreeList({
   onPreviewRequest,
   onCollapsedIdsChange,
   onCancelSelection,
+  announceStatus = true,
   onStatusTextChange,
 }: ConversationTreeListProps) {
   const localize = useLocalize();
@@ -114,7 +116,7 @@ export default function ConversationTreeList({
       <div className="text-xs text-text-secondary">{localize('com_ui_generation_tree_list')}</div>
       <div className="rounded-xl border border-border-medium p-2">
         <div role="tree" className="flex flex-col gap-1">
-          {items.map((item, index) => (
+          {items.map((item) => (
             <button
               key={item.id}
               ref={(element) => {
@@ -125,6 +127,7 @@ export default function ConversationTreeList({
               tabIndex={activeId === item.id ? 0 : -1}
               aria-level={item.depth}
               aria-expanded={item.hasChildren ? item.expanded : undefined}
+              aria-selected={activeId === item.id}
               className="rounded-lg px-3 py-2 text-left text-sm text-text-primary hover:bg-surface-hover"
               style={{ paddingLeft: `${item.depth * 12}px` }}
               onFocus={() => {
@@ -201,10 +204,12 @@ export default function ConversationTreeList({
                       break;
                     }
 
-                    const invalidReason = getInvalidGraftReason(graph, sourceMessageId, item.id);
-                    if (invalidReason != null) {
-                      updateStatusText(getInvalidReasonText(localize, invalidReason));
-                      break;
+                    {
+                      const invalidReason = getInvalidGraftReason(graph, sourceMessageId, item.id);
+                      if (invalidReason != null) {
+                        updateStatusText(getInvalidReasonText(localize, invalidReason));
+                        break;
+                      }
                     }
 
                     onSelectDestination(item.id);
@@ -226,7 +231,13 @@ export default function ConversationTreeList({
           ))}
         </div>
       </div>
-      <div data-testid="generation-tree-list-status" className="text-xs text-text-secondary">
+      <div
+        data-testid="generation-tree-list-status"
+        role={announceStatus ? 'status' : undefined}
+        aria-live={announceStatus ? 'polite' : undefined}
+        aria-atomic={announceStatus ? 'true' : undefined}
+        className="text-xs text-text-secondary"
+      >
         {statusText}
       </div>
     </div>

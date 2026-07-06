@@ -47,18 +47,18 @@ class MemoryStorage implements Storage {
 }
 
 describe('conversation tree storage', () => {
-  it('loads and saves collapsed ids and orientation using the expected keys', () => {
+  it('loads and saves collapsed ids and orientation using conversation-scoped keys', () => {
     const storage = new MemoryStorage();
 
     saveCollapsedTreeIds('convo-1', ['child-1', 'child-2'], storage);
-    saveTreeOrientation('vertical', storage);
+    saveTreeOrientation('convo-1', 'vertical', storage);
 
     expect(loadCollapsedTreeIds('convo-1', storage)).toEqual(['child-1', 'child-2']);
-    expect(loadTreeOrientation(storage)).toBe('vertical');
+    expect(loadTreeOrientation('convo-1', storage)).toBe('vertical');
     expect(storage.getItem('generation-tree:convo-1:collapsed')).toBe(
       JSON.stringify(['child-1', 'child-2']),
     );
-    expect(storage.getItem('generation-tree:orientation')).toBe('vertical');
+    expect(storage.getItem('generation-tree:convo-1:orientation')).toBe('vertical');
   });
 
   it('returns safe defaults for corrupt JSON or wrong collapsed-value shapes', () => {
@@ -78,15 +78,25 @@ describe('conversation tree storage', () => {
 
   it('accepts only valid orientation values', () => {
     const storage = new MemoryStorage();
-    storage.setItem('generation-tree:orientation', 'diagonal');
+    storage.setItem('generation-tree:convo-5:orientation', 'diagonal');
 
-    expect(loadTreeOrientation(storage)).toBe('horizontal');
+    expect(loadTreeOrientation('convo-5', storage)).toBe('horizontal');
 
-    saveTreeOrientation('horizontal', storage);
-    expect(loadTreeOrientation(storage)).toBe('horizontal');
+    saveTreeOrientation('convo-5', 'horizontal', storage);
+    expect(loadTreeOrientation('convo-5', storage)).toBe('horizontal');
 
-    saveTreeOrientation('diagonal' as never, storage);
-    expect(loadTreeOrientation(storage)).toBe('horizontal');
+    saveTreeOrientation('convo-5', 'diagonal' as never, storage);
+    expect(loadTreeOrientation('convo-5', storage)).toBe('horizontal');
+  });
+
+  it('isolates orientation between conversations', () => {
+    const storage = new MemoryStorage();
+
+    saveTreeOrientation('convo-1', 'vertical', storage);
+    saveTreeOrientation('convo-2', 'horizontal', storage);
+
+    expect(loadTreeOrientation('convo-1', storage)).toBe('vertical');
+    expect(loadTreeOrientation('convo-2', storage)).toBe('horizontal');
   });
 
   it('handles unavailable storage without throwing', () => {
@@ -94,20 +104,20 @@ describe('conversation tree storage', () => {
     const unavailableWrite = new MemoryStorage({ throwOnSet: true });
 
     expect(loadCollapsedTreeIds('convo-3', unavailableRead)).toEqual([]);
-    expect(loadTreeOrientation(unavailableRead)).toBe('horizontal');
+    expect(loadTreeOrientation('convo-3', unavailableRead)).toBe('horizontal');
     expect(() => saveCollapsedTreeIds('convo-3', ['child'], unavailableWrite)).not.toThrow();
-    expect(() => saveTreeOrientation('vertical', unavailableWrite)).not.toThrow();
+    expect(() => saveTreeOrientation('convo-3', 'vertical', unavailableWrite)).not.toThrow();
   });
 
   it('never persists message content or coordinates', () => {
     const storage = new MemoryStorage();
 
     saveCollapsedTreeIds('convo-4', ['child-1'], storage);
-    saveTreeOrientation('horizontal', storage);
+    saveTreeOrientation('convo-4', 'horizontal', storage);
 
     expect([...Array.from({ length: storage.length }, (_, index) => storage.key(index))]).toEqual([
       'generation-tree:convo-4:collapsed',
-      'generation-tree:orientation',
+      'generation-tree:convo-4:orientation',
     ]);
     expect(storage.getItem('generation-tree:convo-4:collapsed')).not.toContain('message');
     expect(storage.getItem('generation-tree:convo-4:collapsed')).not.toContain('x');

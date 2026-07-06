@@ -146,6 +146,45 @@ function getConversationTreeItemLabel(
   return `${title}. ${excerpt}`;
 }
 
+function getNodeIndicator(
+  invalidReason: InvalidGraftReason,
+  lifecycle: PositionedTreeNode['lifecycle'],
+) {
+  if (lifecycle === 'streaming') {
+    return {
+      icon: LoaderCircle,
+      className: cn('h-3.5 w-3.5 animate-spin', getLifecycleClass(lifecycle)),
+    };
+  }
+
+  if (invalidReason != null) {
+    return {
+      icon: CircleAlert,
+      className: 'h-3.5 w-3.5 text-red-600',
+    };
+  }
+
+  return {
+    icon: Dot,
+    className: cn('h-4 w-4', getLifecycleClass(lifecycle)),
+  };
+}
+
+function getNodeMetaLabel(
+  localize: ReturnType<typeof useLocalize>,
+  node: PositionedTreeNode,
+): string {
+  if (node.message.model != null) {
+    return node.message.model;
+  }
+
+  if (node.message.endpoint != null) {
+    return node.message.endpoint;
+  }
+
+  return getLifecycleLabel(localize, node.lifecycle);
+}
+
 type ConversationTreeNodeProps = {
   node: PositionedTreeNode;
   detail: TreeSemanticDetail;
@@ -183,6 +222,38 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
   const title = getNodeTitle(localize, node);
   const hasChildren = node.childIds.length > 0;
   const isCollapsed = hasChildren && hiddenDescendantCount > 0;
+  const indicator = getNodeIndicator(invalidReason, node.lifecycle);
+  const IndicatorIcon = indicator.icon;
+  let collapseToggle: React.ReactNode = null;
+
+  if (hiddenDescendantCount > 0) {
+    collapseToggle = (
+      <button
+        type="button"
+        data-testid={`collapse-toggle-${node.id}`}
+        className="tree-node-control ml-auto flex items-center gap-1 rounded-full border border-border-medium px-2 py-0.5"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => onToggleCollapsed(node.id)}
+        aria-expanded={!isCollapsed}
+      >
+        {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        <span>{hiddenDescendantCount}</span>
+      </button>
+    );
+  } else if (hasChildren) {
+    collapseToggle = (
+      <button
+        type="button"
+        data-testid={`collapse-toggle-${node.id}`}
+        className="tree-node-control ml-auto rounded-full border border-border-medium px-2 py-0.5"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => onToggleCollapsed(node.id)}
+        aria-expanded={!isCollapsed}
+      >
+        <ChevronDown className="h-3 w-3" />
+      </button>
+    );
+  }
 
   return (
     <div
@@ -210,22 +281,12 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">
-              {node.lifecycle === 'streaming' ? (
-                <LoaderCircle
-                  className={cn('h-3.5 w-3.5 animate-spin', getLifecycleClass(node.lifecycle))}
-                />
-              ) : invalidReason != null ? (
-                <CircleAlert className="h-3.5 w-3.5 text-red-600" />
-              ) : (
-                <Dot className={cn('h-4 w-4', getLifecycleClass(node.lifecycle))} />
-              )}
+              <IndicatorIcon className={indicator.className} />
               <span>{title}</span>
             </div>
             {detail !== 'far' ? (
               <div className="truncate text-sm font-medium text-text-primary">
-                {node.message.model ??
-                  node.message.endpoint ??
-                  getLifecycleLabel(localize, node.lifecycle)}
+                {getNodeMetaLabel(localize, node)}
               </div>
             ) : null}
           </div>
@@ -262,34 +323,7 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
               {getBadgeLabel(localize, badge)}
             </span>
           ))}
-          {hiddenDescendantCount > 0 ? (
-            <button
-              type="button"
-              data-testid={`collapse-toggle-${node.id}`}
-              className="tree-node-control ml-auto flex items-center gap-1 rounded-full border border-border-medium px-2 py-0.5"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => onToggleCollapsed(node.id)}
-              aria-expanded={!isCollapsed}
-            >
-              {isCollapsed ? (
-                <ChevronRight className="h-3 w-3" />
-              ) : (
-                <ChevronDown className="h-3 w-3" />
-              )}
-              <span>{hiddenDescendantCount}</span>
-            </button>
-          ) : hasChildren ? (
-            <button
-              type="button"
-              data-testid={`collapse-toggle-${node.id}`}
-              className="tree-node-control ml-auto rounded-full border border-border-medium px-2 py-0.5"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => onToggleCollapsed(node.id)}
-              aria-expanded={!isCollapsed}
-            >
-              <ChevronDown className="h-3 w-3" />
-            </button>
-          ) : null}
+          {collapseToggle}
         </div>
       </div>
     </div>

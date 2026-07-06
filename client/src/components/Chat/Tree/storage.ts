@@ -1,10 +1,13 @@
 import type { TreeOrientation } from './types';
 
 const DEFAULT_ORIENTATION: TreeOrientation = 'horizontal';
-const ORIENTATION_STORAGE_KEY = 'generation-tree:orientation';
 
 function getCollapsedStorageKey(conversationId: string): string {
   return `generation-tree:${conversationId}:collapsed`;
+}
+
+function getOrientationStorageKey(conversationId: string): string {
+  return `generation-tree:${conversationId}:orientation`;
 }
 
 function getStorage(storage?: Storage | null): Storage | null {
@@ -80,32 +83,39 @@ export function saveCollapsedTreeIds(
   }
 }
 
-export function loadTreeOrientation(storage?: Storage | null): TreeOrientation {
+export function loadTreeOrientation(
+  conversationId: string,
+  storage?: Storage | null,
+): TreeOrientation {
   const resolvedStorage = getStorage(storage);
-  if (resolvedStorage == null) {
+  if (resolvedStorage == null || conversationId.length === 0) {
     return DEFAULT_ORIENTATION;
   }
 
   try {
-    const rawValue = resolvedStorage.getItem(ORIENTATION_STORAGE_KEY);
+    const rawValue = resolvedStorage.getItem(getOrientationStorageKey(conversationId));
     return rawValue === 'horizontal' || rawValue === 'vertical' ? rawValue : DEFAULT_ORIENTATION;
   } catch {
     return DEFAULT_ORIENTATION;
   }
 }
 
-export function saveTreeOrientation(orientation: TreeOrientation, storage?: Storage | null): void {
+export function saveTreeOrientation(
+  conversationId: string,
+  orientation: TreeOrientation,
+  storage?: Storage | null,
+): void {
   if (orientation !== 'horizontal' && orientation !== 'vertical') {
     return;
   }
 
   const resolvedStorage = getStorage(storage);
-  if (resolvedStorage == null) {
+  if (resolvedStorage == null || conversationId.length === 0) {
     return;
   }
 
   try {
-    resolvedStorage.setItem(ORIENTATION_STORAGE_KEY, orientation);
+    resolvedStorage.setItem(getOrientationStorageKey(conversationId), orientation);
   } catch {
     // Ignore storage failures so tree state never breaks the conversation UI.
   }

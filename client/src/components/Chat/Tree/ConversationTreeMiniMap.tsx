@@ -34,6 +34,27 @@ function boundsToRect(bounds: ConversationTreeLayoutBounds, geometry: MiniMapGeo
   };
 }
 
+function getNodeStroke(
+  nodeId: string,
+  activeBranchIds: Set<string>,
+  sourceMessageId: string | null,
+  destinationMessageId: string | null,
+): string {
+  if (nodeId === destinationMessageId) {
+    return 'rgb(37 99 235)';
+  }
+
+  if (nodeId === sourceMessageId) {
+    return 'rgb(124 58 237)';
+  }
+
+  if (activeBranchIds.has(nodeId)) {
+    return 'rgb(15 118 110)';
+  }
+
+  return 'rgb(148 163 184)';
+}
+
 export default function ConversationTreeMiniMap({
   layout,
   activeBranchIds,
@@ -92,14 +113,12 @@ export default function ConversationTreeMiniMap({
       <rect width={geometry.width} height={geometry.height} rx={12} className="fill-transparent" />
       {Array.from(layout.nodes.values()).map((node) => {
         const point = mapWorldPointToMiniMap({ x: node.x, y: node.y }, geometry);
-        const stroke =
-          node.id === destinationMessageId
-            ? 'rgb(37 99 235)'
-            : node.id === sourceMessageId
-              ? 'rgb(124 58 237)'
-              : activeBranchIds.has(node.id)
-                ? 'rgb(15 118 110)'
-                : 'rgb(148 163 184)';
+        const stroke = getNodeStroke(
+          node.id,
+          activeBranchIds,
+          sourceMessageId,
+          destinationMessageId,
+        );
 
         return (
           <rect

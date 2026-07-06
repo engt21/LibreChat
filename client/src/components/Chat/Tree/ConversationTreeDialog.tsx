@@ -41,16 +41,21 @@ export default function ConversationTreeDialog({
 }: ConversationTreeDialogProps) {
   const localize = useLocalize();
   const descriptionId = useId();
+  const liveRegionId = useId();
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitCompletedRef = useRef(false);
   const viewportCommandsRef = useRef<ConversationTreeViewportCommands | null>(null);
   const initializedSessionRef = useRef<string | null>(null);
+  const orientationConversationIdRef = useRef('');
+  const previousOpenRef = useRef(open);
   const latestMessageIdRef = useRef<string | null>(null);
   const isMobileRef = useRef(false);
   const { conversation, getMessages, latestMessageId, isSubmitting } = useChatContext();
   const conversationId = conversation?.conversationId ?? '';
   const isMobile = useMediaQuery('(max-width: 767px)');
-  const [orientation, setOrientation] = useState<TreeOrientation>(() => loadTreeOrientation());
+  const [orientation, setOrientation] = useState<TreeOrientation>(() =>
+    loadTreeOrientation(conversationId),
+  );
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
     () => new Set(loadCollapsedTreeIds(conversationId)),
   );
@@ -112,8 +117,16 @@ export default function ConversationTreeDialog({
   }, [open, focusMessageId, sourceMessageId, onExitComplete, finishExit]);
 
   useEffect(() => {
-    saveTreeOrientation(orientation);
-  }, [orientation]);
+    if (
+      !conversationId ||
+      orientationConversationIdRef.current.length === 0 ||
+      orientationConversationIdRef.current !== conversationId
+    ) {
+      return;
+    }
+
+    saveTreeOrientation(conversationId, orientation);
+  }, [conversationId, orientation]);
 
   useEffect(() => {
     if (!conversationId) {
@@ -124,16 +137,24 @@ export default function ConversationTreeDialog({
   }, [collapsedIds, conversationId]);
 
   useEffect(() => {
+    orientationConversationIdRef.current = conversationId;
     setCollapsedIds(new Set(loadCollapsedTreeIds(conversationId)));
+    setOrientation(loadTreeOrientation(conversationId));
     setManualPositions(new Map());
   }, [conversationId]);
 
   useEffect(() => {
     if (!open) {
-      initializedSessionRef.current = null;
-      setStatusText(localize('com_ui_generation_tree_announcer_closed'));
+      if (previousOpenRef.current) {
+        initializedSessionRef.current = null;
+        setManualPositions(new Map());
+        setStatusText(localize('com_ui_generation_tree_announcer_closed'));
+      }
+      previousOpenRef.current = false;
       return;
     }
+
+    previousOpenRef.current = true;
 
     const sessionKey = `${conversationId}::${focusMessageId ?? ''}::${sourceMessageId ?? ''}`;
     if (initializedSessionRef.current === sessionKey) {
@@ -146,6 +167,7 @@ export default function ConversationTreeDialog({
     setFocusedNodeId(focusMessageId ?? sourceMessageId ?? latestMessageIdRef.current ?? null);
     setPreviewRequested(false);
     setArrangeMode(false);
+    setManualPositions(new Map());
     setStatusText(localize('com_ui_generation_tree_announcer_opened'));
     setListOpen(!isMobileRef.current);
     setMobileSheetOpen(false);
@@ -219,6 +241,7 @@ export default function ConversationTreeDialog({
         setSelectedDestinationId(null);
         setStatusText(localize('com_ui_generation_tree_announcer_closed'));
       }}
+      announceStatus={false}
       onStatusTextChange={setStatusText}
     />
   );
@@ -230,6 +253,7 @@ export default function ConversationTreeDialog({
         data-focused-message-id={focusMessageId ?? ''}
         data-source-message-id={sourceMessageId ?? ''}
         aria-describedby={descriptionId}
+        aria-details={liveRegionId}
         className="h-[100dvh] max-h-[100dvh] w-screen max-w-none overflow-hidden rounded-none border-0 bg-surface-primary p-0 text-text-primary"
         onAnimationEnd={(event) => {
           if ((event.currentTarget as HTMLElement).dataset.state === 'closed') {
@@ -243,6 +267,15 @@ export default function ConversationTreeDialog({
         }}
       >
         <div className="grid h-full grid-rows-[auto_auto_1fr]">
+          <div
+            id={liveRegionId}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="sr-only"
+          >
+            {statusText}
+          </div>
           <div className="border-b border-border-light px-4 py-3">
             <OGDialogTitle className="text-base font-semibold">
               {localize('com_sidepanel_conversation_tree')}
@@ -297,6 +330,7 @@ export default function ConversationTreeDialog({
                   activeBranchIds={activeBranchIds}
                   orientation={orientation}
                   autoFitToken={autoFitToken}
+                  announceStatus={false}
                   statusText={statusText}
                   onFocusMessage={setFocusedNodeId}
                   onSelectSource={(messageId) => {
@@ -378,6 +412,7 @@ export default function ConversationTreeDialog({
                   activeBranchIds={activeBranchIds}
                   orientation={orientation}
                   autoFitToken={autoFitToken}
+                  announceStatus={false}
                   statusText={statusText}
                   onFocusMessage={setFocusedNodeId}
                   onSelectSource={(messageId) => {

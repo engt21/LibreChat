@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { dataService } from 'librechat-data-provider';
 
 let mockIsMobile = false;
+let mockConversationId = 'convo-1';
 let mockLatestMessageId = 'assistant-b';
 let mockIsSubmitting = true;
 let mockStreamStatus = {
@@ -122,7 +123,7 @@ jest.mock('@librechat/client', () => {
 
 jest.mock('~/Providers/ChatContext', () => ({
   useChatContext: () => ({
-    conversation: { conversationId: 'convo-1' },
+    conversation: { conversationId: mockConversationId },
     getMessages: () => mockMessages,
     latestMessageId: mockLatestMessageId,
     isSubmitting: mockIsSubmitting,
@@ -135,11 +136,32 @@ jest.mock('~/data-provider', () => ({
 
 import ConversationTreeDialog from '../ConversationTreeDialog';
 
+function dispatchPointerEvent(
+  target: EventTarget,
+  type: string,
+  coordinates: { pointerId: number; clientX: number; clientY: number },
+) {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX: coordinates.clientX,
+    clientY: coordinates.clientY,
+  });
+
+  Object.defineProperty(event, 'pointerId', {
+    configurable: true,
+    value: coordinates.pointerId,
+  });
+
+  target.dispatchEvent(event);
+}
+
 describe('ConversationTreeDialog', () => {
   const originalElementsFromPoint = document.elementsFromPoint;
 
   beforeEach(() => {
     mockIsMobile = false;
+    mockConversationId = 'convo-1';
     mockLatestMessageId = 'assistant-b';
     mockIsSubmitting = true;
     mockStreamStatus = {
@@ -218,6 +240,53 @@ describe('ConversationTreeDialog', () => {
       'vertical',
     );
     expect(screen.queryByTestId('tree-node-assistant-a-child')).not.toBeInTheDocument();
+  });
+
+  it('isolates orientation between conversation ids', () => {
+    const { rerender } = render(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('tree-orientation-toggle'));
+    expect(screen.getByTestId('tree-orientation-toggle')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
+
+    mockConversationId = 'convo-2';
+    rerender(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('tree-orientation-toggle')).toHaveAttribute(
+      'data-orientation',
+      'horizontal',
+    );
+
+    mockConversationId = 'convo-1';
+    rerender(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('tree-orientation-toggle')).toHaveAttribute(
+      'data-orientation',
+      'vertical',
+    );
   });
 
   it('renders a mobile summary bar and bottom-sheet list treatment on narrow screens', () => {
@@ -345,5 +414,108 @@ describe('ConversationTreeDialog', () => {
     );
 
     expect(screen.getByTestId('generation-tree-mobile-summary')).toHaveTextContent('assistant-a');
+  });
+
+  it('resets manual positions after close and reopen within the same conversation', () => {
+    mockIsSubmitting = false;
+    mockStreamStatus = {
+      data: {
+        active: false,
+        responseMessageId: null,
+      },
+    };
+
+    const { rerender } = render(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    const node = screen.getByTestId('tree-node-assistant-a');
+    const originalLeft = node.style.left;
+    const originalTop = node.style.top;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Arrange tree' }));
+    dispatchPointerEvent(node, 'pointerdown', {
+      pointerId: 5,
+      clientX: 100,
+      clientY: 100,
+    });
+    dispatchPointerEvent(window, 'pointermove', {
+      pointerId: 5,
+      clientX: 140,
+      clientY: 130,
+    });
+
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+
+    expect(screen.getByTestId('tree-node-assistant-a').style.left).not.toBe(originalLeft);
+    expect(screen.getByTestId('tree-node-assistant-a').style.top).not.toBe(originalTop);
+
+    rerender(
+      <ConversationTreeDialog
+        open={false}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    rerender(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('tree-node-assistant-a').style.left).toBe(originalLeft);
+    expect(screen.getByTestId('tree-node-assistant-a').style.top).toBe(originalTop);
+  });
+
+  it('announces drag status updates through a polite live region', () => {
+    mockIsSubmitting = false;
+    mockStreamStatus = {
+      data: {
+        active: false,
+        responseMessageId: null,
+      },
+    };
+
+    render(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    document.elementsFromPoint = jest.fn(() => [screen.getByTestId('tree-node-prompt')]);
+
+    fireEvent.pointerDown(screen.getByTestId('graft-handle-assistant-b'), {
+      pointerId: 6,
+      clientX: 40,
+      clientY: 40,
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 6,
+      clientX: 60,
+      clientY: 60,
+    });
+
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Choose an assistant generation as the destination.',
+    );
   });
 });

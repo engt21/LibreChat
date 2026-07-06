@@ -136,6 +136,11 @@ describe('ConversationTreeList', () => {
     expect(onSelectSource).toHaveBeenCalledWith('assistant-b');
     expect(onSelectDestination).toHaveBeenCalledWith('assistant-a');
     expect(onPreviewRequest).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('generation-tree-list-status')).toHaveAttribute('role', 'status');
+    expect(screen.getByTestId('generation-tree-list-status')).toHaveAttribute(
+      'aria-live',
+      'polite',
+    );
   });
 
   it('supports roving keyboard navigation and escape cancellation', async () => {
@@ -244,6 +249,34 @@ describe('ConversationTreeList', () => {
     expect(onSelectSource).not.toHaveBeenCalled();
     expect(screen.getByTestId('generation-tree-list-status')).toHaveTextContent(
       'The conversation is still changing. Try again shortly.',
+    );
+  });
+
+  it('announces keyboard validation errors through the live status region', async () => {
+    const user = userEvent.setup();
+    const graph = createGraph();
+
+    render(
+      <ConversationTreeList
+        graph={graph}
+        collapsedIds={new Set()}
+        focusedMessageId="assistant-a"
+        sourceMessageId={null}
+        destinationMessageId={null}
+        onFocusMessage={jest.fn()}
+        onSelectSource={jest.fn()}
+        onSelectDestination={jest.fn()}
+        onPreviewRequest={jest.fn()}
+        onCollapsedIdsChange={jest.fn()}
+        onCancelSelection={jest.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('treeitem', { name: /generation 1/i }));
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByTestId('generation-tree-list-status')).toHaveTextContent(
+      'Choose a source generation before requesting a preview.',
     );
   });
 });
