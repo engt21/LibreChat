@@ -175,6 +175,24 @@ not downgrade backend/package `dist`.
 
 Operational monitoring and rollback details live in `LIBRECHAT_HEALTH_MONITORING.md`.
 
+## Rollback validation near-miss and recovery
+
+At 08:37 UTC, a read-only rollback-pointer check was accidentally run through an older VM runtime-tree
+copy of `librechat-rollback-last-stable.sh`. That copy did not implement `status` and defaulted to
+execution, so it restored the prior client snapshot and restarted `LibreChat`. HTTP health stayed green,
+but the served frontend hash changed from the intended build to the predeployment hash.
+
+Recovery used the supported manifest-verified full-client promotion from `/opt/LibreChat-custom/client/dist`.
+The helper activated the deployment fallback, verified OpenAI reasoning preservation, refresh/session and
+memory contracts, canonical runtime shape, and heap headroom, atomically restored all 222 manifest-tracked
+files, restarted the API, and returned routing to stable. At 08:39 UTC the public, container, and intended
+`index.html` hashes matched and `/api/config` returned HTTP 200.
+
+The rollback interface is now fail-closed. `status` and `--check` are read-only; only the literal `execute`
+subcommand may mutate production. Watchdog and deployment-cleanup callers pass `execute` explicitly, and
+the installed pve2, VM, and VM runtime-tree copies were hash-aligned and verified with a no-argument test
+that returned exit code 2 without changing the container start time.
+
 ## Final corrective actions and live proof
 
 The final production pass closed several independent regressions that had been masked by stale
