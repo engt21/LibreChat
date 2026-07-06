@@ -22,7 +22,10 @@ const appendCreatedMessages = (
   return nextMessages;
 };
 
-const invalidateGenerationGraftQueries = (queryClient: ReturnType<typeof useQueryClient>, conversationId: string) => {
+const invalidateGenerationGraftQueries = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  conversationId: string,
+) => {
   void queryClient.invalidateQueries({ queryKey: [QueryKeys.messages, conversationId] });
   void queryClient.invalidateQueries({ queryKey: [QueryKeys.toolCalls, conversationId] });
   void queryClient.invalidateQueries({ queryKey: [QueryKeys.conversationUsage, conversationId] });

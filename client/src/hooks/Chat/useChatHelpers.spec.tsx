@@ -28,6 +28,15 @@ const mockSetSubmission = jest.fn();
 const mockResetLatestMessage = jest.fn();
 const mockSetLatestMessage = jest.fn();
 
+const createDeferred = <T,>() => {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+
+  return { promise, resolve };
+};
+
 const atoms = {
   files: { key: 'files' },
   latestMessage: { key: 'latestMessage' },
@@ -171,7 +180,7 @@ describe('useChatHelpers stopGenerating', () => {
   const loadUseChatHelpers = () =>
     require('./useChatHelpers').default as typeof import('./useChatHelpers').default;
 
-  it('clears submissions only after awaited stop settles, invalidates messages, and optimistically removes active jobs', async () => {
+  it('waits for non-assistant stop settlement before clearing or invalidating while optimistically removing active jobs', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -179,11 +188,8 @@ describe('useChatHelpers stopGenerating', () => {
     const wrapper = createWrapper(queryClient);
     const useChatHelpers = loadUseChatHelpers();
 
-    let resolveStop: (value: unknown) => void = () => undefined;
-    const stopPromise = new Promise((resolve) => {
-      resolveStop = resolve;
-    });
-    mockStopMutateAsync.mockReturnValueOnce(stopPromise);
+    const deferredStop = createDeferred<{ success: boolean }>();
+    mockStopMutateAsync.mockReturnValueOnce(deferredStop.promise);
     queryClient.setQueryData([QueryKeys.activeJobs], {
       activeJobIds: ['convo-1', 'convo-2'],
     });
@@ -196,12 +202,13 @@ describe('useChatHelpers stopGenerating', () => {
     });
 
     expect(mockClearAllSubmissions).not.toHaveBeenCalled();
+    expect(invalidateSpy).not.toHaveBeenCalled();
     expect(queryClient.getQueryData([QueryKeys.activeJobs])).toEqual({
       activeJobIds: ['convo-2'],
     });
 
     await act(async () => {
-      resolveStop({ success: true });
+      deferredStop.resolve({ success: true });
       await pendingStop;
     });
 
@@ -212,6 +219,54 @@ describe('useChatHelpers stopGenerating', () => {
       conversationId: 'convo-1',
       endpoint: 'openAI',
       latestMessageId: 'message-1',
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith([QueryKeys.messages, 'convo-1']);
+  });
+
+  it('waits for assistant stop settlement before clearing or invalidating and leaves active jobs untouched', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
+    const wrapper = createWrapper(queryClient);
+    const useChatHelpers = loadUseChatHelpers();
+
+    mockConversation = {
+      conversationId: 'convo-1',
+      endpoint: 'assistants',
+    };
+
+    const deferredStop = createDeferred<{ success: boolean }>();
+    mockStopMutateAsync.mockReturnValueOnce(deferredStop.promise);
+    queryClient.setQueryData([QueryKeys.activeJobs], {
+      activeJobIds: ['convo-1', 'convo-2'],
+    });
+
+    const { result } = renderHook(() => useChatHelpers(0, 'convo-1'), { wrapper });
+
+    let pendingStop: Promise<void> | undefined;
+    act(() => {
+      pendingStop = result.current.stopGenerating();
+    });
+
+    expect(mockStopMutateAsync).toHaveBeenCalledWith({
+      conversationId: 'convo-1',
+      endpoint: 'assistants',
+      latestMessageId: 'message-1',
+    });
+    expect(mockClearAllSubmissions).not.toHaveBeenCalled();
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData([QueryKeys.activeJobs])).toEqual({
+      activeJobIds: ['convo-1', 'convo-2'],
+    });
+
+    await act(async () => {
+      deferredStop.resolve({ success: true });
+      await pendingStop;
+    });
+
+    await waitFor(() => {
+      expect(mockClearAllSubmissions).toHaveBeenCalledTimes(1);
     });
     expect(invalidateSpy).toHaveBeenCalledWith([QueryKeys.messages, 'convo-1']);
   });

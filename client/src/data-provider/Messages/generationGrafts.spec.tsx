@@ -173,7 +173,10 @@ describe('generation graft client hooks', () => {
       await previewHook.result.current.mutateAsync(previewPayload as never);
     });
 
-    expect(mockedDataService.previewGenerationGraft).toHaveBeenCalledWith('convo-1', previewPayload);
+    expect(mockedDataService.previewGenerationGraft).toHaveBeenCalledWith(
+      'convo-1',
+      previewPayload,
+    );
 
     renderHook(() => useGenerationGraftDetails('convo-1', 'graft-1', true), { wrapper });
 
@@ -248,18 +251,24 @@ describe('generation graft client hooks', () => {
       { messageId: 'copy-1', text: 'Copy 1' },
       { messageId: 'copy-2', text: 'Copy 2' },
     ]);
-    expect(wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
-      QueryKeys.messages,
-      'convo-1',
-    ])).toBe(true);
-    expect(wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
-      QueryKeys.toolCalls,
-      'convo-1',
-    ])).toBe(true);
-    expect(wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
-      QueryKeys.conversationUsage,
-      'convo-1',
-    ])).toBe(true);
+    expect(
+      wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
+        QueryKeys.messages,
+        'convo-1',
+      ]),
+    ).toBe(true);
+    expect(
+      wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
+        QueryKeys.toolCalls,
+        'convo-1',
+      ]),
+    ).toBe(true);
+    expect(
+      wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
+        QueryKeys.conversationUsage,
+        'convo-1',
+      ]),
+    ).toBe(true);
   });
 
   it('uses created messages as the cache when no messages are cached yet', async () => {
@@ -317,17 +326,23 @@ describe('generation graft client hooks', () => {
     expect(mockedDataService.undoGenerationGraft).toHaveBeenCalledWith('convo-1', 'graft-1', {
       includeContinuations: true,
     });
-    expect(wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
-      QueryKeys.messages,
-      'convo-1',
-    ])).toBe(true);
-    expect(wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
-      QueryKeys.toolCalls,
-      'convo-1',
-    ])).toBe(true);
-    expect(wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
-      QueryKeys.conversationUsage,
-      'convo-1',
-    ])).toBe(true);
+    expect(
+      wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
+        QueryKeys.messages,
+        'convo-1',
+      ]),
+    ).toBe(true);
+    expect(
+      wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
+        QueryKeys.toolCalls,
+        'convo-1',
+      ]),
+    ).toBe(true);
+    expect(
+      wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
+        QueryKeys.conversationUsage,
+        'convo-1',
+      ]),
+    ).toBe(true);
   });
 });
