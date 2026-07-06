@@ -82,6 +82,39 @@ describe('conversation tree graph normalization', () => {
     expect(graph.nodes.get('assistant-early')?.message.text).toBe('First assistant copy');
   });
 
+  it('normalizes self-parent and dangling-parent messages to roots consistently', () => {
+    const graph = normalizeConversationGraph([
+      createMessage({
+        messageId: 'self-parent',
+        parentMessageId: 'self-parent',
+        text: 'self parent',
+        isCreatedByUser: false,
+      }),
+      createMessage({
+        messageId: 'dangling-parent',
+        parentMessageId: 'missing-parent',
+        text: 'dangling parent',
+        isCreatedByUser: false,
+      }),
+      createMessage({
+        messageId: 'regular-root',
+        text: 'regular root',
+        isCreatedByUser: true,
+      }),
+    ]);
+
+    expect(graph.parentById.get('self-parent')).toBeNull();
+    expect(graph.parentById.get('dangling-parent')).toBeNull();
+    expect(graph.nodes.get('self-parent')?.parentId).toBeNull();
+    expect(graph.nodes.get('dangling-parent')?.parentId).toBeNull();
+    expect(graph.childrenByParent.get(null)).toEqual([
+      'self-parent',
+      'dangling-parent',
+      'regular-root',
+    ]);
+    expect(graph.rootIds).toEqual(['self-parent', 'dangling-parent', 'regular-root']);
+  });
+
   it('classifies complete, stopped, aborted, errored, and streaming lifecycles', () => {
     const graph = normalizeConversationGraph(
       [
@@ -260,6 +293,46 @@ describe('conversation tree graph normalization', () => {
       'OVERLAPPING_BRANCHES',
     );
     expect(getInvalidGraftReason(graph, 'assistant-a', 'assistant-b')).toBeNull();
+  });
+
+  it('keeps stopped and streaming assistant nodes valid when they are on separate branches', () => {
+    const graph = normalizeConversationGraph(
+      [
+        createMessage({
+          messageId: 'root-a',
+          text: 'root a',
+          isCreatedByUser: true,
+        }),
+        createMessage({
+          messageId: 'partial-assistant',
+          parentMessageId: 'root-a',
+          text: 'partial assistant',
+          isCreatedByUser: false,
+          unfinished: true,
+          finish_reason: 'length',
+        }),
+        createMessage({
+          messageId: 'root-b',
+          text: 'root b',
+          isCreatedByUser: true,
+        }),
+        createMessage({
+          messageId: 'streaming-assistant',
+          parentMessageId: 'root-b',
+          text: 'streaming assistant',
+          isCreatedByUser: false,
+          unfinished: true,
+        }),
+      ],
+      {
+        activeMessageIds: ['streaming-assistant'],
+      },
+    );
+
+    expect(graph.nodes.get('partial-assistant')?.lifecycle).toBe('stopped_partial');
+    expect(graph.nodes.get('streaming-assistant')?.lifecycle).toBe('streaming');
+    expect(getInvalidGraftReason(graph, 'partial-assistant', 'streaming-assistant')).toBeNull();
+    expect(getInvalidGraftReason(graph, 'streaming-assistant', 'partial-assistant')).toBeNull();
   });
 
   it('builds case-folded searchable text and applies semantic detail thresholds', () => {

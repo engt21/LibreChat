@@ -87,8 +87,6 @@ function collectEntries(messages: ConversationTreeMessageLike[]): {
     }
   }
 
-  let order = 0;
-
   while (stack.length > 0) {
     const visit = stack.pop();
     if (visit == null) {
@@ -130,7 +128,6 @@ function collectEntries(messages: ConversationTreeMessageLike[]): {
         nestedParentId,
       });
       orderedIds.push(currentId);
-      order += 1;
       continue;
     }
 
@@ -152,6 +149,18 @@ function getResolvedParentId(entry: GraphEntry): string | null {
   }
 
   return entry.nestedParentId;
+}
+
+function normalizeResolvedParentId(
+  messageId: string,
+  parentId: string | null,
+  entries: Map<string, GraphEntry>,
+): string | null {
+  if (parentId == null || parentId === messageId || !entries.has(parentId)) {
+    return null;
+  }
+
+  return parentId;
 }
 
 function classifyRole(message: ConversationTreeMessageLike): ConversationTreeNode['role'] {
@@ -344,7 +353,7 @@ export function normalizeConversationGraph(
       continue;
     }
 
-    const resolvedParentId = getResolvedParentId(entry);
+    const resolvedParentId = normalizeResolvedParentId(id, getResolvedParentId(entry), entries);
     parentById.set(id, resolvedParentId);
   }
 
@@ -354,9 +363,7 @@ export function normalizeConversationGraph(
       continue;
     }
 
-    const parentId = parentById.get(id) ?? null;
-    const normalizedParentId =
-      parentId != null && parentId !== id && entries.has(parentId) ? parentId : null;
+    const normalizedParentId = parentById.get(id) ?? null;
 
     const siblings = childrenByParent.get(normalizedParentId) ?? [];
     siblings.push(id);
@@ -377,10 +384,7 @@ export function normalizeConversationGraph(
 
     nodes.set(id, {
       id,
-      parentId:
-        parentById.get(id) != null && parentById.get(id) !== id && entries.has(parentById.get(id)!)
-          ? (parentById.get(id) ?? null)
-          : null,
+      parentId: parentById.get(id) ?? null,
       childIds,
       message: entry.message,
       role,

@@ -18,6 +18,15 @@ type Span = {
   end: number;
 };
 
+function isFiniteTreeNodePosition(value: unknown): value is TreeNodePosition {
+  return (
+    value != null &&
+    typeof value === 'object' &&
+    Number.isFinite((value as TreeNodePosition).x) &&
+    Number.isFinite((value as TreeNodePosition).y)
+  );
+}
+
 function getSecondarySize(orientation: ConversationTreeLayoutOptions['orientation']): number {
   return orientation === 'horizontal' ? NODE_HEIGHT : NODE_WIDTH;
 }
@@ -70,18 +79,18 @@ function normalizeManualPositions(
   }
 
   if (manualPositions instanceof Map) {
-    return new Map(manualPositions);
+    return new Map(
+      [...manualPositions].filter((entry): entry is [string, TreeNodePosition] => {
+        const [id, position] = entry;
+        return typeof id === 'string' && isFiniteTreeNodePosition(position);
+      }),
+    );
   }
 
   const entries = Object.entries(manualPositions).filter(
     (entry): entry is [string, TreeNodePosition] => {
       const [id, position] = entry;
-      return (
-        typeof id === 'string' &&
-        position != null &&
-        Number.isFinite(position.x) &&
-        Number.isFinite(position.y)
-      );
+      return typeof id === 'string' && isFiniteTreeNodePosition(position);
     },
   );
 

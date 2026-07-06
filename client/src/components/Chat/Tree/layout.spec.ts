@@ -169,6 +169,29 @@ describe('conversation tree layout', () => {
     expect(Object.prototype.hasOwnProperty.call(graph.nodes.get('root') ?? {}, 'x')).toBe(false);
   });
 
+  it('discards invalid manual position map overrides and keeps finite bounds', () => {
+    const graph = normalizeConversationGraph([
+      createMessage({ messageId: 'root', text: 'root', isCreatedByUser: true }),
+      createMessage({
+        messageId: 'child',
+        parentMessageId: 'root',
+        text: 'child',
+        isCreatedByUser: false,
+      }),
+    ]);
+
+    const layout = layoutConversationTree(graph, {
+      orientation: 'horizontal',
+      manualPositions: new Map([['root', { x: Number.NaN, y: Number.POSITIVE_INFINITY }]]),
+    });
+
+    expect(layout.nodes.get('root')).toMatchObject({ x: 0, y: 0 });
+    expect(Number.isFinite(layout.bounds.minX)).toBe(true);
+    expect(Number.isFinite(layout.bounds.minY)).toBe(true);
+    expect(Number.isFinite(layout.bounds.maxX)).toBe(true);
+    expect(Number.isFinite(layout.bounds.maxY)).toBe(true);
+  });
+
   it('returns finite bounds for malformed cycles and for empty graphs', () => {
     const cyclicGraph = normalizeConversationGraph([
       createMessage({
