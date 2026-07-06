@@ -8,6 +8,7 @@ import {
   sortAnthropicModels,
 } from './anthropic';
 import type { TAnthropicModelCapabilities } from './anthropic';
+import { supportsAdaptiveThinking } from './bedrock';
 import { AnthropicAdvisorModel } from './schemas';
 
 describe('anthropic model helpers', () => {
@@ -101,6 +102,21 @@ describe('anthropic model helpers', () => {
     expect(capabilities.supportsAdvisor).toBe(true);
   });
 
+  it.each(['claude-mythos-5', 'claude-fable-5'])(
+    'treats %s as an adaptive-thinking Claude family without fixed budgets',
+    (model) => {
+      const capabilities = getAnthropicModelCapabilities(model);
+
+      expect(supportsAdaptiveThinking(model)).toBe(true);
+      expect(capabilities.supportsThinking).toBe(true);
+      expect(capabilities.supportsAdaptiveThinking).toBe(true);
+      expect(capabilities.supportsThinkingBudget).toBe(false);
+      expect(capabilities.supportsEffort).toBe(true);
+      expect(capabilities.supportsEffortMax).toBe(true);
+      expect(capabilities.maxOutputTokensMax).toBe(128000);
+    },
+  );
+
   it('keeps Claude 3.7 on fixed thinking budgets instead of adaptive effort', () => {
     const capabilities = getAnthropicModelCapabilities('claude-3-7-sonnet-latest');
 
@@ -136,6 +152,20 @@ describe('anthropic model helpers', () => {
         'This Claude model uses adaptive thinking and effort controls instead of a fixed thinking budget.',
     });
   });
+
+  it.each(['claude-mythos-5', 'claude-fable-5'])(
+    'keeps Anthropic sampling controls disabled for always-on adaptive model %s',
+    (model) => {
+      const capabilities = getAnthropicModelCapabilities(model);
+
+      expect(
+        getAnthropicSettingCapabilityState('temperature', capabilities, { thinking: false }),
+      ).toEqual({
+        supported: false,
+        reason: 'Anthropic disables temperature, top_p, and top_k while thinking is enabled.',
+      });
+    },
+  );
 
   it('treats Anthropic thinking as enabled when the conversation is still using the default', () => {
     const capabilities = getAnthropicModelCapabilities('claude-sonnet-4-5');

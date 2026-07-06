@@ -123,6 +123,13 @@ describe('anthropicSettings', () => {
       it('should return 128K for claude-opus-4-9', () => {
         expect(reset('claude-opus-4-9')).toBe(128000);
       });
+
+      it.each(['claude-mythos-5', 'claude-fable-5', 'claude-mythos-5-1-20260101'])(
+        'should return 128K for always-on adaptive model %s',
+        (model) => {
+          expect(reset(model)).toBe(128000);
+        },
+      );
     });
 
     describe('Claude Opus 4.10+ models (double-digit minor versions)', () => {
@@ -318,6 +325,14 @@ describe('anthropicSettings', () => {
       it('should cap at 128K for claude-opus-4-10', () => {
         expect(set(150000, 'claude-opus-4-10')).toBe(128000);
       });
+
+      it.each(['claude-mythos-5', 'claude-fable-5'])(
+        'should cap at 128K for always-on adaptive model %s',
+        (model) => {
+          expect(set(150000, model)).toBe(128000);
+          expect(set(100000, model)).toBe(100000);
+        },
+      );
 
       it('should allow 100K for claude-opus-4-10', () => {
         expect(set(100000, 'claude-opus-4-10')).toBe(100000);

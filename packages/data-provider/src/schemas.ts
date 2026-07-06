@@ -400,6 +400,14 @@ const CLAUDE_4_64K_MAX_OUTPUT = 64000 as const;
 const CLAUDE_32K_MAX_OUTPUT = 32000 as const;
 const DEFAULT_MAX_OUTPUT = 8192 as const;
 const LEGACY_ANTHROPIC_MAX_OUTPUT = 4096 as const;
+
+function isAlwaysOnAdaptiveAnthropicModel(modelName: string): boolean {
+  return (
+    /claude-(?:fable|mythos)[-.]?(?:[5-9]|\d{2,})(?:[-.]?\d+)?/i.test(modelName) ||
+    /claude-(?:[5-9]|\d{2,})(?:[-.]?\d+)?-(?:fable|mythos)/i.test(modelName)
+  );
+}
+
 export const anthropicSettings = {
   model: {
     default: 'claude-3-5-sonnet-latest' as const,
@@ -428,6 +436,10 @@ export const anthropicSettings = {
     step: 1 as const,
     default: DEFAULT_MAX_OUTPUT,
     reset: (modelName: string) => {
+      if (isAlwaysOnAdaptiveAnthropicModel(modelName)) {
+        return ANTHROPIC_MAX_OUTPUT;
+      }
+
       if (/claude-opus[-.]?(?:4[-.]?(?:[6-9]|\d{2,})|[5-9]|\d{2,})/.test(modelName)) {
         return ANTHROPIC_MAX_OUTPUT;
       }
@@ -447,6 +459,13 @@ export const anthropicSettings = {
       return DEFAULT_MAX_OUTPUT;
     },
     set: (value: number, modelName: string) => {
+      if (isAlwaysOnAdaptiveAnthropicModel(modelName)) {
+        if (value > ANTHROPIC_MAX_OUTPUT) {
+          return ANTHROPIC_MAX_OUTPUT;
+        }
+        return value;
+      }
+
       if (/claude-opus[-.]?(?:4[-.]?(?:[6-9]|\d{2,})|[5-9]|\d{2,})/.test(modelName)) {
         if (value > ANTHROPIC_MAX_OUTPUT) {
           return ANTHROPIC_MAX_OUTPUT;

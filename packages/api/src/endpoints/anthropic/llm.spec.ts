@@ -1,4 +1,5 @@
 import { AnthropicAdvisorModel, AnthropicEffort } from 'librechat-data-provider';
+import { initializeModel, Providers } from '@librechat/agents';
 import type * as t from '~/types';
 import { getLLMConfig } from './llm';
 
@@ -1263,6 +1264,68 @@ describe('getLLMConfig', () => {
           effort: AnthropicEffort.high,
         });
       });
+
+      it.each(['claude-mythos-5', 'claude-fable-5'])(
+        'should omit thinking and sampling params for always-on adaptive model %s',
+        (model) => {
+          const result = getLLMConfig('test-key', {
+            modelOptions: {
+              model,
+              thinking: true,
+              thinkingBudget: 10000,
+              temperature: 0.4,
+              topP: 0.9,
+              topK: 40,
+              effort: AnthropicEffort.high,
+            },
+          });
+
+          expect(result.llmConfig.thinking).toBeUndefined();
+          expect(result.llmConfig.temperature).toBeUndefined();
+          expect(result.llmConfig).not.toHaveProperty('topP');
+          expect(result.llmConfig).not.toHaveProperty('topK');
+          expect(result.llmConfig.maxTokens).toBe(128000);
+          expect(result.llmConfig.invocationKwargs?.output_config).toEqual({
+            effort: AnthropicEffort.high,
+          });
+        },
+      );
+
+      it.each(['claude-mythos-5', 'claude-fable-5'])(
+        'should omit thinking, temperature, top_p, and top_k from initializeModel invocationParams for %s',
+        (model) => {
+          const result = getLLMConfig('test-key', {
+            modelOptions: {
+              model,
+              thinking: true,
+              thinkingBudget: 10000,
+              temperature: 0.4,
+              topP: 0.9,
+              topK: 40,
+              effort: AnthropicEffort.medium,
+            },
+          });
+
+          const initializedModel = initializeModel({
+            provider: Providers.ANTHROPIC,
+            clientOptions: result.llmConfig as t.ClientOptions,
+          }) as t.ModelWithTools & {
+            invocationParams: (options?: Record<string, unknown>) => Record<string, unknown>;
+          };
+
+          const wireJson = JSON.parse(JSON.stringify(initializedModel.invocationParams({})));
+
+          expect(wireJson).toMatchObject({
+            model,
+            max_tokens: 128000,
+            output_config: { effort: AnthropicEffort.medium },
+          });
+          expect(wireJson.thinking).toBeUndefined();
+          expect(wireJson.temperature).toBeUndefined();
+          expect(wireJson.top_p).toBeUndefined();
+          expect(wireJson.top_k).toBeUndefined();
+        },
+      );
 
       it('should exclude topP/topK for Sonnet 4.6 with adaptive thinking', () => {
         const result = getLLMConfig('test-key', {

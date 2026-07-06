@@ -1,9 +1,11 @@
-import { supportsAdaptiveThinking } from './bedrock';
+import { hasAlwaysOnAdaptiveThinking, supportsAdaptiveThinking } from './bedrock';
 import { AnthropicAdvisorModel, AnthropicEffort, anthropicSettings } from './schemas';
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-const anthropicFamilies = new Set(['opus', 'sonnet', 'haiku'] as const);
+const anthropicFamilies = new Set(['mythos', 'fable', 'opus', 'sonnet', 'haiku'] as const);
 const anthropicFamilyRank = {
+  mythos: 5,
+  fable: 4,
   opus: 3,
   sonnet: 2,
   haiku: 1,
@@ -246,6 +248,10 @@ function inferAnthropicAdvisorSupport(model: ParsedAnthropicModelName): boolean 
 function inferAnthropicThinkingSupport(model: ParsedAnthropicModelName): boolean {
   const normalizedModel = model.normalizedModel;
 
+  if (hasAlwaysOnAdaptiveThinking(normalizedModel)) {
+    return true;
+  }
+
   if (model.majorVersion >= 4) {
     return true;
   }
@@ -402,14 +408,16 @@ export function getAnthropicModelCapabilities(
   const normalizedModel = normalizeAnthropicModelName(model);
   const parsedModel = parseAnthropicModelName(normalizedModel);
   const isTextCompatible = isAnthropicTextCompatibleModel(metadata ?? normalizedModel);
+  const hasImplicitAdaptiveThinking = hasAlwaysOnAdaptiveThinking(normalizedModel);
   const supportsThinking = isTextCompatible && inferAnthropicThinkingSupport(parsedModel);
   const adaptiveThinking = supportsThinking && supportsAdaptiveThinking(normalizedModel);
   const supportsEffort = adaptiveThinking;
   const supportsEffortMax =
     adaptiveThinking &&
-    parsedModel.family === 'opus' &&
-    (parsedModel.majorVersion > 4 ||
-      (parsedModel.majorVersion === 4 && parsedModel.minorVersion >= 6));
+    (hasImplicitAdaptiveThinking ||
+      (parsedModel.family === 'opus' &&
+        (parsedModel.majorVersion > 4 ||
+          (parsedModel.majorVersion === 4 && parsedModel.minorVersion >= 6))));
   const effortOptions = supportsEffort
     ? anthropicSettings.effort.options.filter((option) => {
         if (option !== AnthropicEffort.max) {
@@ -445,7 +453,9 @@ export function getAnthropicModelCapabilities(
     supportsCodeExecution: isTextCompatible && inferAnthropicCodeExecutionSupport(parsedModel),
     supportsAdvisor: isTextCompatible && inferAnthropicAdvisorSupport(parsedModel),
     supportsServiceTier: isTextCompatible,
-    maxOutputTokensDefault: Math.min(anthropicSettings.maxOutputTokens.default, maxOutputTokensMax),
+    maxOutputTokensDefault: hasImplicitAdaptiveThinking
+      ? maxOutputTokensMax
+      : Math.min(anthropicSettings.maxOutputTokens.default, maxOutputTokensMax),
     maxOutputTokensMax,
     effortOptions,
     advisorModelOptions: anthropicSettings.advisor_model.options,
@@ -477,12 +487,12 @@ export function getAnthropicSettingCapabilityState(
     case 'temperature':
     case 'topP':
     case 'topK': {
-      const supportsSamplingControl =
-        settingKey === 'temperature'
-          ? capabilities.supportsTemperature
-          : settingKey === 'topP'
-            ? capabilities.supportsTopP
-            : capabilities.supportsTopK;
+      let supportsSamplingControl = capabilities.supportsTopK;
+      if (settingKey === 'temperature') {
+        supportsSamplingControl = capabilities.supportsTemperature;
+      } else if (settingKey === 'topP') {
+        supportsSamplingControl = capabilities.supportsTopP;
+      }
 
       if (!supportsSamplingControl) {
         return {
@@ -491,7 +501,10 @@ export function getAnthropicSettingCapabilityState(
         };
       }
 
-      if (thinkingEnabled && capabilities.supportsThinking) {
+      if (
+        (thinkingEnabled && capabilities.supportsThinking) ||
+        hasAlwaysOnAdaptiveThinking(capabilities.model)
+      ) {
         return {
           supported: false,
           reason: 'Anthropic disables temperature, top_p, and top_k while thinking is enabled.',
