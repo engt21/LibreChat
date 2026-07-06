@@ -128,6 +128,8 @@ The graft workflow distinguishes persisted completeness from live stream activit
 
 The `unfinished` database flag alone is not authoritative because stale historical rows may retain
 that flag. The server combines persisted message state with the canonical active-generation status.
+Resumable streams use `GenerationJobManager`; Assistants runs use the existing `ABORT_KEYS` run
+registry, extended to retain the response message ID and cleared immediately when the run settles.
 
 Complete, stopped, aborted, and errored generations are immediately graftable in every source and
 destination combination.
@@ -443,6 +445,7 @@ Request:
   "sourceMessageId": "source-id",
   "destinationMessageId": "destination-id",
   "mode": "generation",
+  "sourceActiveLeafMessageId": "active-leaf-id",
   "expectedTreeRevision": "revision"
 }
 ```
@@ -464,6 +467,7 @@ Request:
   "sourceMessageId": "source-id",
   "destinationMessageId": "destination-id",
   "mode": "generation",
+  "sourceActiveLeafMessageId": "active-leaf-id",
   "idempotencyKey": "client-uuid",
   "expectedTreeRevision": "revision"
 }
@@ -477,12 +481,16 @@ Response:
   "bridgeMessageId": "bridge-id",
   "copiedRootMessageId": "copied-root-id",
   "activeCopiedMessageId": "active-copy-id",
-  "copiedMessageCount": 1
+  "copiedMessageCount": 1,
+  "createdMessages": []
 }
 ```
 
-The client invalidates the message and tool-call queries, selects the active copied message, and
-refits the graph around the new graft.
+`sourceActiveLeafMessageId` is optional. When it is supplied for subtree mode, the server validates
+that it belongs to the copied set and maps it to the cloned equivalent. Otherwise the copied root
+becomes active. `createdMessages` contains the topologically ordered bridge and copied records so
+the client can update the message cache immediately, select the active copy, and then reconcile with
+an authoritative refetch.
 
 ### 10.3 Undo preview and undo
 
@@ -517,7 +525,7 @@ The service performs:
 
 1. user and conversation ownership validation;
 2. source and destination lookup;
-3. lifecycle classification and active-generation validation;
+3. cross-provider lifecycle classification and active-generation validation;
 4. ancestor/descendant overlap validation;
 5. copied-set calculation;
 6. node-count and payload-size validation;
@@ -692,7 +700,7 @@ Tests cover:
 - tool-call cloning;
 - active-leaf mapping;
 - ownership enforcement;
-- unfinished and active-generation rejection;
+- unstabilized active-generation rejection while stable partial generations remain supported;
 - ancestor/descendant overlap rejection;
 - stale revision rejection;
 - idempotent retry;
