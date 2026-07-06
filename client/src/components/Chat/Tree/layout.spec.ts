@@ -303,4 +303,30 @@ describe('conversation tree layout', () => {
       height: 0,
     });
   });
+
+  it('lays out a deep linear chain without relying on the call stack', () => {
+    const chainLength = 15000;
+    const messages = Array.from({ length: chainLength }, (_, index) =>
+      createMessage({
+        messageId: `chain-${index}`,
+        parentMessageId: index === 0 ? null : `chain-${index - 1}`,
+        text: `chain ${index}`,
+        isCreatedByUser: index % 2 === 0,
+      }),
+    );
+
+    const graph = normalizeConversationGraph(messages);
+    const layout = layoutConversationTree(graph, { orientation: 'horizontal' });
+
+    expect(layout.nodes.size).toBe(chainLength);
+    expect(layout.nodes.get('chain-0')).toMatchObject({ x: 0, y: 0 });
+    expect(layout.nodes.get(`chain-${chainLength - 1}`)).toMatchObject({
+      x: (NODE_WIDTH + HORIZONTAL_GAP) * (chainLength - 1),
+      y: 0,
+    });
+    expect(Number.isFinite(layout.bounds.minX)).toBe(true);
+    expect(Number.isFinite(layout.bounds.minY)).toBe(true);
+    expect(Number.isFinite(layout.bounds.maxX)).toBe(true);
+    expect(Number.isFinite(layout.bounds.maxY)).toBe(true);
+  });
 });
