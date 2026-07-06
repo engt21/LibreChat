@@ -18,7 +18,6 @@ import {
   generationGraftDetailsQueryKey,
   useCreateGenerationGraft,
   usePreviewGenerationGraft,
-  useUndoGenerationGraft,
 } from '~/data-provider/Messages/generationGrafts';
 import { fetchStreamStatus } from '~/data-provider/SSE/queries';
 import { getInvalidGraftReason } from './graph';
@@ -38,6 +37,13 @@ export type GenerationGraftPhase =
   | 'undo-preview'
   | 'undoing'
   | 'error';
+
+export type GenerationGraftPendingAction =
+  | 'stop'
+  | 'wait'
+  | 'create'
+  | 'undo-safe'
+  | 'undo-destructive';
 
 export type ParsedGenerationGraftError = TGenerationGraftErrorResponse & {
   error: string;
@@ -96,11 +102,10 @@ const getBasePhase = ({
   return 'selecting';
 };
 
-const sameSelection = (left: SelectionSnapshot, right: SelectionSnapshot) =>
+const sameSelectionState = (left: SelectionState, right: SelectionState) =>
   left.sourceMessageId === right.sourceMessageId &&
   left.destinationMessageId === right.destinationMessageId &&
-  left.mode === right.mode &&
-  left.activeSourceLeafMessageId === right.activeSourceLeafMessageId;
+  left.mode === right.mode;
 
 function findActiveSourceLeafMessageId(
   graph: ConversationTreeGraph,
@@ -148,6 +153,15 @@ function createTimeoutError(localize: ReturnType<typeof useLocalize>): ParsedGen
   return {
     error: localize('com_ui_generation_tree_error_timeout'),
     code: 'GRAFT_REQUIRES_STABILIZATION',
+  };
+}
+
+function createUndoDetailsError(
+  localize: ReturnType<typeof useLocalize>,
+): ParsedGenerationGraftError {
+  return {
+    error: localize('com_ui_generation_tree_error_undo_details'),
+    code: 'GRAFT_HAS_CONTINUATIONS',
   };
 }
 
@@ -257,6 +271,7 @@ export default function useGenerationGraft({
   const { stopGenerating, setLatestMessage } = useChatContext();
   const previewMutation = usePreviewGenerationGraft(conversationId);
   const createMutation = useCreateGenerationGraft(conversationId);
+  const sessionIdentity = sessionKey ?? `${conversationId}::${initialSourceMessageId ?? ''}`;
   const [selection, setSelection] = useState<SelectionState>({
     sourceMessageId: initialSourceMessageId,
     destinationMessageId: null,
@@ -277,34 +292,52 @@ export default function useGenerationGraft({
   const [stabilization, setStabilization] = useState<GenerationGraftStabilizationState | null>(
     null,
   );
+  const [pendingAction, setPendingAction] = useState<GenerationGraftPendingAction | null>(null);
+  const [queuedStabilizationRetry, setQueuedStabilizationRetry] = useState<{
+    operationToken: number;
+    sessionIdentity: string;
+    selection: SelectionState;
+  } | null>(null);
   const activeSourceLeafMessageId = useMemo(
     () => findActiveSourceLeafMessageId(graph, selection.sourceMessageId, activeLeafMessageId),
     [activeLeafMessageId, graph, selection.sourceMessageId],
   );
   const graphRef = useRef(graph);
   const activeLeafMessageIdRef = useRef(activeLeafMessageId);
+  const treeRevisionRef = useRef(treeRevision);
+  const sessionIdentityRef = useRef(sessionIdentity);
   const selectionRef = useRef<SelectionSnapshot>({
     ...selection,
     activeSourceLeafMessageId,
   });
+  const createdRef = useRef<TGenerationGraftCreateResponse | null>(null);
+  const undoDetailsRef = useRef<TGenerationGraftDetailsResponse | null>(null);
+  const stabilizationRef = useRef<GenerationGraftStabilizationState | null>(stabilization);
   const operationTokenRef = useRef(0);
   const isMountedRef = useRef(true);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const idempotencyKeysRef = useRef(new Map<string, string>());
+  const pendingActionRef = useRef<GenerationGraftPendingAction | null>(null);
+  const idempotencyStateRef = useRef<{ tupleKey: string | null; key: string | null }>({
+    tupleKey: null,
+    key: null,
+  });
   const previousTreeSignalRef = useRef({
     treeRevision,
     activeSourceLeafMessageId,
   });
-  const undoActionRef = useRef<(() => Promise<unknown>) | null>(null);
   const currentGraftId = created?.graftId ?? undoDetails?.graftId ?? '';
-  const undoMutation = useUndoGenerationGraft(conversationId, currentGraftId);
 
   graphRef.current = graph;
   activeLeafMessageIdRef.current = activeLeafMessageId;
+  treeRevisionRef.current = treeRevision;
+  sessionIdentityRef.current = sessionIdentity;
   selectionRef.current = {
     ...selection,
     activeSourceLeafMessageId,
   };
+  createdRef.current = created;
+  undoDetailsRef.current = undoDetails;
+  stabilizationRef.current = stabilization;
 
   const clearPendingTimeout = useCallback(() => {
     if (timeoutRef.current != null) {
@@ -316,6 +349,28 @@ export default function useGenerationGraft({
   const bumpOperationToken = useCallback(() => {
     operationTokenRef.current += 1;
     return operationTokenRef.current;
+  }, []);
+
+  const clearPendingAction = useCallback(() => {
+    pendingActionRef.current = null;
+    setPendingAction(null);
+  }, []);
+
+  const beginPendingAction = useCallback((nextAction: GenerationGraftPendingAction) => {
+    if (pendingActionRef.current != null) {
+      return false;
+    }
+
+    pendingActionRef.current = nextAction;
+    setPendingAction(nextAction);
+    return true;
+  }, []);
+
+  const resetIdempotencyState = useCallback(() => {
+    idempotencyStateRef.current = {
+      tupleKey: null,
+      key: null,
+    };
   }, []);
 
   const resetTransientState = useCallback(
@@ -336,6 +391,9 @@ export default function useGenerationGraft({
     (nextSelection: SelectionState) => {
       clearPendingTimeout();
       bumpOperationToken();
+      clearPendingAction();
+      resetIdempotencyState();
+      setQueuedStabilizationRetry(null);
       selectionRef.current = {
         ...nextSelection,
         activeSourceLeafMessageId: findActiveSourceLeafMessageId(
@@ -348,7 +406,13 @@ export default function useGenerationGraft({
       resetTransientState();
       setPhase(getBasePhase(nextSelection));
     },
-    [bumpOperationToken, clearPendingTimeout, resetTransientState],
+    [
+      bumpOperationToken,
+      clearPendingAction,
+      clearPendingTimeout,
+      resetIdempotencyState,
+      resetTransientState,
+    ],
   );
 
   const previewMatchesCurrentSelection = useCallback(
@@ -433,19 +497,27 @@ export default function useGenerationGraft({
       return null;
     }
 
-    const existingKey = idempotencyKeysRef.current.get(tupleKey);
-    if (existingKey != null) {
-      return existingKey;
+    if (
+      idempotencyStateRef.current.tupleKey === tupleKey &&
+      idempotencyStateRef.current.key != null
+    ) {
+      return idempotencyStateRef.current.key;
     }
 
     const nextKey = v4();
-    idempotencyKeysRef.current.set(tupleKey, nextKey);
+    idempotencyStateRef.current = {
+      tupleKey,
+      key: nextKey,
+    };
     return nextKey;
   }, [tupleKey]);
 
   const invalidateTupleIdempotencyKey = useCallback(() => {
-    if (tupleKey != null) {
-      idempotencyKeysRef.current.delete(tupleKey);
+    if (tupleKey != null && idempotencyStateRef.current.tupleKey === tupleKey) {
+      idempotencyStateRef.current = {
+        tupleKey,
+        key: null,
+      };
     }
   }, [tupleKey]);
 
@@ -550,172 +622,319 @@ export default function useGenerationGraft({
       validateSelection,
     ],
   );
+  const invalidateUndoRelatedQueries = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: [QueryKeys.messages, conversationId] });
+    void queryClient.invalidateQueries({ queryKey: [QueryKeys.toolCalls, conversationId] });
+    void queryClient.invalidateQueries({ queryKey: [QueryKeys.conversationUsage, conversationId] });
+    void queryClient.invalidateQueries({
+      queryKey: ['generationGraft', conversationId],
+      exact: false,
+    });
+  }, [conversationId, queryClient]);
+
+  const retryPreviewAfterStabilization = useCallback(
+    async (operationToken: number) => {
+      const snapshot = selectionRef.current;
+      if (snapshot.sourceMessageId == null || snapshot.destinationMessageId == null) {
+        return null;
+      }
+
+      setError(null);
+      setPreview(null);
+      setPreviewRevision(null);
+      setCreated(null);
+      setUndoDetails(null);
+      setStabilization(null);
+      setPhase('previewing');
+
+      try {
+        const previewResponse = await previewMutation.mutateAsync({
+          sourceMessageId: snapshot.sourceMessageId,
+          destinationMessageId: snapshot.destinationMessageId,
+          mode: snapshot.mode,
+          sourceActiveLeafMessageId: snapshot.activeSourceLeafMessageId ?? undefined,
+          expectedTreeRevision: treeRevisionRef.current,
+        });
+
+        if (!isMountedRef.current || operationToken !== operationTokenRef.current) {
+          return null;
+        }
+
+        setPreview(previewResponse);
+        setPreviewRevision(treeRevisionRef.current);
+        setPhase(previewResponse.canCreate === true ? 'ready' : 'error');
+        if (previewResponse.canCreate === true) {
+          onFitSelection?.();
+        }
+        return previewResponse;
+      } catch (caughtError) {
+        if (!isMountedRef.current || operationToken !== operationTokenRef.current) {
+          return null;
+        }
+
+        const parsedError = parseGenerationGraftError(caughtError, localize);
+        if (parsedError.code === 'TREE_CHANGED') {
+          invalidateTupleIdempotencyKey();
+        }
+
+        setError(parsedError);
+        setPhase('error');
+        return null;
+      }
+    },
+    [invalidateTupleIdempotencyKey, localize, onFitSelection, previewMutation],
+  );
 
   const waitForStabilization = useCallback(
     async ({ stop }: { stop: boolean }) => {
-      const snapshot = selectionRef.current;
+      const action = stop ? 'stop' : 'wait';
+      if (!beginPendingAction(action)) {
+        return null;
+      }
+
+      const selectionSnapshot: SelectionState = {
+        sourceMessageId: selectionRef.current.sourceMessageId,
+        destinationMessageId: selectionRef.current.destinationMessageId,
+        mode: selectionRef.current.mode,
+      };
       const operationToken = operationTokenRef.current;
+      const sessionSnapshot = sessionIdentityRef.current;
 
       clearPendingTimeout();
       setError(null);
       setPhase('stabilization');
 
-      if (stop) {
-        await stopGenerating?.();
-      }
-
-      const startedAt = Date.now();
-
-      while (isMountedRef.current) {
-        const streamStatus = await fetchStreamStatus(conversationId);
-        if (!isMountedRef.current || operationToken !== operationTokenRef.current) {
-          return null;
+      try {
+        if (stop) {
+          await stopGenerating?.();
         }
 
-        const isActive =
-          streamStatus?.active === true ||
-          (streamStatus?.responseMessageId == null &&
-            stabilization?.conversationActiveWithoutMessageId === true);
+        const startedAt = Date.now();
 
-        if (!isActive) {
-          await queryClient.refetchQueries({
-            queryKey: [QueryKeys.messages, conversationId],
-          });
-          await Promise.resolve();
-
-          if (!isMountedRef.current || operationToken !== operationTokenRef.current) {
+        while (isMountedRef.current) {
+          const streamStatus = await fetchStreamStatus(conversationId);
+          if (
+            !isMountedRef.current ||
+            operationToken !== operationTokenRef.current ||
+            sessionSnapshot !== sessionIdentityRef.current
+          ) {
             return null;
           }
 
-          if (!sameSelection(snapshot, selectionRef.current)) {
+          const isActive =
+            streamStatus?.active === true ||
+            (streamStatus?.responseMessageId == null &&
+              stabilizationRef.current?.conversationActiveWithoutMessageId === true);
+
+          if (!isActive) {
+            await queryClient.refetchQueries({
+              queryKey: [QueryKeys.messages, conversationId],
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+
+            if (
+              !isMountedRef.current ||
+              operationToken !== operationTokenRef.current ||
+              sessionSnapshot !== sessionIdentityRef.current
+            ) {
+              return null;
+            }
+
+            if (!sameSelectionState(selectionSnapshot, selectionRef.current)) {
+              return null;
+            }
+
+            setQueuedStabilizationRetry({
+              operationToken,
+              sessionIdentity: sessionSnapshot,
+              selection: selectionSnapshot,
+            });
             return null;
           }
 
-          return requestPreview(snapshot.destinationMessageId, {
-            bypassLocalStabilizationCheck: true,
+          if (Date.now() - startedAt >= STABILIZATION_TIMEOUT_MS) {
+            if (isMountedRef.current && operationToken === operationTokenRef.current) {
+              setError(createTimeoutError(localize));
+              setPhase('error');
+            }
+            return null;
+          }
+
+          await new Promise<void>((resolve) => {
+            timeoutRef.current = setTimeout(() => resolve(), STABILIZATION_POLL_INTERVAL_MS);
           });
         }
-
-        if (Date.now() - startedAt >= STABILIZATION_TIMEOUT_MS) {
-          if (isMountedRef.current && operationToken === operationTokenRef.current) {
-            setError(createTimeoutError(localize));
-            setPhase('error');
-          }
-          return null;
+      } finally {
+        if (pendingActionRef.current === action) {
+          clearPendingAction();
         }
-
-        await new Promise<void>((resolve) => {
-          timeoutRef.current = setTimeout(() => resolve(), STABILIZATION_POLL_INTERVAL_MS);
-        });
       }
 
       return null;
     },
     [
+      beginPendingAction,
+      clearPendingAction,
       clearPendingTimeout,
       conversationId,
       localize,
       queryClient,
-      requestPreview,
-      stabilization?.conversationActiveWithoutMessageId,
       stopGenerating,
     ],
   );
 
-  const loadUndoDetails = useCallback(async () => {
-    if (currentGraftId.length === 0) {
-      return null;
-    }
-
-    const details = await queryClient.fetchQuery({
-      queryKey: generationGraftDetailsQueryKey(conversationId, currentGraftId),
-      queryFn: () => dataService.getGenerationGraft(conversationId, currentGraftId),
-      retry: false,
-    });
-
-    if (isMountedRef.current) {
-      setUndoDetails(details);
-    }
-
-    return details;
-  }, [conversationId, currentGraftId, queryClient]);
-
-  const undoGraft = useCallback(async () => {
-    if (currentGraftId.length === 0) {
-      return null;
-    }
-
-    setError(null);
-    setPhase('undoing');
-
-    try {
-      const undoResponse = await undoMutation.mutateAsync({ includeContinuations: false });
-      if (!isMountedRef.current) {
-        return undoResponse;
-      }
-
-      setCreated(null);
-      setUndoDetails(null);
-      setPreview(null);
-      setPreviewRevision(null);
-      setStabilization(null);
-      setPhase(getBasePhase(selectionRef.current));
-      return undoResponse;
-    } catch (caughtError) {
-      const parsedError = parseGenerationGraftError(caughtError, localize);
-      if (parsedError.code === 'GRAFT_HAS_CONTINUATIONS') {
-        setError(parsedError);
-        await loadUndoDetails();
-        if (isMountedRef.current) {
-          setPhase('undo-preview');
-        }
+  const loadUndoDetails = useCallback(
+    async (graftId: string) => {
+      if (graftId.length === 0) {
         return null;
       }
 
-      setError(parsedError);
-      setPhase('error');
-      throw caughtError;
-    }
-  }, [currentGraftId, loadUndoDetails, localize, undoMutation]);
+      const details = await queryClient.fetchQuery({
+        queryKey: generationGraftDetailsQueryKey(conversationId, graftId),
+        queryFn: () => dataService.getGenerationGraft(conversationId, graftId),
+        retry: false,
+      });
 
-  const confirmUndoContinuations = useCallback(async () => {
+      if (isMountedRef.current) {
+        setUndoDetails(details);
+      }
+
+      return details;
+    },
+    [conversationId, queryClient],
+  );
+
+  const resetDisplayedGraftState = useCallback((graftId: string) => {
+    const isCurrentDisplayedGraft =
+      createdRef.current?.graftId === graftId || undoDetailsRef.current?.graftId === graftId;
+
+    if (!isCurrentDisplayedGraft) {
+      return null;
+    }
+
+    setCreated(null);
+    setUndoDetails(null);
+    setPreview(null);
+    setPreviewRevision(null);
+    setStabilization(null);
+    setPhase(getBasePhase(selectionRef.current));
+    return null;
+  }, []);
+
+  const undoSpecificGraft = useCallback(
+    async (graftId: string, includeContinuations: boolean) => {
+      if (graftId.length === 0) {
+        return null;
+      }
+
+      const action = includeContinuations ? 'undo-destructive' : 'undo-safe';
+      if (!beginPendingAction(action)) {
+        return null;
+      }
+
+      const operationToken = operationTokenRef.current;
+      const isCurrentDisplayedGraft =
+        createdRef.current?.graftId === graftId || undoDetailsRef.current?.graftId === graftId;
+
+      if (isCurrentDisplayedGraft) {
+        setError(null);
+        setPhase('undoing');
+      }
+
+      try {
+        const undoResponse = await dataService.undoGenerationGraft(conversationId, graftId, {
+          includeContinuations,
+        });
+        invalidateUndoRelatedQueries();
+
+        if (!isMountedRef.current || operationToken !== operationTokenRef.current) {
+          return undoResponse;
+        }
+
+        resetDisplayedGraftState(graftId);
+        return undoResponse;
+      } catch (caughtError) {
+        if (!isMountedRef.current || operationToken !== operationTokenRef.current) {
+          return null;
+        }
+
+        const parsedError = parseGenerationGraftError(caughtError, localize);
+        if (!includeContinuations && parsedError.code === 'GRAFT_HAS_CONTINUATIONS') {
+          if (isCurrentDisplayedGraft) {
+            setError(parsedError);
+          }
+
+          try {
+            await loadUndoDetails(graftId);
+            if (
+              isCurrentDisplayedGraft &&
+              isMountedRef.current &&
+              operationToken === operationTokenRef.current
+            ) {
+              setPhase('undo-preview');
+            }
+          } catch {
+            if (
+              isCurrentDisplayedGraft &&
+              isMountedRef.current &&
+              operationToken === operationTokenRef.current
+            ) {
+              setUndoDetails(null);
+              setError(createUndoDetailsError(localize));
+              setPhase('created');
+            }
+          }
+          return null;
+        }
+
+        if (isCurrentDisplayedGraft) {
+          setError(parsedError);
+          setPhase(includeContinuations ? 'undo-preview' : 'error');
+        }
+        throw caughtError;
+      } finally {
+        if (pendingActionRef.current === action) {
+          clearPendingAction();
+        }
+      }
+    },
+    [
+      beginPendingAction,
+      clearPendingAction,
+      conversationId,
+      invalidateUndoRelatedQueries,
+      loadUndoDetails,
+      localize,
+      resetDisplayedGraftState,
+    ],
+  );
+
+  const undoGraft = useCallback(
+    () => undoSpecificGraft(currentGraftId, false),
+    [currentGraftId, undoSpecificGraft],
+  );
+
+  const confirmUndoContinuations = useCallback(() => {
     if (currentGraftId.length === 0 || undoDetails == null) {
       return null;
     }
 
-    setError(null);
-    setPhase('undoing');
-
-    try {
-      const undoResponse = await undoMutation.mutateAsync({ includeContinuations: true });
-      if (!isMountedRef.current) {
-        return undoResponse;
-      }
-
-      setCreated(null);
-      setUndoDetails(null);
-      setPreview(null);
-      setPreviewRevision(null);
-      setStabilization(null);
-      setPhase(getBasePhase(selectionRef.current));
-      return undoResponse;
-    } catch (caughtError) {
-      const parsedError = parseGenerationGraftError(caughtError, localize);
-      setError(parsedError);
-      setPhase('error');
-      throw caughtError;
-    }
-  }, [currentGraftId, localize, undoDetails, undoMutation]);
-
-  undoActionRef.current = undoGraft;
+    return undoSpecificGraft(currentGraftId, true);
+  }, [currentGraftId, undoDetails, undoSpecificGraft]);
 
   const createGraft = useCallback(async () => {
     if (!previewMatchesCurrentSelection(preview) || preview?.canCreate !== true) {
       return null;
     }
 
+    if (!beginPendingAction('create')) {
+      return null;
+    }
+
     const idempotencyKey = getIdempotencyKey();
     if (idempotencyKey == null) {
+      clearPendingAction();
       return null;
     }
 
@@ -759,7 +978,7 @@ export default function useGenerationGraft({
         duration: 10_000,
         actionLabel: localize('com_ui_generation_tree_undo'),
         onAction: () => {
-          void undoActionRef.current?.();
+          void undoSpecificGraft(createdResponse.graftId, false);
         },
       });
       return createdResponse;
@@ -771,8 +990,14 @@ export default function useGenerationGraft({
       setError(parsedError);
       setPhase('error');
       throw caughtError;
+    } finally {
+      if (pendingActionRef.current === 'create') {
+        clearPendingAction();
+      }
     }
   }, [
+    beginPendingAction,
+    clearPendingAction,
     activeSourceLeafMessageId,
     conversationId,
     createMutation,
@@ -785,6 +1010,7 @@ export default function useGenerationGraft({
     previewMatchesCurrentSelection,
     setLatestMessage,
     showToast,
+    undoSpecificGraft,
   ]);
 
   useEffect(() => {
@@ -794,8 +1020,33 @@ export default function useGenerationGraft({
       isMountedRef.current = false;
       clearPendingTimeout();
       bumpOperationToken();
+      clearPendingAction();
+      setQueuedStabilizationRetry(null);
     };
-  }, [bumpOperationToken, clearPendingTimeout]);
+  }, [bumpOperationToken, clearPendingAction, clearPendingTimeout]);
+
+  useEffect(() => {
+    if (queuedStabilizationRetry == null) {
+      return;
+    }
+
+    if (
+      queuedStabilizationRetry.operationToken !== operationTokenRef.current ||
+      queuedStabilizationRetry.sessionIdentity !== sessionIdentityRef.current ||
+      !sameSelectionState(queuedStabilizationRetry.selection, selectionRef.current)
+    ) {
+      setQueuedStabilizationRetry(null);
+      return;
+    }
+
+    setQueuedStabilizationRetry(null);
+    void retryPreviewAfterStabilization(queuedStabilizationRetry.operationToken);
+  }, [
+    queuedStabilizationRetry,
+    retryPreviewAfterStabilization,
+    treeRevision,
+    activeSourceLeafMessageId,
+  ]);
 
   useEffect(() => {
     const treeSignalChanged =
@@ -811,20 +1062,29 @@ export default function useGenerationGraft({
       return;
     }
 
-    clearPendingTimeout();
-    bumpOperationToken();
+    if (phase === 'stabilization' || phase === 'creating') {
+      return;
+    }
 
     if (phase === 'created' || phase === 'undo-preview' || phase === 'undoing') {
       return;
     }
 
+    clearPendingTimeout();
+    bumpOperationToken();
+    clearPendingAction();
+    resetIdempotencyState();
+    setQueuedStabilizationRetry(null);
     resetTransientState();
     setPhase(getBasePhase(selectionRef.current));
   }, [
     activeSourceLeafMessageId,
     bumpOperationToken,
+    clearPendingAction,
     clearPendingTimeout,
     phase,
+    resetIdempotencyState,
+    setQueuedStabilizationRetry,
     resetTransientState,
     treeRevision,
   ]);
@@ -838,6 +1098,9 @@ export default function useGenerationGraft({
 
     clearPendingTimeout();
     bumpOperationToken();
+    clearPendingAction();
+    resetIdempotencyState();
+    setQueuedStabilizationRetry(null);
     selectionRef.current = {
       ...nextSelection,
       activeSourceLeafMessageId: findActiveSourceLeafMessageId(
@@ -851,14 +1114,18 @@ export default function useGenerationGraft({
     resetTransientState();
   }, [
     bumpOperationToken,
+    clearPendingAction,
     clearPendingTimeout,
     initialSourceMessageId,
+    resetIdempotencyState,
+    setQueuedStabilizationRetry,
     resetTransientState,
-    sessionKey,
+    sessionIdentity,
   ]);
 
   return {
     phase,
+    pendingAction,
     sourceMessageId: selection.sourceMessageId,
     destinationMessageId: selection.destinationMessageId,
     mode: selection.mode,
@@ -895,6 +1162,9 @@ export default function useGenerationGraft({
     waitForCompletion: () => waitForStabilization({ stop: false }),
     cancelStabilization: () => {
       clearPendingTimeout();
+      bumpOperationToken();
+      clearPendingAction();
+      setQueuedStabilizationRetry(null);
       setStabilization(null);
       setError(null);
       setPhase(getBasePhase(selectionRef.current));

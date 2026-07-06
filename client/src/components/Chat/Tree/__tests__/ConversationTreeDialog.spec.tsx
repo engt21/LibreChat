@@ -156,6 +156,7 @@ import ConversationTreeDialog from '../ConversationTreeDialog';
 
 const createGenerationGraftState = (overrides: Record<string, unknown> = {}) => ({
   phase: 'selecting',
+  pendingAction: null,
   mode: 'generation',
   sourceMessageId: 'assistant-b',
   destinationMessageId: null,

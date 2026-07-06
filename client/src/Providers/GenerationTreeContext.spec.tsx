@@ -23,12 +23,14 @@ jest.mock('~/components/Chat/Tree/ConversationTreeDialog', () => ({
     open,
     focusMessageId,
     sourceMessageId,
+    sessionKey,
     onOpenChange,
     onExitComplete,
   }: {
     open: boolean;
     focusMessageId: string | null;
     sourceMessageId: string | null;
+    sessionKey?: string;
     onOpenChange: (open: boolean) => void;
     onExitComplete?: () => void;
   }) => {
@@ -50,6 +52,7 @@ jest.mock('~/components/Chat/Tree/ConversationTreeDialog', () => ({
         data-open={String(open)}
         data-focused-message-id={focusMessageId ?? ''}
         data-source-message-id={sourceMessageId ?? ''}
+        data-session-key={sessionKey ?? ''}
       >
         <button type="button" onClick={() => onOpenChange(false)}>
           close dialog
@@ -231,6 +234,32 @@ describe('GenerationTreeProvider', () => {
     );
     expect(screen.getByTestId('provider-state')).toHaveTextContent(
       '"sourceMessageId":"assistant-3"',
+    );
+  });
+
+  it('passes a fresh dialog session key when the same source is reopened', async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    render(
+      <GenerationTreeProvider>
+        <Controls />
+      </GenerationTreeProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Graft assistant-2' }));
+    const firstSessionKey = screen
+      .getByTestId('generation-tree-dialog')
+      .getAttribute('data-session-key');
+
+    await user.click(screen.getByRole('button', { name: 'Close tree' }));
+    await user.click(screen.getByRole('button', { name: 'Graft assistant-2' }));
+
+    expect(screen.getByTestId('generation-tree-dialog')).toHaveAttribute(
+      'data-source-message-id',
+      'assistant-2',
+    );
+    expect(screen.getByTestId('generation-tree-dialog').getAttribute('data-session-key')).not.toBe(
+      firstSessionKey,
     );
   });
 

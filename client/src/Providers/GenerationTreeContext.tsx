@@ -145,6 +145,7 @@ export function GenerationTreeProvider({ children }: { children: React.ReactNode
         open={open}
         focusMessageId={focusMessageId}
         sourceMessageId={sourceMessageId}
+        sessionKey={`${session.ownerConversationId ?? ''}:${session.sessionId}`}
         onOpenChange={(nextOpen) => {
           if (nextOpen) {
             const currentSession = sessionRef.current;

@@ -30,6 +30,7 @@ type ConversationTreeDialogProps = {
   open: boolean;
   focusMessageId: string | null;
   sourceMessageId: string | null;
+  sessionKey?: string;
   onOpenChange: (open: boolean) => void;
   onExitComplete?: () => void;
 };
@@ -38,6 +39,7 @@ export default function ConversationTreeDialog({
   open,
   focusMessageId,
   sourceMessageId,
+  sessionKey,
   onOpenChange,
   onExitComplete,
 }: ConversationTreeDialogProps) {
@@ -75,7 +77,8 @@ export default function ConversationTreeDialog({
     (isSubmitting ? latestMessageId : null) ??
     focusMessageId ??
     null;
-  const sessionKey = `${conversationId}::${focusMessageId ?? ''}::${sourceMessageId ?? ''}`;
+  const sessionIdentity =
+    sessionKey ?? `${conversationId}::${focusMessageId ?? ''}::${sourceMessageId ?? ''}`;
   const treeRevision = useMemo(
     () =>
       [
@@ -176,11 +179,11 @@ export default function ConversationTreeDialog({
 
     previousOpenRef.current = true;
 
-    if (initializedSessionRef.current === sessionKey) {
+    if (initializedSessionRef.current === sessionIdentity) {
       return;
     }
 
-    initializedSessionRef.current = sessionKey;
+    initializedSessionRef.current = sessionIdentity;
     setFocusedNodeId(focusMessageId ?? sourceMessageId ?? latestMessageIdRef.current ?? null);
     setArrangeMode(false);
     setManualPositions(new Map());
@@ -188,7 +191,7 @@ export default function ConversationTreeDialog({
     setListOpen(!isMobileRef.current);
     setMobileSheetOpen(false);
     setAutoFitToken((currentToken) => currentToken + 1);
-  }, [focusMessageId, localize, open, sessionKey, sourceMessageId]);
+  }, [focusMessageId, localize, open, sessionIdentity, sourceMessageId]);
 
   const activeMessageIds = useMemo(() => {
     const ids = new Set<string>();
@@ -223,7 +226,7 @@ export default function ConversationTreeDialog({
     initialSourceMessageId: sourceMessageId,
     treeRevision,
     activeLeafMessageId,
-    sessionKey,
+    sessionKey: sessionIdentity,
     onFocusMessage: setFocusedNodeId,
     onFitSelection: () => viewportCommandsRef.current?.fitSelection(),
     onFitCreated: (messageIds) => viewportCommandsRef.current?.fitMessageIds(messageIds),
@@ -422,6 +425,7 @@ export default function ConversationTreeDialog({
                       destinationNode={destinationNode}
                       statusText={statusText}
                       phase={generationGraft.phase}
+                      pendingAction={generationGraft.pendingAction}
                       mode={generationGraft.mode}
                       preview={generationGraft.preview}
                       created={generationGraft.created}
@@ -496,6 +500,7 @@ export default function ConversationTreeDialog({
                     destinationNode={destinationNode}
                     statusText={statusText}
                     phase={generationGraft.phase}
+                    pendingAction={generationGraft.pendingAction}
                     mode={generationGraft.mode}
                     preview={generationGraft.preview}
                     created={generationGraft.created}

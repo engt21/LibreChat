@@ -78,6 +78,7 @@ describe('ConversationTreeInspector', () => {
         onToggleList={jest.fn()}
         listContent={<div>List content</div>}
         phase="previewing"
+        pendingAction={null}
         mode="subtree"
         preview={{
           conversationId: 'convo-1',
@@ -150,6 +151,7 @@ describe('ConversationTreeInspector', () => {
         onToggleList={jest.fn()}
         listContent={<div>List content</div>}
         phase="undo-preview"
+        pendingAction={null}
         mode="generation"
         preview={null}
         created={{
@@ -231,5 +233,100 @@ describe('ConversationTreeInspector', () => {
     expect(onWaitForCompletion).toHaveBeenCalled();
     expect(onCancelStabilization).toHaveBeenCalled();
     expect(onConfirmUndoContinuations).toHaveBeenCalled();
+  });
+
+  it('disables destructive controls and exposes busy state while an action is already pending', () => {
+    render(
+      <ConversationTreeInspector
+        sourceNode={sourceNode}
+        destinationNode={destinationNode}
+        statusText="Preview requested"
+        listOpen={false}
+        onToggleList={jest.fn()}
+        listContent={<div>List content</div>}
+        phase="undo-preview"
+        pendingAction="undo-destructive"
+        mode="generation"
+        preview={{
+          conversationId: 'convo-1',
+          sourceMessageId: 'source',
+          destinationMessageId: 'destination',
+          mode: 'generation',
+          sourceState: 'complete',
+          destinationState: 'complete',
+          copiedMessageIds: ['source'],
+          activeSourceLeafMessageId: 'source',
+          destinationChildCount: 0,
+          counts: {
+            messages: 1,
+            toolCalls: 0,
+            files: 0,
+            images: 0,
+            approximateTokens: 12,
+          },
+          warnings: [],
+          treeRevision: 'server-rev-1',
+          requiresStabilization: false,
+          activeMessageIds: [],
+          conversationActiveWithoutMessageId: false,
+          canCreate: true,
+        }}
+        created={{
+          graftId: 'graft-1',
+          bridgeMessageId: 'bridge-1',
+          copiedRootMessageId: 'copy-1',
+          activeCopiedMessageId: 'copy-2',
+          copiedMessageCount: 2,
+          createdMessages: [],
+        }}
+        undoDetails={{
+          graftId: 'graft-1',
+          bridgeMessageId: 'bridge-1',
+          copiedMessageIds: ['copy-1'],
+          continuationMessageIds: ['later-1'],
+          copiedCounts: {
+            messages: 2,
+            toolCalls: 0,
+            files: 0,
+            images: 0,
+            approximateTokens: 12,
+          },
+          continuationCounts: {
+            messages: 1,
+            toolCalls: 0,
+            files: 0,
+            images: 0,
+            approximateTokens: 8,
+          },
+          canUndoWithoutContinuations: false,
+          mode: 'generation',
+          sourceState: 'complete',
+          destinationState: 'complete',
+          copiedRootMessageId: 'copy-1',
+          activeCopiedMessageId: 'copy-2',
+        }}
+        error={null}
+        stabilization={{
+          activeMessageIds: ['source'],
+          conversationActiveWithoutMessageId: false,
+        }}
+        onModeChange={jest.fn()}
+        onCreate={jest.fn()}
+        onUndo={jest.fn()}
+        onConfirmUndoContinuations={jest.fn()}
+        onStopAndGraft={jest.fn()}
+        onWaitForCompletion={jest.fn()}
+        onCancelStabilization={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('generation-tree-inspector')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: 'Create graft' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Undo graft and delete later continuation' }),
+    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Stop and graft' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Wait for it to finish' })).toBeDisabled();
   });
 });

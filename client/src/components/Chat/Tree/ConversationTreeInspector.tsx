@@ -8,6 +8,7 @@ import type {
 import useLocalize from '~/hooks/useLocalize';
 import type {
   ParsedGenerationGraftError,
+  GenerationGraftPendingAction,
   GenerationGraftPhase,
   GenerationGraftStabilizationState,
 } from './useGenerationGraft';
@@ -21,6 +22,7 @@ type ConversationTreeInspectorProps = {
   onToggleList: () => void;
   listContent: React.ReactNode;
   phase: GenerationGraftPhase;
+  pendingAction: GenerationGraftPendingAction | null;
   mode: TGenerationGraftMode;
   preview: TGenerationGraftPreviewResponse | null;
   created: TGenerationGraftCreateResponse | null;
@@ -143,6 +145,7 @@ export default function ConversationTreeInspector({
   onToggleList,
   listContent,
   phase,
+  pendingAction,
   mode,
   preview,
   created,
@@ -199,12 +202,14 @@ export default function ConversationTreeInspector({
 
     return nextWarnings;
   })();
-  const createDisabled = phase !== 'ready' || preview?.canCreate !== true;
+  const actionPending = pendingAction != null;
+  const createDisabled = phase !== 'ready' || preview?.canCreate !== true || actionPending;
   const isBusy =
     phase === 'previewing' ||
     phase === 'creating' ||
     phase === 'stabilization' ||
-    phase === 'undoing';
+    phase === 'undoing' ||
+    actionPending;
   const continuationScope = (() => {
     const continuationIds = undoDetails?.continuationMessageIds ?? [];
     const visibleIds = continuationIds
@@ -386,6 +391,8 @@ export default function ConversationTreeInspector({
           <button
             type="button"
             className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-primary"
+            aria-busy={pendingAction === 'stop'}
+            disabled={actionPending}
             onClick={onStopAndGraft}
           >
             {localize('com_ui_generation_tree_stop_and_graft')}
@@ -393,6 +400,8 @@ export default function ConversationTreeInspector({
           <button
             type="button"
             className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-primary"
+            aria-busy={pendingAction === 'wait'}
+            disabled={actionPending}
             onClick={onWaitForCompletion}
           >
             {localize('com_ui_generation_tree_wait_to_finish')}
@@ -410,6 +419,7 @@ export default function ConversationTreeInspector({
       <div className="grid gap-2">
         <button
           type="button"
+          aria-busy={pendingAction === 'create'}
           className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-primary disabled:opacity-50"
           disabled={createDisabled}
           onClick={() => void onCreate()}
@@ -419,7 +429,9 @@ export default function ConversationTreeInspector({
         {created ? (
           <button
             type="button"
-            className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-primary"
+            aria-busy={pendingAction === 'undo-safe'}
+            className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-primary disabled:opacity-50"
+            disabled={actionPending}
             onClick={() => void onUndo()}
           >
             {localize('com_ui_generation_tree_undo')}
@@ -428,7 +440,9 @@ export default function ConversationTreeInspector({
         {created && undoDetails ? (
           <button
             type="button"
-            className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-primary"
+            aria-busy={pendingAction === 'undo-destructive'}
+            className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-primary disabled:opacity-50"
+            disabled={actionPending}
             onClick={() => void onConfirmUndoContinuations()}
           >
             {localize('com_ui_generation_tree_undo_destructive')}

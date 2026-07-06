@@ -19,6 +19,7 @@ jest.mock('librechat-data-provider', () => {
     dataService: {
       ...actual.dataService,
       getGenerationGraft: jest.fn(),
+      undoGenerationGraft: jest.fn(),
     },
   };
 });
@@ -56,6 +57,8 @@ jest.mock('~/hooks/useLocalize', () => ({
       com_ui_generation_tree_error_timeout:
         'The active generation did not stabilize within 30 seconds. Wait longer or stop it first.',
       com_ui_generation_tree_error_stale: 'The conversation tree changed. Refresh and try again.',
+      com_ui_generation_tree_error_undo_details:
+        'Could not load continuation details. Try Undo again.',
       com_ui_generation_tree_created_success: 'Generation graft created.',
       com_ui_generation_tree_undo: 'Undo',
     })[key] ?? key,
@@ -153,6 +156,11 @@ const baseMessages = [
     text: 'Streaming source',
   }),
   createMessage({
+    messageId: 'streaming-source-child',
+    parentMessageId: 'streaming-source',
+    text: 'Streaming source child',
+  }),
+  createMessage({
     messageId: 'streaming-destination',
     parentMessageId: 'prompt',
     text: 'Streaming destination',
@@ -219,6 +227,14 @@ const createResult: TGenerationGraftCreateResponse = {
     } as never,
   ],
 };
+
+const createCreateResult = (
+  overrides: Partial<TGenerationGraftCreateResponse> = {},
+): TGenerationGraftCreateResponse => ({
+  ...createResult,
+  ...overrides,
+  createdMessages: overrides.createdMessages ?? createResult.createdMessages,
+});
 
 const createDetails = (
   overrides: Partial<TGenerationGraftDetailsResponse> = {},
@@ -292,7 +308,14 @@ async function flushMicrotasks() {
 describe('useGenerationGraft', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    jest.clearAllMocks();
+    mockPreviewMutateAsync.mockReset();
+    mockCreateMutateAsync.mockReset();
+    mockUndoMutateAsync.mockReset();
+    mockStopGenerating.mockReset();
+    mockSetLatestMessage.mockReset();
+    mockShowToast.mockReset();
+    mockFetchStreamStatus.mockReset();
+    mockUuid.mockReset();
     mockUuid
       .mockReturnValueOnce('uuid-1')
       .mockReturnValueOnce('uuid-2')
@@ -308,6 +331,12 @@ describe('useGenerationGraft', () => {
     mockFetchStreamStatus.mockResolvedValue({ active: false, responseMessageId: null });
     mockedDataService.getGenerationGraft.mockReset();
     mockedDataService.getGenerationGraft.mockResolvedValue(createDetails());
+    mockedDataService.undoGenerationGraft.mockReset();
+    mockedDataService.undoGenerationGraft.mockResolvedValue({
+      graftId: 'graft-1',
+      deletedMessageIds: ['bridge-1', 'copy-1'],
+      deletedCount: 2,
+    } as never);
   });
 
   afterEach(() => {
@@ -322,6 +351,7 @@ describe('useGenerationGraft', () => {
     initialSourceMessageId?: string | null;
     treeRevision?: string;
     activeLeafMessageId?: string | null;
+    sessionKey?: string;
     onFocusMessage?: jest.Mock;
     onFitSelection?: jest.Mock;
     onFitCreated?: jest.Mock;
@@ -335,13 +365,19 @@ describe('useGenerationGraft', () => {
     const onFitSelection = overrides?.onFitSelection ?? jest.fn();
     const onFitCreated = overrides?.onFitCreated ?? jest.fn();
     const hook = renderHook(
-      (props: { treeRevision: string; activeLeafMessageId: string | null }) =>
+      (props: {
+        graph: ReturnType<typeof createGraph>;
+        treeRevision: string;
+        activeLeafMessageId: string | null;
+        sessionKey: string;
+      }) =>
         useGenerationGraft({
           conversationId: 'convo-1',
-          graph: overrides?.graph ?? createGraph(),
+          graph: props.graph,
           initialSourceMessageId: overrides?.initialSourceMessageId ?? 'complete-source',
           treeRevision: props.treeRevision,
           activeLeafMessageId: props.activeLeafMessageId,
+          sessionKey: props.sessionKey,
           onFocusMessage,
           onFitSelection,
           onFitCreated,
@@ -349,8 +385,10 @@ describe('useGenerationGraft', () => {
       {
         wrapper,
         initialProps: {
+          graph: overrides?.graph ?? createGraph(),
           treeRevision: overrides?.treeRevision ?? 'tree-rev-1',
           activeLeafMessageId: overrides?.activeLeafMessageId ?? null,
+          sessionKey: overrides?.sessionKey ?? 'session-1',
         },
       },
     );
@@ -632,7 +670,12 @@ describe('useGenerationGraft', () => {
       expect.objectContaining({ idempotencyKey: 'uuid-2' }),
     );
 
-    rerender({ treeRevision: 'tree-rev-2', activeLeafMessageId: null });
+    rerender({
+      graph: createGraph(),
+      treeRevision: 'tree-rev-2',
+      activeLeafMessageId: null,
+      sessionKey: 'session-1',
+    });
     await act(async () => {
       await result.current.requestPreview('errored-destination');
     });
@@ -679,6 +722,130 @@ describe('useGenerationGraft', () => {
     );
   });
 
+  it('resets phase, destination, preview, created state, undo details, errors, and idempotency after the session key changes', async () => {
+    const continuationConflict = createGraftError({
+      error: 'The graft has continuations.',
+      code: 'GRAFT_HAS_CONTINUATIONS',
+      continuationMessageIds: ['later-1'],
+    });
+    mockUndoMutateAsync.mockRejectedValueOnce(continuationConflict);
+    mockedDataService.undoGenerationGraft.mockRejectedValueOnce(continuationConflict as never);
+
+    const { result, rerender } = setup({
+      sessionKey: 'session-1',
+    });
+
+    act(() => {
+      result.current.selectDestinationMessage('complete-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('complete-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+    await waitFor(() => expect(result.current.phase).toBe('created'));
+
+    await act(async () => {
+      await result.current.undoGraft();
+    });
+    await waitFor(() => expect(result.current.phase).toBe('undo-preview'));
+
+    rerender({
+      graph: createGraph(),
+      treeRevision: 'tree-rev-1',
+      activeLeafMessageId: null,
+      sessionKey: 'session-2',
+    });
+
+    expect(result.current.phase).toBe('selecting');
+    expect(result.current.sourceMessageId).toBe('complete-source');
+    expect(result.current.destinationMessageId).toBeNull();
+    expect(result.current.preview).toBeNull();
+    expect(result.current.created).toBeNull();
+    expect(result.current.undoDetails).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.stabilization).toBeNull();
+
+    act(() => {
+      result.current.selectDestinationMessage('complete-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('complete-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+
+    expect(mockCreateMutateAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ idempotencyKey: 'uuid-2' }),
+    );
+  });
+
+  it('keeps stabilization alive across tree revision and active leaf churn, refetches messages, and retries preview with the latest revision exactly once', async () => {
+    mockPreviewMutateAsync.mockResolvedValueOnce(
+      createPreviewResponse({
+        sourceMessageId: 'streaming-source',
+        destinationMessageId: 'complete-destination',
+        activeSourceLeafMessageId: 'streaming-source-child',
+      }),
+    );
+    mockFetchStreamStatus
+      .mockResolvedValueOnce({ active: true, responseMessageId: 'streaming-source' })
+      .mockResolvedValueOnce({ active: false, responseMessageId: null });
+
+    const { result, rerender, refetchSpy } = setup({
+      graph: createGraph(['streaming-source']),
+      initialSourceMessageId: 'streaming-source',
+      activeLeafMessageId: 'streaming-source',
+      treeRevision: 'tree-rev-1',
+      sessionKey: 'session-1',
+    });
+
+    act(() => {
+      result.current.selectDestinationMessage('complete-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('complete-destination');
+    });
+
+    expect(result.current.phase).toBe('stabilization');
+
+    await act(async () => {
+      const waitPromise = result.current.waitForCompletion();
+      await Promise.resolve();
+      rerender({
+        graph: createGraph(),
+        treeRevision: 'tree-rev-2',
+        activeLeafMessageId: 'streaming-source-child',
+        sessionKey: 'session-1',
+      });
+      await jest.advanceTimersByTimeAsync(500);
+      await waitPromise;
+    });
+
+    expect(refetchSpy).toHaveBeenCalledWith({
+      queryKey: [QueryKeys.messages, 'convo-1'],
+    });
+    expect(mockPreviewMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockPreviewMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceMessageId: 'streaming-source',
+        destinationMessageId: 'complete-destination',
+        sourceActiveLeafMessageId: 'streaming-source-child',
+        expectedTreeRevision: 'tree-rev-2',
+      }),
+    );
+    expect(result.current.phase).toBe('ready');
+  });
+
   it('sets latest/focus/fit and shows a 10-second Undo toast after create', async () => {
     const { result, onFocusMessage, onFitCreated } = setup();
 
@@ -710,6 +877,81 @@ describe('useGenerationGraft', () => {
     );
   });
 
+  it('binds each toast undo action to the graft that created that toast, even after another graft is created later', async () => {
+    mockCreateMutateAsync
+      .mockResolvedValueOnce(
+        createCreateResult({
+          graftId: 'graft-a',
+          bridgeMessageId: 'bridge-a',
+          copiedRootMessageId: 'copy-a-1',
+          activeCopiedMessageId: 'copy-a-2',
+          createdMessages: [
+            { messageId: 'bridge-a', conversationId: 'convo-1', text: 'Bridge A' } as never,
+            { messageId: 'copy-a-1', conversationId: 'convo-1', text: 'Copy A1' } as never,
+            { messageId: 'copy-a-2', conversationId: 'convo-1', text: 'Copy A2' } as never,
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        createCreateResult({
+          graftId: 'graft-b',
+          bridgeMessageId: 'bridge-b',
+          copiedRootMessageId: 'copy-b-1',
+          activeCopiedMessageId: 'copy-b-2',
+          createdMessages: [
+            { messageId: 'bridge-b', conversationId: 'convo-1', text: 'Bridge B' } as never,
+            { messageId: 'copy-b-1', conversationId: 'convo-1', text: 'Copy B1' } as never,
+            { messageId: 'copy-b-2', conversationId: 'convo-1', text: 'Copy B2' } as never,
+          ],
+        }),
+      );
+
+    const { result } = setup();
+
+    act(() => {
+      result.current.selectDestinationMessage('complete-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('complete-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+
+    act(() => {
+      result.current.selectDestinationMessage('errored-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('errored-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+
+    const firstToast = mockShowToast.mock.calls[0]?.[0];
+    expect(firstToast).toBeDefined();
+
+    await act(async () => {
+      firstToast.onAction();
+      await Promise.resolve();
+    });
+
+    expect(mockedDataService.undoGenerationGraft).toHaveBeenCalledWith('convo-1', 'graft-a', {
+      includeContinuations: false,
+    });
+    expect(mockedDataService.undoGenerationGraft).not.toHaveBeenCalledWith(
+      'convo-1',
+      'graft-b',
+      expect.anything(),
+    );
+  });
+
   it('performs a safe undo and exits created state on success', async () => {
     const { result } = setup();
 
@@ -731,25 +973,68 @@ describe('useGenerationGraft', () => {
       await result.current.undoGraft();
     });
 
-    expect(mockUndoMutateAsync).toHaveBeenCalledWith({ includeContinuations: false });
+    expect(mockedDataService.undoGenerationGraft).toHaveBeenCalledWith('convo-1', 'graft-1', {
+      includeContinuations: false,
+    });
     expect(result.current.phase).toBe('selecting');
     expect(result.current.created).toBeNull();
   });
 
+  it('prevents overlapping stabilization loops from stop double clicks', async () => {
+    mockPreviewMutateAsync.mockResolvedValueOnce(
+      createPreviewResponse({
+        sourceMessageId: 'streaming-source',
+        destinationMessageId: 'complete-destination',
+        activeSourceLeafMessageId: 'streaming-source',
+      }),
+    );
+    mockFetchStreamStatus
+      .mockResolvedValueOnce({ active: true, responseMessageId: 'streaming-source' })
+      .mockResolvedValueOnce({ active: false, responseMessageId: null });
+
+    const { result } = setup({
+      graph: createGraph(['streaming-source']),
+      initialSourceMessageId: 'streaming-source',
+    });
+
+    act(() => {
+      result.current.selectDestinationMessage('complete-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('complete-destination');
+    });
+    expect(result.current.phase).toBe('stabilization');
+
+    await act(async () => {
+      const firstStop = result.current.stopAndGraft();
+      const secondStop = result.current.stopAndGraft();
+      await jest.advanceTimersByTimeAsync(500);
+      await Promise.all([firstStop, secondStop]);
+    });
+
+    expect(mockStopGenerating).toHaveBeenCalledTimes(1);
+    expect(mockFetchStreamStatus).toHaveBeenCalledTimes(2);
+  });
+
   it('loads continuation details after a safe undo conflict and requires an explicit destructive confirmation for includeContinuations=true', async () => {
-    mockUndoMutateAsync
-      .mockRejectedValueOnce(
-        createGraftError({
-          error: 'The graft has continuations.',
-          code: 'GRAFT_HAS_CONTINUATIONS',
-          continuationMessageIds: ['later-1'],
-        }),
-      )
+    const continuationConflict = createGraftError({
+      error: 'The graft has continuations.',
+      code: 'GRAFT_HAS_CONTINUATIONS',
+      continuationMessageIds: ['later-1'],
+    });
+    mockUndoMutateAsync.mockRejectedValueOnce(continuationConflict).mockResolvedValueOnce({
+      graftId: 'graft-1',
+      deletedMessageIds: ['bridge-1', 'copy-1', 'later-1'],
+      deletedCount: 3,
+    });
+    mockedDataService.undoGenerationGraft
+      .mockRejectedValueOnce(continuationConflict as never)
       .mockResolvedValueOnce({
         graftId: 'graft-1',
         deletedMessageIds: ['bridge-1', 'copy-1', 'later-1'],
         deletedCount: 3,
-      });
+      } as never);
 
     const { result } = setup();
 
@@ -779,8 +1064,108 @@ describe('useGenerationGraft', () => {
       await result.current.confirmUndoContinuations();
     });
 
-    expect(mockUndoMutateAsync).toHaveBeenNthCalledWith(2, { includeContinuations: true });
+    expect(mockedDataService.undoGenerationGraft).toHaveBeenNthCalledWith(2, 'convo-1', 'graft-1', {
+      includeContinuations: true,
+    });
     expect(result.current.phase).toBe('selecting');
+  });
+
+  it('prevents overlapping safe undo requests from double clicks', async () => {
+    const undoRequest = deferred<{
+      graftId: string;
+      deletedMessageIds: string[];
+      deletedCount: number;
+    }>();
+    mockedDataService.undoGenerationGraft.mockImplementationOnce(
+      () => undoRequest.promise as never,
+    );
+
+    const { result } = setup();
+
+    act(() => {
+      result.current.selectDestinationMessage('complete-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('complete-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+    await waitFor(() => expect(result.current.phase).toBe('created'));
+
+    act(() => {
+      void result.current.undoGraft();
+      void result.current.undoGraft();
+    });
+
+    expect(mockedDataService.undoGenerationGraft).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      undoRequest.resolve({
+        graftId: 'graft-1',
+        deletedMessageIds: ['bridge-1', 'copy-1'],
+        deletedCount: 2,
+      });
+      await Promise.resolve();
+    });
+  });
+
+  it('recovers when continuation details fail to load and allows a retry without leaving undoing state stuck', async () => {
+    const continuationConflict = createGraftError({
+      error: 'The graft has continuations.',
+      code: 'GRAFT_HAS_CONTINUATIONS',
+      continuationMessageIds: ['later-1'],
+    });
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockUndoMutateAsync
+        .mockRejectedValueOnce(continuationConflict)
+        .mockRejectedValueOnce(continuationConflict);
+      mockedDataService.undoGenerationGraft
+        .mockRejectedValueOnce(continuationConflict as never)
+        .mockRejectedValueOnce(continuationConflict as never);
+      mockedDataService.getGenerationGraft
+        .mockRejectedValueOnce(new Error('details unavailable'))
+        .mockResolvedValueOnce(createDetails());
+
+      const { result } = setup();
+
+      act(() => {
+        result.current.selectDestinationMessage('complete-destination');
+      });
+
+      await act(async () => {
+        await result.current.requestPreview('complete-destination');
+      });
+      await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+      await act(async () => {
+        await result.current.createGraft();
+      });
+      await waitFor(() => expect(result.current.phase).toBe('created'));
+
+      await act(async () => {
+        await result.current.undoGraft();
+      });
+
+      expect(result.current.phase).toBe('created');
+      expect(result.current.created?.graftId).toBe('graft-1');
+      expect(result.current.error?.error).toBe(
+        'Could not load continuation details. Try Undo again.',
+      );
+
+      await act(async () => {
+        await result.current.undoGraft();
+      });
+
+      expect(result.current.phase).toBe('undo-preview');
+      expect(result.current.undoDetails?.graftId).toBe('graft-1');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   it('clears timers on unmount and ignores late async completions', async () => {
