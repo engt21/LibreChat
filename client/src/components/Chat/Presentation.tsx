@@ -4,7 +4,12 @@ import { FileSources, LocalStorageKeys } from 'librechat-data-provider';
 import type { ExtendedFile } from '~/common';
 import { useDeleteFilesMutation } from '~/data-provider';
 import DragDropWrapper from '~/components/Chat/Input/Files/DragDropWrapper';
-import { EditorProvider, SidePanelProvider, ArtifactsProvider } from '~/Providers';
+import {
+  EditorProvider,
+  SidePanelProvider,
+  ArtifactsProvider,
+  GenerationTreeProvider,
+} from '~/Providers';
 import Artifacts from '~/components/Artifacts/Artifacts';
 import { SidePanelGroup } from '~/components/SidePanel';
 import { useSetFilesToDelete } from '~/hooks';
@@ -77,16 +82,18 @@ export default function Presentation({ children }: { children: React.ReactNode }
   return (
     <DragDropWrapper className="relative flex w-full grow overflow-hidden bg-presentation">
       <SidePanelProvider>
-        <SidePanelGroup
-          defaultLayout={defaultLayout}
-          fullPanelCollapse={fullCollapse}
-          defaultCollapsed={defaultCollapsed}
-          artifacts={artifactsElement}
-        >
-          <main className="flex h-full flex-col overflow-y-auto" role="main">
-            {children}
-          </main>
-        </SidePanelGroup>
+        <GenerationTreeProvider>
+          <SidePanelGroup
+            defaultLayout={defaultLayout}
+            fullPanelCollapse={fullCollapse}
+            defaultCollapsed={defaultCollapsed}
+            artifacts={artifactsElement}
+          >
+            <main className="flex h-full flex-col overflow-y-auto" role="main">
+              {children}
+            </main>
+          </SidePanelGroup>
+        </GenerationTreeProvider>
       </SidePanelProvider>
     </DragDropWrapper>
   );

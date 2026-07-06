@@ -5,6 +5,7 @@ import {
   Bookmark,
   Settings2,
   BarChart3,
+  Network,
   ArrowRightToLine,
   MessageSquareQuote,
 } from 'lucide-react';
@@ -27,6 +28,7 @@ import Parameters from '~/components/SidePanel/Parameters/Panel';
 import { MemoryPanel } from '~/components/SidePanel/Memories';
 import { ThreadUsagePanel } from '~/components/SidePanel/Usage';
 import FilesPanel from '~/components/SidePanel/Files/Panel';
+import ConversationTreePanel from '~/components/SidePanel/Tree/ConversationTreePanel';
 import { useHasAccess, useMCPServerManager } from '~/hooks';
 
 export default function useSideNavLinks({
@@ -130,6 +132,14 @@ export default function useSideNavLinks({
       icon: BarChart3,
       id: 'thread-usage',
       Component: ThreadUsagePanel,
+    });
+
+    links.push({
+      title: 'com_sidepanel_conversation_tree',
+      label: '',
+      icon: Network,
+      id: 'conversation-tree',
+      Component: ConversationTreePanel,
     });
 
     if (hasAccessToMemories && hasAccessToReadMemories) {

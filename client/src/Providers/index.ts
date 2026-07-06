@@ -23,6 +23,7 @@ export * from './SetConvoContext';
 export * from './SearchContext';
 export * from './BadgeRowContext';
 export * from './SidePanelContext';
+export { GenerationTreeProvider, useGenerationTree } from './GenerationTreeContext';
 export * from './DragDropContext';
 export * from './ArtifactsContext';
 export * from './PromptGroupsContext';
