@@ -565,7 +565,8 @@ describe('generation graft message routes', () => {
       createTestError('Undo requires deleting continuations first.', {
         statusCode: 409,
         code: 'GRAFT_HAS_CONTINUATIONS',
-        activeMessageIds: ['continuation-1'],
+        continuationMessageIds: ['continuation-1'],
+        internalDetails: { deleteEverything: true },
       }),
     );
 
@@ -577,7 +578,7 @@ describe('generation graft message routes', () => {
     expect(response.body).toEqual({
       error: 'Undo requires deleting continuations first.',
       code: 'GRAFT_HAS_CONTINUATIONS',
-      activeMessageIds: ['continuation-1'],
+      continuationMessageIds: ['continuation-1'],
       conversationActiveWithoutMessageId: false,
     });
     expect(routeLogger.error).not.toHaveBeenCalled();

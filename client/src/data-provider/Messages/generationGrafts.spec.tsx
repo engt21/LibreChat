@@ -162,15 +162,15 @@ describe('generation graft client hooks', () => {
     });
     const wrapper = createWrapper(queryClient);
     const previewPayload = {
-      sourceRootMessageId: 'source-root',
+      sourceMessageId: 'source-root',
       destinationMessageId: 'destination',
-      mode: 'fork',
+      mode: 'generation' as const,
     };
     const { usePreviewGenerationGraft, useGenerationGraftDetails } = loadGenerationGrafts();
 
     const previewHook = renderHook(() => usePreviewGenerationGraft('convo-1'), { wrapper });
     await act(async () => {
-      await previewHook.result.current.mutateAsync(previewPayload as never);
+      await previewHook.result.current.mutateAsync(previewPayload);
     });
 
     expect(mockedDataService.previewGenerationGraft).toHaveBeenCalledWith(
@@ -238,18 +238,18 @@ describe('generation graft client hooks', () => {
 
     await act(async () => {
       await result.current.mutateAsync({
-        sourceRootMessageId: 'source-root',
+        sourceMessageId: 'source-root',
         destinationMessageId: 'destination',
-        mode: 'fork',
+        mode: 'generation',
         idempotencyKey: 'idem-1',
         expectedTreeRevision: 'rev-1',
-      } as never);
+      });
     });
 
     expect(mockedDataService.createGenerationGraft).toHaveBeenCalledWith('convo-1', {
-      sourceRootMessageId: 'source-root',
+      sourceMessageId: 'source-root',
       destinationMessageId: 'destination',
-      mode: 'fork',
+      mode: 'generation',
       idempotencyKey: 'idem-1',
       expectedTreeRevision: 'rev-1',
     });
@@ -308,12 +308,12 @@ describe('generation graft client hooks', () => {
 
     await act(async () => {
       await result.current.mutateAsync({
-        sourceRootMessageId: 'source-root',
+        sourceMessageId: 'source-root',
         destinationMessageId: 'destination',
-        mode: 'fork',
+        mode: 'generation',
         idempotencyKey: 'idem-1',
         expectedTreeRevision: 'rev-1',
-      } as never);
+      });
     });
 
     expect(queryClient.getQueryData([QueryKeys.messages, 'convo-1'])).toEqual([
@@ -364,5 +364,55 @@ describe('generation graft client hooks', () => {
         'convo-1',
       ]),
     ).toBe(true);
+  });
+
+  it('preserves authoritative generation graft detail fields from the server response', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const wrapper = createWrapper(queryClient);
+    mockedDataService.getGenerationGraft.mockResolvedValueOnce({
+      graftId: 'graft-1',
+      bridgeMessageId: 'bridge-1',
+      copiedMessageIds: ['copy-1'],
+      continuationMessageIds: ['later-1'],
+      copiedCounts: {
+        messages: 1,
+        toolCalls: 0,
+        files: 0,
+        images: 0,
+        approximateTokens: 16,
+      },
+      continuationCounts: {
+        messages: 1,
+        toolCalls: 1,
+        files: 0,
+        images: 0,
+        approximateTokens: 20,
+      },
+      canUndoWithoutContinuations: false,
+      mode: 'subtree',
+      sourceState: 'complete',
+      destinationState: 'aborted_partial',
+      copiedRootMessageId: 'copy-1',
+      activeCopiedMessageId: 'copy-2',
+    } as never);
+
+    const { useGenerationGraftDetails } = loadGenerationGrafts();
+    const { result } = renderHook(() => useGenerationGraftDetails('convo-1', 'graft-1', true), {
+      wrapper,
+    });
+
+    await waitFor(() =>
+      expect(result.current.data).toMatchObject({
+        graftId: 'graft-1',
+        mode: 'subtree',
+        sourceState: 'complete',
+        destinationState: 'aborted_partial',
+        copiedRootMessageId: 'copy-1',
+        activeCopiedMessageId: 'copy-2',
+        continuationMessageIds: ['later-1'],
+      }),
+    );
   });
 });

@@ -320,6 +320,11 @@ export type TGenerationGraftDetailsResponse = {
   copiedCounts: TGenerationGraftCounts;
   continuationCounts: TGenerationGraftCounts;
   canUndoWithoutContinuations: boolean;
+  mode: TGenerationGraftMode;
+  sourceState: TGenerationGraftStableState;
+  destinationState: TGenerationGraftStableState;
+  copiedRootMessageId: string;
+  activeCopiedMessageId: string;
 };
 
 export type TGenerationGraftUndoRequest = {
@@ -339,6 +344,7 @@ export type TGenerationGraftMetadata = {
   sourceConversationId: string;
   sourceRootMessageId: string;
   sourceMessageIds: string[];
+  destinationConversationId: string;
   destinationMessageId: string;
   copiedRootMessageId: string;
   copiedMessageIds: string[];
@@ -346,6 +352,7 @@ export type TGenerationGraftMetadata = {
   mode: TGenerationGraftMode;
   sourceState: TGenerationGraftStableState;
   destinationState: TGenerationGraftStableState;
+  requestFingerprint: string;
   createdAt: string;
 };
 
@@ -356,6 +363,8 @@ export type TGenerationGraftCopyMetadata = {
 };
 
 export type TGenerationGraftErrorCode =
+  | 'GRAFT_NOT_FOUND'
+  | 'GRAFT_INVALID_REQUEST'
   | 'MESSAGE_NOT_FOUND'
   | 'INVALID_SOURCE'
   | 'INVALID_DESTINATION'
@@ -369,9 +378,10 @@ export type TGenerationGraftErrorCode =
 export type TGenerationGraftErrorResponse = {
   message?: string;
   error: string;
-  code: TGenerationGraftErrorCode;
+  code?: TGenerationGraftErrorCode;
   activeMessageIds?: string[];
   conversationActiveWithoutMessageId?: boolean;
+  continuationMessageIds?: string[];
 };
 
 export type TUpdateMessageContent = {

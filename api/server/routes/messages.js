@@ -64,6 +64,7 @@ function sendGraftError(res, error) {
     code: error.code,
     activeMessageIds: error.activeMessageIds,
     conversationActiveWithoutMessageId: error.conversationActiveWithoutMessageId === true,
+    continuationMessageIds: error.continuationMessageIds,
   });
 }
 
