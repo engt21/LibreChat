@@ -13,13 +13,59 @@ const {
   deleteMessageBranch,
 } = require('~/models');
 const { findAllArtifacts, replaceArtifactContent } = require('~/server/services/Artifacts/update');
-const { requireJwtAuth, validateMessageReq } = require('~/server/middleware');
+const {
+  requireJwtAuth,
+  validateMessageReq,
+  createGraftLimiters,
+} = require('~/server/middleware');
 const { getConvosQueried } = require('~/models/Conversation');
 const { Message, ToolCall } = require('~/db/models');
 const { getTransactions } = require('~/models/Transaction');
 
+const {
+  previewGenerationGraft,
+  createGenerationGraft,
+  getGenerationGraft,
+  undoGenerationGraft,
+} = require('~/server/services/MessageGrafts');
+
 const router = express.Router();
 router.use(requireJwtAuth);
+
+function requireFunction(name, value) {
+  if (typeof value !== 'function') {
+    throw new TypeError(`messages router requires ${name} to be a function`);
+  }
+
+  return value;
+}
+
+const {
+  graftPreviewIpLimiter,
+  graftPreviewUserLimiter,
+  graftMutationIpLimiter,
+  graftMutationUserLimiter,
+} = requireFunction('createGraftLimiters', createGraftLimiters)();
+
+requireFunction('previewGenerationGraft', previewGenerationGraft);
+requireFunction('createGenerationGraft', createGenerationGraft);
+requireFunction('getGenerationGraft', getGenerationGraft);
+requireFunction('undoGenerationGraft', undoGenerationGraft);
+
+function sendGraftError(res, error) {
+  const statusCode = error?.statusCode ?? 500;
+
+  if (statusCode === 500) {
+    return res.status(statusCode).json({ error: 'Internal server error' });
+  }
+
+  return res.status(statusCode).json({
+    error: error.message,
+    code: error.code,
+    activeMessageIds: error.activeMessageIds,
+    conversationActiveWithoutMessageId: error.conversationActiveWithoutMessageId === true,
+  });
+}
 
 router.get('/', async (req, res) => {
   try {
@@ -345,6 +391,75 @@ function mergeToolCallCounts(embeddedCounts, persistedCounts) {
   }
   return total;
 }
+
+router.post(
+  '/:conversationId/grafts/preview',
+  graftPreviewIpLimiter,
+  graftPreviewUserLimiter,
+  async (req, res) => {
+    try {
+      const result = await previewGenerationGraft({
+        userId: req.user.id,
+        conversationId: req.params.conversationId,
+        payload: req.body ?? {},
+      });
+
+      res.status(200).json(result);
+    } catch (error) {
+      logger.error('Error previewing generation graft:', error);
+      sendGraftError(res, error);
+    }
+  },
+);
+
+router.post('/:conversationId/grafts', graftMutationIpLimiter, graftMutationUserLimiter, async (req, res) => {
+  try {
+    const result = await createGenerationGraft({
+      userId: req.user.id,
+      conversationId: req.params.conversationId,
+      payload: req.body ?? {},
+    });
+
+    res.status(201).json(result);
+  } catch (error) {
+    logger.error('Error creating generation graft:', error);
+    sendGraftError(res, error);
+  }
+});
+
+router.get('/:conversationId/grafts/:graftId', async (req, res) => {
+  try {
+    const result = await getGenerationGraft({
+      userId: req.user.id,
+      conversationId: req.params.conversationId,
+      graftId: req.params.graftId,
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    sendGraftError(res, error);
+  }
+});
+
+router.delete(
+  '/:conversationId/grafts/:graftId',
+  graftMutationIpLimiter,
+  graftMutationUserLimiter,
+  async (req, res) => {
+    try {
+      const result = await undoGenerationGraft({
+        userId: req.user.id,
+        conversationId: req.params.conversationId,
+        graftId: req.params.graftId,
+        includeContinuations: req.body?.includeContinuations === true,
+      });
+
+      res.status(200).json(result);
+    } catch (error) {
+      sendGraftError(res, error);
+    }
+  },
+);
 
 
 router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {

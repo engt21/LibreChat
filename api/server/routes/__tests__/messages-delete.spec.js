@@ -13,6 +13,7 @@ jest.mock(
   () => ({
     unescapeLaTeX: jest.fn((x) => x),
     countTokens: jest.fn().mockResolvedValue(10),
+    limiterCache: jest.fn(() => undefined),
   }),
   { virtual: true },
 );
@@ -46,11 +47,25 @@ jest.mock('~/server/services/Artifacts/update', () => ({
   replaceArtifactContent: jest.fn(),
 }));
 
+jest.mock('~/cache/logViolation', () => jest.fn().mockResolvedValue(undefined));
+
 jest.mock('~/server/middleware/requireJwtAuth', () => (req, res, next) => next());
 
-jest.mock('~/server/middleware', () => ({
-  requireJwtAuth: (req, res, next) => next(),
-  validateMessageReq: (req, res, next) => next(),
+jest.mock('~/server/middleware', () => {
+  const { createGraftLimiters } = jest.requireActual('~/server/middleware/limiters/graftLimiters');
+
+  return {
+    requireJwtAuth: (req, res, next) => next(),
+    validateMessageReq: (req, res, next) => next(),
+    createGraftLimiters,
+  };
+});
+
+jest.mock('~/server/services/MessageGrafts', () => ({
+  previewGenerationGraft: jest.fn(),
+  createGenerationGraft: jest.fn(),
+  getGenerationGraft: jest.fn(),
+  undoGenerationGraft: jest.fn(),
 }));
 
 jest.mock('~/models/Conversation', () => ({
