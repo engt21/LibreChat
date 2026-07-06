@@ -9,6 +9,18 @@ import store from '~/store';
 const threshold = 0.85;
 const debounceRate = 150;
 
+export function shouldAutoScrollOnOpen({
+  autoScroll,
+  conversationId,
+  messageCount,
+}: {
+  autoScroll: boolean;
+  conversationId?: string | null;
+  messageCount: number;
+}) {
+  return autoScroll && conversationId !== Constants.NEW_CONVO && messageCount > 0;
+}
+
 export default function useMessageScrolling(messagesTree?: TMessage[] | null) {
   const autoScroll = useRecoilValue(store.autoScroll);
 
@@ -96,10 +108,18 @@ export default function useMessageScrolling(messagesTree?: TMessage[] | null) {
       return;
     }
 
-    if (scrollToBottom && autoScroll && conversationId !== Constants.NEW_CONVO) {
-      scrollToBottom();
+    if (
+      scrollToBottom &&
+      shouldAutoScrollOnOpen({
+        autoScroll,
+        conversationId,
+        messageCount: messagesTree?.length ?? 0,
+      })
+    ) {
+      const frame = requestAnimationFrame(() => scrollToBottom());
+      return () => cancelAnimationFrame(frame);
     }
-  }, [autoScroll, conversationId, scrollToBottom]);
+  }, [autoScroll, conversationId, messagesTree?.length, scrollToBottom]);
 
   return {
     conversation,

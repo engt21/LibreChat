@@ -59,6 +59,22 @@ describe('apply-runtime-patches web search status patch', () => {
   });
 });
 
+describe('apply-runtime-patches forced graph tool choice', () => {
+  const toolChoiceTargets = patchTargets.filter((target) =>
+    ['dist/esm/llm/init.mjs', 'dist/cjs/llm/init.cjs'].includes(target.relativePath),
+  );
+
+  it('forwards configured tool_choice when graph tools are bound', () => {
+    expect(toolChoiceTargets).toHaveLength(2);
+    for (const target of toolChoiceTargets) {
+      const replacement = target.replacements[0];
+      const patched = applyReplacement(replacement.from, replacement, target.relativePath);
+      expect(patched).toContain('clientOptions?.tool_choice');
+      expect(patched).toContain("{ tool_choice: toolChoice }");
+    }
+  });
+});
+
 describe('apply-runtime-patches optional replacements', () => {
   it('skips optional replacements when a target image already uses a different equivalent shape', () => {
     const contents = 'const alreadyEquivalent = true;';
@@ -553,5 +569,27 @@ describe('apply-runtime-patches reasoning cross-patch coherence', () => {
 
     expect(reconReplacement.to).toContain('if (reasoningWithoutId.summary)');
     expect(reconReplacement.to).not.toContain('additional_kwargs.reasoning)');
+  });
+});
+
+describe('apply-runtime-patches Langfuse category metadata', () => {
+  const traceTargets = patchTargets.filter((target) =>
+    ['src/run.ts', 'dist/esm/run.mjs', 'dist/cjs/run.cjs'].includes(target.relativePath),
+  );
+
+  it('preserves caller-defined trace metadata for src, esm, and cjs', () => {
+    expect(traceTargets.map((target) => target.relativePath).sort()).toEqual(
+      ['src/run.ts', 'dist/esm/run.mjs', 'dist/cjs/run.cjs'].sort(),
+    );
+    for (const target of traceTargets) {
+      const replacement = target.replacements.find((candidate) =>
+        candidate.to.includes('configuredTraceMetadata'),
+      );
+      expect(replacement.to).toContain('configuredTraceMetadata');
+      expect(replacement.to).toContain('messageId: this.id');
+      expect(applyReplacement(replacement.to, replacement, target.relativePath)).toBe(
+        replacement.to,
+      );
+    }
   });
 });

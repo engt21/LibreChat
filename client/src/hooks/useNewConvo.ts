@@ -84,6 +84,7 @@ const useNewConvo = (index = 0) => {
         buildDefault?: boolean,
         keepLatestMessage?: boolean,
         keepAddedConvos?: boolean,
+        keepTools?: boolean,
         disableFocus?: boolean,
         _disableParams?: boolean,
       ) => {
@@ -125,6 +126,7 @@ const useNewConvo = (index = 0) => {
           startupConfig,
           specName: activePreset?.spec,
           convoId: conversation.conversationId,
+          preserveExisting: keepTools,
         });
 
         if (buildDefaultConversation) {
@@ -291,6 +293,8 @@ const useNewConvo = (index = 0) => {
       buildDefault = true,
       keepLatestMessage = false,
       keepAddedConvos = false,
+      keepFiles = false,
+      keepTools = false,
       disableParams,
     }: {
       template?: Partial<TConversation>;
@@ -300,6 +304,8 @@ const useNewConvo = (index = 0) => {
       disableFocus?: boolean;
       keepLatestMessage?: boolean;
       keepAddedConvos?: boolean;
+      keepFiles?: boolean;
+      keepTools?: boolean;
       disableParams?: boolean;
     } = {}) {
       pauseGlobalAudio();
@@ -341,7 +347,7 @@ const useNewConvo = (index = 0) => {
         preset = getModelSpecPreset(defaultModelSpec);
       }
 
-      if (conversation.conversationId === Constants.NEW_CONVO && !modelsData) {
+      if (conversation.conversationId === Constants.NEW_CONVO && !modelsData && !keepFiles) {
         const filesToDelete = Array.from(files.values())
           .filter(
             (file) =>
@@ -374,6 +380,7 @@ const useNewConvo = (index = 0) => {
         buildDefault,
         keepLatestMessage,
         keepAddedConvos,
+        keepTools,
         disableFocus,
         disableParams,
       );

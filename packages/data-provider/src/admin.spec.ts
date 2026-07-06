@@ -133,25 +133,25 @@ describe('admin schemas', () => {
   });
 
   it('parses admin MCP published-server settings', () => {
-    expect(
-      adminSettingsSchema.parse({
-        settingsId: 'global',
-        registrationEnabled: true,
-        modelSteeringEnabled: false,
-        platformPrompt: null,
-        observability: {},
-        byok: {
-          providers: {
-            openAI: {
-              enabled: true,
-              allowBaseURL: true,
-              fallbackToPlatform: true,
-            },
+    const settings = adminSettingsSchema.parse({
+      settingsId: 'global',
+      registrationEnabled: true,
+      modelSteeringEnabled: false,
+      platformPrompt: null,
+      observability: {},
+      byok: {
+        providers: {
+          openAI: {
+            enabled: true,
+            allowBaseURL: true,
+            fallbackToPlatform: true,
           },
         },
-        mcpPublishedServers: ['arcade-read', 'research'],
-      }),
-    ).toEqual(
+      },
+      mcpPublishedServers: ['arcade-read', 'research'],
+    });
+
+    expect(settings).toEqual(
       expect.objectContaining({
         byok: {
           providers: {
@@ -165,6 +165,13 @@ describe('admin schemas', () => {
         mcpPublishedServers: ['arcade-read', 'research'],
       }),
     );
+    expect(settings.memory.model).toBe('gpt-5.6-terra');
+    expect(settings.deterministicTools).toEqual({
+      calculator: true,
+      textAnalyzer: true,
+      stringUtility: true,
+      jsonUtility: true,
+    });
 
     expect(
       adminSettingsUpdateSchema.parse({
@@ -178,6 +185,9 @@ describe('admin schemas', () => {
           },
         },
         mcpPublishedServers: ['arcade-read'],
+        deterministicTools: {
+          calculator: false,
+        },
       }),
     ).toEqual({
       byok: {
@@ -190,6 +200,9 @@ describe('admin schemas', () => {
         },
       },
       mcpPublishedServers: ['arcade-read'],
+      deterministicTools: {
+        calculator: false,
+      },
     });
   });
 
@@ -213,30 +226,4 @@ describe('admin schemas', () => {
       published: false,
     });
   });
-
-  it('defaults and parses deterministic tool settings', () => {
-    const settings = adminSettingsSchema.parse({
-      settingsId: 'global',
-      registrationEnabled: true,
-      modelSteeringEnabled: false,
-      platformPrompt: null,
-      observability: {},
-      byok: { providers: {} },
-    });
-
-    expect(settings.deterministicTools).toEqual({
-      calculator: true,
-      textAnalyzer: true,
-      stringUtility: true,
-      jsonUtility: true,
-    });
-    expect(
-      adminSettingsUpdateSchema.parse({
-        deterministicTools: { calculator: false, jsonUtility: false },
-      }),
-    ).toEqual({
-      deterministicTools: { calculator: false, jsonUtility: false },
-    });
-  });
-
 });

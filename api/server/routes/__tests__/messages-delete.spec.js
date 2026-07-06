@@ -8,10 +8,14 @@ jest.mock('@librechat/agents', () => ({
   sleep: jest.fn(),
 }));
 
-jest.mock('@librechat/api', () => ({
-  unescapeLaTeX: jest.fn((x) => x),
-  countTokens: jest.fn().mockResolvedValue(10),
-}));
+jest.mock(
+  '@librechat/api',
+  () => ({
+    unescapeLaTeX: jest.fn((x) => x),
+    countTokens: jest.fn().mockResolvedValue(10),
+  }),
+  { virtual: true },
+);
 
 jest.mock('@librechat/data-schemas', () => ({
   ...jest.requireActual('@librechat/data-schemas'),
@@ -34,6 +38,7 @@ jest.mock('~/models', () => ({
   getMessages: jest.fn(),
   updateMessage: jest.fn(),
   deleteMessages: jest.fn(),
+  deleteMessageBranch: jest.fn(),
 }));
 
 jest.mock('~/server/services/Artifacts/update', () => ({
@@ -52,11 +57,18 @@ jest.mock('~/models/Conversation', () => ({
   getConvosQueried: jest.fn(),
 }));
 
+jest.mock('~/models/Transaction', () => ({
+  getTransactions: jest.fn(),
+}));
+
 jest.mock('~/db/models', () => ({
   Message: {
     findOne: jest.fn(),
     find: jest.fn(),
     meiliSearch: jest.fn(),
+  },
+  ToolCall: {
+    find: jest.fn(),
   },
 }));
 
@@ -196,5 +208,179 @@ describe('DELETE /:conversationId/:messageId – route handler', () => {
 
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ error: 'Internal server error' });
+  });
+});
+
+/* ─── Conversation usage route: provider accounting + branch filtering ─── */
+
+describe('POST /:conversationId/usage – route handler', () => {
+  let app;
+  const { Message, ToolCall } = require('~/db/models');
+  const { getTransactions } = require('~/models/Transaction');
+
+  beforeAll(() => {
+    const messagesRouter = require('../messages');
+    app = express();
+    app.use(express.json());
+    app.use((req, res, next) => {
+      req.user = { id: 'usage-user-123' };
+      next();
+    });
+    app.use('/api/messages', messagesRouter);
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    ToolCall.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    });
+  });
+
+  it('aggregates recorded input, output, cache, and tool usage for visible messages', async () => {
+    Message.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          {
+            messageId: 'user-1',
+            conversationId: 'convo-usage',
+            isCreatedByUser: true,
+            tokenCount: 10,
+          },
+          {
+            messageId: 'assistant-1',
+            conversationId: 'convo-usage',
+            isCreatedByUser: false,
+            tokenCount: 20,
+            model: 'gpt-5.6-sol',
+            content: [{ type: 'tool_call', tool_call_id: 'call-1' }],
+          },
+        ]),
+      }),
+    });
+    getTransactions.mockResolvedValue([
+      {
+        messageId: 'assistant-1',
+        tokenType: 'prompt',
+        inputTokens: -100,
+        readTokens: -40,
+        writeTokens: -5,
+      },
+      { messageId: 'assistant-1', tokenType: 'completion', rawAmount: -25 },
+    ]);
+
+    const response = await request(app)
+      .post('/api/messages/convo-usage/usage')
+      .send({ messageIds: ['user-1', 'assistant-1'] });
+
+    expect(response.status).toBe(200);
+    expect(Message.find).toHaveBeenCalledWith({
+      conversationId: 'convo-usage',
+      user: 'usage-user-123',
+      messageId: { $in: ['user-1', 'assistant-1'] },
+    });
+    expect(response.body.totals).toEqual({
+      inputTokens: 100,
+      outputTokens: 25,
+      cacheReadTokens: 40,
+      cacheWriteTokens: 5,
+      toolCalls: 1,
+    });
+    expect(response.body.turns[0]).toEqual(
+      expect.objectContaining({
+        messageId: 'assistant-1',
+        model: 'gpt-5.6-sol',
+        estimated: false,
+      }),
+    );
+  });
+
+  it('merges persisted and embedded tool calls without double-counting matching tools', async () => {
+    Message.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          {
+            messageId: 'assistant-1',
+            conversationId: 'convo-usage',
+            isCreatedByUser: false,
+            tokenCount: 20,
+            content: [
+              {
+                type: 'tool_call',
+                tool_call_id: 'call-1',
+                tool_call: { name: 'execute_code' },
+              },
+            ],
+          },
+        ]),
+      }),
+    });
+    ToolCall.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { messageId: 'assistant-1', toolId: 'execute_code' },
+        { messageId: 'assistant-1', toolId: 'execute_code' },
+        { messageId: 'assistant-1', toolId: 'web_search' },
+      ]),
+    });
+    getTransactions.mockResolvedValue([]);
+
+    const response = await request(app)
+      .post('/api/messages/convo-usage/usage')
+      .send({ messageIds: ['assistant-1'] });
+
+    expect(response.status).toBe(200);
+    expect(ToolCall.find).toHaveBeenCalledWith({
+      conversationId: 'convo-usage',
+      user: 'usage-user-123',
+      messageId: { $in: ['assistant-1'] },
+    });
+    expect(response.body.turns[0].toolCalls).toBe(3);
+    expect(response.body.totals.toolCalls).toBe(3);
+  });
+
+});
+
+
+describe('DELETE /:conversationId/:messageId/branch – route handler', () => {
+  let app;
+  const { deleteMessageBranch } = require('~/models');
+
+  beforeAll(() => {
+    const messagesRouter = require('../messages');
+    app = express();
+    app.use(express.json());
+    app.use((req, res, next) => {
+      req.user = { id: 'branch-user-123' };
+      next();
+    });
+    app.use('/api/messages', messagesRouter);
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('returns the deleted count for a successful generation-tree deletion', async () => {
+    deleteMessageBranch.mockResolvedValue({ status: 'deleted', deletedCount: 4 });
+
+    const response = await request(app).delete('/api/messages/convo-1/assistant-1/branch');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ deletedCount: 4 });
+    expect(deleteMessageBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ user: { id: 'branch-user-123' } }),
+      { conversationId: 'convo-1', messageId: 'assistant-1' },
+    );
+  });
+
+  it.each([
+    ['not_found', 404, 'Message not found'],
+    ['invalid_target', 400, 'User messages cannot be discarded as generations'],
+  ])('maps %s results to a safe response', async (status, expectedStatus, error) => {
+    deleteMessageBranch.mockResolvedValue({ status, deletedCount: 0 });
+
+    const response = await request(app).delete('/api/messages/convo-1/assistant-1/branch');
+
+    expect(response.status).toBe(expectedStatus);
+    expect(response.body).toEqual({ error });
   });
 });

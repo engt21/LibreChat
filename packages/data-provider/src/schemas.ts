@@ -175,6 +175,8 @@ export enum ReasoningEffort {
   medium = 'medium',
   high = 'high',
   xhigh = 'xhigh',
+  max = 'max',
+  ultra = 'ultra',
 }
 
 export enum AnthropicEffort {
@@ -691,6 +693,8 @@ export type TAttachmentMetadata = {
   type?: Tools;
   messageId: string;
   toolCallId: string;
+  partial?: boolean;
+  partialImageIndex?: number;
   [Tools.memory]?: MemoryArtifact;
   [Tools.ui_resources]?: UIResource[];
   [Tools.web_search]?: SearchResultData;

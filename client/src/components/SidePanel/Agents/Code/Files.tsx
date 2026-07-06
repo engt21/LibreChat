@@ -13,9 +13,15 @@ const tool_resource = EToolResources.execute_code;
 function Files({
   agent_id,
   files: _files,
+  enabled,
+  agentTool,
+  title,
 }: {
   agent_id: string;
   files?: [string, ExtendedFile][];
+  enabled?: boolean;
+  agentTool?: string;
+  title?: string;
 }) {
   const localize = useLocalize();
   const { watch } = useFormContext<AgentForm>();
@@ -27,7 +33,7 @@ function Files({
   const { abortUpload, handleFileChange } = useFileHandlingNoChatContext(
     {
       fileSetter: setFiles,
-      additionalMetadata: { agent_id, tool_resource },
+      additionalMetadata: { agent_id, tool_resource, agent_tool: agentTool },
       endpointOverride,
       endpointTypeOverride: endpointType,
     },
@@ -44,7 +50,7 @@ function Files({
     750,
   );
 
-  const codeChecked = watch(AgentCapabilities.execute_code);
+  const codeChecked = enabled ?? watch(AgentCapabilities.execute_code);
   const isUploadDisabled = endpointFileConfig?.disabled ?? false;
 
   if (isUploadDisabled) {
@@ -63,7 +69,7 @@ function Files({
     <div className="mb-2 w-full">
       <div className="flex flex-col gap-3">
         <div className="rounded-lg text-xs text-text-secondary">
-          {localize('com_assistants_code_interpreter_files')}
+          {title ?? localize('com_assistants_code_interpreter_files')}
         </div>
         <FileRow
           files={files}

@@ -9,6 +9,25 @@ const {
 const loadDefaultEndpointsConfig = require('./loadDefaultEConfig');
 const getLogStores = require('~/cache/getLogStores');
 const { getAppConfig } = require('./app');
+const { getEffectiveAppSettings } = require('~/server/services/Admin/appSettings');
+
+function applyAdminBYOKEndpointConfig(endpointsConfig, appSettings) {
+  const providers = appSettings?.byok?.providers ?? {};
+
+  for (const [endpoint, policy] of Object.entries(providers)) {
+    if (policy?.enabled !== true) {
+      continue;
+    }
+
+    endpointsConfig[endpoint] = {
+      ...(endpointsConfig[endpoint] ?? {}),
+      userProvide: true,
+      userProvideURL: policy.allowBaseURL !== false,
+    };
+  }
+
+  return endpointsConfig;
+}
 
 /**
  *
@@ -29,6 +48,8 @@ async function getEndpointsConfig(req) {
   const appConfig = req.config ?? (await getAppConfig({ role: req.user?.role }));
   const defaultEndpointsConfig = await loadDefaultEndpointsConfig(appConfig);
   const customEndpointsConfig = loadCustomEndpointsConfig(appConfig?.endpoints?.custom);
+  const appSettings = req.appSettings ?? (await getEffectiveAppSettings());
+  req.appSettings = appSettings;
 
   /** @type {TEndpointsConfig} */
   const mergedConfig = {
@@ -109,6 +130,8 @@ async function getEndpointsConfig(req) {
     };
   }
 
+  applyAdminBYOKEndpointConfig(mergedConfig, appSettings);
+
   const endpointsConfig = orderEndpointsConfig(mergedConfig);
 
   await cache.set(CacheKeys.ENDPOINT_CONFIG, endpointsConfig);
@@ -130,4 +153,4 @@ const checkCapability = async (req, capability) => {
   return capabilities.includes(capability);
 };
 
-module.exports = { getEndpointsConfig, checkCapability };
+module.exports = { applyAdminBYOKEndpointConfig, getEndpointsConfig, checkCapability };

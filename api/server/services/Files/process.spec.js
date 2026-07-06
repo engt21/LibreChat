@@ -83,7 +83,7 @@ const {
 const { mergeFileConfig } = require('librechat-data-provider');
 const { checkCapability } = require('~/server/services/Config');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
-const { filterFile, processAgentFileUpload } = require('./process');
+const { filterFile, processDeleteRequest, processAgentFileUpload } = require('./process');
 
 const PDF_MIME = 'application/pdf';
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -108,6 +108,46 @@ const makeReq = ({ mimetype = PDF_MIME, ocrConfig = null } = {}) => ({
     fileStrategy: 'local',
     ocr: ocrConfig,
   },
+});
+
+describe('processDeleteRequest image originals', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('deletes both the vision copy and separately stored original', async () => {
+    const { deleteFiles } = require('~/models');
+    const deleteFile = jest.fn().mockResolvedValue(undefined);
+    getStrategyFunctions.mockReturnValue({ deleteFile });
+    const req = {
+      user: { id: 'user-123' },
+      body: {},
+      config: { endpoints: {} },
+    };
+    const file = {
+      file_id: 'file-image-123',
+      filepath: '/images/diagram-vision.webp',
+      source: FileSources.local,
+      embedded: false,
+      metadata: {
+        originalFilepath: '/uploads/diagram-original.png',
+      },
+    };
+
+    await processDeleteRequest({ req, files: [file] });
+
+    expect(deleteFile).toHaveBeenNthCalledWith(1, req, file, undefined);
+    expect(deleteFile).toHaveBeenNthCalledWith(
+      2,
+      req,
+      expect.objectContaining({
+        filepath: '/uploads/diagram-original.png',
+        metadata: expect.not.objectContaining({ originalFilepath: expect.anything() }),
+      }),
+      undefined,
+    );
+    expect(deleteFiles).toHaveBeenCalledWith(['file-image-123']);
+  });
 });
 
 const makeMetadata = () => ({
@@ -226,6 +266,25 @@ describe('processAgentFileUpload', () => {
       await processAgentFileUpload({ req, res: mockRes, metadata: makeMetadata() });
 
       expect(getStrategyFunctions).toHaveBeenCalledWith(FileSources.document_parser);
+    });
+
+    test('forwards a distinct local agent tool for shared resource storage', async () => {
+      const { addAgentResourceFile } = require('~/models/Agent');
+      const req = makeReq({ mimetype: PDF_MIME, ocrConfig: null });
+      const metadata = {
+        ...makeMetadata(),
+        agent_tool: 'local_file_search',
+      };
+
+      await processAgentFileUpload({ req, res: mockRes, metadata });
+
+      expect(addAgentResourceFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: 'agent-abc',
+          tool_resource: EToolResources.context,
+          agent_tool: 'local_file_search',
+        }),
+      );
     });
 
     test('does not check OCR capability when using automatic document_parser fallback', async () => {
@@ -420,25 +479,25 @@ describe('processAgentFileUpload', () => {
   });
 
   describe('image context uploads', () => {
-    test('stores image attachments and OCR text together when context mode is used', async () => {
+    test('stores message images directly without invoking configured OCR', async () => {
       const { createFile, updateFile } = require('~/models');
       mergeFileConfig.mockReturnValue(makeFileConfig({ ocrSupportedMimeTypes: ['image/png'] }));
 
-      const ocrUpload = jest.fn().mockResolvedValue({
-        text: 'screenshot text',
-        bytes: 15,
-        filepath: 'ocr://result',
-      });
       const imageUpload = jest.fn().mockResolvedValue({
         filepath: '/images/screenshot.png',
         bytes: 123,
         width: 100,
         height: 200,
       });
+      const originalUpload = jest.fn().mockResolvedValue({
+        filepath: '/uploads/screenshot-original.png',
+        bytes: 456,
+      });
 
-      getStrategyFunctions
-        .mockReturnValueOnce({ handleFileUpload: ocrUpload })
-        .mockReturnValueOnce({ handleImageUpload: imageUpload });
+      getStrategyFunctions.mockReturnValue({
+        handleFileUpload: originalUpload,
+        handleImageUpload: imageUpload,
+      });
 
       const req = makeReq({
         mimetype: 'image/png',
@@ -454,19 +513,23 @@ describe('processAgentFileUpload', () => {
 
       await expect(processAgentFileUpload({ req, res: mockRes, metadata })).resolves.not.toThrow();
 
-      expect(getStrategyFunctions).toHaveBeenCalledWith(FileSources.mistral_ocr);
+      expect(getStrategyFunctions).not.toHaveBeenCalledWith(FileSources.mistral_ocr);
+      expect(originalUpload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'file-uuid-123-original',
+          basePath: 'uploads',
+        }),
+      );
       expect(imageUpload).toHaveBeenCalled();
       expect(createFile).toHaveBeenCalledWith(
         expect.objectContaining({
           file_id: 'file-uuid-123',
           filepath: '/images/screenshot.png',
+          metadata: { originalFilepath: '/uploads/screenshot-original.png' },
         }),
         true,
       );
-      expect(updateFile).toHaveBeenCalledWith({
-        file_id: 'created-file-id',
-        text: 'screenshot text',
-      });
+      expect(updateFile).not.toHaveBeenCalled();
     });
   });
 
@@ -500,6 +563,74 @@ describe('processAgentFileUpload', () => {
           file_id: 'file-uuid-123',
           context: 'message_attachment',
           metadata: { nativeTool: EToolResources.execute_code },
+        }),
+        true,
+      );
+    });
+
+    test('keeps the original image available to local execute_code while storing a vision copy', async () => {
+      const { createFile } = require('~/models');
+      const { loadAuthValues } = require('~/server/services/Tools/credentials');
+      createFile.mockImplementationOnce(async (fileInfo) => fileInfo);
+      const uploadCodeEnvFile = jest.fn().mockResolvedValue('session-original/file-original');
+      const uploadOriginal = jest.fn().mockResolvedValue({
+        bytes: 2048,
+        filename: 'chart.png',
+        filepath: '/uploads/chart-original.png',
+      });
+      const imageUpload = jest.fn().mockResolvedValue({
+        filepath: '/images/chart-vision.webp',
+        bytes: 1024,
+        width: 1600,
+        height: 900,
+      });
+
+      getStrategyFunctions.mockImplementation((source) => {
+        if (source === FileSources.execute_code) {
+          return { handleFileUpload: uploadCodeEnvFile };
+        }
+        return {
+          handleFileUpload: uploadOriginal,
+          handleImageUpload: imageUpload,
+        };
+      });
+      loadAuthValues.mockResolvedValue({ CODE_API_KEY: 'test-code-key' });
+
+      const req = makeReq({ mimetype: 'image/png' });
+      req.file.path = __filename;
+      req.file.originalname = 'chart.png';
+      req.config.imageOutputType = 'webp';
+      const metadata = {
+        file_id: 'file-uuid-123',
+        agent_id: 'agent-abc',
+        tool_resource: EToolResources.execute_code,
+        message_file: true,
+        endpointType: EModelEndpoint.agents,
+      };
+
+      await processAgentFileUpload({ req, res: mockRes, metadata });
+
+      expect(uploadCodeEnvFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filename: 'chart.png',
+          apiKey: 'test-code-key',
+        }),
+      );
+      expect(uploadOriginal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'file-uuid-123',
+          basePath: 'images',
+        }),
+      );
+      expect(imageUpload).toHaveBeenCalled();
+      expect(createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'file-uuid-123',
+          filepath: '/images/chart-vision.webp',
+          metadata: {
+            fileIdentifier: 'session-original/file-original',
+            originalFilepath: '/uploads/chart-original.png',
+          },
         }),
         true,
       );
@@ -725,8 +856,15 @@ describe('processAgentFileUpload', () => {
         width: 800,
         height: 600,
       });
+      const originalUpload = jest.fn().mockResolvedValue({
+        filepath: '/uploads/screenshot-original.png',
+        bytes: 900,
+      });
 
-      getStrategyFunctions.mockReturnValue({ handleImageUpload: imageUpload });
+      getStrategyFunctions.mockReturnValue({
+        handleFileUpload: originalUpload,
+        handleImageUpload: imageUpload,
+      });
 
       const req = makeReq({ mimetype: 'image/png', ocrConfig: null });
       req.file.originalname = 'screenshot.png';
@@ -746,30 +884,31 @@ describe('processAgentFileUpload', () => {
           file_id: 'file-uuid-123',
           filepath: '/images/screenshot.png',
           type: 'image/png',
+          metadata: { originalFilepath: '/uploads/screenshot-original.png' },
         }),
         true,
       );
     });
 
-    test('routes image through OCR then preserves both image and text when OCR is configured', async () => {
+    test('bypasses OCR for message images even when OCR is configured', async () => {
       const { createFile, updateFile } = require('~/models');
       mergeFileConfig.mockReturnValue(makeFileConfig({ ocrSupportedMimeTypes: ['image/jpeg'] }));
 
-      const ocrUpload = jest.fn().mockResolvedValue({
-        text: 'OCR extracted text from photo',
-        bytes: 30,
-        filepath: 'ocr://result',
-      });
       const imageUpload = jest.fn().mockResolvedValue({
         filepath: '/images/photo.jpg',
         bytes: 789,
         width: 1920,
         height: 1080,
       });
+      const originalUpload = jest.fn().mockResolvedValue({
+        filepath: '/uploads/photo-original.jpg',
+        bytes: 1200,
+      });
 
-      getStrategyFunctions
-        .mockReturnValueOnce({ handleFileUpload: ocrUpload })
-        .mockReturnValueOnce({ handleImageUpload: imageUpload });
+      getStrategyFunctions.mockReturnValue({
+        handleFileUpload: originalUpload,
+        handleImageUpload: imageUpload,
+      });
 
       const req = makeReq({
         mimetype: 'image/jpeg',
@@ -785,19 +924,17 @@ describe('processAgentFileUpload', () => {
 
       await processAgentFileUpload({ req, res: mockRes, metadata });
 
-      expect(ocrUpload).toHaveBeenCalled();
+      expect(getStrategyFunctions).not.toHaveBeenCalledWith(FileSources.mistral_ocr);
       expect(imageUpload).toHaveBeenCalled();
       expect(createFile).toHaveBeenCalledWith(
         expect.objectContaining({
           file_id: 'file-uuid-123',
           filepath: '/images/photo.jpg',
+          metadata: { originalFilepath: '/uploads/photo-original.jpg' },
         }),
         true,
       );
-      expect(updateFile).toHaveBeenCalledWith({
-        file_id: 'created-file-id',
-        text: 'OCR extracted text from photo',
-      });
+      expect(updateFile).not.toHaveBeenCalled();
     });
 
     test('does not produce binary dump for image uploads in context mode without OCR', async () => {
@@ -810,8 +947,15 @@ describe('processAgentFileUpload', () => {
         width: 640,
         height: 480,
       });
+      const originalUpload = jest.fn().mockResolvedValue({
+        filepath: '/uploads/diagram-original.png',
+        bytes: 1400,
+      });
 
-      getStrategyFunctions.mockReturnValue({ handleImageUpload: imageUpload });
+      getStrategyFunctions.mockReturnValue({
+        handleFileUpload: originalUpload,
+        handleImageUpload: imageUpload,
+      });
 
       const req = makeReq({ mimetype: 'image/png', ocrConfig: null });
       req.file.originalname = 'diagram.png';
@@ -828,155 +972,6 @@ describe('processAgentFileUpload', () => {
       expect(parseText).not.toHaveBeenCalled();
       // Image upload handler should be used instead
       expect(imageUpload).toHaveBeenCalled();
-    });
-
-    test('response includes text field when OCR text is persisted on the image record', async () => {
-      const { updateFile } = require('~/models');
-      updateFile.mockResolvedValue({
-        file_id: 'created-file-id',
-        filepath: '/images/receipt.png',
-        type: 'image/png',
-        text: 'Total: $42.00',
-        width: 400,
-        height: 300,
-      });
-      mergeFileConfig.mockReturnValue(makeFileConfig({ ocrSupportedMimeTypes: ['image/png'] }));
-
-      const ocrUpload = jest.fn().mockResolvedValue({
-        text: 'Total: $42.00',
-        bytes: 14,
-        filepath: 'ocr://result',
-      });
-      const imageUpload = jest.fn().mockResolvedValue({
-        filepath: '/images/receipt.png',
-        bytes: 500,
-        width: 400,
-        height: 300,
-      });
-
-      getStrategyFunctions
-        .mockReturnValueOnce({ handleFileUpload: ocrUpload })
-        .mockReturnValueOnce({ handleImageUpload: imageUpload });
-
-      const req = makeReq({
-        mimetype: 'image/png',
-        ocrConfig: { strategy: FileSources.mistral_ocr },
-      });
-      req.file.originalname = 'receipt.png';
-      req.config.imageOutputType = 'png';
-
-      const metadata = {
-        ...makeMetadata(),
-        message_file: true,
-      };
-
-      await processAgentFileUpload({ req, res: mockRes, metadata });
-
-      expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          file_id: 'created-file-id',
-          text: 'Total: $42.00',
-        }),
-      );
-    });
-
-    test('does not call updateFile when OCR returns whitespace-only text', async () => {
-      const { createFile, updateFile } = require('~/models');
-      createFile.mockResolvedValue({
-        file_id: 'created-file-id',
-        filepath: '/images/blank.png',
-        type: 'image/png',
-      });
-      mergeFileConfig.mockReturnValue(makeFileConfig({ ocrSupportedMimeTypes: ['image/png'] }));
-
-      const ocrUpload = jest.fn().mockResolvedValue({
-        text: '   \n  ',
-        bytes: 6,
-        filepath: 'ocr://result',
-      });
-      const imageUpload = jest.fn().mockResolvedValue({
-        filepath: '/images/blank.png',
-        bytes: 200,
-        width: 100,
-        height: 100,
-      });
-
-      getStrategyFunctions
-        .mockReturnValueOnce({ handleFileUpload: ocrUpload })
-        .mockReturnValueOnce({ handleImageUpload: imageUpload });
-
-      const req = makeReq({
-        mimetype: 'image/png',
-        ocrConfig: { strategy: FileSources.mistral_ocr },
-      });
-      req.file.originalname = 'blank.png';
-      req.config.imageOutputType = 'png';
-
-      const metadata = {
-        ...makeMetadata(),
-        message_file: true,
-      };
-
-      await processAgentFileUpload({ req, res: mockRes, metadata });
-
-      // Image should be created but text should NOT be updated for whitespace-only
-      expect(imageUpload).toHaveBeenCalled();
-      expect(updateFile).not.toHaveBeenCalled();
-    });
-
-    test('preserves vision attachment when OCR extraction fails for an image', async () => {
-      const { createFile, updateFile } = require('~/models');
-      createFile.mockResolvedValue({
-        file_id: 'created-file-id',
-        filepath: '/images/photo.jpg',
-        type: 'image/jpeg',
-      });
-      mergeFileConfig.mockReturnValue(makeFileConfig({ ocrSupportedMimeTypes: ['image/jpeg'] }));
-
-      const ocrUpload = jest.fn().mockRejectedValue(new Error('OCR service unavailable'));
-      const documentParserUpload = jest.fn().mockRejectedValue(new Error('Unsupported image'));
-      const imageUpload = jest.fn().mockResolvedValue({
-        filepath: '/images/photo.jpg',
-        bytes: 1000,
-        width: 1920,
-        height: 1080,
-      });
-
-      getStrategyFunctions
-        .mockReturnValueOnce({ handleFileUpload: ocrUpload })
-        .mockReturnValueOnce({ handleFileUpload: documentParserUpload })
-        .mockReturnValueOnce({ handleImageUpload: imageUpload });
-
-      const req = makeReq({
-        mimetype: 'image/jpeg',
-        ocrConfig: { strategy: FileSources.mistral_ocr },
-      });
-      req.file.originalname = 'photo.jpg';
-      req.config.imageOutputType = 'jpeg';
-
-      const metadata = {
-        ...makeMetadata(),
-        message_file: true,
-      };
-
-      // When both OCR and document parser fail for images, the image should
-      // still be preserved as a vision attachment via createImageContextFile
-      // rather than throwing an error (VAL-FILES-002).
-      await expect(processAgentFileUpload({ req, res: mockRes, metadata })).resolves.not.toThrow();
-
-      // Image upload handler should still be called for the vision attachment
-      expect(imageUpload).toHaveBeenCalled();
-      expect(createFile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          file_id: 'file-uuid-123',
-          filepath: '/images/photo.jpg',
-          type: 'image/jpeg',
-        }),
-        true,
-      );
-      // updateFile should not have been called since OCR failed
-      expect(updateFile).not.toHaveBeenCalled();
     });
 
     test('still throws for non-image documents when OCR extraction fails', async () => {

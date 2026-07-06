@@ -1,5 +1,12 @@
 [
   {
+    "name": "Agent Builder",
+    "pluginKey": "agent_builder",
+    "description": "Create and save a new agent conversationally using your custom structured and MCP tools.",
+    "icon": "assets/librechat.svg",
+    "authConfig": []
+  },
+  {
     "name": "String Utility",
     "pluginKey": "string_utility",
     "description": "Exact substring counting and replacement, line sorting and deduplication, whitespace normalization, case conversion, and SHA-256/SHA-512 hashing.",
@@ -10,6 +17,20 @@
     "name": "JSON Utility",
     "pluginKey": "json_utility",
     "description": "Deterministically validate, format, minify, or query JSON with RFC 6901 JSON Pointer syntax.",
+    "icon": "assets/librechat.svg",
+    "authConfig": []
+  },
+  {
+    "name": "Local Code Interpreter",
+    "pluginKey": "local_code_interpreter",
+    "description": "Run general-purpose code in the self-hosted local sandbox.",
+    "icon": "assets/calculator.svg",
+    "authConfig": []
+  },
+  {
+    "name": "Local File & Vector Search",
+    "pluginKey": "local_file_search",
+    "description": "Search agent files using the local LibreChat vector database.",
     "icon": "assets/librechat.svg",
     "authConfig": []
   },

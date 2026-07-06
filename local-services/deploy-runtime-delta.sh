@@ -16,13 +16,15 @@ What this script can deploy:
   - config/*.js helper/runtime patch files
   - local-services/*.sh helper scripts
   - runtime bind files such as librechat.yaml and .env
-  - already-built package dist files under packages/*/dist/**
+  - already-built coherent package dist directories under packages/*/dist
 
 What this script refuses:
   - client/src/** and individual client/dist/** files
     Use: npm run build:client && ./local-services/deploy-built-client-dist.sh <rail>
   - packages/*/src/** source files
-    Build package dist first, then deploy the dist artifact.
+    Build package dist first, then deploy the complete dist directory.
+  - individual packages/*/dist/** generated files
+    Deploy the coherent packages/*/dist directory instead of mixing partial outputs.
   - package.json, package-lock.json, Dockerfile, and compose-file changes
     Those need an image rebuild or compose recreate.
 
@@ -106,6 +108,17 @@ normalize_input_path() {
   printf '%s\n' "$normalized"
 }
 
+package_dist_root_for_path() {
+  local path="$1"
+
+  if [[ "$path" =~ ^(packages/[^/]+/dist)(/.*)?$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  return 1
+}
+
 input_files=()
 changed_mode=false
 dry_run=false
@@ -118,6 +131,7 @@ stable_remote="${LIBRECHAT_STABLE_SSH_TARGET:-timeng@192.168.50.104}"
 stable_remote_root="${LIBRECHAT_STABLE_ROOT:-/opt/LibreChat-custom}"
 health_url_override=""
 health_timeout="${LIBRECHAT_RUNTIME_DELTA_HEALTH_TIMEOUT:-60}"
+stable_runtime_image="${LIBRECHAT_STABLE_RUNTIME_IMAGE:-librechat-local:runtime-current}"
 
 rail="${1:-}"
 if [[ -z "$rail" || "$rail" == "-h" || "$rail" == "--help" ]]; then
@@ -237,9 +251,15 @@ fi
 expanded_files=()
 for raw_file in "${input_files[@]}"; do
   normalized="$(normalize_input_path "$raw_file")" || fail "Unsafe or unsupported path: $raw_file"
+  if [[ -e "$ROOT_DIR/$normalized" ]]; then
+    if package_dist_root="$(package_dist_root_for_path "$normalized")"; then
+      append_unique expanded_files "$package_dist_root"
+      continue
+    fi
+  fi
   if [[ -d "$ROOT_DIR/$normalized" ]]; then
     case "$normalized" in
-      packages/*/dist|client/dist)
+      client/dist)
         append_unique expanded_files "$normalized"
         ;;
       *)
@@ -264,6 +284,7 @@ needs_runtime_patch=false
 
 classify_file() {
   local file="$1"
+  local package_dist_root=""
 
   if [[ -d "$ROOT_DIR/$file" ]]; then
     case "$file" in
@@ -286,6 +307,11 @@ classify_file() {
     return
   fi
 
+  if package_dist_root="$(package_dist_root_for_path "$file")"; then
+    rejected_files+=("$file -> individual generated package dist members are unsafe; deploy the coherent $package_dist_root directory instead")
+    return
+  fi
+
   case "$file" in
     .env.example|librechat.example.yaml|*.md|*.png|*.jpg|*.jpeg|*.gif|*.webp|*.spec.*|*.test.*|*/__tests__/*)
       ignored_files+=("$file -> non-runtime file")
@@ -301,10 +327,6 @@ classify_file() {
       ;;
     packages/api/src/*|packages/data-provider/src/*|packages/data-schemas/src/*|packages/client/src/*)
       rejected_files+=("$file -> package source; build package dist first, then deploy packages/*/dist artifacts")
-      ;;
-    packages/api/dist/*|packages/data-provider/dist/*|packages/data-schemas/dist/*|packages/client/dist/*)
-      append_unique container_files "$file"
-      needs_restart=true
       ;;
     .env|librechat.yaml|langfuse/.env|data/google-service-account.json)
       append_unique host_files "$file"
@@ -366,11 +388,11 @@ Common fixes:
   - For client/src changes:
       ./local-services/run-node-capped.sh --memory-max 8G --heap-mb 4096 -- npm run build:client
       ./local-services/deploy-built-client-dist.sh dev
-  - For packages/*/src changes:
-      ./local-services/run-node-capped.sh --memory-max 4G --heap-mb 1536 -- npm run build:packages
-      ./local-services/deploy-runtime-delta.sh dev -- packages/api/dist packages/data-provider/dist packages/data-schemas/dist
-  - For Dockerfile/package/compose changes:
-      use the normal cached image build or compose recreate path.
+	  - For packages/*/src changes:
+	      ./local-services/run-node-capped.sh --memory-max 12G --heap-mb 8192 -- npm run build:packages
+	      ./local-services/deploy-runtime-delta.sh dev -- packages/api/dist packages/data-provider/dist packages/data-schemas/dist
+	  - For Dockerfile/package/compose changes:
+	      use the normal cached image build or compose recreate path.
 EOF
   exit 2
 fi
@@ -394,6 +416,8 @@ fi
 if [[ "$rail" == "stable" ]]; then
   $approve_stable || fail "Stable runtime delta requires --approve-stable after explicit production-maintenance approval."
   [[ "${LIBRECHAT_STABLE_RUNTIME_DELTA_APPROVAL:-}" == "YES" ]] || fail "Stable runtime delta requires LIBRECHAT_STABLE_RUNTIME_DELTA_APPROVAL=YES."
+  log "Validating repository authentication and memory runtime contracts before stable delta"
+  "$ROOT_DIR/local-services/verify-auth-memory-runtime-contracts.sh"
 fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -405,6 +429,67 @@ remote_ssh() {
     -o ConnectTimeout="${LIBRECHAT_RUNTIME_DELTA_CONNECT_TIMEOUT:-8}" \
     "$stable_remote" \
     "bash -lc $(quote "set -euo pipefail; $1")"
+}
+
+remote_maintenance_file="${LIBRECHAT_REMOTE_HEALTH_MAINTENANCE_FILE:-/home/timeng/.local/state/librechat-health-monitor/maintenance}"
+remote_maintenance_started=false
+deployment_fallback="$ROOT_DIR/local-services/librechat-deployment-fallback.sh"
+deployment_fallback_snapshot=""
+fallback_started=false
+remote_changes_staged=false
+
+stage_deployment_fallback_snapshot() {
+  [[ -x "$deployment_fallback" ]] || fail "Missing deployment fallback helper: $deployment_fallback"
+  deployment_fallback_snapshot="$(mktemp "$ROOT_DIR/local-services/.deploy-runtime-delta-fallback.${timestamp}.XXXXXX")"
+  install -m 0555 "$deployment_fallback" "$deployment_fallback_snapshot"
+}
+
+remove_deployment_fallback_snapshot() {
+  if [[ -n "$deployment_fallback_snapshot" ]]; then
+    rm -f "$deployment_fallback_snapshot" || true
+    deployment_fallback_snapshot=""
+  fi
+}
+
+run_deployment_fallback() {
+  if [[ -z "$deployment_fallback_snapshot" || ! -x "$deployment_fallback_snapshot" ]]; then
+    echo "Missing staged deployment fallback snapshot." >&2
+    return 1
+  fi
+  "$deployment_fallback_snapshot" "$@"
+}
+
+start_remote_maintenance() {
+  local expires reason
+  expires=$(( $(date +%s) + ${LIBRECHAT_DEPLOY_MAINTENANCE_SECONDS:-1800} ))
+  reason="runtime delta deployment ${timestamp}"
+  remote_ssh "mkdir -p $(quote "$(dirname "$remote_maintenance_file")"); printf 'expires=%s\nreason=%s\nstarted=%s\n' $(quote "$expires") $(quote "$reason") $(quote "$(date -u +%Y-%m-%dT%H:%M:%SZ)") > $(quote "$remote_maintenance_file"); chmod 600 $(quote "$remote_maintenance_file")"
+  remote_maintenance_started=true
+}
+
+clear_remote_maintenance() {
+  if $remote_maintenance_started; then
+    remote_ssh "rm -f $(quote "$remote_maintenance_file")" >/dev/null 2>&1 || true
+  fi
+}
+
+deployment_cleanup() {
+  if $remote_changes_staged; then
+    if remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/librechat-rollback-last-stable.sh" >/dev/null 2>&1; then
+      remote_changes_staged=false
+      if $fallback_started; then
+        run_deployment_fallback finish >/dev/null 2>&1 || true
+        fallback_started=false
+      fi
+    elif $fallback_started; then
+      run_deployment_fallback abort >/dev/null 2>&1 || true
+    fi
+  elif $fallback_started; then
+    run_deployment_fallback abort >/dev/null 2>&1 || true
+  else
+    clear_remote_maintenance
+  fi
+  remove_deployment_fallback_snapshot
 }
 
 remote_copy_stage() {
@@ -475,6 +560,11 @@ wait_for_health() {
 }
 
 if $remote_mode; then
+  trap deployment_cleanup EXIT
+  stage_deployment_fallback_snapshot
+  run_deployment_fallback start
+  fallback_started=true
+  start_remote_maintenance
   remote_stage="/tmp/librechat-runtime-delta-${timestamp}"
   remote_snapshot="$stable_remote_root/output/runtime-delta-deployments/${timestamp}-${rail}"
   transfer_files=()
@@ -483,31 +573,76 @@ if $remote_mode; then
   done
 
   log "Validating deployed OpenAI reasoning preservation invariant before stable delta"
-  remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-openai-reasoning-preservation.sh --container $(quote "$container")"
+  if ! remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-openai-reasoning-preservation.sh --container $(quote "$container")"; then
+    if [[ " ${container_dirs[*]} " == *" packages/api/dist "* ]]; then
+      log "Current deployed reasoning invariant is stale; allowing the verified packages/api/dist candidate to repair it."
+    else
+      fail "Current deployed reasoning invariant failed and this delta does not replace packages/api/dist."
+    fi
+  fi
+  log "Validating deployed authentication and memory contracts before stable delta"
+  if ! remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-auth-memory-runtime-contracts.sh --container $(quote "$container")"; then
+    if [[ " ${container_dirs[*]} " == *" packages/api/dist "* || " ${container_dirs[*]} " == *" packages/data-schemas/dist "* || " ${container_dirs[*]} " == *" packages/data-provider/dist "* ]]; then
+      log "Current deployed package/auth invariant is stale; allowing the verified package candidate to repair it."
+    else
+      fail "Current deployed authentication/memory invariant failed and this delta does not replace package dist."
+    fi
+  fi
+  log "Validating canonical API runtime contract before stable delta"
+  remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-api-runtime-contract.sh --container $(quote "$container")"
+  log "Validating deployed API memory headroom before stable delta"
+  remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-api-memory-headroom.sh --container $(quote "$container")" ||
+    fail "Current deployed API memory headroom verification failed before stable delta."
 
   log "Preparing remote stage: $stable_remote:$remote_stage"
   remote_ssh "docker inspect $(quote "$container") >/dev/null; mkdir -p $(quote "$remote_stage") $(quote "$remote_snapshot")"
+  host_manifest="$(printf '%s\n' "${host_files[@]}")"
+  container_manifest="$(printf '%s\n' "${container_files[@]}")"
+  directory_manifest="$(printf '%s\n' "${container_dirs[@]}")"
+  remote_ssh "printf '%s' $(quote "$host_manifest") > $(quote "$remote_snapshot/host-files.txt"); printf '%s' $(quote "$container_manifest") > $(quote "$remote_snapshot/container-files.txt"); printf '%s' $(quote "$directory_manifest") > $(quote "$remote_snapshot/container-dirs.txt"); mkdir -p /home/timeng/.local/state/librechat-health-monitor; printf 'type=runtime\nsnapshot=%s\ncontainer=%s\nroot=%s\ncreated_epoch=%s\ncreated_utc=%s\n' $(quote "$remote_snapshot") $(quote "$container") $(quote "$stable_remote_root") $(quote "$(date +%s)") $(quote "$(date -u +%Y-%m-%dT%H:%M:%SZ)") > /home/timeng/.local/state/librechat-health-monitor/last-stable.env; chmod 600 /home/timeng/.local/state/librechat-health-monitor/last-stable.env"
   remote_copy_stage "$remote_stage" "${transfer_files[@]}"
 
   for file in "${host_files[@]}"; do
     file_dir="$(dirname "$file")"
-    remote_ssh "mkdir -p $(quote "$remote_snapshot/host/$file_dir") $(quote "$stable_remote_root/$file_dir"); if [ -e $(quote "$stable_remote_root/$file") ]; then cp -a $(quote "$stable_remote_root/$file") $(quote "$remote_snapshot/host/$file"); else printf '%s\n' $(quote "$file") >> $(quote "$remote_snapshot/host-missing.txt"); fi; cp -a $(quote "$remote_stage/$file") $(quote "$stable_remote_root/$file")"
+    remote_ssh "mkdir -p $(quote "$remote_snapshot/host/$file_dir"); if [ -e $(quote "$stable_remote_root/$file") ]; then cp -a $(quote "$stable_remote_root/$file") $(quote "$remote_snapshot/host/$file"); else printf '%s\n' $(quote "$file") >> $(quote "$remote_snapshot/host-missing.txt"); fi"
   done
 
   for file in "${container_files[@]}"; do
     file_dir="$(dirname "$file")"
-    remote_ssh "mkdir -p $(quote "$remote_snapshot/container/$file_dir"); if docker exec $(quote "$container") test -e $(quote "/app/$file"); then docker cp $(quote "$container:/app/$file") $(quote "$remote_snapshot/container/$file"); else printf '%s\n' $(quote "$file") >> $(quote "$remote_snapshot/container-missing.txt"); fi; docker exec $(quote "$container") mkdir -p $(quote "/app/$file_dir"); docker cp $(quote "$remote_stage/$file") $(quote "$container:/app/$file")"
+    remote_ssh "mkdir -p $(quote "$remote_snapshot/container/$file_dir"); if docker exec $(quote "$container") test -e $(quote "/app/$file"); then docker cp $(quote "$container:/app/$file") $(quote "$remote_snapshot/container/$file"); else printf '%s\n' $(quote "$file") >> $(quote "$remote_snapshot/container-missing.txt"); fi"
   done
 
   for directory in "${container_dirs[@]}"; do
     parent_dir="$(dirname "$directory")"
-    remote_ssh "mkdir -p $(quote "$remote_snapshot/container/$parent_dir"); if docker exec $(quote "$container") test -e $(quote "/app/$directory"); then docker cp $(quote "$container:/app/$directory") $(quote "$remote_snapshot/container/$parent_dir/"); else printf '%s\n' $(quote "$directory") >> $(quote "$remote_snapshot/container-dir-missing.txt"); fi; docker exec $(quote "$container") sh -lc $(quote "rm -rf $(quote "/app/$directory"); mkdir -p $(quote "/app/$parent_dir")"); docker cp $(quote "$remote_stage/$directory") $(quote "$container:/app/$parent_dir/")"
+    remote_ssh "mkdir -p $(quote "$remote_snapshot/container/$parent_dir"); if docker exec $(quote "$container") test -e $(quote "/app/$directory"); then docker cp $(quote "$container:/app/$directory") $(quote "$remote_snapshot/container/$parent_dir/"); else printf '%s\n' $(quote "$directory") >> $(quote "$remote_snapshot/container-dir-missing.txt"); fi"
+  done
+
+  remote_changes_staged=true
+
+  for file in "${host_files[@]}"; do
+    file_dir="$(dirname "$file")"
+    remote_ssh "mkdir -p $(quote "$stable_remote_root/$file_dir"); cp -a $(quote "$remote_stage/$file") $(quote "$stable_remote_root/$file")"
+  done
+
+  for file in "${container_files[@]}"; do
+    file_dir="$(dirname "$file")"
+    remote_ssh "docker exec $(quote "$container") mkdir -p $(quote "/app/$file_dir"); docker cp $(quote "$remote_stage/$file") $(quote "$container:/app/$file")"
+  done
+
+  for directory in "${container_dirs[@]}"; do
+    parent_dir="$(dirname "$directory")"
+    remote_ssh "docker exec $(quote "$container") sh -lc $(quote "rm -rf $(quote "/app/$directory"); mkdir -p $(quote "/app/$parent_dir")"); docker cp $(quote "$remote_stage/$directory") $(quote "$container:/app/$parent_dir/")"
   done
 
   if $needs_runtime_patch; then
     log "Applying runtime patches inside $stable_remote:$container"
     remote_ssh "docker exec $(quote "$container") node /app/config/apply-runtime-patches.js"
   fi
+
+  log "Validating staged authentication and memory runtime contracts before restart"
+  remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-auth-memory-runtime-contracts.sh --container $(quote "$container")"
+  log "Validating canonical API runtime contract before restart"
+  remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-api-runtime-contract.sh --container $(quote "$container")"
 
   if $needs_restart && $restart_after; then
     log "Restarting $stable_remote:$container"
@@ -554,7 +689,25 @@ if [[ "$rail" == "stable" ]]; then
   if $remote_mode; then
     log "Validating deployed OpenAI reasoning preservation invariant on stable"
     remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-openai-reasoning-preservation.sh --container $(quote "$container")"
+    log "Validating deployed authentication and memory runtime contracts on stable"
+    remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-auth-memory-runtime-contracts.sh --container $(quote "$container")"
+    log "Validating canonical API runtime contract on stable"
+    remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-api-runtime-contract.sh --container $(quote "$container")"
+    log "Validating deployed API memory headroom on stable"
+    remote_ssh "cd $(quote "$stable_remote_root") && ./local-services/verify-api-memory-headroom.sh --container $(quote "$container")" ||
+      fail "Deployed API memory headroom verification failed after restart; rolling back staged runtime delta."
+    log "Snapshotting verified runtime image for rebuild-free container recreation"
+    remote_ssh "docker commit --pause=false $(quote "$container") $(quote "$stable_runtime_image") >/dev/null; cd $(quote "$stable_remote_root"); if grep -q '^LIBRECHAT_API_IMAGE=' .env; then sed -i $(quote "s|^LIBRECHAT_API_IMAGE=.*|LIBRECHAT_API_IMAGE=$stable_runtime_image|") .env; else printf '%s\n' $(quote "LIBRECHAT_API_IMAGE=$stable_runtime_image") >> .env; fi"
   fi
 fi
 
+if $remote_mode; then
+  run_deployment_fallback finish
+  fallback_started=false
+  remote_changes_staged=false
+  clear_remote_maintenance
+  remote_maintenance_started=false
+  remove_deployment_fallback_snapshot
+  trap - EXIT
+fi
 log "Runtime delta deployment complete."

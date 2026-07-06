@@ -43,14 +43,17 @@ const mergeJsonUserKeyValue = async ({ userId, name, value }) => {
     existingValues = {};
   }
 
-  const mergedValues = {
-    ...existingValues,
-    ...Object.fromEntries(
-      Object.entries(incomingValues).filter(
-        ([, fieldValue]) => fieldValue !== '' && fieldValue != null,
-      ),
-    ),
-  };
+  const mergedValues = { ...existingValues };
+
+  for (const [field, fieldValue] of Object.entries(incomingValues)) {
+    if (field === 'baseURL' && fieldValue === '') {
+      delete mergedValues.baseURL;
+      continue;
+    }
+    if (fieldValue !== '' && fieldValue != null) {
+      mergedValues[field] = fieldValue;
+    }
+  }
 
   return JSON.stringify(mergedValues);
 };

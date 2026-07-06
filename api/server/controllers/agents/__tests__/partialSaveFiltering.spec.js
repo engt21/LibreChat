@@ -61,6 +61,10 @@ jest.mock('~/server/services/ModelAccess', () => ({
   validateModelAccess: jest.fn(),
 }));
 
+jest.mock('~/server/services/ModelRateLimits', () => ({
+  checkAndIncrementModelRequestLimit: jest.fn().mockResolvedValue({ allowed: true }),
+}));
+
 jest.mock('~/server/middleware', () => ({
   handleAbortError: jest.fn().mockResolvedValue(undefined),
 }));

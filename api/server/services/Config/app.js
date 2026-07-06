@@ -56,6 +56,21 @@ async function getAppConfig(options = {}) {
     }
 
     await cache.set(BASE_CONFIG_KEY, baseConfig);
+  } else if (baseConfig.availableTools) {
+    const config = (await loadCustomConfig()) ?? {};
+    const currentSystemTools = loadAndFormatTools({
+      adminFilter: config.filteredTools,
+      adminIncluded: config.includedTools,
+      directory: paths.structuredTools,
+    });
+    const currentToolNames = Object.keys(currentSystemTools).sort();
+    const cachedToolNames = Object.keys(baseConfig.availableTools).sort();
+    if (JSON.stringify(currentToolNames) !== JSON.stringify(cachedToolNames)) {
+      logger.info('[getAppConfig] Structured tool catalog changed; refreshing cached tools.');
+      baseConfig = await loadBaseConfig();
+      await setCachedTools(baseConfig.availableTools ?? {});
+      await cache.set(BASE_CONFIG_KEY, baseConfig);
+    }
   }
 
   // For now, return the base config

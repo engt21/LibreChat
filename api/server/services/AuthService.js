@@ -25,6 +25,7 @@ const {
   createToken,
   deleteTokens,
   deleteSession,
+  deleteAllUserSessions,
   createSession,
   generateToken,
   deleteUserById,
@@ -358,6 +359,7 @@ const resetPassword = async (userId, token, password) => {
 
   const hash = bcrypt.hashSync(password, 10);
   const user = await updateUser(userId, { password: hash });
+  await deleteAllUserSessions(userId);
 
   if (checkEmailConfig()) {
     await sendEmail({

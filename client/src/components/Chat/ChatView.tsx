@@ -34,7 +34,7 @@ function ChatView({ index = 0 }: { index?: number }) {
   const rootSubmission = useRecoilValue(store.submissionByIndex(index));
   const centerFormOnLanding = useRecoilValue(store.centerFormOnLanding);
 
-  const fileMap = useFileMapContext();
+  const fileMap = useFileMapContext() ?? {};
 
   const { data: messagesTree = null, isLoading } = useGetMessagesByConvoId(conversationId ?? '', {
     select: useCallback(
@@ -44,7 +44,7 @@ function ChatView({ index = 0 }: { index?: number }) {
       },
       [fileMap],
     ),
-    enabled: !!fileMap,
+    enabled: !!conversationId && conversationId !== Constants.NEW_CONVO,
   });
 
   const chatHelpers = useChatHelpers(index, conversationId);
@@ -64,11 +64,8 @@ function ChatView({ index = 0 }: { index?: number }) {
   const isLandingPage =
     (!messagesTree || messagesTree.length === 0) &&
     (conversationId === Constants.NEW_CONVO || !conversationId);
-  const isNavigating = (!messagesTree || messagesTree.length === 0) && conversationId != null;
 
   if (isLoading && conversationId !== Constants.NEW_CONVO) {
-    content = <LoadingSpinner />;
-  } else if ((isLoading || isNavigating) && !isLandingPage) {
     content = <LoadingSpinner />;
   } else if (!isLandingPage) {
     content = <MessagesView messagesTree={messagesTree} />;

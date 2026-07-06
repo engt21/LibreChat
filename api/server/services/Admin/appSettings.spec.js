@@ -11,6 +11,7 @@ jest.mock('librechat-data-provider', () => ({
     CONFIG_STORE: 'CONFIG_STORE',
     APP_CONFIG: 'APP_CONFIG',
     STARTUP_CONFIG: 'STARTUP_CONFIG',
+    ENDPOINT_CONFIG: 'ENDPOINT_CONFIG',
   },
   SystemRoles: {
     USER: 'USER',
@@ -76,6 +77,19 @@ describe('Admin app settings service', () => {
     expect(settings.modelSteeringEnabled).toBe(false);
   });
 
+  it('defaults deterministic tools to enabled', async () => {
+    mockFindOneDoc(null);
+
+    const settings = await getEffectiveAppSettings();
+
+    expect(settings.deterministicTools).toEqual({
+      calculator: true,
+      textAnalyzer: true,
+      stringUtility: true,
+      jsonUtility: true,
+    });
+  });
+
   it('defaults observability links to the VM sidecar ports', async () => {
     mockFindOneDoc(null);
 
@@ -87,6 +101,63 @@ describe('Admin app settings service', () => {
       metricsUrl: 'http://localhost:9091',
       prometheusUrl: 'http://localhost:9092',
     });
+  });
+
+  it('defaults memory processing to explicit post-response GPT-5.6 Terra', async () => {
+    mockFindOneDoc(null);
+
+    const settings = await getEffectiveAppSettings();
+
+    expect(settings.memory).toEqual(
+      expect.objectContaining({
+        automaticSaveEnabled: true,
+        provider: 'openAI',
+        model: 'gpt-5.6-terra',
+        requireExplicitRequest: true,
+        processAfterResponse: true,
+        includeAssistantContext: true,
+        maxWritesPerTurn: 1,
+        processingTimeoutMs: 10000,
+        auditEnabled: true,
+      }),
+    );
+  });
+
+  it('merges and persists memory policy updates', async () => {
+    mockFindOneDoc({
+      settingsId: 'global',
+      observability: {},
+      memory: { model: 'gpt-5.6-terra', maxWritesPerTurn: 3 },
+    });
+    mockFindOneAndUpdate.mockResolvedValue({
+      settingsId: 'global',
+      observability: {},
+      memory: {
+        model: 'gpt-5.6-terra',
+        maxWritesPerTurn: 1,
+        customIntentPhrases: ['pin this'],
+      },
+    });
+
+    const settings = await updateAppSettings({
+      memory: { maxWritesPerTurn: 1, customIntentPhrases: ['  pin this  '] },
+    });
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { settingsId: 'global' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          memory: expect.objectContaining({
+            model: 'gpt-5.6-terra',
+            maxWritesPerTurn: 1,
+            customIntentPhrases: ['pin this'],
+          }),
+        }),
+      }),
+      expect.objectContaining({ upsert: true, new: true, lean: true }),
+    );
+    expect(settings.memory.maxWritesPerTurn).toBe(1);
+    expect(settings.memory.customIntentPhrases).toEqual(['pin this']);
   });
 
   it('normalizes empty or non-string platform prompt updates to null', () => {
@@ -137,6 +208,48 @@ describe('Admin app settings service', () => {
       expect.objectContaining({ upsert: true, new: true, lean: true }),
     );
     expect(settings.modelSteeringEnabled).toBe(true);
+  });
+
+  it('persists deterministic tool toggles while preserving unspecified values', async () => {
+    mockFindOneDoc({
+      settingsId: 'global',
+      deterministicTools: { calculator: true, textAnalyzer: true },
+    });
+    mockFindOneAndUpdate.mockResolvedValue({
+      settingsId: 'global',
+      observability: {},
+      deterministicTools: {
+        calculator: false,
+        textAnalyzer: true,
+        stringUtility: true,
+        jsonUtility: true,
+      },
+    });
+
+    const settings = await updateAppSettings({
+      deterministicTools: { calculator: false },
+    });
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { settingsId: 'global' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          deterministicTools: {
+            calculator: false,
+            textAnalyzer: true,
+            stringUtility: true,
+            jsonUtility: true,
+          },
+        }),
+      }),
+      expect.objectContaining({ upsert: true, new: true, lean: true }),
+    );
+    expect(settings.deterministicTools).toEqual({
+      calculator: false,
+      textAnalyzer: true,
+      stringUtility: true,
+      jsonUtility: true,
+    });
   });
 
   it('returns null MCP published server allowlist by default to preserve existing YAML visibility', async () => {
@@ -231,60 +344,5 @@ describe('Admin app settings service', () => {
       expect.objectContaining({ upsert: true, new: true, lean: true }),
     );
     expect(settings.mcpPublishedServers).toEqual(['arcade-read']);
-  });
-
-  it('defaults deterministic tools to enabled', async () => {
-    mockFindOneDoc(null);
-
-    const settings = await getEffectiveAppSettings();
-
-    expect(settings.deterministicTools).toEqual({
-      calculator: true,
-      textAnalyzer: true,
-      stringUtility: true,
-      jsonUtility: true,
-    });
-  });
-
-  it('persists deterministic tool toggles while preserving unspecified values', async () => {
-    mockFindOneDoc({
-      settingsId: 'global',
-      deterministicTools: { calculator: true, textAnalyzer: true },
-    });
-    mockFindOneAndUpdate.mockResolvedValue({
-      settingsId: 'global',
-      observability: {},
-      deterministicTools: {
-        calculator: false,
-        textAnalyzer: true,
-        stringUtility: true,
-        jsonUtility: true,
-      },
-    });
-
-    const settings = await updateAppSettings({
-      deterministicTools: { calculator: false },
-    });
-
-    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
-      { settingsId: 'global' },
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          deterministicTools: {
-            calculator: false,
-            textAnalyzer: true,
-            stringUtility: true,
-            jsonUtility: true,
-          },
-        }),
-      }),
-      expect.objectContaining({ upsert: true, new: true, lean: true }),
-    );
-    expect(settings.deterministicTools).toEqual({
-      calculator: false,
-      textAnalyzer: true,
-      stringUtility: true,
-      jsonUtility: true,
-    });
   });
 });

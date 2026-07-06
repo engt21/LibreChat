@@ -47,6 +47,30 @@ describe('openai model helpers', () => {
     });
   });
 
+  it('adds max and ultra controls for GPT-5.6 preview models', () => {
+    for (const model of ['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+      const capabilities = getOpenAIModelCapabilities(model);
+
+      expect(capabilities.reasoningEffortOptions).toEqual([
+        ReasoningEffort.unset,
+        ReasoningEffort.none,
+        ReasoningEffort.low,
+        ReasoningEffort.medium,
+        ReasoningEffort.high,
+        ReasoningEffort.xhigh,
+        ReasoningEffort.max,
+        ReasoningEffort.ultra,
+      ]);
+    }
+  });
+
+  it('does not expose GPT-5.6 preview controls on earlier GPT-5 models', () => {
+    const capabilities = getOpenAIModelCapabilities('gpt-5.5');
+
+    expect(capabilities.reasoningEffortOptions).not.toContain(ReasoningEffort.max);
+    expect(capabilities.reasoningEffortOptions).not.toContain(ReasoningEffort.ultra);
+  });
+
   it('marks GPT-5 pro variants as Responses-only with tighter reasoning effort options', () => {
     const capabilities = getOpenAIModelCapabilities('gpt-5.4-pro');
 

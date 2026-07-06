@@ -1,6 +1,28 @@
 import type { TFile } from './types/files';
 import type { TMessage } from './types';
 
+export type TConversationUsageTurn = {
+  messageId: string;
+  createdAt?: string;
+  model?: string;
+  endpoint?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  toolCalls: number;
+  estimated: boolean;
+};
+
+export type TConversationUsage = {
+  conversationId: string;
+  totals: Omit<
+    TConversationUsageTurn,
+    'messageId' | 'createdAt' | 'model' | 'endpoint' | 'estimated'
+  >;
+  turns: TConversationUsageTurn[];
+};
+
 export type ParentMessage = TMessage & { children: TMessage[]; depth: number };
 export function buildTree({
   messages,

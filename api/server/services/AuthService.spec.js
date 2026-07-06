@@ -29,6 +29,7 @@ jest.mock('~/models', () => ({
   createToken: jest.fn(),
   deleteTokens: jest.fn(),
   deleteSession: jest.fn(),
+  deleteAllUserSessions: jest.fn(),
   createSession: jest.fn(),
   generateToken: jest.fn(),
   deleteUserById: jest.fn(),
@@ -39,7 +40,8 @@ jest.mock('~/server/services/Config', () => ({ getAppConfig: jest.fn() }));
 jest.mock('~/server/utils', () => ({ sendEmail: jest.fn() }));
 
 const { shouldUseSecureCookie } = require('@librechat/api');
-const { setOpenIDAuthTokens } = require('./AuthService');
+const { findToken, updateUser, deleteTokens, deleteAllUserSessions } = require('~/models');
+const { resetPassword, setOpenIDAuthTokens } = require('./AuthService');
 
 /** Helper to build a mock Express response */
 function mockResponse() {
@@ -268,5 +270,40 @@ describe('setOpenIDAuthTokens', () => {
       expect(result).toBe('the-id-token');
       expect(req.session.openidTokens.refreshToken).toBe('existing-refresh');
     });
+  });
+});
+
+describe('resetPassword', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('rejects passwords shorter than the configured creation minimum', async () => {
+    const result = await resetPassword('507f1f77bcf86cd799439011', 'token', 'short');
+
+    expect(result).toBeInstanceOf(Error);
+    expect(findToken).not.toHaveBeenCalled();
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  it('replaces the password, consumes the reset token, and revokes refresh sessions', async () => {
+    const bcrypt = require('bcryptjs');
+    const userId = '507f1f77bcf86cd799439011';
+    const token = 'valid-reset-token';
+    const password = 'new-secure-password';
+    const storedToken = bcrypt.hashSync(token, 4);
+    findToken.mockResolvedValue({ token: storedToken });
+    updateUser.mockResolvedValue({ _id: userId, email: 'user@example.com' });
+
+    const result = await resetPassword(userId, token, password);
+
+    expect(updateUser).toHaveBeenCalledWith(
+      userId,
+      expect.objectContaining({ password: expect.any(String) }),
+    );
+    expect(bcrypt.compareSync(password, updateUser.mock.calls[0][1].password)).toBe(true);
+    expect(deleteAllUserSessions).toHaveBeenCalledWith(userId);
+    expect(deleteTokens).toHaveBeenCalledWith({ token: storedToken });
+    expect(result).toEqual({ message: 'Password reset was successful' });
   });
 });

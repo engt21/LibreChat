@@ -219,6 +219,10 @@ function resolveReasoningEffortOptions({
       baseOptions.push(ReasoningEffort.xhigh);
     }
 
+    if (minorVersion != null && minorVersion >= 6) {
+      baseOptions.push(ReasoningEffort.max, ReasoningEffort.ultra);
+    }
+
     return baseOptions;
   }
 

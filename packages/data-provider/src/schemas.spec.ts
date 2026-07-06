@@ -1,4 +1,23 @@
-import { anthropicSettings } from './schemas';
+import { anthropicSettings, EModelEndpoint, ReasoningEffort, tPresetSchema } from './schemas';
+
+describe('OpenAI reasoning preset schema', () => {
+  it.each([ReasoningEffort.max, ReasoningEffort.ultra])(
+    'round-trips GPT-5.6 Azure OpenAI presets with %s reasoning',
+    (reasoningEffort) => {
+      const preset = {
+        endpoint: EModelEndpoint.azureOpenAI,
+        model: 'gpt-5.6-sol',
+        title: `GPT-5.6 ${reasoningEffort}`,
+        reasoning_effort: reasoningEffort,
+        useResponsesApi: true,
+      };
+
+      const parsed = tPresetSchema.parse(JSON.parse(JSON.stringify(preset)));
+
+      expect(parsed).toMatchObject(preset);
+    },
+  );
+});
 
 describe('anthropicSettings', () => {
   describe('maxOutputTokens.reset()', () => {

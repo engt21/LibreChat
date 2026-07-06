@@ -114,6 +114,22 @@ export const useUpdateMessageContentMutation = (
   );
 };
 
+export const useDeleteMessageBranchMutation = (
+  conversationId: string,
+): UseMutationResult<
+  { deletedCount: number },
+  unknown,
+  { conversationId: string; messageId: string },
+  unknown
+> => {
+  const queryClient = useQueryClient();
+  return useMutation((payload) => dataService.deleteMessageBranch(payload), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.messages, conversationId]);
+    },
+  });
+};
+
 export const useUpdateUserKeysMutation = (): UseMutationResult<
   t.TUser,
   unknown,

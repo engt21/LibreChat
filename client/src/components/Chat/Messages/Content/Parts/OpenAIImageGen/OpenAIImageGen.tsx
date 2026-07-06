@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { PixelCard } from '@librechat/client';
 import type { TAttachment, TFile, TAttachmentMetadata } from 'librechat-data-provider';
 import Image from '~/components/Chat/Messages/Content/Image';
 import ProgressText from './ProgressText';
@@ -33,13 +32,18 @@ export default function OpenAIImageGen({
 
   let quality: 'low' | 'medium' | 'high' = 'high';
 
-  // Parse args if it's a string
-  let parsedArgs;
-  try {
-    parsedArgs = typeof _args === 'string' ? JSON.parse(_args) : _args;
-  } catch (error) {
-    console.error('Error parsing args:', error);
-    parsedArgs = {};
+  let parsedArgs: Record<string, unknown> = {};
+  if (typeof _args === 'string') {
+    const args = _args.trim();
+    if (args.endsWith('}')) {
+      try {
+        parsedArgs = JSON.parse(args) as Record<string, unknown>;
+      } catch {
+        parsedArgs = {};
+      }
+    }
+  } else {
+    parsedArgs = _args;
   }
 
   if (parsedArgs && typeof parsedArgs.quality === 'string') {
@@ -49,14 +53,19 @@ export default function OpenAIImageGen({
     }
   }
 
-  const attachment = attachments?.[attachments.length - 1];
-  const {
-    filepath = null,
-    filename = '',
-    width: imgWidth,
-    height: imgHeight,
-  } = (attachment as TFile & TAttachmentMetadata) || {};
-  const hasStreamingPreview = progress < 1 && !!filepath;
+  const persistedAttachments = attachments?.filter((item) => {
+    const attachment = item as TFile & TAttachmentMetadata;
+    const isTransient =
+      attachment.partial != null ||
+      attachment.partialImageIndex != null ||
+      attachment.filepath?.startsWith('data:image/');
+    return !isTransient && (!!attachment.file_id || !!attachment.filepath);
+  });
+  const latestAttachment = attachments?.[attachments.length - 1];
+  let displayAttachments = persistedAttachments ?? [];
+  if (displayAttachments.length === 0 && latestAttachment) {
+    displayAttachments = [latestAttachment];
+  }
 
   useEffect(() => {
     if (isSubmitting) {
@@ -122,21 +131,32 @@ export default function OpenAIImageGen({
       <div className="relative my-2.5 flex size-5 shrink-0 items-center gap-2.5">
         <ProgressText progress={progress} error={cancelled} toolName={toolName} />
       </div>
-      <div className={cn('relative mb-2 flex w-full max-w-lg justify-start', IMAGE_MAX_H)}>
-        <div className={cn('overflow-hidden', progress < 1 ? [IMAGE_FULL_H, 'w-full'] : 'w-auto')}>
-          {progress < 1 && !hasStreamingPreview && (
-            <PixelCard variant="default" progress={progress} randomness={0.6} />
-          )}
-          <Image
-            width={imgWidth}
-            args={parsedArgs}
-            height={imgHeight}
-            altText={filename}
-            imagePath={filepath ?? ''}
-            className={progress < 1 && !hasStreamingPreview ? 'invisible absolute' : ''}
-          />
-        </div>
-      </div>
+      {displayAttachments.map((item, index) => {
+        const attachment = item as TFile & TAttachmentMetadata;
+        const { filepath, filename = '', width: imgWidth, height: imgHeight } = attachment;
+        if (!filepath) {
+          return null;
+        }
+
+        return (
+          <div
+            key={attachment.file_id ?? `${filepath}-${index}`}
+            className={cn('relative mb-2 flex w-full max-w-lg justify-start', IMAGE_MAX_H)}
+          >
+            <div
+              className={cn('overflow-hidden', progress < 1 ? [IMAGE_FULL_H, 'w-full'] : 'w-auto')}
+            >
+              <Image
+                width={imgWidth}
+                args={parsedArgs}
+                height={imgHeight}
+                altText={filename}
+                imagePath={filepath}
+              />
+            </div>
+          </div>
+        );
+      })}
     </>
   );
 }

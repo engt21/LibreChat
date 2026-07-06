@@ -7,6 +7,9 @@ jest.mock('~/server/services/ModelAccess', () => ({
 jest.mock('~/server/controllers/ModelController', () => ({
   getModelsConfig: jest.fn().mockResolvedValue({ openai: ['gpt-4'] }),
 }));
+jest.mock('~/server/services/Config', () => ({
+  getCachedTools: jest.fn().mockResolvedValue({ calculator: true }),
+}));
 
 const { duplicateAgent } = require('../v1');
 const { getAgent, createAgent } = require('~/models/Agent');
@@ -37,7 +40,7 @@ describe('duplicateAgent', () => {
       instructions: 'Test Instructions',
       provider: 'openai',
       model: 'gpt-4',
-      tools: ['file_search'],
+      tools: ['calculator'],
       actions: [],
       author: 'user_789',
       versions: [{ name: 'Test Agent', version: 1 }],
@@ -51,7 +54,7 @@ describe('duplicateAgent', () => {
       instructions: 'Test Instructions',
       provider: 'openai',
       model: 'gpt-4',
-      tools: ['file_search'],
+      tools: ['calculator'],
       actions: [],
       author: 'user_456',
       versions: [
@@ -61,7 +64,7 @@ describe('duplicateAgent', () => {
           instructions: 'Test Instructions',
           provider: 'openai',
           model: 'gpt-4',
-          tools: ['file_search'],
+          tools: ['calculator'],
           actions: [],
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -87,7 +90,7 @@ describe('duplicateAgent', () => {
         instructions: 'Test Instructions',
         provider: 'openai',
         model: 'gpt-4',
-        tools: ['file_search'],
+        tools: ['calculator'],
         actions: [],
       }),
     );

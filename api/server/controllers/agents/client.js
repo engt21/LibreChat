@@ -23,6 +23,8 @@ const {
   getTransactionsConfig,
   resolveRecursionLimit,
   createMemoryProcessor,
+  detectMemoryIntent,
+  formatMemoryResponseContext,
   createMultiAgentMapper,
   filterMalformedContentParts,
 } = require('@librechat/api');
@@ -59,6 +61,28 @@ const { getMCPManager } = require('~/config');
 const { recordModelTokenUsage } = require('~/server/services/ModelRateLimits');
 const { maybeRefreshGoogleVertexModelAccess } = require('./googleVertexRefresh');
 const db = require('~/models');
+
+const DEFAULT_MEMORY_PROVIDER = EModelEndpoint.openAI;
+const DEFAULT_MEMORY_MODEL = 'gpt-4.1-mini';
+const LEGACY_MEMORY_DEFAULT_PROVIDER = EModelEndpoint.openAI;
+const LEGACY_MEMORY_DEFAULT_MODEL = 'gpt-5.6-terra';
+
+function getMemoryIntentText(body = {}) {
+  const candidates = [
+    body.text,
+    body.prompt,
+    body.editedText,
+    body.userMessage?.text,
+    body.message?.text,
+    body.editedContent?.text,
+    body.editedContent?.value,
+    body.editedContent?.[ContentTypes.TEXT]?.value,
+  ];
+
+  return [...new Set(candidates.filter((value) => typeof value === 'string' && value.trim()))]
+    .join('\n')
+    .trim();
+}
 
 class AgentClient extends BaseClient {
   constructor(options = {}) {
@@ -180,6 +204,7 @@ class AgentClient extends BaseClient {
       {
         provider: this.options.agent.provider,
         endpoint: this.options.endpoint,
+        model: this.options.agent.model,
       },
       VisionModes.agents,
     );
@@ -328,11 +353,23 @@ class AgentClient extends BaseClient {
       }
     }
 
-    /** Memory context (user preferences/memories) */
+    /** Memory context and delegated mutation workflow */
     const withoutKeys = await this.useMemory();
-    if (withoutKeys) {
-      const memoryContext = `${memoryInstructions}\n\n# Existing memory about the user:\n${withoutKeys}`;
-      sharedRunContextParts.push(memoryContext);
+    if (this.processMemory) {
+      const existingMemory = withoutKeys
+        ? `
+
+# Existing memory about the user:
+${withoutKeys}`
+        : '';
+      sharedRunContextParts.push(`${memoryInstructions}${existingMemory}`);
+    } else if (withoutKeys) {
+      sharedRunContextParts.push(
+        `${memoryInstructions}
+
+# Existing memory about the user:
+${withoutKeys}`,
+      );
     }
 
     const sharedRunContext = sharedRunContextParts.join('\n\n');
@@ -392,10 +429,10 @@ class AgentClient extends BaseClient {
   /**
    * Creates a promise that resolves with the memory promise result or undefined after a timeout
    * @param {Promise<(TAttachment | null)[] | undefined>} memoryPromise - The memory promise to await
-   * @param {number} timeoutMs - Timeout in milliseconds (default: 3000)
+   * @param {number} timeoutMs - Timeout in milliseconds (default: 10000)
    * @returns {Promise<(TAttachment | null)[] | undefined>}
    */
-  async awaitMemoryWithTimeout(memoryPromise, timeoutMs = 3000) {
+  async awaitMemoryWithTimeout(memoryPromise, timeoutMs = 10000) {
     if (!memoryPromise) {
       return;
     }
@@ -409,12 +446,71 @@ class AgentClient extends BaseClient {
       return attachments;
     } catch (error) {
       if (error.message === 'Memory processing timeout') {
-        logger.warn('[AgentClient] Memory processing timed out after 3 seconds');
+        logger.warn(`[AgentClient] Memory processing timed out after ${timeoutMs} ms`);
       } else {
         logger.error('[AgentClient] Error processing memory:', error);
       }
       return;
     }
+  }
+
+  /**
+   * @param {Promise<(TAttachment | null)[] | undefined>} memoryPromise
+   */
+  detachMemoryProcessing(memoryPromise) {
+    if (!memoryPromise) {
+      return;
+    }
+
+    void Promise.resolve(memoryPromise)
+      .then((attachments) => {
+        if (attachments?.length > 0) {
+          this.artifactPromises.push(...attachments);
+        }
+      })
+      .catch((error) => {
+        logger.error('[AgentClient] Detached memory processing failed:', error);
+      });
+  }
+
+  /**
+   * @param {Promise<(TAttachment | null)[] | undefined>} memoryPromise
+   * @returns {Promise<(TAttachment | null)[] | undefined>}
+   */
+  async finalizeMemoryProcessing(memoryPromise) {
+    if (!memoryPromise) {
+      return;
+    }
+
+    if (this.memoryProcessAfterResponse === false) {
+      return await this.awaitMemoryWithTimeout(
+        memoryPromise,
+        this.memoryProcessingTimeoutMs ?? 10000,
+      );
+    }
+
+    let settled = false;
+    /** @type {(TAttachment | null)[] | undefined} */
+    let resolvedAttachments;
+
+    Promise.resolve(memoryPromise)
+      .then((attachments) => {
+        settled = true;
+        resolvedAttachments = attachments;
+      })
+      .catch((error) => {
+        settled = true;
+        logger.error('[AgentClient] Detached memory processing failed:', error);
+      });
+
+    await Promise.resolve();
+
+    if (settled) {
+      return resolvedAttachments;
+    }
+
+    this.detachMemoryProcessing(memoryPromise);
+    return;
   }
 
   /**
@@ -444,6 +540,47 @@ class AgentClient extends BaseClient {
       return;
     }
 
+    const adminMemory = this.options.req.appSettings?.memory ?? {};
+    const userId = this.options.req.user.id + '';
+    this.processMemory = undefined;
+    this.memoryProcessAfterResponse = adminMemory.processAfterResponse !== false;
+    this.memoryIncludeAssistantContext = adminMemory.includeAssistantContext !== false;
+    this.memoryContextCharLimit = adminMemory.contextCharLimit ?? 60000;
+    this.memoryMessageWindowSize =
+      adminMemory.messageWindowSize ?? memoryConfig.messageWindowSize ?? 5;
+    this.memoryProcessingTimeoutMs = adminMemory.processingTimeoutMs ?? 10000;
+
+    const currentUserText = getMemoryIntentText(this.options.req.body);
+    const detectedIntent = detectMemoryIntent(
+      currentUserText,
+      adminMemory.customIntentPhrases ?? [],
+    );
+    const requireExplicitRequest = adminMemory.requireExplicitRequest !== false;
+    const memoryIntent =
+      detectedIntent.intent === 'none' && !requireExplicitRequest ? 'save' : detectedIntent.intent;
+
+    if (adminMemory.automaticSaveEnabled === false || memoryIntent === 'none') {
+      try {
+        const { withoutKeys } = await db.getFormattedMemories({ userId });
+        return withoutKeys;
+      } catch (error) {
+        logger.error('[AgentClient] Error loading memories without automatic extraction', error);
+        return;
+      }
+    }
+
+    const memoryInstructionsOverride = adminMemory.instructions || memoryConfig.agent?.instructions;
+    const fallbackMemoryAgent = {
+      id: Constants.EPHEMERAL_AGENT_ID,
+      provider: DEFAULT_MEMORY_PROVIDER,
+      model: DEFAULT_MEMORY_MODEL,
+      instructions: memoryInstructionsOverride,
+      model_parameters: memoryConfig.agent?.model_parameters,
+    };
+    const isLegacyDefaultInlineMemoryAgent = (agentConfig) =>
+      agentConfig?.provider === LEGACY_MEMORY_DEFAULT_PROVIDER &&
+      agentConfig?.model === LEGACY_MEMORY_DEFAULT_MODEL;
+
     /** @type {Agent} */
     let prelimAgent;
     const allowedProviders = new Set(
@@ -458,12 +595,26 @@ class AgentClient extends BaseClient {
         });
       } else if (memoryConfig.agent?.id != null) {
         prelimAgent = this.options.agent;
+      } else if (adminMemory.model && adminMemory.provider) {
+        prelimAgent = isLegacyDefaultInlineMemoryAgent(adminMemory)
+          ? fallbackMemoryAgent
+          : {
+              id: Constants.EPHEMERAL_AGENT_ID,
+              provider: adminMemory.provider,
+              model: adminMemory.model,
+              instructions: memoryInstructionsOverride,
+              model_parameters: memoryConfig.agent?.model_parameters,
+            };
       } else if (
         memoryConfig.agent?.id == null &&
         memoryConfig.agent?.model != null &&
         memoryConfig.agent?.provider != null
       ) {
-        prelimAgent = { id: Constants.EPHEMERAL_AGENT_ID, ...memoryConfig.agent };
+        prelimAgent = isLegacyDefaultInlineMemoryAgent(memoryConfig.agent)
+          ? fallbackMemoryAgent
+          : { id: Constants.EPHEMERAL_AGENT_ID, ...memoryConfig.agent };
+      } else {
+        prelimAgent = fallbackMemoryAgent;
       }
     } catch (error) {
       logger.error(
@@ -476,29 +627,50 @@ class AgentClient extends BaseClient {
       return;
     }
 
-    const agent = await initializeAgent(
-      {
-        req: this.options.req,
-        res: this.options.res,
-        agent: prelimAgent,
-        allowedProviders,
-        endpointOption: {
-          endpoint: !isEphemeralAgentId(prelimAgent.id)
-            ? EModelEndpoint.agents
-            : memoryConfig.agent?.provider,
+    const initializeMemoryAgent = async (agentConfig) =>
+      await initializeAgent(
+        {
+          req: this.options.req,
+          res: this.options.res,
+          agent: agentConfig,
+          allowedProviders,
+          endpointOption: {
+            endpoint: !isEphemeralAgentId(agentConfig.id)
+              ? EModelEndpoint.agents
+              : agentConfig.provider,
+          },
         },
-      },
-      {
-        getConvoFiles,
-        getFiles: db.getFiles,
-        getUserKey: db.getUserKey,
-        updateFilesUsage: db.updateFilesUsage,
-        getUserKeyValues: db.getUserKeyValues,
-        getToolFilesByIds: db.getToolFilesByIds,
-        getCodeGeneratedFiles: db.getCodeGeneratedFiles,
-        filterFilesByAgentAccess,
-      },
-    );
+        {
+          getConvoFiles,
+          getFiles: db.getFiles,
+          getUserKey: db.getUserKey,
+          updateFilesUsage: db.updateFilesUsage,
+          getUserKeyValues: db.getUserKeyValues,
+          getToolFilesByIds: db.getToolFilesByIds,
+          getCodeGeneratedFiles: db.getCodeGeneratedFiles,
+          filterFilesByAgentAccess,
+        },
+      );
+
+    let agent = await initializeMemoryAgent(prelimAgent);
+    if (
+      !agent &&
+      prelimAgent?.id === Constants.EPHEMERAL_AGENT_ID &&
+      (prelimAgent.provider !== fallbackMemoryAgent.provider ||
+        prelimAgent.model !== fallbackMemoryAgent.model)
+    ) {
+      logger.warn(
+        '[api/server/controllers/agents/client.js #useMemory] Falling back to default memory model',
+        {
+          requestedProvider: prelimAgent.provider,
+          requestedModel: prelimAgent.model,
+          fallbackProvider: fallbackMemoryAgent.provider,
+          fallbackModel: fallbackMemoryAgent.model,
+        },
+      );
+      prelimAgent = fallbackMemoryAgent;
+      agent = await initializeMemoryAgent(prelimAgent);
+    }
 
     if (!agent) {
       logger.warn(
@@ -518,16 +690,29 @@ class AgentClient extends BaseClient {
 
     /** @type {import('@librechat/api').MemoryConfig} */
     const config = {
-      validKeys: memoryConfig.validKeys,
-      instructions: agent.instructions,
+      validKeys: adminMemory.validKeys?.length > 0 ? adminMemory.validKeys : memoryConfig.validKeys,
+      instructions: adminMemory.instructions || agent.instructions,
       llmConfig,
-      tokenLimit: memoryConfig.tokenLimit,
+      tokenLimit: adminMemory.tokenLimit ?? memoryConfig.tokenLimit,
+      charLimit: adminMemory.charLimit ?? memoryConfig.charLimit,
+      maxValueTokens: adminMemory.maxValueTokens ?? 500,
+      maxWritesPerTurn: adminMemory.maxWritesPerTurn ?? 6,
+      maxAttempts: adminMemory.maxAttempts ?? 3,
+      consolidateMemories: adminMemory.consolidateMemories !== false,
+      auditEnabled: adminMemory.auditEnabled !== false,
+      intent: memoryIntent,
+      evidence: detectedIntent.evidence,
+      sourceMessageId: this.parentMessageId + '',
     };
 
-    const userId = this.options.req.user.id + '';
     const messageId = this.responseMessageId + '';
     const conversationId = this.conversationId + '';
     const streamId = this.options.req?._resumableStreamId || null;
+    const memoryBalanceConfig = getBalanceConfig(appConfig);
+    const memoryTransactionsConfig = getTransactionsConfig(appConfig);
+    const memoryEndpoint = agent.provider;
+    const memoryModel = llmConfig.model;
+
     const [withoutKeys, processMemory] = await createMemoryProcessor({
       userId,
       config,
@@ -538,9 +723,38 @@ class AgentClient extends BaseClient {
         setMemory: db.setMemory,
         deleteMemory: db.deleteMemory,
         getFormattedMemories: db.getFormattedMemories,
+        recordMemoryEvent: db.recordMemoryEvent,
       },
       res: this.options.res,
       user: createSafeUser(this.options.req.user),
+      onUsage: async (collectedUsage) => {
+        await this.recordCollectedUsage({
+          collectedUsage,
+          context: 'memory',
+          endpoint: memoryEndpoint,
+          model: memoryModel,
+          balance: memoryBalanceConfig,
+          transactions: memoryTransactionsConfig,
+          endpointTokenConfig: agent.endpointTokenConfig,
+        });
+        logger.info('[MemoryUsage] Recorded memory model usage', {
+          category: 'memory',
+          userId,
+          conversationId,
+          messageId,
+          endpoint: memoryEndpoint,
+          model: memoryModel,
+          calls: collectedUsage.length,
+          inputTokens: collectedUsage.reduce(
+            (total, usage) => total + (Number(usage.input_tokens) || 0),
+            0,
+          ),
+          outputTokens: collectedUsage.reduce(
+            (total, usage) => total + (Number(usage.output_tokens) || 0),
+            0,
+          ),
+        });
+      },
     });
 
     this.processMemory = processMemory;
@@ -584,14 +798,13 @@ class AgentClient extends BaseClient {
    * @param {BaseMessage[]} messages
    * @returns {Promise<void | (TAttachment | null)[]>}
    */
-  async runMemory(messages) {
+  async runMemory(messages, responseContentParts = []) {
     try {
       if (this.processMemory == null) {
         return;
       }
-      const appConfig = this.options.req.config;
-      const memoryConfig = appConfig.memory;
-      const messageWindowSize = memoryConfig?.messageWindowSize ?? 5;
+      const messageWindowSize =
+        this.memoryMessageWindowSize ?? this.options.req.config?.memory?.messageWindowSize ?? 5;
 
       let messagesToProcess = [...messages];
       if (messages.length > messageWindowSize) {
@@ -609,8 +822,25 @@ class AgentClient extends BaseClient {
       }
 
       const filteredMessages = messagesToProcess.map((msg) => this.filterImageUrls(msg));
+      const contextCharLimit = this.memoryContextCharLimit ?? 60000;
       const bufferString = getBufferString(filteredMessages);
-      const bufferMessage = new HumanMessage(`# Current Chat:\n\n${bufferString}`);
+      const requestSection = `# Current Chat Request and Recent Context:
+
+${bufferString}`;
+      const remainingContextChars = Math.max(contextCharLimit - requestSection.length - 2, 0);
+      const assistantContext = this.memoryIncludeAssistantContext
+        ? formatMemoryResponseContext(responseContentParts, remainingContextChars)
+        : '';
+      const transcript = [
+        requestSection,
+        assistantContext ? `# Completed Assistant and Tool Context:
+
+${assistantContext}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+        .slice(0, contextCharLimit);
+      const bufferMessage = new HumanMessage(transcript);
       return await this.processMemory([bufferMessage]);
     } catch (error) {
       logger.error('Memory Agent failed to process memory', error);
@@ -638,6 +868,8 @@ class AgentClient extends BaseClient {
   /**
    * @param {Object} params
    * @param {string} [params.model]
+   * @param {string} [params.endpoint]
+   * @param {EndpointTokenConfig} [params.endpointTokenConfig]
    * @param {string} [params.context='message']
    * @param {AppConfig['balance']} [params.balance]
    * @param {AppConfig['transactions']} [params.transactions]
@@ -645,8 +877,10 @@ class AgentClient extends BaseClient {
    */
   async recordCollectedUsage({
     model,
+    endpoint,
     balance,
     transactions,
+    endpointTokenConfig,
     context = 'message',
     collectedUsage = this.collectedUsage,
   }) {
@@ -662,11 +896,12 @@ class AgentClient extends BaseClient {
         conversationId: this.conversationId,
         collectedUsage,
         model: model ?? this.model ?? this.options.agent.model_parameters.model,
+        endpoint: endpoint ?? this.options.agent.provider ?? this.options.endpoint,
         context,
         messageId: this.responseMessageId,
         balance,
         transactions,
-        endpointTokenConfig: this.options.endpointTokenConfig,
+        endpointTokenConfig: endpointTokenConfig ?? this.options.endpointTokenConfig,
       },
     );
 
@@ -821,7 +1056,9 @@ class AgentClient extends BaseClient {
         //   messages = addCacheControl(messages);
         // }
 
-        memoryPromise = this.runMemory(messages);
+        if (this.processMemory && this.memoryProcessAfterResponse === false) {
+          memoryPromise = this.runMemory(messages);
+        }
 
         run = await createRun({
           agents,
@@ -857,6 +1094,10 @@ class AgentClient extends BaseClient {
             [Callback.TOOL_ERROR]: logToolError,
           },
         });
+
+        if (this.processMemory && this.memoryProcessAfterResponse !== false) {
+          memoryPromise = this.runMemory(messages, this.contentParts);
+        }
 
         config.signal = null;
       };
@@ -900,7 +1141,7 @@ class AgentClient extends BaseClient {
       }
     } finally {
       try {
-        const attachments = await this.awaitMemoryWithTimeout(memoryPromise);
+        const attachments = await this.finalizeMemoryProcessing(memoryPromise);
         if (attachments && attachments.length > 0) {
           this.artifactPromises.push(...attachments);
         }

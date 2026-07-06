@@ -22,8 +22,11 @@ async function saveRealtimeConversationController(req, res) {
   try {
     const conversation = await saveRealtimeConversation({
       userId: req.user?.id,
+      conversationId: req.body?.conversationId,
+      parentMessageId: req.body?.parentMessageId,
       endpoint: req.body?.endpoint,
       model: req.body?.model,
+      textModel: req.body?.textModel,
       entries: req.body?.entries,
       startedAt: req.body?.startedAt,
       endedAt: req.body?.endedAt,

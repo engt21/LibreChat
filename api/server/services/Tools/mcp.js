@@ -5,6 +5,63 @@ const { findToken, createToken, updateToken, deleteTokens } = require('~/models'
 const { updateMCPServerTools } = require('~/server/services/Config');
 const { getLogStores } = require('~/cache');
 
+const MCP_AUTHENTICATION_REQUIRED = 'MCP_AUTHENTICATION_REQUIRED';
+
+function createMCPAuthenticationRequiredResult(serverName, toolName) {
+  return {
+    availableTools: null,
+    success: false,
+    code: MCP_AUTHENTICATION_REQUIRED,
+    status: 'authentication_required',
+    authenticationRequired: true,
+    message: `MCP server '${serverName}' requires authentication`,
+    oauthRequired: true,
+    serverName,
+    oauthUrl: null,
+    tools: null,
+    ...(toolName ? { toolName } : {}),
+  };
+}
+
+async function getMCPAuthenticationRequirement({
+  user,
+  serverName,
+  serverConfig,
+  toolName,
+  tokenMethods = { findToken },
+}) {
+  if (!serverConfig?.requiresOAuth && !serverConfig?.oauthMetadata) {
+    return null;
+  }
+
+  const userId = user?.id;
+  if (!userId) {
+    return createMCPAuthenticationRequiredResult(serverName, toolName);
+  }
+
+  const identifier = `mcp:${serverName}`;
+  let accessToken;
+  let refreshToken;
+  try {
+    [accessToken, refreshToken] = await Promise.all([
+      tokenMethods.findToken({ userId, identifier }),
+      tokenMethods.findToken({ userId, identifier: `${identifier}:refresh` }),
+    ]);
+  } catch (error) {
+    logger.warn(
+      `[MCP][User: ${userId}][${serverName}] OAuth token preflight failed; preserving normal initialization`,
+      error,
+    );
+    return null;
+  }
+
+  if (accessToken || refreshToken) {
+    return null;
+  }
+
+  return createMCPAuthenticationRequiredResult(serverName, toolName);
+}
+
 /**
  * Reinitializes an MCP server connection and discovers available tools.
  * When OAuth is required, uses discovery mode to list tools without full authentication
@@ -43,6 +100,18 @@ async function reinitMCPServer({
   try {
     const registry = getMCPServersRegistry();
     const serverConfig = await registry.getServerConfig(serverName, user?.id);
+    const authenticationRequirement = await getMCPAuthenticationRequirement({
+      user,
+      serverName,
+      serverConfig,
+    });
+    if (authenticationRequirement) {
+      logger.info(
+        `[MCP Reinitialize] Authentication required for ${serverName}; skipping transport`,
+      );
+      return authenticationRequirement;
+    }
+
     if (serverConfig?.inspectionFailed) {
       logger.info(
         `[MCP Reinitialize] Server ${serverName} had failed inspection, attempting reinspection`,
@@ -146,7 +215,6 @@ async function reinitMCPServer({
             `[MCP Reinitialize] Tool discovery failed for ${serverName}: ${discoveryErr?.message ?? String(discoveryErr)}`,
           );
         }
-
       } else {
         logger.error(
           `[MCP Reinitialize] Error initializing MCP server ${serverName} for user:`,
@@ -192,6 +260,7 @@ async function reinitMCPServer({
         (tools && tools.length > 0),
       ),
       message: getResponseMessage(),
+      authenticationRequired: false,
       oauthRequired,
       serverName,
       oauthUrl,
@@ -215,5 +284,8 @@ async function reinitMCPServer({
 }
 
 module.exports = {
+  MCP_AUTHENTICATION_REQUIRED,
+  createMCPAuthenticationRequiredResult,
+  getMCPAuthenticationRequirement,
   reinitMCPServer,
 };

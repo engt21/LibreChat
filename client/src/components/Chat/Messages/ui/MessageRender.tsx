@@ -183,6 +183,7 @@ const MessageRender = memo(function MessageRender({
           ) : (
             <SubRow classes="text-xs">
               <SiblingSwitch
+                message={msg}
                 siblingIdx={siblingIdx}
                 siblingCount={siblingCount}
                 setSiblingIdx={setSiblingIdx}

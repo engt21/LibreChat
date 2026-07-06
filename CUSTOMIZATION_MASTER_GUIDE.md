@@ -45,13 +45,16 @@ The custom work falls into these main buckets:
 6. xAI custom-endpoint live discovery and capability-aware settings
 7. Ollama multi-source discovery, hosted web search, and reasoning controls
 8. MCP interoperability, OAuth hardening, alphabetical ordering, admin publishing, and per-server MCP tool filtering
-9. Local runtime, Docker, startup, observability, and worktree workflow changes
-10. Secret-handling and local git safety improvements
-11. Background audio/video transcription with persistent conversations
-12. Google auth mode support (API key, Vertex service account, Vertex ADC)
-13. Internet Archive / Wayback read-only MCP server integration
-14. arXiv research MCP server integration with prompt-injection guardrails
-15. UX preservation fixes and ordering controls, including fixed sidebar chat recency/month buckets and user-sortable presets
+9. Realtime voice provider-boundary safety: chat-input controls outside `MessagesViewProvider` must use `ChatContext` or optional hooks, with no-provider render coverage
+10. Local runtime, Docker, startup, observability, and worktree workflow changes
+11. Secret-handling and local git safety improvements
+12. Background audio/video transcription with persistent conversations
+13. Google auth mode support (API key, Vertex service account, Vertex ADC)
+14. Internet Archive / Wayback read-only MCP server integration
+15. arXiv research MCP server integration with prompt-injection guardrails
+16. UX preservation fixes and ordering controls, including local-upload persistence across model/preset switches, fixed sidebar chat recency/month buckets, user-sortable presets, and safe preset duplication
+17. Owner-only linked-chat references that let normal chats and Agents resolve explicitly pasted LibreChat `/c/<UUID>` URLs and owned `/share/<shareId>` snapshots into bounded, ephemeral historical context
+18. Admin-controlled deterministic default `calculator`, `text_analyzer`, `string_utility`, and `json_utility` structured tools attached server-side to every interactive model request
 
 ---
 
@@ -62,14 +65,18 @@ The custom work falls into these main buckets:
 - Adds an admin console UI and backend routes
 - Adds admin roles/permissions beyond simple superadmin behavior
 - Adds DB-backed app settings such as `registrationEnabled`, `platformPrompt`, `modelSteeringEnabled`, MCP publishing/domain controls, and BYOK provider policies
-- Adds admin-managed BYOK provider policies (`enabled`, `allowBaseURL`, `fallbackToPlatform`) for built-in/custom providers; server-side BYOK resolution prefers user credentials and can fall back to platform credentials for missing/expired user keys
+- Adds admin-managed BYOK provider policies (`enabled`, `allowBaseURL`, `fallbackToPlatform`) for built-in/custom providers; server-side BYOK resolution prefers user credentials and can fall back to platform credentials for missing/expired user keys. Effective policies must also drive `/api/endpoints`: enabled providers expose the key picker, `allowBaseURL` exposes an optional base URL override, and model discovery plus all generation paths must use the same saved URL.
 - Expands admin user detail with safe preferences, user MCP servers, BYOK key status, scheduled-run count, MCP server count, active BYOK key count, and last active time
 - Makes observability links host-aware instead of always using `localhost`
 - Syncs `SUPERADMIN_EMAILS` into admin role membership on startup and auth flows
 - Shows the model-picker API-key settings cog at the provider level, but only for super-admin users, excluding `My Agents`
 - Reopens that provider settings cog with the saved provider values preloaded so super admins can update only the changed field; new provider-key saves default to never expire unless the user chooses a finite expiry
+- Adds branch-aware alternate-generation deletion beside the `1/N` control; it removes only the selected assistant route and its descendants, preserves sibling routes, and refuses user-message or last-generation deletion
 - Adds `AppSettings.platformPrompt`, a super-admin-editable platform system prompt that is prepended before preset/user/agent instructions for Assistants and Agents
 - Adds optional model steering (`AppSettings.modelSteeringEnabled` + per-user `modelSteeringPrefs.enabled`): during a running non-Assistants generation, the normal chat bar can send a steering instruction via `POST /api/agents/chat/steer` while Stop remains available; the server aborts the active job, saves the partial assistant response, and restarts the continuation under the partial response.
+- Adds `AppSettings.deterministicTools` with calculator, Unicode-aware text analysis, bounded string operations, and bounded JSON operations enabled by default; Workspace Settings can toggle them independently, and shared server-side agent initialization makes their calls render through the normal structured/MCP-style tool timeline.
+- Keeps `My Agents` out of the model picker and exposes it through the adjacent dedicated Agents button; provider groups are ordered OpenAI, Anthropic, Azure OpenAI, Google, xAI, Ollama, then remaining providers.
+- Orders Anthropic quick selections as latest Sonnet followed by latest Opus, and exposes OpenAI Deep Research as a chat-bar capability rather than a suggested model.
 
 ### Main files
 
@@ -148,7 +155,7 @@ The custom work falls into these main buckets:
 
 ### Why this is merge-sensitive
 
-This area overlaps with auth, config, user creation, and route registration. Upstream changes in auth/config can easily miss custom admin behavior if merged carelessly. Preserve the `AUTH_SECURITY.md` controls: generic local-login failures, pending-cookie TOTP enrollment, MFA enforcement/recovery, purpose-bound JWTs, secure-cookie override, explicit CORS/security headers, and the separate `MCP_OAUTH_CALLBACK_BASE_URL` loopback callback.
+This area overlaps with auth, config, user creation, and route registration. Upstream changes in auth/config can easily miss custom admin behavior if merged carelessly. Preserve the `AUTH_SECURITY.md` controls: generic local-login failures, login acceptance of legacy passwords shorter than the current registration/reset minimum, password-reset session revocation, pending-cookie TOTP enrollment, MFA enforcement/recovery, purpose-bound JWTs, secure-cookie override, explicit CORS/security headers, the separate `MCP_OAUTH_CALLBACK_BASE_URL` loopback callback, cache-preserving silent refresh, transient restart retry without forced logout, and the platform-admin exemption from automated user/IP violation bans and session revocation.
 
 ---
 
@@ -159,6 +166,10 @@ This area overlaps with auth, config, user creation, and route registration. Ups
 - Adds per-user scheduled runs for agent executions and model prompts
 - Adds manual run-now capability
 - Supports direct model prompt automation tools, including MCP servers and optional per-server MCP tool subsets
+- Keeps Agent Builder provider-aware: model/provider-supported hosted Web Search, Code Interpreter, and File Search controls are shown explicitly, while `local_code_interpreter` and `local_file_search` remain independent provider-agnostic choices
+- Keeps the generic custom structured-tool catalog and MCP selectors visible alongside provider/local controls; tool uploads preserve the selected tool ID through `agent_tool`, and stale Redis catalog entries cannot hide newly deployed tools
+- Adds a guarded `agent_builder` structured tool for conversational agent creation through the normal model/tool authorization and ACL path; creation requires explicit confirmation
+- Automatically attaches `calculator`, `text_analyzer`, `string_utility`, and `json_utility` in the shared agent initializer unless the Admin Console disables them; preserve `DETERMINISTIC_DEFAULT_TOOLS.md`, the manifest/runtime registrations, and enabled-by-default normalization
 - Supports notifications through:
   - email
   - Twilio SMS
@@ -277,11 +288,18 @@ This area overlaps with auth, config, user creation, and route registration. Ups
 - Allows raw arbitrary file uploads only when the upload is explicitly routed to `execute_code`; keep MIME allowlists enforced for file search, avatars, context parsing, Assistants uploads, and ordinary attachments
 - Keeps Code Interpreter visible as an upload destination for ephemeral chat uploads whenever the conversation supports it, even before the Code Interpreter toggle is already on; this lets audio such as `.wav` go to either transcription or Code Interpreter by explicit user choice
 - Preserves `tool_resource` and native-tool metadata after upload completion so Code Interpreter-routed `.wav`/`.m4a` attachments do not fall back into generic audio/transcription UI paths
+- Sends message image uploads directly to provider vision instead of configured OCR; non-message agent context can still use OCR/document parsing
+- Keeps tool-routed images available to Code Interpreter or another selected tool while also attaching the image to the LLM's visual message content
+- Preserves the exact uploaded image separately from the normalized vision copy so local Code Interpreter receives the original file during both direct upload and lazy branch staging
+- Uses maximum compatible automatic image detail (`original` for supported direct OpenAI GPT-5.4/GPT-5.5 models, otherwise `high`) without overriding an explicit user choice
+- Records the selected local upload destination in a synchronous ref before opening the browser file picker; the input `change` callback must read that ref rather than depending on React state that may not have committed yet. This prevents a first-click `execute_code` selection from silently becoming a normal attachment.
+- Stages ordinary files from the active message branch when Code Interpreter runs, even when they were uploaded earlier as normal `message_attachment` files. Thread lookup must not require `metadata.fileIdentifier`; agent initialization transiently categorizes those branch files under `execute_code`, and the existing JIT uploader creates/persists the identifier after successful VM Code API upload.
+- Keeps `LOCAL_CODE_WORKSPACE_HOST_ROOT` set to the Docker host's absolute workspace path. VM stable uses `/opt/LibreChat-custom/local-code-interpreter/data/workspaces`; never reuse the former pve2 `/workspace/...` value. Run `local-services/verify-code-interpreter-file-mount.sh` after container or path changes because ordinary health checks do not validate file injection.
 - Uses completed OpenAI/Azure reasoning summary parts instead of fragmentary incremental events and coalesces adjacent thought parts in the UI
 - Sanitizes malformed Anthropic signed thinking blocks before storage/request replay so interrupted Claude native-tool streams do not poison later turns
 - Sanitizes Anthropic server-tool history for web search, web fetch, code execution, and advisor so only matched `server_tool_use` / `*_tool_result` pairs are replayed
 - Adds direct Anthropic sidebar controls for fast mode, web fetch with citations, hosted code execution, advisor, and advisor model selection while skipping unsupported/Vertex combinations with warnings instead of invalid requests
-- Avoids duplicate prompt/file injection when native tools own the file flow
+- Avoids duplicate extracted prompt/file context when native tools own the file flow, while intentionally allowing the original image to reach both the vision model and selected tool
 
 ### Main behavior
 
@@ -313,6 +331,12 @@ This area overlaps with auth, config, user creation, and route registration. Ups
 - `client/src/hooks/Files/useFileHandling.ts`
 - `client/src/utils/files.ts`
 - `packages/data-schemas/src/schema/file.ts`
+
+### Owner-only linked-chat references
+
+- `api/app/clients/BaseClient.js`
+- `api/server/services/ChatReferences/*`
+- Preserve the dual owner filters on direct conversation/message reads, owner-scoped `SharedLink` lookup before loading a branch-limited share snapshot, the full-link-only trigger, fair per-message excerpts for oversized Responses `content[].text`, reference-context-before-current-request ordering, transcript bounds, generic unavailable response, delimiter escaping, and original-prompt persistence.
 - related file metadata/types in `packages/data-schemas/src/*`
 - `config/apply-runtime-patches.js`
 - `package.json`
@@ -649,6 +673,8 @@ This area is partly documented in `README.md`, but there is no single standalone
   expose request-host-resolved browser URLs for clicking, and settings saves
   should normalize same-host observability links back to `localhost`.
 - keep Code Interpreter dynamic-child prerequisites intact on the VM:
+- keep Code Interpreter execution on the same VM as production LibreChat: `LibreChat`, `code-interpreter-local`, and dynamically created `llm-sandbox` children use the VM Docker daemon and `librechat-stable_default`; do not move sandbox execution to the pve2 source/build host
+- keep outbound networking enabled by default for local Code Interpreter child sandboxes (`LOCAL_CODE_ALLOW_NETWORK=true`) so runtime `pip` installs work; retain the operator opt-out plus memory/CPU/PID limits, dropped capabilities, and `no-new-privileges`
   `code-interpreter-local` needs `/var/run/docker.sock`, the
   `ghcr.io/vndee/sandbox-python-311-bullseye` image, and
   `/opt/LibreChat-custom/local-code-interpreter/data`. Random `llm-sandbox`
@@ -660,12 +686,14 @@ This area is partly documented in `README.md`, but there is no single standalone
 - keep the documented `DOMAIN_SERVER` callback behavior aligned with the MCP section above
 - keep dev shared-stable data mode in `rail-env.sh` (`LIBRECHAT_DEV_USE_STABLE_MONGO=true` by default) and the opt-in isolated fallback (`LIBRECHAT_DEV_USE_STABLE_MONGO=false`)
 - keep failover lifecycle in place: stable systemd startup is explicit, automatic dev startup is owned by `librechat-dev-failover.timer`, and `LIBRECHAT_DEV_PROFILE=failover` starts only minimal dev services without rebuilding
+- preserve the full production recovery/deployment-continuity system in `LIBRECHAT_HEALTH_MONITORING.md`: pve2 and VM watchdogs have disjoint VM/container recovery scopes; categorized alerts include DOWN/HEALED/HEAL FAILED details; explicit maintenance markers suppress deployment noise and self-heal races; stable deployment helpers route `:8443` to the verified VM `3082` last-known-good fallback before mutating stable; rollback pointers must describe the exact healthy pre-deploy snapshot and known-bad repair snapshots must never become automatic targets; keep the outbound pve2 cloud heartbeat and do not restore the invalid tailnet-DNS public web test
 - keep reduced dev resource defaults; dev is for explicit testing or stable failure fallback, not a second always-on full stack
 - keep `sync-from-stable.sh` from restoring MongoDB or rsyncing uploads when dev already shares stable data
 - keep `health-check.sh` treating shared `uploads/` as an intentional safe shared mount
 - keep `dev-seed-validation-personas.js` refusing shared/stable MongoDB targets unless explicitly overridden; dev testing on shared data should use test accounts and avoid destructive resets
-- keep `local-services/run-node-capped.sh` and the npm capped aliases for host-side LibreChat jobs; lint defaults to a `3G` cgroup and `1024 MB` Node heap, build/frontend default to a `4G` cgroup and `1536 MB` Node heap, and all profiles use `MemorySwapMax=0`
-- keep `local-services/deploy-runtime-delta.sh` as the guarded fast path for backend/runtime-loaded code, config helpers, runtime bind files, and already-built `packages/*/dist/**`; it must snapshot old files, apply runtime patches when `config/apply-runtime-patches.js` changes, restart/health-check, require explicit stable approval, and refuse frontend source, individual frontend dist files, package source, dependency, Dockerfile, and compose changes
+- keep `local-services/run-node-capped.sh` and the npm capped aliases for host-side LibreChat jobs; lint defaults to a `3G` cgroup and `1024 MB` Node heap, build/frontend use low-priority uncapped host execution with an `8192 MB` Node heap and `LIBRECHAT_ROLLUP_SOURCEMAP=false`, while lint/test profiles remain cgroup-capped; keep the dedicated low-priority host build swap enabled for package builds
+- keep `local-services/deploy-runtime-delta.sh` as the mandatory first path for backend/runtime-loaded code, config helpers, runtime bind files, and already-built `packages/*/dist/**`; it must snapshot old files, apply runtime patches when `config/apply-runtime-patches.js` changes, restart/health-check, require explicit stable approval, verify production memory headroom, and commit the verified filesystem to `librechat-local:runtime-current` so later recreates do not lose hot patches; it must refuse frontend source, individual frontend dist files, package source, dependency, Dockerfile, and compose changes
+- rebuild only the affected package when `packages/*/src/**` changed; use `LIBRECHAT_ROLLUP_SOURCEMAP=false` for production dist builds to avoid unnecessary multi-gigabyte source-map heaps; reserve full Docker image builds for dependencies, Dockerfiles, base images, and incompatible container-shape changes
 - keep `client/scripts/post-build.cjs` generating `.librechat-client-dist-manifest.json` and keep `local-services/deploy-built-client-dist.sh` as the only supported frontend hot-promotion path; it must reject stale/tampered/URL-rewritten bundles, snapshot and atomically swap the complete `client/dist`, restart to clear cached HTML, and rollback on failed health verification
 - never deploy a `client/src/**` fix by copying source alone or by hand-editing hashed `client/dist/assets/*`, `client/dist/index.html`, or `client/dist/sw.js`; browsers run the built asset graph and a partial patch can blank or crash the authenticated UI
 - keep the OpenAI/Azure Responses native-web-search `max_tool_calls` bound in `packages/api/src/endpoints/openai/llm.ts` (default `6`, configured maximum `12`); it prevents production reasoning turns from entering repeated web-search stages without a final answer
@@ -936,6 +964,8 @@ These are the files and areas most likely to need careful manual review when mer
 ### Sidebar grouping and preset ordering
 
 - `client/src/utils/convos.ts` — fixed sidebar recency/date buckets: Today, Yesterday, Last week, Last month, current-year month buckets, Last year, Older than last year
+- `client/src/hooks/useNewConvo.ts`, `client/src/hooks/Input/useSelectMention.ts`, and `client/src/hooks/Conversations/usePresets.ts` — model/spec/endpoint/preset switches must pass the compose-file preservation flag so locally uploaded PDFs, images, and other provider attachments remain selected; only an actual New Chat should run file/draft cleanup
+- `client/src/hooks/__tests__/useNewConvo.spec.tsx` and `client/src/hooks/Conversations/usePresets.spec.tsx` — regression coverage for preserved local uploads on configuration switches and cleared uploads on actual New Chat
 - `api/models/Preset.js`
 - `api/server/routes/presets.js`
 - `client/src/hooks/Conversations/usePresets.ts`
@@ -953,6 +983,9 @@ These are the files and areas most likely to need careful manual review when mer
 - `packages/api/src/mcp/oauth/handler.ts`
 - `packages/api/src/mcp/MCPConnectionFactory.ts`
 - `packages/data-schemas/src/schema/mcpServer.ts`
+- `api/server/controllers/mcp.js`
+- `api/server/services/Tools/mcp.js`
+- `api/server/services/MCP.js`
 - `api/server/routes/mcp.js`
 - `docker-compose.local.override.yml`
 
@@ -1079,8 +1112,20 @@ The runtime `librechat.yaml` must include these sections beyond endpoints. In th
 memory:
   agent:
     provider: 'openAI'
-    model: 'gpt-4.1-mini'
+    model: 'gpt-5.6-terra'
 ```
+
+The database-backed Admin Console memory policy overrides the inline provider and model through an
+access-filtered picker populated from the signed-in administrator's effective `/api/models` inventory,
+and also overrides
+instructions, intent policy, timing, context bounds, write limits, timeout, storage limits,
+and audit behavior. The safe defaults require an explicit save/delete request and run the
+memory worker after the main response. Preserve `MEMORY_SYSTEM.md`, the `memory` app-settings
+schema, `memoryPolicy.ts`, post-response orchestration, provenance fields, and `MemoryEvent`
+audit model together during upstream merges. Memory model calls must remain separately observable:
+Langfuse uses `MemoryRun` plus `category=memory`, token transactions use `context=memory` with the
+memory provider/model, and Grafana provisions the `librechat-memory-usage` dashboard. Preserve the
+runtime trace-metadata patch and rebuild all affected package dist artifacts.
 
 - `speech:` -- required for STT/TTS functionality
 - Arcade/Microsoft MCP servers are not static YAML defaults; keep `mcpServers.arcade-read` absent and manage Arcade entries through user/admin DB-backed MCP registration and publishing workflows.
@@ -1096,7 +1141,8 @@ The running local app should be the custom build from:
 
 - source worktree: `/pool/home/timeng/LibreChat-custom`
 - VM runtime bundle: `/opt/LibreChat-custom`
-- image: `librechat-local:latest`
+- image: the VM `.env` value of `LIBRECHAT_API_IMAGE`; after a verified runtime delta this should be
+  `librechat-local:runtime-current`. `librechat-local:latest` is a build tag, not rollback proof.
 
 The source worktree is the intended source of truth for code and local validation behavior; the VM bundle is the live production runtime.
 
@@ -1115,12 +1161,66 @@ Use this order:
 
 If a future merge preserves the feature buckets and preserve-lists in this document, it should preserve the substance of the custom branch.
 
-## Deterministic tools and picker preservation
+## Authentication and memory runtime contracts
 
-- Keep all four deterministic tools registered in the manifest, tool exports, constructor map, shared agent initializer, app-settings schema, backend normalization, and Admin Console controls.
-- Missing `AppSettings.deterministicTools` values must default to enabled so upgrades need no data migration.
-- Keep the model picker model-only and preserve the dedicated adjacent Agents button plus defense-in-depth agent filtering.
-- Preserve provider ordering as OpenAI, Anthropic, Azure OpenAI, Google, xAI, Ollama, then remaining providers.
-- Preserve Anthropic quick-selection order as latest Sonnet followed by latest Opus.
-- Keep Deep Research on the chat bar and hide legacy Deep Research model specs.
-- See `DETERMINISTIC_DEFAULT_TOOLS.md` for validation and merge details.
+Before any stable deployment that touches authentication, sessions, agents, memory, `packages/api`, or `packages/data-schemas`, read `AUTH_DEPLOYMENT_SAFETY.md` and run:
+
+```bash
+npm run test:refresh-token-runtime-contract
+npm run verify:refresh-token-runtime-contract
+npm run verify:auth-memory-runtime-contracts
+```
+
+Before and after deployment on the VM:
+
+```bash
+ssh timeng@192.168.50.104 \
+  'cd /opt/LibreChat-custom && \
+   ./local-services/verify-refresh-token-runtime-contract.sh --container LibreChat && \
+   ./local-services/verify-auth-memory-runtime-contracts.sh --container LibreChat'
+```
+
+Never promote a directly loaded controller without its matching compiled workspace `dist`, never delete all sessions as a rebuild/restart side effect, and never reset a password or TOTP secret to diagnose an MFA refresh loop unless the account owner explicitly requests that credential change. The runtime contract verifier also requires GPT-5.6, `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` compiled capabilities to expose both `max` and `ultra`; source-only support is not sufficient because the client consumes the compiled data-provider bundle.
+
+## July 5-6, 2026 protected release surface
+
+Treat these as one inseparable preservation set during merges and deployments:
+
+- GPT-5.6 `max` and UI `ultra` (`max` + `mode: pro`) reasoning support.
+- Explicit post-response memory worker with completed tool context and admin-selected model/provider.
+- Refresh-token/session/MFA persistence contracts.
+- Deterministic default tools and admin controls.
+- Dedicated Agents button; no My Agents in the model picker; provider and suggested-model ordering.
+- Deep Research as a chat-bar tool and preset duplication.
+- Direct high/original-fidelity provider vision plus original-file local Code Interpreter staging.
+- Immediate Send/Retry status and real provider partial-image streaming with no pixel placeholder.
+- Per-thread/per-turn token, cache, and tool-call usage side panel.
+- Full prompt/generation/descendant/tool-call tree deletion.
+- Validated conversation forks preserve parent-before-child tree structure and reject missing,
+  unfinished, empty, or circular trees instead of creating a broken fork.
+- Local uploads persist across model, endpoint, mention, and preset switches; only an actual New Chat
+  clears the draft/files.
+- Authenticated-first OAuth MCP discovery, with a no-token `MCP_AUTHENTICATION_REQUIRED` fast path that skips repeated transport and discovery initialization while preserving access-token and refresh-token behavior.
+- Health monitors, production-first resource classes, benchmark throttling, one-hour Code Interpreter
+  sandbox TTL, deployment fallback, verified image tags, last-known-good rollback, canonical API
+  command, and heap headroom.
+
+A backend-only deployment must not replace or downgrade `client/dist`. A frontend deployment must use a fresh complete manifest-verified build. Run the focused tests and all mandatory verifiers named in `CUSTOMIZATION_MASTER_DOC.md` before stable promotion, then validate the designated production test conversations.
+
+The July 6 resource-starvation/authentication RCA and the exact cross-layer preservation requirements
+are recorded in `PRODUCTION_INCIDENT_2026-07-06.md`. Do not diagnose the Mongo timeout path by
+resetting credentials, and do not roll back to a mutable/stale `librechat-local:latest` tag.
+
+### July 6 final preservation clarifications
+
+- Suggested model generation must keep `name`, `label`, and `preset.model` synchronized; picker
+  identity is keyed by `name`, not the label.
+- Same-OpenAI model/spec transitions preserve current file and ephemeral-tool state. Cross-provider
+  transitions may apply the target provider's defaults. Assistant switches preserve draft files.
+- Image-tool argument JSON is partial while streaming; never treat incomplete fragments as an error
+  or restore a synthetic preview.
+- Thread Usage sends only the selected latest-message ancestry, excluding hidden sibling branches.
+- Sandbox TTL prefers session activity metadata and executes active-ID selection/removal under one
+  session lock.
+- Deployment fallback abort is time-bounded, and runtime delta must execute an immutable fallback
+  helper snapshot with fail-closed memory-headroom gating.

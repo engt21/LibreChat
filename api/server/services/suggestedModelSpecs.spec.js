@@ -78,6 +78,16 @@ describe('suggested model specs', () => {
     ).toEqual(['chat-latest', 'gpt-5.5', 'gpt-5.5-mini']);
   });
 
+  it('uses GPT-5.6 as the latest full OpenAI suggestion when available', () => {
+    expect(
+      getSuggestedModelsForEndpoint(
+        EModelEndpoint.openAI,
+        ['chat-latest', 'gpt-5.6', 'gpt-5.6-sol', 'gpt-5.5', 'gpt-5.5-mini'],
+        3,
+      ),
+    ).toEqual(['chat-latest', 'gpt-5.6', 'gpt-5.5-mini']);
+  });
+
   it('uses versioned chat-latest as the top OpenAI suggestion when the short alias is absent', () => {
     expect(
       getSuggestedModelsForEndpoint(
@@ -159,6 +169,7 @@ describe('suggested model specs', () => {
       'Claude Sonnet 4.6',
       'Claude Opus 4.7',
     ]);
+    expect(result.list.map((spec) => spec.name)).toEqual(result.list.map((spec) => spec.label));
   });
 
   it('keeps three OpenAI suggestions, Sonnet and Opus for Anthropic, and one for others', () => {

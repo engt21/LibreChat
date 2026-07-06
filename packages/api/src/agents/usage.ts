@@ -34,6 +34,7 @@ export interface RecordUsageParams {
   conversationId: string;
   collectedUsage: UsageMetadata[];
   model?: string;
+  endpoint?: string;
   context?: string;
   messageId?: string;
   balance?: Partial<TCustomConfig['balance']> | null;
@@ -60,6 +61,7 @@ export async function recordCollectedUsage(
   const {
     user,
     model,
+    endpoint,
     balance,
     messageId,
     transactions,
@@ -107,6 +109,7 @@ export async function recordCollectedUsage(
     const txMetadata: TxMetadata = {
       user,
       context,
+      endpoint,
       balance,
       messageId,
       transactions,

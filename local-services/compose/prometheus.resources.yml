@@ -1,0 +1,31 @@
+services:
+  blackbox:
+    mem_limit: 96m
+    mem_reservation: 24m
+    memswap_limit: 96m
+    cpus: 0.15
+    cpu_shares: 48
+    pids_limit: 64
+    blkio_config:
+      weight: 50
+      device_read_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 10mb
+      device_write_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 5mb
+  prometheus:
+    mem_limit: 768m
+    mem_reservation: 192m
+    memswap_limit: 768m
+    cpus: 0.5
+    cpu_shares: 96
+    pids_limit: 128
+    blkio_config:
+      weight: 80
+      device_read_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 30mb
+      device_write_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 25mb

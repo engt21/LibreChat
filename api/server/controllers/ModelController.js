@@ -21,14 +21,45 @@ const { getUserKey, getUserKeyValues } = require('~/models');
 const { getLogStores } = require('~/cache');
 
 let hasCompletedStartupModelRefresh = false;
+const MODELS_CONFIG_TTL_MS = 5 * 60 * 1000;
+const modelsConfigCache = new Map();
+
+const getModelsConfigCacheKey = (req) => {
+  const userId = req.user?.id ?? 'anonymous';
+  const role = req.user?.role ?? 'unknown';
+  const permissions = JSON.stringify(req.user?.modelPermissions ?? null);
+  return `${userId}:${role}:${permissions}`;
+};
 
 /**
  * @param {ServerRequest} req
  * @returns {Promise<TModelsConfig>} The models config.
  */
 const getModelsConfig = async (req) => {
-  const modelsConfig = await loadModels(req);
-  return filterModelsConfigForUser(modelsConfig, req.user);
+  if (req._modelsConfig) {
+    return req._modelsConfig;
+  }
+
+  const cacheKey = getModelsConfigCacheKey(req);
+  const cached = modelsConfigCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    req._modelsConfig = await cached.value;
+    return req._modelsConfig;
+  }
+
+  const value = loadModels(req)
+    .then((modelsConfig) => filterModelsConfigForUser(modelsConfig, req.user))
+    .catch((error) => {
+      modelsConfigCache.delete(cacheKey);
+      throw error;
+    });
+
+  modelsConfigCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + MODELS_CONFIG_TTL_MS,
+  });
+  req._modelsConfig = await value;
+  return req._modelsConfig;
 };
 
 const getDynamicCustomEndpoints = (appConfig) => {
@@ -648,6 +679,7 @@ async function modelController(req, res) {
  */
 function resetStartupModelRefresh() {
   hasCompletedStartupModelRefresh = false;
+  modelsConfigCache.clear();
 }
 
 module.exports = { modelController, loadModels, getModelsConfig, resetStartupModelRefresh };

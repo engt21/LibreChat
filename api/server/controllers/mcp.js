@@ -183,7 +183,7 @@ const getMCPTools = async (req, res) => {
 
     // Track both processed tools and raw discovery metadata per server
     const serverToolsMap = new Map();
-    /** @type {Map<string, { oauthRequired?: boolean, oauthUrl?: string|null, discoveredRawTools?: Array, discoveredToolFunctions?: object }>} */
+    /** @type {Map<string, { oauthRequired?: boolean, oauthUrl?: string|null, authenticationRequired?: object, discoveredRawTools?: Array, discoveredToolFunctions?: object }>} */
     const serverDiscoveryMeta = new Map();
 
     for (const { serverName, tools } of cacheResults) {
@@ -224,14 +224,15 @@ const getMCPTools = async (req, res) => {
         Boolean(rawConfigForOAuthCheck?.oauthMetadata);
       if (isOAuthLike && typeof mcpManager.discoverServerTools === 'function') {
         try {
-          let discovery = await mcpManager.discoverServerTools({
-            serverName,
-            user: { id: userId },
-          });
-          let oauthUrl = discovery.oauthUrl ?? null;
+          let discovery = {
+            tools: null,
+            oauthRequired: true,
+            oauthUrl: null,
+          };
+          let oauthUrl = null;
           let discoveredToolFunctions;
 
-          if ((!discovery.tools?.length || !oauthUrl) && req.user) {
+          if (req.user) {
             try {
               const result = await reinitMCPServer({
                 user: req.user,
@@ -243,11 +244,22 @@ const getMCPTools = async (req, res) => {
                 },
               });
 
+              if (result?.oauthRequired != null) {
+                discovery.oauthRequired = result.oauthRequired;
+              }
+              if (result?.authenticationRequired) {
+                discovery.authenticationRequired = {
+                  code: result.code,
+                  status: result.status,
+                  message: result.message,
+                  serverName: result.serverName,
+                };
+              }
+
               if (!discovery.tools?.length && result?.tools?.length) {
                 discovery = {
                   ...discovery,
                   tools: result.tools,
-                  oauthRequired: result.oauthRequired ?? discovery.oauthRequired,
                 };
               }
 
@@ -260,15 +272,31 @@ const getMCPTools = async (req, res) => {
               }
             } catch (reinitError) {
               logger.debug(
-                `[getMCPTools] Pre-consent reinit fallback failed for ${serverName}:`,
+                `[getMCPTools] Authenticated reinit failed for ${serverName}:`,
                 reinitError,
               );
             }
           }
 
+          if (
+            !discovery.authenticationRequired &&
+            !discoveredToolFunctions &&
+            !discovery.tools?.length
+          ) {
+            discovery = await mcpManager.discoverServerTools({
+              serverName,
+              user: { id: userId },
+            });
+            oauthUrl = oauthUrl ?? discovery.oauthUrl ?? null;
+          }
+
           // If no oauthUrl was found via discovery/reinit, try to resolve from
           // RFC 9728 protected resource metadata's authorization_servers (VAL-MCP-004).
-          if (!oauthUrl && rawConfigForOAuthCheck?.oauthMetadata?.authorization_servers) {
+          if (
+            !discovery.authenticationRequired &&
+            !oauthUrl &&
+            rawConfigForOAuthCheck?.oauthMetadata?.authorization_servers
+          ) {
             const authServers = rawConfigForOAuthCheck.oauthMetadata.authorization_servers;
             if (Array.isArray(authServers) && authServers.length > 0) {
               const authServerUrl = authServers[0];
@@ -303,6 +331,7 @@ const getMCPTools = async (req, res) => {
           serverDiscoveryMeta.set(serverName, {
             oauthRequired: discovery.oauthRequired,
             oauthUrl,
+            authenticationRequired: discovery.authenticationRequired,
             discoveredRawTools: discovery.tools,
             discoveredToolFunctions,
           });
@@ -436,7 +465,7 @@ const getMCPTools = async (req, res) => {
 
         // Surface auth state for OAuth servers (VAL-MCP-004)
         if (isOAuthServer) {
-          if (serverTools) {
+          if (serverTools || (discoveryMeta?.oauthRequired === false && server.tools.length > 0)) {
             // Have active connection with tools — fully authorized
             server.authState = 'authorized';
           } else if (discoveryMeta?.oauthRequired !== false) {
@@ -450,6 +479,9 @@ const getMCPTools = async (req, res) => {
             if (discoveryMeta?.oauthUrl) {
               server.oauthUrl = discoveryMeta.oauthUrl;
             }
+          }
+          if (discoveryMeta?.authenticationRequired) {
+            server.authenticationRequired = discoveryMeta.authenticationRequired;
           }
         }
 

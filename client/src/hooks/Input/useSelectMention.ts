@@ -19,6 +19,9 @@ import {
 import { useDefaultConvo } from '~/hooks';
 import store from '~/store';
 
+const shouldKeepOpenAITools = (currentEndpoint?: string | null, nextEndpoint?: string | null) =>
+  currentEndpoint === EModelEndpoint.openAI && nextEndpoint === EModelEndpoint.openAI;
+
 export default function useSelectMention({
   presets,
   modelSpecs,
@@ -100,6 +103,8 @@ export default function useSelectMention({
           preset,
           keepLatestMessage: true,
           keepAddedConvos: true,
+          keepFiles: true,
+          keepTools: shouldKeepOpenAITools(conversation?.endpoint, newEndpoint),
         });
         return;
       }
@@ -109,6 +114,8 @@ export default function useSelectMention({
         template: { ...(template as Partial<TConversation>) },
         preset,
         keepAddedConvos: isModular,
+        keepFiles: true,
+        keepTools: shouldKeepOpenAITools(conversation?.endpoint, newEndpoint),
       });
     },
     [
@@ -195,6 +202,8 @@ export default function useSelectMention({
           preset: currentConvo,
           keepLatestMessage: true,
           keepAddedConvos: true,
+          keepFiles: true,
+          keepTools: shouldKeepOpenAITools(conversation?.endpoint, newEndpoint),
         });
         return;
       }
@@ -204,6 +213,8 @@ export default function useSelectMention({
         template: { ...(template as Partial<TConversation>) },
         preset: { ...kwargs, spec: null, iconURL: null, modelLabel: null, endpoint: newEndpoint },
         keepAddedConvos: isNewModular,
+        keepFiles: true,
+        keepTools: shouldKeepOpenAITools(conversation?.endpoint, newEndpoint),
       });
     },
     [getConversation, getDefaultConversation, modularChat, newConversation, endpointsConfig],
@@ -258,6 +269,8 @@ export default function useSelectMention({
           preset: newPreset,
           keepLatestMessage: true,
           keepAddedConvos: true,
+          keepFiles: true,
+          keepTools: shouldKeepOpenAITools(conversation?.endpoint, newEndpoint),
           disableParams,
         });
         return;
@@ -267,6 +280,8 @@ export default function useSelectMention({
       newConversation({
         preset: newPreset,
         keepAddedConvos: isModular,
+        keepFiles: true,
+        keepTools: shouldKeepOpenAITools(conversation?.endpoint, newEndpoint),
         disableParams,
       });
     },

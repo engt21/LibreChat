@@ -245,6 +245,8 @@ const openAIParams: Record<string, SettingDefinition> = {
       ReasoningEffort.medium,
       ReasoningEffort.high,
       ReasoningEffort.xhigh,
+      ReasoningEffort.max,
+      ReasoningEffort.ultra,
     ],
     enumMappings: {
       [ReasoningEffort.unset]: 'com_ui_auto',
@@ -254,6 +256,8 @@ const openAIParams: Record<string, SettingDefinition> = {
       [ReasoningEffort.medium]: 'com_ui_medium',
       [ReasoningEffort.high]: 'com_ui_high',
       [ReasoningEffort.xhigh]: 'com_ui_xhigh',
+      [ReasoningEffort.max]: 'com_ui_max',
+      [ReasoningEffort.ultra]: 'com_ui_ultra',
     },
     optionType: 'model',
     columnSpan: 4,

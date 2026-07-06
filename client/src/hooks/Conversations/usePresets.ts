@@ -47,13 +47,16 @@ const normalizeMatchValue = (value: unknown) => (value == null || value === '' ?
 
 const getPresetConversationSettings = (preset: TPreset): Partial<TConversation> => {
   const cleanedPreset = cleanupPreset({ preset });
-  return Object.entries(cleanedPreset).reduce((settings, [key, value]) => {
-    if (presetMetadataFields.has(key)) {
+  return Object.entries(cleanedPreset).reduce(
+    (settings, [key, value]) => {
+      if (presetMetadataFields.has(key)) {
+        return settings;
+      }
+      settings[key] = value;
       return settings;
-    }
-    settings[key] = value;
-    return settings;
-  }, {} as Record<string, unknown>) as Partial<TConversation>;
+    },
+    {} as Record<string, unknown>,
+  ) as Partial<TConversation>;
 };
 
 const presetMatchesConversation = (conversation: TConversation, preset: TPreset): boolean => {
@@ -116,7 +119,12 @@ export default function usePresets(index = 0) {
     }
     setDefaultPreset(pinnedDefaultPreset);
     if (!conversationId || conversationId === 'new') {
-      newConversation({ preset: pinnedDefaultPreset, modelsData, disableParams: true });
+      newConversation({
+        preset: pinnedDefaultPreset,
+        modelsData,
+        keepFiles: true,
+        disableParams: true,
+      });
     }
     hasLoaded.current = true;
     // dependencies are stable and only needed once
@@ -165,16 +173,14 @@ export default function usePresets(index = 0) {
         }
 
         const updatedSettings = getPresetConversationSettings(updatedPreset);
-        set(
-          store.conversationByIndex(index),
-          (currentConversation) =>
-            currentConversation
-              ? (tConvoUpdateSchema.parse({
-                  ...currentConversation,
-                  ...updatedSettings,
-                  title: currentConversation.title,
-                }) as TConversation)
-              : currentConversation,
+        set(store.conversationByIndex(index), (currentConversation) =>
+          currentConversation
+            ? (tConvoUpdateSchema.parse({
+                ...currentConversation,
+                ...updatedSettings,
+                title: currentConversation.title,
+              }) as TConversation)
+            : currentConversation,
         );
       },
     [index],
@@ -223,7 +229,7 @@ export default function usePresets(index = 0) {
       if (data.defaultPreset && data.presetId !== _defaultPreset?.presetId) {
         message = `${toastTitle} ${localize('com_endpoint_preset_default')}`;
         setDefaultPreset(data);
-        newConversation({ preset: data, disableParams: true });
+        newConversation({ preset: data, keepFiles: true, disableParams: true });
       } else if (data.defaultPreset && data.presetId === _defaultPreset?.presetId) {
         setDefaultPreset(data);
       } else if (preset.defaultPreset === false) {
@@ -287,6 +293,49 @@ export default function usePresets(index = 0) {
     importPreset(jsonPreset);
   };
 
+  const onDuplicatePreset = (sourcePreset: TPreset) => {
+    const cleanedPreset = cleanupPreset({ preset: sourcePreset });
+    const {
+      user: _sourceUser,
+      order: _sourceOrder,
+      conversationId: _sourceConversationId,
+      defaultPreset: _sourceDefaultPreset,
+      ...presetSettings
+    } = cleanedPreset;
+    const title = sourcePreset.title || localize('com_endpoint_preset_title');
+
+    createPresetMutation.mutate(
+      {
+        ...presetSettings,
+        presetId: null,
+        defaultPreset: false,
+        title: `${title} (${localize('com_ui_copy')})`,
+      },
+      {
+        onSuccess: (duplicatedPreset) => {
+          const currentPresets = presetsQuery.data ?? [];
+          const sourceIndex = currentPresets.findIndex(
+            (currentPreset) => currentPreset.presetId === sourcePreset.presetId,
+          );
+          const insertIndex = sourceIndex >= 0 ? sourceIndex + 1 : currentPresets.length;
+          const nextPresets = [...currentPresets];
+          nextPresets.splice(insertIndex, 0, duplicatedPreset);
+          onReorderPresets(nextPresets, true);
+          showToast({
+            message: `"${duplicatedPreset.title}" ${localize('com_ui_saved')}`,
+          });
+        },
+        onError: (error) => {
+          console.error('Error duplicating the preset:', error);
+          showToast({
+            message: localize('com_endpoint_preset_save_error'),
+            severity: NotificationSeverity.ERROR,
+          });
+        },
+      },
+    );
+  };
+
   const onSelectPreset = (_newPreset: TPreset) => {
     if (!_newPreset) {
       return;
@@ -345,12 +394,18 @@ export default function usePresets(index = 0) {
         preset: currentConvo,
         keepLatestMessage: true,
         keepAddedConvos: true,
+        keepFiles: true,
         disableParams,
       });
       return;
     }
 
-    newConversation({ preset: newPreset, keepAddedConvos: isModular, disableParams });
+    newConversation({
+      preset: newPreset,
+      keepAddedConvos: isModular,
+      keepFiles: true,
+      disableParams,
+    });
   };
 
   const onChangePreset = (preset: TPreset) => {
@@ -428,6 +483,7 @@ export default function usePresets(index = 0) {
     onFileSelected,
     onSelectPreset,
     onChangePreset,
+    onDuplicatePreset,
     clearAllPresets,
     onDeletePreset,
     onReorderPresets,

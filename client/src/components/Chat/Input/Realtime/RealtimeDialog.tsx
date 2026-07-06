@@ -1,6 +1,7 @@
 /* eslint-disable i18next/no-literal-string */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useToastContext } from '@librechat/client';
+import type { TRealtimeConversationEntry } from 'librechat-data-provider';
 import { Button, OGDialog, OGDialogContent, Spinner } from '@librechat/client';
 import { useGetRealtimeModelsQuery, useSaveRealtimeConversationMutation } from '~/data-provider';
 import useRealtimeSession from '~/hooks/Realtime/useRealtimeSession';
@@ -11,6 +12,10 @@ type RealtimeDialogProps = {
   setOpen: (open: boolean) => void;
   currentEndpoint?: string | null;
   currentModel?: string | null;
+  conversationId?: string;
+  parentMessageId?: string;
+  contextEntries?: TRealtimeConversationEntry[];
+  tools?: string[];
 };
 
 function RealtimeSelect({
@@ -149,13 +154,19 @@ export default function RealtimeDialog({
   setOpen,
   currentEndpoint,
   currentModel,
+  conversationId,
+  parentMessageId,
+  contextEntries = [],
+  tools = [],
 }: RealtimeDialogProps) {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const previousEndpointRef = useRef<string | null>(null);
   const savedConversationIdRef = useRef<string | null>(null);
   const [selectedEndpoint, setSelectedEndpoint] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
-  const [instructions, setInstructions] = useState('You are a helpful assistant.');
+  const [instructions, setInstructions] = useState(
+    'You are a warm, natural voice assistant. Respond conversationally and concisely. Let the user finish speaking, handle interruptions gracefully, ask a brief clarifying question when audio is unclear, and do not mention internal reasoning.',
+  );
   const [voice, setVoice] = useState('');
   const [textInput, setTextInput] = useState('');
 
@@ -286,9 +297,17 @@ export default function RealtimeDialog({
       return null;
     }
 
+    let textModel = currentModel && !currentModel.includes('realtime') ? currentModel : undefined;
+    if (!textModel && sessionEndpoint === 'openAI') {
+      textModel = 'gpt-5.5';
+    }
+
     const conversation = await saveRealtimeConversation.mutateAsync({
+      conversationId,
+      parentMessageId,
       endpoint: sessionEndpoint,
       model: sessionModel,
+      textModel,
       instructions,
       startedAt: startedAt ?? sessionStartedAt ?? undefined,
       endedAt: new Date().toISOString(),
@@ -364,6 +383,8 @@ export default function RealtimeDialog({
       model: selectedModel,
       instructions,
       voice: voice || selectedProvider.defaultVoice,
+      contextEntries,
+      tools,
     });
   };
 
@@ -378,19 +399,19 @@ export default function RealtimeDialog({
 
   return (
     <OGDialog open={open} onOpenChange={handleOpenChange}>
-      <OGDialogContent className="max-h-[90vh] w-[95vw] max-w-3xl overflow-hidden p-0">
-        <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between border-b border-border-light px-5 py-4">
+      <OGDialogContent className="h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-3xl overflow-hidden p-0 sm:h-auto sm:max-h-[90dvh] sm:w-[95vw]">
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-light px-4 py-3 sm:items-center sm:px-5 sm:py-4">
             <div>
               <h2 className="text-lg font-semibold text-text-primary">Realtime Voice</h2>
               <p className="text-xs text-text-secondary">
                 OpenAI, Azure OpenAI, Gemini Live, and xAI voice sessions through LibreChat.
               </p>
             </div>
-            <div className="text-xs text-text-secondary">Status: {status}</div>
+            <div className="shrink-0 pr-6 text-xs text-text-secondary">Status: {status}</div>
           </div>
 
-          <div className="grid gap-4 p-5 md:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain p-4 sm:p-5 md:grid-cols-[320px_minmax(0,1fr)] md:overflow-hidden">
             <div className="space-y-4">
               {isLoading ? (
                 <div className="flex min-h-40 items-center justify-center rounded-xl border border-border-light">
@@ -417,6 +438,14 @@ export default function RealtimeDialog({
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border-light bg-surface-chat px-3 py-2 text-xs text-text-secondary">
+                    Realtime tools:{' '}
+                    {tools.includes('web_search') ? 'Web Search enabled' : 'none enabled'}. Continue
+                    in text mode for Code Interpreter, file search, image generation, actions, and
+                    authenticated MCP tools; those require result and approval flows that Realtime
+                    voice does not yet safely expose.
                   </div>
 
                   <RealtimeSelect
@@ -491,7 +520,7 @@ export default function RealtimeDialog({
               )}
             </div>
 
-            <div className="flex min-h-[420px] flex-col gap-3">
+            <div className="flex min-h-[320px] flex-col gap-3 md:min-h-0">
               <div
                 ref={transcriptRef}
                 className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-border-light bg-surface-chat p-4"

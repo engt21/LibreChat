@@ -3,22 +3,29 @@ const WebSocket = require('ws');
 class OpenAILikeRealtimeAdapter {
   constructor({
     provider,
+    model,
     wsURL,
     headers,
     audioConfig,
     instructions,
     voice,
     transcriptionModel,
+    realtimeApi,
+    tools = [],
     onEvent,
   }) {
     this.provider = provider;
+    this.model = model;
     this.wsURL = wsURL;
     this.headers = headers;
     this.audioConfig = audioConfig;
     this.instructions = instructions;
     this.voice = voice || audioConfig.defaultVoice;
     this.transcriptionModel = transcriptionModel;
+    this.realtimeApi =
+      realtimeApi ?? (provider === 'openai' || provider === 'azure' ? 'ga' : 'compatible');
     this.onEvent = onEvent;
+    this.tools = tools;
     this.socket = null;
   }
 
@@ -45,6 +52,40 @@ class OpenAILikeRealtimeAdapter {
         reject(error);
       });
     });
+  }
+
+  seedConversation(entries = []) {
+    for (const entry of entries) {
+      if (!entry?.text || (entry.role !== 'user' && entry.role !== 'assistant')) {
+        continue;
+      }
+
+      this.send({
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: entry.role,
+          content: [
+            {
+              type: entry.role === 'assistant' ? 'output_text' : 'input_text',
+              text: entry.text,
+            },
+          ],
+        },
+      });
+    }
+  }
+
+  sendToolOutput(callId, output) {
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'function_call_output',
+        call_id: callId,
+        output,
+      },
+    });
+    this.send({ type: 'response.create', response: { output_modalities: ['audio'] } });
   }
 
   attachSocketHandlers(socket) {
@@ -81,6 +122,7 @@ class OpenAILikeRealtimeAdapter {
         session: {
           voice: this.voice,
           instructions: this.instructions,
+          ...(this.tools.length > 0 ? { tools: this.tools, tool_choice: 'auto' } : {}),
           turn_detection: { type: 'server_vad' },
           audio: {
             input: {
@@ -94,6 +136,48 @@ class OpenAILikeRealtimeAdapter {
                 type: 'audio/pcm',
                 rate: this.audioConfig.outputSampleRate,
               },
+            },
+          },
+        },
+      };
+    }
+
+    if (this.realtimeApi === 'ga') {
+      const input = {
+        format: {
+          type: 'audio/pcm',
+          rate: this.audioConfig.inputSampleRate,
+        },
+        turn_detection: {
+          type: 'semantic_vad',
+          eagerness: 'low',
+          create_response: true,
+          interrupt_response: true,
+        },
+      };
+
+      if (this.transcriptionModel) {
+        input.transcription = {
+          model: this.transcriptionModel,
+        };
+      }
+
+      return {
+        type: 'session.update',
+        session: {
+          type: 'realtime',
+          output_modalities: ['audio'],
+          instructions: this.instructions,
+          ...(this.tools.length > 0 ? { tools: this.tools, tool_choice: 'auto' } : {}),
+          ...(this.model === 'gpt-realtime-2' ? { reasoning: { effort: 'low' } } : {}),
+          audio: {
+            input,
+            output: {
+              format: {
+                type: 'audio/pcm',
+                rate: this.audioConfig.outputSampleRate,
+              },
+              voice: this.voice,
             },
           },
         },
@@ -177,7 +261,9 @@ class OpenAILikeRealtimeAdapter {
     this.send({
       type: 'response.create',
       response: {
-        modalities: ['text', 'audio'],
+        ...(this.realtimeApi === 'ga'
+          ? { output_modalities: ['audio'] }
+          : { modalities: ['text', 'audio'] }),
       },
     });
   }
@@ -221,6 +307,7 @@ class OpenAILikeRealtimeAdapter {
         });
         break;
       case 'response.audio.delta':
+      case 'response.output_audio.delta':
         this.emit({
           type: 'audio.output',
           audio: event.delta,
@@ -228,9 +315,11 @@ class OpenAILikeRealtimeAdapter {
         });
         break;
       case 'response.audio.done':
+      case 'response.output_audio.done':
         this.emit({ type: 'audio.output.done' });
         break;
       case 'response.audio_transcript.delta':
+      case 'response.output_audio_transcript.delta':
         this.emit({
           type: 'transcript.output',
           text: event.delta ?? '',
@@ -239,6 +328,7 @@ class OpenAILikeRealtimeAdapter {
         });
         break;
       case 'response.audio_transcript.done':
+      case 'response.output_audio_transcript.done':
         this.emit({
           type: 'transcript.output',
           text: event.transcript ?? '',
@@ -247,6 +337,7 @@ class OpenAILikeRealtimeAdapter {
         });
         break;
       case 'response.text.delta':
+      case 'response.output_text.delta':
         this.emit({
           type: 'transcript.output',
           text: event.delta ?? '',
@@ -255,6 +346,7 @@ class OpenAILikeRealtimeAdapter {
         });
         break;
       case 'response.text.done':
+      case 'response.output_text.done':
         this.emit({
           type: 'transcript.output',
           text: event.text ?? '',
@@ -267,6 +359,16 @@ class OpenAILikeRealtimeAdapter {
         break;
       case 'response.done':
         this.emit({ type: 'response.done' });
+        break;
+      case 'response.output_item.done':
+        if (event.item?.type === 'function_call') {
+          this.emit({
+            type: 'tool.call',
+            callId: event.item.call_id,
+            name: event.item.name,
+            arguments: event.item.arguments ?? '{}',
+          });
+        }
         break;
       case 'error':
         this.emit({

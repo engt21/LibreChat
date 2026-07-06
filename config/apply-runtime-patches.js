@@ -16,6 +16,18 @@ const guardedStreamTargets = new Set([
 ]);
 
 const patchTargets = [
+  // ── Honor forced tool choice when binding graph tools (esm/cjs) ──
+  ...['dist/esm/llm/init.mjs', 'dist/cjs/llm/init.cjs'].map((relativePath) => ({
+    relativePath,
+    replacements: [
+      {
+        description: 'Forward configured tool_choice when binding graph tools',
+        from: `    return model.bindTools(tools);`,
+        to: `    const toolChoice = clientOptions?.tool_choice;
+    return model.bindTools(tools, toolChoice != null ? { tool_choice: toolChoice } : undefined);`,
+      },
+    ],
+  })),
   // ── Anthropic malformed thinking-block guard (src) ──
   // Interrupted/cancelled Claude streams can leave partial thinking blocks in graph state.
   // Anthropic rejects replayed history if a `thinking` block lacks both required fields.
@@ -1768,6 +1780,72 @@ var events = require('./utils/events.cjs');`,
             input.push(reasoningItem);
           }
         }`,
+      },
+    ],
+  },
+  // ── Preserve caller-defined Langfuse trace category metadata (src) ──
+  {
+    relativePath: 'src/run.ts',
+    replacements: [
+      {
+        from: `      const traceMetadata = {
+        messageId: this.id,
+        parentMessageId: config.configurable?.requestBody?.parentMessageId,
+        agentName: primaryContext?.name,
+      };`,
+        to: `      const configuredTraceMetadata = config.configurable?.traceMetadata;
+      const traceMetadata = {
+        ...(configuredTraceMetadata != null && typeof configuredTraceMetadata === 'object'
+          ? configuredTraceMetadata
+          : {}),
+        messageId: this.id,
+        parentMessageId: config.configurable?.requestBody?.parentMessageId,
+        agentName: primaryContext?.name,
+      };`,
+      },
+    ],
+  },
+  // ── Preserve caller-defined Langfuse trace category metadata (esm) ──
+  {
+    relativePath: 'dist/esm/run.mjs',
+    replacements: [
+      {
+        from: `            const traceMetadata = {
+                messageId: this.id,
+                parentMessageId: config.configurable?.requestBody?.parentMessageId,
+                agentName: primaryContext?.name,
+            };`,
+        to: `            const configuredTraceMetadata = config.configurable?.traceMetadata;
+            const traceMetadata = {
+                ...(configuredTraceMetadata != null && typeof configuredTraceMetadata === 'object'
+                    ? configuredTraceMetadata
+                    : {}),
+                messageId: this.id,
+                parentMessageId: config.configurable?.requestBody?.parentMessageId,
+                agentName: primaryContext?.name,
+            };`,
+      },
+    ],
+  },
+  // ── Preserve caller-defined Langfuse trace category metadata (cjs) ──
+  {
+    relativePath: 'dist/cjs/run.cjs',
+    replacements: [
+      {
+        from: `            const traceMetadata = {
+                messageId: this.id,
+                parentMessageId: config.configurable?.requestBody?.parentMessageId,
+                agentName: primaryContext?.name,
+            };`,
+        to: `            const configuredTraceMetadata = config.configurable?.traceMetadata;
+            const traceMetadata = {
+                ...(configuredTraceMetadata != null && typeof configuredTraceMetadata === 'object'
+                    ? configuredTraceMetadata
+                    : {}),
+                messageId: this.id,
+                parentMessageId: config.configurable?.requestBody?.parentMessageId,
+                agentName: primaryContext?.name,
+            };`,
       },
     ],
   },

@@ -51,14 +51,10 @@ router.use(requireJwtAuth);
 router.get('/', checkMemoryRead, configMiddleware, async (req, res) => {
   try {
     const memories = await getAllUserMemories(req.user.id);
-
     const sortedMemories = memories.sort(
       (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
     );
-
-    const totalTokens = memories.reduce((sum, memory) => {
-      return sum + (memory.tokenCount || 0);
-    }, 0);
+    const totalTokens = memories.reduce((sum, memory) => sum + (memory.tokenCount || 0), 0);
 
     const appConfig = req.config;
     const memoryConfig = appConfig?.memory;
@@ -102,6 +98,11 @@ router.post('/', memoryPayloadLimit, checkMemoryCreate, configMiddleware, async 
   const appConfig = req.config;
   const memoryConfig = appConfig?.memory;
   const charLimit = memoryConfig?.charLimit || 10000;
+  const validKeys = memoryConfig?.validKeys;
+
+  if (validKeys?.length && !validKeys.includes(key.trim())) {
+    return res.status(400).json({ error: `Key must be one of: ${validKeys.join(', ')}` });
+  }
 
   if (key.length > 1000) {
     return res.status(400).json({
@@ -117,12 +118,15 @@ router.post('/', memoryPayloadLimit, checkMemoryCreate, configMiddleware, async 
 
   try {
     const tokenCount = Tokenizer.getTokenCount(value, 'o200k_base');
-
     const memories = await getAllUserMemories(req.user.id);
-
-    const appConfig = req.config;
-    const memoryConfig = appConfig?.memory;
     const tokenLimit = memoryConfig?.tokenLimit;
+    const maxValueTokens = memoryConfig?.maxValueTokens;
+
+    if (maxValueTokens && tokenCount > maxValueTokens) {
+      return res.status(400).json({
+        error: `Memory exceeds the per-value token limit of ${maxValueTokens}.`,
+      });
+    }
 
     if (tokenLimit) {
       const currentTotalTokens = memories.reduce(
@@ -141,6 +145,7 @@ router.post('/', memoryPayloadLimit, checkMemoryCreate, configMiddleware, async 
       key: key.trim(),
       value: value.trim(),
       tokenCount,
+      metadata: { source: 'manual' },
     });
 
     if (!result.ok) {
@@ -208,6 +213,11 @@ router.patch('/:key', memoryPayloadLimit, checkMemoryUpdate, configMiddleware, a
   const appConfig = req.config;
   const memoryConfig = appConfig?.memory;
   const charLimit = memoryConfig?.charLimit || 10000;
+  const validKeys = memoryConfig?.validKeys;
+
+  if (validKeys?.length && !validKeys.includes(newKey)) {
+    return res.status(400).json({ error: `Key must be one of: ${validKeys.join(', ')}` });
+  }
 
   if (newKey.length > 1000) {
     return res.status(400).json({
@@ -231,6 +241,26 @@ router.patch('/:key', memoryPayloadLimit, checkMemoryUpdate, configMiddleware, a
       return res.status(404).json({ error: 'Memory not found.' });
     }
 
+    const tokenLimit = memoryConfig?.tokenLimit;
+    const maxValueTokens = memoryConfig?.maxValueTokens;
+    if (maxValueTokens && tokenCount > maxValueTokens) {
+      return res.status(400).json({
+        error: `Memory exceeds the per-value token limit of ${maxValueTokens}.`,
+      });
+    }
+    if (tokenLimit) {
+      const currentTotalTokens = memories.reduce(
+        (sum, memory) => sum + (memory.tokenCount || 0),
+        0,
+      );
+      const replacementTotal = currentTotalTokens - (existingMemory.tokenCount || 0) + tokenCount;
+      if (replacementTotal > tokenLimit) {
+        return res.status(400).json({
+          error: `Updating this memory would exceed the token limit of ${tokenLimit}.`,
+        });
+      }
+    }
+
     if (newKey !== urlKey) {
       const keyExists = memories.find((m) => m.key === newKey);
       if (keyExists) {
@@ -242,6 +272,7 @@ router.patch('/:key', memoryPayloadLimit, checkMemoryUpdate, configMiddleware, a
         key: newKey,
         value,
         tokenCount,
+        metadata: { source: 'manual' },
       });
 
       if (!createResult.ok) {
@@ -258,6 +289,7 @@ router.patch('/:key', memoryPayloadLimit, checkMemoryUpdate, configMiddleware, a
         key: newKey,
         value,
         tokenCount,
+        metadata: { source: 'manual' },
       });
 
       if (!result.ok) {

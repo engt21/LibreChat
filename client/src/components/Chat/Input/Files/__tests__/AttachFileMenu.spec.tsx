@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { RecoilRoot } from 'recoil';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { EModelEndpoint, Providers } from 'librechat-data-provider';
+import { EModelEndpoint, EToolResources, Providers } from 'librechat-data-provider';
 import AttachFileMenu from '../AttachFileMenu';
 
 jest.mock('~/hooks', () => ({
@@ -273,6 +273,34 @@ describe('AttachFileMenu', () => {
   });
 
   describe('Agent Capabilities', () => {
+    it('routes the first Code Interpreter selection synchronously to the file input', () => {
+      const handleFileChange = jest.fn();
+      setupMocks();
+      mockUseAgentCapabilities.mockReturnValue({
+        contextEnabled: false,
+        fileSearchEnabled: false,
+        codeEnabled: true,
+      });
+      mockUseAgentToolPermissions.mockReturnValue({
+        fileSearchAllowedByAgent: false,
+        codeAllowedByAgent: true,
+        provider: undefined,
+      });
+      mockUseFileHandling.mockReturnValue({ handleFileChange });
+
+      renderMenu({ endpointType: EModelEndpoint.openAI });
+      openMenu();
+      fireEvent.click(screen.getByText('Upload Code Files'));
+      fireEvent.change(screen.getByTestId('file-upload-input'), {
+        target: { files: [new File(['resume'], 'resume.pdf', { type: 'application/pdf' })] },
+      });
+
+      expect(handleFileChange).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'change' }),
+        EToolResources.execute_code,
+      );
+    });
+
     it('shows OCR Text option when context is enabled', () => {
       setupMocks();
       mockUseAgentCapabilities.mockReturnValue({

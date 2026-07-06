@@ -28,6 +28,7 @@ describe('Convos Routes', () => {
   const { deleteToolCalls } = require('~/models/ToolCall');
   const getLogStores = require('~/cache/getLogStores');
   const { sleep } = require('@librechat/agents');
+  const { forkConversation } = require('~/server/utils/import/fork');
 
   beforeAll(() => {
     convosRouter = require('../convos');
@@ -46,6 +47,25 @@ describe('Convos Routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  describe('POST /fork', () => {
+    it('should return a validation error without reporting a successful fork', async () => {
+      const error = new Error(
+        'The selected message is not available yet. Wait for it to finish and try again.',
+      );
+      error.statusCode = 400;
+      forkConversation.mockRejectedValue(error);
+
+      const response = await request(app).post('/api/convos/fork').send({
+        conversationId: 'source-convo',
+        messageId: 'pending-message',
+        option: 'direct_path',
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ message: error.message });
+    });
   });
 
   describe('GET /gen_title/:conversationId', () => {

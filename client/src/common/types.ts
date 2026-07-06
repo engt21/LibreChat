@@ -376,6 +376,7 @@ export type TMessageProps = {
   siblingCount?: number;
   setCurrentEditId?: React.Dispatch<React.SetStateAction<string | number | null>> | null;
   setSiblingIdx?: ((value: number) => void | React.Dispatch<React.SetStateAction<number>>) | null;
+  isSubmitting?: boolean;
 };
 
 export type TMessageIcon = { endpoint?: string | null; isCreatedByUser?: boolean } & Pick<
@@ -591,6 +592,8 @@ export type NewConversationParams = {
   buildDefault?: boolean;
   keepLatestMessage?: boolean;
   keepAddedConvos?: boolean;
+  keepFiles?: boolean;
+  keepTools?: boolean;
   disableParams?: boolean;
 };
 

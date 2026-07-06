@@ -34,8 +34,11 @@ export type TRealtimeConversationEntry = {
 };
 
 export type TSaveRealtimeConversationRequest = {
+  conversationId?: string;
+  parentMessageId?: string;
   endpoint: string;
   model: string;
+  textModel?: string;
   instructions?: string;
   startedAt?: string;
   endedAt?: string;

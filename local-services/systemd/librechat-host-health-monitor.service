@@ -1,0 +1,16 @@
+[Unit]
+Description=LibreChat production VM and application health monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/librechat-health-monitor/host.env
+ExecStart=%h/.local/libexec/librechat-health-monitor host
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

@@ -34,6 +34,13 @@ Read-only checks confirmed on 2026-06-08:
 
 Routine read-only VM status commands:
 
+```
+
+Package builds are not the default deployment path. For ordinary `api/**/*.js`, config helper, runtime patch, or already-built package-dist changes, classify and use `deploy-runtime-delta.sh` first. Rebuild only the affected package when source under `packages/*/src/**` changed. For large Rollup package builds, disable source maps to avoid multi-gigabyte build heaps:
+
+```bash
+LIBRECHAT_ROLLUP_SOURCEMAP=false \
+  ./local-services/run-node-capped.sh --memory-max 12G --heap-mb 8192 -- npm run build:api
 ```bash
 ssh timeng@192.168.50.104 'cd /opt/LibreChat-custom && docker compose -p librechat-stable -f docker-compose.yml -f docker-compose.local.override.yml ps'
 ssh timeng@192.168.50.104 'docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"'
@@ -146,7 +153,7 @@ The failover profile is intentionally API-only and resource-limited.
 
 ### CRITICAL: Deploying code-only changes -- backend and frontend are different
 
-**Full image rebuilds (`start-all.sh`, `docker compose build`) take 10+ minutes and are almost never needed for code-only fixes.** For small backend/runtime edits, classify with `local-services/deploy-runtime-delta.sh --dry-run` first and prefer that helper when it accepts the paths. Only rebuild the image when Dockerfile, dependencies (`package.json` / `package-lock.json`), base images, or compose/container-shape changes require a new image or recreation. The existing local helper scripts target the Docker host where they are run; they do not automatically promote pve2 artifacts to the VM unless an explicit remote deployment workflow is used.
+**Full image rebuilds (`start-all.sh`, `docker compose build`) take 10+ minutes and are almost never needed for code-only fixes. Runtime delta is the mandatory first choice.** Classify with `local-services/deploy-runtime-delta.sh --dry-run` before any build. Only rebuild an affected package when `packages/*/src/**` changed, and only rebuild the Docker image when Dockerfile, dependencies (`package.json` / `package-lock.json`), base images, or compose/container-shape changes require it. A successful stable runtime delta snapshots the verified running filesystem into `librechat-local:runtime-current`, so a later API-container recreation retains the deployed code/package state without a full rebuild.
 
 **Backend/runtime-loaded source only** (`api/**/*.js`, runtime config/templates, runtime patch scripts, or package `dist` output after a successful host build) should use the guarded runtime-delta helper instead of ad hoc `docker cp`:
 
@@ -187,9 +194,29 @@ LIBRECHAT_STABLE_CLIENT_APPROVAL=YES ./local-services/deploy-built-client-dist.s
 
 **Forbidden frontend deployment operations:** never edit or copy individual files in `client/dist/assets/`, never manually alter hashed bundle code, never manually rewrite `client/dist/index.html` asset references or cache-busting query strings, and never alter `client/dist/sw.js` to deploy a source fix. A frontend fix is deployable only as an intact successful build through `deploy-built-client-dist.sh`.
 
-**When a full image rebuild IS required:** changes to `Dockerfile`, `package.json`, `package-lock.json`, new npm dependencies, base image updates, or compose changes that require container recreation. `config/apply-runtime-patches.js` can be fast-applied with `deploy-runtime-delta.sh`, which copies the script, runs it inside the API container, restarts, and verifies; still schedule a later cached image refresh so the runtime patch is baked into the next image.
+**When a full image rebuild IS required:** changes to `Dockerfile`, `package.json`, `package-lock.json`, new npm dependencies, base image updates, or incompatible compose/container-shape changes. Do not rebuild merely to make code-only runtime deltas durable: the stable deploy helper creates and persists `librechat-local:runtime-current` after verification. `config/apply-runtime-patches.js` is fast-applied through the runtime-delta helper.
 
 Runtime secret/data files (`.env`, `librechat.yaml`, `langfuse/.env`, `data-node/`, `images/`, `uploads/`, `logs/`) are symlinked from the upstream worktree by `local-services/ensure-runtime-files.sh` -- they are NOT checked in.
+
+## CRITICAL: Authentication rebuild and restart safety
+
+Read `AUTH_DEPLOYMENT_SAFETY.md` before any change that can rebuild or replace authentication,
+session, MFA, JWT, `packages/data-schemas`, or frontend auth artifacts.
+
+- A live/container image may contain newer compiled auth fixes than its source tree. Never rebuild
+  `packages/data-schemas` from a cloned runtime image until the complete current
+  `packages/data-schemas/src` tree has been synchronized from this source checkout.
+- Before exporting artifacts, restarting an API container, or swapping production client dist, run
+  `npm run test:refresh-token-runtime-contract`,
+  `npm run verify:refresh-token-runtime-contract` and
+  `npm run verify:auth-memory-runtime-contracts`.
+- When a builder or deployed container is involved, also run
+  `./local-services/verify-refresh-token-runtime-contract.sh --container <name>`; it generates and
+  decodes a synthetic token in memory without changing users, credentials, MFA, or sessions.
+- Missing refresh issuer, `librechat-refresh` audience, `tokenType=refresh`, or session `jti` is a
+  hard deployment stop even when builds, `/api/config`, and container health pass.
+- Never reset a password/TOTP secret or delete sessions to diagnose an MFA-to-password loop unless
+  the account owner explicitly requests that destructive credential action.
 
 ## CRITICAL: Mission safety -- dev-rail-only policy
 

@@ -40,6 +40,10 @@ resolve_librechat_rail "$ROOT_DIR" "$REQUESTED_RAIL"
 if [[ "$LIBRECHAT_RAIL" == "stable" ]]; then
   echo "Validating mandatory OpenAI reasoning preservation invariants before stable startup..."
   "$ROOT_DIR/local-services/verify-openai-reasoning-preservation.sh"
+  echo "Validating authentication and memory runtime contracts before stable startup..."
+  "$ROOT_DIR/local-services/verify-auth-memory-runtime-contracts.sh"
+  echo "Validating production resource isolation contracts before stable startup..."
+  "$ROOT_DIR/local-services/verify-production-resource-contracts.sh"
 fi
 
 LOCAL_OVERRIDE_COMPOSE="$ROOT_DIR/docker-compose.local.override.yml"
@@ -96,8 +100,6 @@ shared_traceability_services=(
 )
 
 if [[ "$LIBRECHAT_RAIL" == "stable" ]]; then
-  compose_services+=("${shared_traceability_services[@]}")
-
   if metrics_build_context_available; then
     compose_services+=(metrics)
   else
@@ -162,6 +164,9 @@ if [[ "$LIBRECHAT_RAIL" == "stable" ]]; then
     --format '{{.Names}}' 2>/dev/null | head -1)"
   stable_container="${stable_container:-${LIBRECHAT_API_CONTAINER_NAME:-LibreChat}}"
   "$ROOT_DIR/local-services/verify-openai-reasoning-preservation.sh" --container "$stable_container"
+  "$ROOT_DIR/local-services/verify-auth-memory-runtime-contracts.sh" --container "$stable_container"
+  "$ROOT_DIR/local-services/verify-api-runtime-contract.sh" --container "$stable_container"
+  "$ROOT_DIR/local-services/verify-api-memory-headroom.sh" --container "$stable_container"
 fi
 
 echo "Started LibreChat rail '$LIBRECHAT_RAIL' on http://127.0.0.1:$LIBRECHAT_HOST_PORT"

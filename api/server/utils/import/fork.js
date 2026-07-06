@@ -14,17 +14,36 @@ const { getMessages } = require('~/models/Message');
  */
 function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
   const idMapping = new Map();
+  const messagesById = new Map(messagesToClone.map((message) => [message.messageId, message]));
+  const visited = new Set();
+  const visiting = new Set();
+  const sortedMessages = [];
 
-  // First pass: create ID mapping and sort messages by parentMessageId
-  const sortedMessages = [...messagesToClone].sort((a, b) => {
-    if (a.parentMessageId === Constants.NO_PARENT) {
-      return -1;
+  const visitMessage = (message) => {
+    if (visited.has(message.messageId)) {
+      return;
     }
-    if (b.parentMessageId === Constants.NO_PARENT) {
-      return 1;
+    if (visiting.has(message.messageId)) {
+      throw createForkValidationError('Cannot fork a conversation with a circular message tree.');
     }
-    return 0;
-  });
+
+    visiting.add(message.messageId);
+    const parentId = message.parentMessageId ?? Constants.NO_PARENT;
+    if (parentId !== Constants.NO_PARENT) {
+      const parent = messagesById.get(parentId);
+      if (!parent) {
+        throw createForkValidationError(
+          'Cannot fork a conversation with a missing parent message.',
+        );
+      }
+      visitMessage(parent);
+    }
+    visiting.delete(message.messageId);
+    visited.add(message.messageId);
+    sortedMessages.push(message);
+  };
+
+  messagesToClone.forEach(visitMessage);
 
   // Helper function to ensure date object
   const ensureDate = (dateValue) => {
@@ -69,6 +88,12 @@ function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
   return idMapping;
 }
 
+function createForkValidationError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
 /**
  *
  * @param {object} params - The parameters for the importer.
@@ -96,10 +121,23 @@ async function forkConversation({
 }) {
   try {
     const originalConvo = await getConvo(requestUserId, originalConvoId);
+    if (!originalConvo) {
+      throw createForkValidationError('Conversation not found.', 404);
+    }
+
     let originalMessages = await getMessages({
       user: requestUserId,
       conversationId: originalConvoId,
     });
+    if (!Array.isArray(originalMessages) || originalMessages.length === 0) {
+      throw createForkValidationError('Cannot fork a conversation without messages.');
+    }
+    const targetMessage = originalMessages.find((message) => message.messageId === targetId);
+    if (!targetMessage || targetMessage.unfinished === true) {
+      throw createForkValidationError(
+        'The selected message is not available yet. Wait for it to finish and try again.',
+      );
+    }
 
     let targetMessageId = targetId;
     if (splitAtTarget && !latestMessageId) {
@@ -107,6 +145,14 @@ async function forkConversation({
     } else if (splitAtTarget) {
       originalMessages = splitAtTargetLevel(originalMessages, targetId);
       targetMessageId = latestMessageId;
+      const latestMessage = originalMessages.find(
+        (message) => message.messageId === targetMessageId,
+      );
+      if (!latestMessage || latestMessage.unfinished === true) {
+        throw createForkValidationError(
+          'The latest message is not available yet. Wait for it to finish and try again.',
+        );
+      }
     }
 
     const importBatchBuilder = builderFactory(requestUserId);
@@ -126,6 +172,10 @@ async function forkConversation({
     } else if (option === ForkOptions.TARGET_LEVEL || !option) {
       // Direct path, siblings, and all descendants
       messagesToClone = getMessagesUpToTargetLevel(originalMessages, targetMessageId);
+    }
+
+    if (messagesToClone.length === 0) {
+      throw createForkValidationError('No messages were available for the requested fork.');
     }
 
     cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder);

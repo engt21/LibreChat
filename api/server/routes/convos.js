@@ -318,7 +318,10 @@ router.post('/fork', forkIpLimiter, forkUserLimiter, async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('Error forking conversation:', error);
-    res.status(500).send('Error forking conversation');
+    const statusCode = error.statusCode ?? 500;
+    res.status(statusCode).json({
+      message: statusCode < 500 ? error.message : 'Error forking conversation',
+    });
   }
 });
 

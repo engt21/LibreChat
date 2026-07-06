@@ -25,7 +25,12 @@ import type {
 import type { GenericTool, LCToolRegistry, ToolMap, LCTool } from '@librechat/agents';
 import type { Response as ServerResponse } from 'express';
 import type { IMongoFile } from '@librechat/data-schemas';
-import type { InitializeResultBase, ServerRequest, EndpointDbMethods } from '~/types';
+import type {
+  InitializeResultBase,
+  ServerRequest,
+  EndpointDbMethods,
+  EndpointTokenConfig,
+} from '~/types';
 import {
   optionalChainWithEmptyCheck,
   extractLibreChatParams,
@@ -54,6 +59,7 @@ export type InitializedAgent = Agent & {
   maxContextTokens: number;
   useLegacyContent: boolean;
   resendFiles: boolean;
+  endpointTokenConfig?: EndpointTokenConfig;
   tool_resources?: AgentToolResources;
   userMCPAuthMap?: Record<string, Record<string, string>>;
   /** Tool map for ToolNode to use when executing tools (required for PTC) */
@@ -242,6 +248,7 @@ export async function initializeAgent(
      */
     let codeGeneratedFiles: IMongoFile[] = [];
     let userCodeFiles: IMongoFile[] = [];
+    let userCodeFileIds = new Set<string>();
 
     if (toolResourceSet.has(EToolResources.execute_code)) {
       let threadMessageIds: string[] | undefined;
@@ -272,12 +279,26 @@ export async function initializeAgent(
       /** User-uploaded execute_code files (context: agents/message_attachment) from thread messages */
       if (db.getUserCodeFiles && threadFileIds && threadFileIds.length > 0) {
         userCodeFiles = (await db.getUserCodeFiles(threadFileIds)) as IMongoFile[];
+        userCodeFileIds = new Set(userCodeFiles.map((file) => file.file_id));
       }
     }
 
     const allToolFiles = toolFiles.concat(codeGeneratedFiles, userCodeFiles);
     if (requestFiles.length || allToolFiles.length) {
       currentFiles = (await db.updateFilesUsage(requestFiles.concat(allToolFiles))) as IMongoFile[];
+      if (userCodeFileIds.size > 0) {
+        currentFiles = currentFiles.map((file) =>
+          userCodeFileIds.has(file.file_id)
+            ? {
+                ...file,
+                metadata: {
+                  ...(file.metadata ?? {}),
+                  nativeTool: EToolResources.execute_code,
+                },
+              }
+            : file,
+        );
+      }
     }
   } else if (requestFiles.length) {
     currentFiles = (await db.updateFilesUsage(requestFiles)) as IMongoFile[];
@@ -359,25 +380,29 @@ export async function initializeAgent(
         }
       : undefined;
 
+  const configuredAgentTools = agent.tools ?? [];
+
   const nativeToolSelection = selectNativeTools({
     agentId: agent.id,
     provider: nativeToolProvider,
-    tools: agent.tools,
+    tools: configuredAgentTools,
     tool_resources,
     model: agent.model,
     codeInterpreterMode:
-      typeof requestEphemeralAgent?.execute_code_mode === 'string'
-        ? requestEphemeralAgent.execute_code_mode
-        : undefined,
+      typeof modelOptions.execute_code_mode === 'string'
+        ? modelOptions.execute_code_mode
+        : typeof requestEphemeralAgent?.execute_code_mode === 'string'
+          ? requestEphemeralAgent.execute_code_mode
+          : undefined,
     anthropicToolOptions,
   });
   const hasAnthropicCodeExecutionRequest =
     nativeToolProvider === EModelEndpoint.anthropic &&
     (typeof anthropicToolOptions?.codeExecution === 'boolean' ||
-      ((agent.tools ?? []).includes(Tools.execute_code) &&
+      (configuredAgentTools.includes(Tools.execute_code) &&
         requestEphemeralAgent?.execute_code_mode === CodeInterpreterModes.provider_native));
 
-  let toolNames = (agent.tools ?? []).filter((tool) => !nativeToolSelection.stripTools.has(tool));
+  let toolNames = configuredAgentTools.filter((tool) => !nativeToolSelection.stripTools.has(tool));
 
   const deterministicToolSettings = req.appSettings?.deterministicTools;
   const defaultDeterministicTools = [
@@ -387,6 +412,10 @@ export async function initializeAgent(
     ...(deterministicToolSettings?.jsonUtility !== false ? ['json_utility'] : []),
   ];
   toolNames = Array.from(new Set([...toolNames, ...defaultDeterministicTools]));
+
+  if (!toolNames.includes('agent_builder')) {
+    toolNames.push('agent_builder');
+  }
 
   if (isXAIProvider && xaiModelCapabilities && !xaiModelCapabilities.supportsFunctionCalling) {
     toolNames = [];
@@ -586,6 +615,7 @@ export async function initializeAgent(
     attachments: finalAttachments,
     toolContextMap: toolContextMap ?? {},
     useLegacyContent: !!options.useLegacyContent,
+    endpointTokenConfig: options.endpointTokenConfig,
     tools: (tools ?? []) as GenericTool[] & string[],
     maxContextTokens:
       maxContextTokens != null && maxContextTokens > 0

@@ -22,6 +22,7 @@ export interface IMongoFile extends Omit<Document, 'model'> {
   metadata?: {
     fileIdentifier?: string;
     nativeTool?: string;
+    originalFilepath?: string;
     ragProvider?: string;
     ragModel?: string;
     transcription?: {

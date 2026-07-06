@@ -9,6 +9,7 @@ import store from '~/store';
 import usePresets from './usePresets';
 
 const mockNewConversation = jest.fn();
+const mockCreatePresetMutate = jest.fn();
 const mockReorderPresetsMutate = jest.fn();
 const mockUpdatePresetMutate = jest.fn();
 let mockUpdatePresetOptions: { onSuccess?: (data: TPreset, variables: TPreset) => void } = {};
@@ -18,7 +19,7 @@ jest.mock('@librechat/client', () => ({
 }));
 
 jest.mock('librechat-data-provider/react-query', () => ({
-  useCreatePresetMutation: jest.fn(() => ({ mutate: jest.fn() })),
+  useCreatePresetMutation: jest.fn(() => ({ mutate: mockCreatePresetMutate })),
   useGetModelsQuery: jest.fn(),
 }));
 
@@ -160,6 +161,71 @@ describe('usePresets default preset loading', () => {
     expect(mockNewConversation).toHaveBeenCalledWith({
       preset: pinnedPreset,
       modelsData: { openAI: ['gpt-5.5'] },
+      keepFiles: true,
+      disableParams: true,
+    });
+  });
+
+  it('preserves uploaded files when selecting a preset', () => {
+    const preset = {
+      presetId: 'preset_files',
+      user: 'user-1',
+      title: 'Claude with files',
+      endpoint: 'anthropic',
+      model: 'claude-sonnet-4.5',
+    } as TPreset;
+
+    (useGetPresetsQuery as jest.Mock).mockReturnValue({
+      data: [preset],
+      refetch: jest.fn(),
+    });
+
+    const { result } = renderUsePresetsHook();
+
+    act(() => {
+      result.current.onSelectPreset(preset);
+    });
+
+    expect(mockNewConversation).toHaveBeenCalledWith({
+      preset: expect.objectContaining({
+        presetId: preset.presetId,
+        endpoint: preset.endpoint,
+        model: preset.model,
+      }),
+      keepAddedConvos: false,
+      keepFiles: true,
+      disableParams: false,
+    });
+  });
+
+  it('preserves uploaded files when a saved preset becomes the default', () => {
+    const oldPreset = {
+      presetId: 'preset_openai',
+      user: 'user-1',
+      title: 'OpenAI images',
+      endpoint: 'openAI',
+      model: 'gpt-5.5',
+      defaultPreset: false,
+    } as TPreset;
+    const updatedPreset = {
+      ...oldPreset,
+      defaultPreset: true,
+    } as TPreset;
+
+    (useGetPresetsQuery as jest.Mock).mockReturnValue({
+      data: [oldPreset],
+      refetch: jest.fn(),
+    });
+
+    renderUsePresetsHook();
+
+    act(() => {
+      mockUpdatePresetOptions.onSuccess?.(updatedPreset, oldPreset);
+    });
+
+    expect(mockNewConversation).toHaveBeenCalledWith({
+      preset: updatedPreset,
+      keepFiles: true,
       disableParams: true,
     });
   });
@@ -199,6 +265,76 @@ describe('usePresets default preset loading', () => {
       presetOrder: [
         { presetId: 'preset_second', order: 1 },
         { presetId: 'preset_first', order: 2 },
+      ],
+    });
+  });
+
+  it('duplicates a preset as an unpinned copy immediately after its source', () => {
+    const pinnedPreset = {
+      presetId: 'preset_pinned',
+      user: 'user-1',
+      title: 'Pinned Claude',
+      endpoint: 'anthropic',
+      model: 'claude-sonnet-4.5',
+      defaultPreset: true,
+      order: 1,
+    } as TPreset;
+    const trailingPreset = {
+      presetId: 'preset_trailing',
+      user: 'user-1',
+      title: 'Trailing',
+      endpoint: 'openAI',
+      model: 'gpt-5.5',
+      order: 2,
+    } as TPreset;
+    const duplicatedPreset = {
+      ...pinnedPreset,
+      presetId: 'preset_copy',
+      title: 'Pinned Claude (com_ui_copy)',
+      defaultPreset: false,
+    } as TPreset;
+
+    (useGetPresetsQuery as jest.Mock).mockReturnValue({
+      data: [pinnedPreset, trailingPreset],
+      refetch: jest.fn(),
+    });
+
+    const { result, queryClient } = renderUsePresetsHook(pinnedPreset);
+
+    act(() => {
+      result.current.onDuplicatePreset(pinnedPreset);
+    });
+
+    expect(mockCreatePresetMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        presetId: null,
+        title: 'Pinned Claude (com_ui_copy)',
+        endpoint: 'anthropic',
+        model: 'claude-sonnet-4.5',
+        defaultPreset: false,
+      }),
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
+    );
+    expect(mockCreatePresetMutate.mock.calls[0][0]).not.toHaveProperty('user');
+    expect(mockCreatePresetMutate.mock.calls[0][0]).not.toHaveProperty('order');
+
+    act(() => {
+      mockCreatePresetMutate.mock.calls[0][1].onSuccess(duplicatedPreset);
+    });
+
+    expect(queryClient.getQueryData([QueryKeys.presets])).toEqual([
+      { ...pinnedPreset, order: 1 },
+      { ...duplicatedPreset, order: 2 },
+      { ...trailingPreset, order: 3 },
+    ]);
+    expect(mockReorderPresetsMutate).toHaveBeenCalledWith({
+      presetOrder: [
+        { presetId: 'preset_pinned', order: 1 },
+        { presetId: 'preset_copy', order: 2 },
+        { presetId: 'preset_trailing', order: 3 },
       ],
     });
   });

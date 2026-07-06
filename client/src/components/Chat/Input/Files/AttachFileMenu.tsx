@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useCallback, useRef, useState, useMemo } from 'react';
 import { useRecoilState } from 'recoil';
 import * as Ariakit from '@ariakit/react';
 import {
@@ -68,6 +68,7 @@ const AttachFileMenu = ({
   const localize = useLocalize();
   const isUploadDisabled = disabled ?? false;
   const inputRef = useRef<HTMLInputElement>(null);
+  const pendingToolResourceRef = useRef<EToolResources | undefined>();
   const [isPopoverActive, setIsPopoverActive] = useState(false);
   const [ephemeralAgent, setEphemeralAgent] = useRecoilState(
     ephemeralAgentByConvoId(conversationId),
@@ -98,6 +99,11 @@ const AttachFileMenu = ({
   const canUploadForFileSearch =
     capabilities.fileSearchEnabled && (isEphemeralChat || fileSearchAllowedByAgent);
   const canUploadForCode = capabilities.codeEnabled && (isEphemeralChat || codeAllowedByAgent);
+
+  const selectToolResource = useCallback((resource?: EToolResources) => {
+    pendingToolResourceRef.current = resource;
+    setToolResource(resource);
+  }, []);
 
   const handleUploadClick = (fileType?: FileUploadType) => {
     if (!inputRef.current) {
@@ -145,7 +151,7 @@ const AttachFileMenu = ({
         items.push({
           label: localize('com_ui_upload_provider'),
           onClick: () => {
-            setToolResource(undefined);
+            selectToolResource(undefined);
             let fileType: Exclude<FileUploadType, 'image' | 'document'> =
               'image_document_video_audio';
             if (currentProvider === Providers.BEDROCK || endpointType === EModelEndpoint.bedrock) {
@@ -159,7 +165,7 @@ const AttachFileMenu = ({
         items.push({
           label: localize('com_ui_upload_image_input'),
           onClick: () => {
-            setToolResource(undefined);
+            selectToolResource(undefined);
             onAction('image');
           },
           icon: <ImageUpIcon className="icon-md" />,
@@ -170,7 +176,7 @@ const AttachFileMenu = ({
         items.push({
           label: localize('com_ui_upload_ocr_text'),
           onClick: () => {
-            setToolResource(EToolResources.context);
+            selectToolResource(EToolResources.context);
             onAction();
           },
           icon: <FileType2Icon className="icon-md" />,
@@ -181,7 +187,7 @@ const AttachFileMenu = ({
         items.push({
           label: localize('com_ui_upload_file_search'),
           onClick: () => {
-            setToolResource(EToolResources.file_search);
+            selectToolResource(EToolResources.file_search);
             setEphemeralAgent((prev) => ({
               ...prev,
               [EToolResources.file_search]: true,
@@ -196,7 +202,7 @@ const AttachFileMenu = ({
         items.push({
           label: localize('com_ui_upload_code_files'),
           onClick: () => {
-            setToolResource(EToolResources.execute_code);
+            selectToolResource(EToolResources.execute_code);
             setEphemeralAgent((prev) => ({
               ...prev,
               [EToolResources.execute_code]: true,
@@ -236,7 +242,7 @@ const AttachFileMenu = ({
     canUploadForCode,
     canUploadForFileSearch,
     useResponsesApi,
-    setToolResource,
+    selectToolResource,
     setEphemeralAgent,
     sharePointEnabled,
     setIsSharePointDialogOpen,
@@ -278,7 +284,7 @@ const AttachFileMenu = ({
       <FileUpload
         ref={inputRef}
         handleFileChange={(e) => {
-          handleFileChange(e, toolResource);
+          handleFileChange(e, pendingToolResourceRef.current);
         }}
       >
         <DropdownPopup

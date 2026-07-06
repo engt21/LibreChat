@@ -6,7 +6,7 @@ jest.mock('~/utils', () => ({
   cn: (...classes: (string | boolean | undefined | null)[]) =>
     classes
       .flat(Infinity)
-      .filter((c): c is string => typeof c === 'string' && c.length > 0)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
       .join(' '),
 }));
 
@@ -16,27 +16,8 @@ jest.mock('~/hooks', () => ({
 
 jest.mock('~/components/Chat/Messages/Content/Image', () => ({
   __esModule: true,
-  default: ({
-    altText,
-    imagePath,
-    className,
-  }: {
-    altText: string;
-    imagePath: string;
-    className?: string;
-  }) => (
-    <div
-      data-testid="image-component"
-      data-alt={altText}
-      data-src={imagePath}
-      className={className}
-    />
-  ),
-}));
-
-jest.mock('@librechat/client', () => ({
-  PixelCard: ({ progress }: { progress: number }) => (
-    <div data-testid="pixel-card" data-progress={progress} />
+  default: ({ altText, imagePath }: { altText: string; imagePath: string }) => (
+    <div data-testid="image-component" data-alt={altText} data-src={imagePath} />
   ),
 }));
 
@@ -66,163 +47,166 @@ describe('OpenAIImageGen', () => {
     jest.useRealTimers();
   });
 
-  describe('image preloading', () => {
-    it('keeps Image mounted during generation (progress < 1)', () => {
-      render(<OpenAIImageGen {...defaultProps} initialProgress={0.5} />);
-      expect(screen.getByTestId('image-component')).toBeInTheDocument();
-    });
-
-    it('hides Image with invisible absolute while progress < 1', () => {
-      render(<OpenAIImageGen {...defaultProps} initialProgress={0.5} />);
-      const image = screen.getByTestId('image-component');
-      expect(image.className).toContain('invisible');
-      expect(image.className).toContain('absolute');
-    });
-
-    it('shows Image without hiding classes when progress >= 1', () => {
-      render(
-        <OpenAIImageGen
-          {...defaultProps}
-          initialProgress={1}
-          isSubmitting={false}
-          attachments={[
-            {
-              filename: 'cat.png',
-              filepath: '/images/cat.png',
-              conversationId: 'conv1',
-            } as never,
-          ]}
-        />,
-      );
-      const image = screen.getByTestId('image-component');
-      expect(image.className).not.toContain('invisible');
-      expect(image.className).not.toContain('absolute');
-    });
-
-    it('shows streamed partial image during generation', () => {
-      render(
-        <OpenAIImageGen
-          {...defaultProps}
-          initialProgress={0.5}
-          attachments={[
-            {
-              filename: 'partial.png',
-              filepath: 'data:image/png;base64,partial',
-              conversationId: 'conv1',
-            } as never,
-          ]}
-        />,
-      );
-      const image = screen.getByTestId('image-component');
-      expect(image).toHaveAttribute('data-src', 'data:image/png;base64,partial');
-      expect(image.className).not.toContain('invisible');
-      expect(screen.queryByTestId('pixel-card')).not.toBeInTheDocument();
-    });
-
-    it('uses the latest attachment so final image replaces streamed previews', () => {
-      render(
-        <OpenAIImageGen
-          {...defaultProps}
-          initialProgress={1}
-          isSubmitting={false}
-          attachments={[
-            {
-              filename: 'partial.png',
-              filepath: 'data:image/png;base64,partial',
-              conversationId: 'conv1',
-            } as never,
-            {
-              filename: 'final.png',
-              filepath: '/images/final.png',
-              conversationId: 'conv1',
-            } as never,
-          ]}
-        />,
-      );
-      expect(screen.getByTestId('image-component')).toHaveAttribute(
-        'data-src',
-        '/images/final.png',
-      );
-    });
+  it('does not render a synthetic image placeholder before provider data arrives', () => {
+    render(<OpenAIImageGen {...defaultProps} initialProgress={0.5} />);
+    expect(screen.queryByTestId('image-component')).not.toBeInTheDocument();
+    expect(screen.getByTestId('progress-text')).toBeInTheDocument();
   });
 
-  describe('PixelCard visibility', () => {
-    it('shows PixelCard when progress < 1', () => {
-      render(<OpenAIImageGen {...defaultProps} initialProgress={0.5} />);
-      expect(screen.getByTestId('pixel-card')).toBeInTheDocument();
-    });
+  it('shows the real streamed partial image during generation', () => {
+    render(
+      <OpenAIImageGen
+        {...defaultProps}
+        initialProgress={0.5}
+        attachments={[
+          {
+            filename: 'partial.png',
+            filepath: 'data:image/png;base64,partial',
+            conversationId: 'conv1',
+          } as never,
+        ]}
+      />,
+    );
 
-    it('hides PixelCard when progress >= 1', () => {
-      render(<OpenAIImageGen {...defaultProps} initialProgress={1} isSubmitting={false} />);
-      expect(screen.queryByTestId('pixel-card')).not.toBeInTheDocument();
-    });
+    expect(screen.getByTestId('image-component')).toHaveAttribute(
+      'data-src',
+      'data:image/png;base64,partial',
+    );
   });
 
-  describe('layout classes', () => {
-    it('applies max-h-[45vh] to the outer container', () => {
-      const { container } = render(<OpenAIImageGen {...defaultProps} />);
-      const outerDiv = container.querySelector('[class*="max-h-"]');
-      expect(outerDiv?.className).toContain('max-h-[45vh]');
-    });
+  it('shows only the latest URL-backed transient provider preview', () => {
+    render(
+      <OpenAIImageGen
+        {...defaultProps}
+        initialProgress={0.5}
+        attachments={[
+          {
+            filename: 'partial-1.png',
+            filepath: 'https://provider.example/partial-1.png',
+            partial: true,
+            partialImageIndex: 0,
+            conversationId: 'conv1',
+          } as never,
+          {
+            filename: 'partial-2.png',
+            filepath: 'https://provider.example/partial-2.png',
+            partial: true,
+            partialImageIndex: 1,
+            conversationId: 'conv1',
+          } as never,
+        ]}
+      />,
+    );
 
-    it('applies h-[45vh] w-full to inner container during loading', () => {
-      const { container } = render(<OpenAIImageGen {...defaultProps} initialProgress={0.5} />);
-      const innerDiv = container.querySelector('[class*="h-[45vh]"]');
-      expect(innerDiv).not.toBeNull();
-      expect(innerDiv?.className).toContain('w-full');
-    });
-
-    it('applies w-auto to inner container when complete', () => {
-      const { container } = render(
-        <OpenAIImageGen {...defaultProps} initialProgress={1} isSubmitting={false} />,
-      );
-      const overflowDiv = container.querySelector('[class*="overflow-hidden"]');
-      expect(overflowDiv?.className).toContain('w-auto');
-    });
+    expect(screen.getAllByTestId('image-component')).toHaveLength(1);
+    expect(screen.getByTestId('image-component')).toHaveAttribute(
+      'data-src',
+      'https://provider.example/partial-2.png',
+    );
   });
 
-  describe('args parsing', () => {
-    it('parses quality from args', () => {
-      render(<OpenAIImageGen {...defaultProps} />);
-      expect(screen.getByTestId('progress-text')).toBeInTheDocument();
-    });
+  it('uses the latest attachment so the final image replaces streamed previews', () => {
+    render(
+      <OpenAIImageGen
+        {...defaultProps}
+        initialProgress={1}
+        isSubmitting={false}
+        attachments={[
+          {
+            filename: 'partial.png',
+            filepath: 'data:image/png;base64,partial',
+            conversationId: 'conv1',
+          } as never,
+          {
+            filename: 'final.png',
+            filepath: '/images/final.png',
+            conversationId: 'conv1',
+          } as never,
+        ]}
+      />,
+    );
 
-    it('handles invalid JSON args gracefully', () => {
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-      render(<OpenAIImageGen {...defaultProps} args="invalid json" />);
-      expect(screen.getByTestId('image-component')).toBeInTheDocument();
-      consoleSpy.mockRestore();
-    });
-
-    it('handles object args', () => {
-      render(
-        <OpenAIImageGen
-          {...defaultProps}
-          args={{ prompt: 'a dog', quality: 'low', size: '512x512' }}
-        />,
-      );
-      expect(screen.getByTestId('image-component')).toBeInTheDocument();
-    });
+    expect(screen.getByTestId('image-component')).toHaveAttribute('data-src', '/images/final.png');
   });
 
-  describe('cancellation', () => {
-    it('shows error state when output contains error', () => {
-      render(
-        <OpenAIImageGen
-          {...defaultProps}
-          output="Error processing tool call"
-          isSubmitting={false}
-          initialProgress={0.5}
-        />,
-      );
-      const progressText = screen.getByTestId('progress-text');
-      expect(progressText).toHaveAttribute('data-error', 'true');
-    });
+  it('renders every persisted image returned by a multi-image generation', () => {
+    render(
+      <OpenAIImageGen
+        {...defaultProps}
+        initialProgress={1}
+        isSubmitting={false}
+        attachments={[
+          {
+            file_id: 'file-1',
+            filename: 'first.png',
+            filepath: '/images/first.png',
+            conversationId: 'conv1',
+          } as never,
+          {
+            file_id: 'file-2',
+            filename: 'second.png',
+            filepath: '/images/second.png',
+            conversationId: 'conv1',
+          } as never,
+        ]}
+      />,
+    );
 
-    it('shows cancelled state when not submitting and incomplete', () => {
-      render(<OpenAIImageGen {...defaultProps} isSubmitting={false} initialProgress={0.5} />);
-      const progressText = screen.getByTestId('progress-text');
-      expect(progressText).toHaveAttribute('data-error', 'true');
-    });
+    expect(screen.getAllByTestId('image-component')).toHaveLength(2);
+    expect(screen.getAllByTestId('image-component')[0]).toHaveAttribute(
+      'data-src',
+      '/images/first.png',
+    );
+    expect(screen.getAllByTestId('image-component')[1]).toHaveAttribute(
+      'data-src',
+      '/images/second.png',
+    );
+  });
+
+  it('applies image sizing only after a provider image exists', () => {
+    const { container } = render(
+      <OpenAIImageGen
+        {...defaultProps}
+        initialProgress={0.5}
+        attachments={[
+          {
+            filename: 'partial.png',
+            filepath: 'data:image/png;base64,partial',
+            conversationId: 'conv1',
+          } as never,
+        ]}
+      />,
+    );
+
+    expect(container.querySelector('[class*="max-h-"]')?.className).toContain('max-h-[45vh]');
+    expect(container.querySelector('[class*="h-[45vh]"]')?.className).toContain('w-full');
+  });
+
+  it('handles invalid JSON args without rendering a fake image', () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    render(<OpenAIImageGen {...defaultProps} args="invalid json" />);
+    expect(screen.queryByTestId('image-component')).not.toBeInTheDocument();
+    expect(consoleSpy).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('silently accepts incomplete streamed JSON args', () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    render(<OpenAIImageGen {...defaultProps} args='{\"prompt\":\"a cat\"' />);
+    expect(screen.queryByTestId('image-component')).not.toBeInTheDocument();
+    expect(consoleSpy).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('shows error state when output contains an error', () => {
+    render(
+      <OpenAIImageGen
+        {...defaultProps}
+        output="Error processing tool call"
+        isSubmitting={false}
+        initialProgress={0.5}
+      />,
+    );
+    expect(screen.getByTestId('progress-text')).toHaveAttribute('data-error', 'true');
   });
 });

@@ -68,6 +68,35 @@ describe('applyModelSpecEphemeralAgent', () => {
       });
     });
 
+    it('preserves active same-provider tool choices during a model transition', () => {
+      const modelSpec = createModelSpec({
+        executeCode: false,
+        webSearch: false,
+        mcpServers: [],
+      });
+
+      applyModelSpecEphemeralAgent({
+        convoId: null,
+        modelSpec,
+        updateEphemeralAgent,
+        existingAgent: {
+          execute_code: true,
+          image_generation: true,
+          web_search: true,
+          mcp: ['user-selected-server'],
+        },
+      });
+
+      expect(updateEphemeralAgent).toHaveBeenCalledWith(Constants.NEW_CONVO, {
+        execute_code: true,
+        image_generation: true,
+        web_search: true,
+        file_search: false,
+        artifacts: 'default',
+        mcp: ['user-selected-server'],
+      });
+    });
+
     it('should not read from localStorage even if stale values exist', () => {
       // Simulate stale localStorage from a previous session
       writeToolToggle(LocalStorageKeys.LAST_CODE_TOGGLE_, Constants.NEW_CONVO, false);

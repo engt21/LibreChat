@@ -10,11 +10,13 @@ const {
   getMessages,
   updateMessage,
   deleteMessages,
+  deleteMessageBranch,
 } = require('~/models');
 const { findAllArtifacts, replaceArtifactContent } = require('~/server/services/Artifacts/update');
 const { requireJwtAuth, validateMessageReq } = require('~/server/middleware');
 const { getConvosQueried } = require('~/models/Conversation');
-const { Message } = require('~/db/models');
+const { Message, ToolCall } = require('~/db/models');
+const { getTransactions } = require('~/models/Transaction');
 
 const router = express.Router();
 router.use(requireJwtAuth);
@@ -280,6 +282,189 @@ router.post('/artifact/:messageId', async (req, res) => {
 });
 
 /* Note: It's necessary to add `validateMessageReq` within route definition for correct params */
+
+function absoluteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.abs(number) : 0;
+}
+
+function estimateMessageTokens(message) {
+  if (Number.isFinite(message?.tokenCount)) {
+    return Math.max(Number(message.tokenCount), 0);
+  }
+
+  const text = typeof message?.text === 'string' ? message.text : '';
+  return text ? Math.ceil(text.length / 4) : 0;
+}
+
+function collectToolCallCounts(content) {
+  const counts = new Map();
+  let anonymousCount = 0;
+
+  const increment = (key) => counts.set(key, (counts.get(key) ?? 0) + 1);
+  const visit = (value) => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== 'object') {
+      return;
+    }
+
+    if (value.type === ContentTypes.TOOL_CALL || value.type === 'tool_calls') {
+      const name =
+        value.tool_call?.function?.name ??
+        value.tool_call?.name ??
+        value.function?.name ??
+        value.name;
+      const id = value.tool_call_id ?? value.toolCallId ?? value.id ?? value.tool_call?.id;
+      if (name) {
+        increment(`name:${name}`);
+      } else if (id) {
+        increment(`id:${id}`);
+      } else {
+        anonymousCount += 1;
+      }
+    }
+
+    Object.values(value).forEach(visit);
+  };
+
+  visit(content);
+  if (anonymousCount > 0) {
+    counts.set('anonymous', anonymousCount);
+  }
+  return counts;
+}
+
+function mergeToolCallCounts(embeddedCounts, persistedCounts) {
+  const keys = new Set([...embeddedCounts.keys(), ...persistedCounts.keys()]);
+  let total = 0;
+  for (const key of keys) {
+    total += Math.max(embeddedCounts.get(key) ?? 0, persistedCounts.get(key) ?? 0);
+  }
+  return total;
+}
+
+
+router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const requestedIds = Array.isArray(req.body?.messageIds)
+      ? [...new Set(req.body.messageIds.filter((id) => typeof id === 'string' && id))]
+      : [];
+
+    const messageFilter = { conversationId, user: req.user.id };
+    if (requestedIds.length > 0) {
+      messageFilter.messageId = { $in: requestedIds };
+    }
+
+    const messages = await Message.find(messageFilter).sort({ createdAt: 1 }).lean();
+    const visibleIds = messages.map((message) => message.messageId);
+    const transactions =
+      visibleIds.length > 0
+        ? await getTransactions({
+            user: req.user.id,
+            conversationId,
+            messageId: { $in: visibleIds },
+          })
+        : [];
+    const persistedToolCalls =
+      visibleIds.length > 0
+        ? await ToolCall.find({
+            user: req.user.id,
+            conversationId,
+            messageId: { $in: visibleIds },
+          }).lean()
+        : [];
+    const persistedToolCountsByMessage = new Map();
+    for (const toolCall of persistedToolCalls) {
+      if (!toolCall.messageId) {
+        continue;
+      }
+      const counts = persistedToolCountsByMessage.get(toolCall.messageId) ?? new Map();
+      const key = toolCall.toolId ? `name:${toolCall.toolId}` : 'anonymous';
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      persistedToolCountsByMessage.set(toolCall.messageId, counts);
+    }
+
+    const usageByMessage = new Map();
+    for (const transaction of transactions) {
+      if (!transaction.messageId) {
+        continue;
+      }
+      const usage = usageByMessage.get(transaction.messageId) ?? {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      };
+
+      if (transaction.tokenType === 'prompt') {
+        if (
+          transaction.inputTokens != null ||
+          transaction.readTokens != null ||
+          transaction.writeTokens != null
+        ) {
+          usage.inputTokens += absoluteNumber(transaction.inputTokens);
+          usage.cacheReadTokens += absoluteNumber(transaction.readTokens);
+          usage.cacheWriteTokens += absoluteNumber(transaction.writeTokens);
+        } else {
+          usage.inputTokens += absoluteNumber(transaction.rawAmount);
+        }
+      } else if (transaction.tokenType === 'completion') {
+        usage.outputTokens += absoluteNumber(transaction.rawAmount);
+      }
+
+      usageByMessage.set(transaction.messageId, usage);
+    }
+
+    let priorVisibleTokens = 0;
+    const turns = [];
+    for (const message of messages) {
+      const estimatedMessageTokens = estimateMessageTokens(message);
+      if (message.isCreatedByUser) {
+        priorVisibleTokens += estimatedMessageTokens;
+        continue;
+      }
+
+      const recorded = usageByMessage.get(message.messageId);
+      turns.push({
+        messageId: message.messageId,
+        createdAt: message.createdAt,
+        model: message.model,
+        endpoint: message.endpoint,
+        inputTokens: recorded?.inputTokens ?? priorVisibleTokens,
+        outputTokens: recorded?.outputTokens ?? estimatedMessageTokens,
+        cacheReadTokens: recorded?.cacheReadTokens ?? 0,
+        cacheWriteTokens: recorded?.cacheWriteTokens ?? 0,
+        toolCalls: mergeToolCallCounts(
+          collectToolCallCounts(message.content),
+          persistedToolCountsByMessage.get(message.messageId) ?? new Map(),
+        ),
+        estimated: recorded == null,
+      });
+      priorVisibleTokens += estimatedMessageTokens;
+    }
+
+    const totals = turns.reduce(
+      (total, turn) => ({
+        inputTokens: total.inputTokens + turn.inputTokens,
+        outputTokens: total.outputTokens + turn.outputTokens,
+        cacheReadTokens: total.cacheReadTokens + turn.cacheReadTokens,
+        cacheWriteTokens: total.cacheWriteTokens + turn.cacheWriteTokens,
+        toolCalls: total.toolCalls + turn.toolCalls,
+      }),
+      { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, toolCalls: 0 },
+    );
+
+    res.status(200).json({ conversationId, totals, turns });
+  } catch (error) {
+    logger.error('Error fetching conversation usage:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/:conversationId', validateMessageReq, async (req, res) => {
   try {
     const { conversationId } = req.params;
@@ -399,6 +584,22 @@ router.put('/:conversationId/:messageId/feedback', validateMessageReq, async (re
   } catch (error) {
     logger.error('Error updating message feedback:', error);
     res.status(500).json({ error: 'Failed to update feedback' });
+  }
+});
+
+router.delete('/:conversationId/:messageId/branch', validateMessageReq, async (req, res) => {
+  try {
+    const result = await deleteMessageBranch(req, req.params);
+    if (result.status === 'not_found') {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    if (result.status === 'invalid_target') {
+      return res.status(400).json({ error: 'User messages cannot be discarded as generations' });
+    }
+    res.status(200).json({ deletedCount: result.deletedCount });
+  } catch (error) {
+    logger.error('Error deleting message branch:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

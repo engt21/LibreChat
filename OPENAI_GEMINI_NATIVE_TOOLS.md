@@ -137,7 +137,11 @@ This keeps LibreChat's own file tracking intact while letting OpenAI own the exe
 
 ## Duplicate-context avoidance
 
-When a file is being used by an OpenAI-native tool, LibreChat intentionally avoids also injecting the same file into the prompt as ordinary file context.
+When a file is being used by an OpenAI-native tool, LibreChat intentionally avoids also injecting the same file into the prompt as ordinary extracted file context.
+
+Images are the intentional exception: a tool-routed image remains available to Code Interpreter or the selected provider tool and is also attached as multimodal vision content so the LLM can inspect the pixels directly before deciding whether a tool call is needed. Message-level images bypass configured OCR; OCR/document parsing remains available for non-message agent context resources.
+
+LibreChat stores a normalized image copy for provider vision and records the exact uploaded object separately as `metadata.originalFilepath`. Local Code Interpreter uses that original path when it stages the attachment into `/mnt/data`, including lazy staging of an ordinary branch attachment after the model decides to call the tool. Deletion removes both stored copies.
 
 That prevents:
 
@@ -145,6 +149,8 @@ That prevents:
 - duplicated code file content
 - unnecessary token consumption
 - prompt contamination from both native tool handling and local RAG/file expansion happening at once
+
+For automatic image quality, LibreChat requests `original` detail from supported direct OpenAI GPT-5.4/GPT-5.5 models and `high` elsewhere. Explicit user detail selections remain authoritative. Anthropic, Google, xAI, Bedrock, and other adapters keep their existing provider-specific image wire formats.
 
 ## Gemini / Google behavior
 
@@ -280,6 +286,8 @@ For OpenAI-native file uploads from the client:
 - the chat-bar attach menu and drag/drop modal show Code Interpreter as an upload destination for ephemeral chats based on Code Interpreter capability, not on whether the toggle was already enabled; selecting it enables the tool and sends arbitrary raw files such as `.wav` with `tool_resource=execute_code`
 - audio/video uploads are destination-specific: the same `.wav` can remain a normal attachment for explicit transcription or be routed to Code Interpreter for sandbox analysis
 - completed uploads keep the route metadata in compose state, and the inline transcription bar excludes Code Interpreter-routed audio/video so sending the message preserves the raw file attachment path unless the user explicitly clicks Transcribe
+- message image uploads skip configured OCR and are encoded into the provider's multimodal request; if an image is also marked for a native or local tool, attachment processing preserves the tool metadata/file identifier and still adds the image to the visual message
+- local Code Interpreter receives the original uploaded image rather than the resized/converted vision copy, both for explicit Code Interpreter uploads and later lazy staging
 
 Captured multipart upload verification showed:
 
@@ -296,6 +304,7 @@ Validated items include:
 - metadata schema support for native tool files
 - server-side native tool selection logic
 - upload routing for native `file_search` and `execute_code`
+- vision-first routing for ordinary and tool-managed image uploads, including maximum compatible automatic detail
 - client-side toggle UX for OpenAI and Gemini
 - Anthropic live quick-select model discovery and ordering
 - Anthropic code-execution mode persistence and request payload shaping

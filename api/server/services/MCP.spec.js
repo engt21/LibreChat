@@ -20,6 +20,7 @@ const mockRegistryInstance = {
 const mockIsMCPDomainAllowed = jest.fn(() => Promise.resolve(true));
 
 const mockGetAppConfig = jest.fn(() => Promise.resolve({}));
+const mockGetMCPAuthenticationRequirement = jest.fn(() => Promise.resolve(null));
 
 jest.mock('@librechat/api', () => {
   const actual = jest.requireActual('@librechat/api');
@@ -76,6 +77,7 @@ jest.mock('~/models', () => ({
 
 jest.mock('./Tools/mcp', () => ({
   reinitMCPServer: jest.fn(),
+  getMCPAuthenticationRequirement: (...args) => mockGetMCPAuthenticationRequirement(...args),
 }));
 
 jest.mock('./GraphTokenService', () => ({
@@ -1539,6 +1541,7 @@ describe('createMCPTool — consent delta emission (VAL-MCP-004)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetMCPAuthenticationRequirement.mockResolvedValue(null);
 
     mockGetMCPManager = require('~/config').getMCPManager;
     mockGetFlowStateManager = require('~/config').getFlowStateManager;
@@ -1553,6 +1556,66 @@ describe('createMCPTool — consent delta emission (VAL-MCP-004)', () => {
 
     mockGetLogStores.mockReturnValue({});
     mockGetFlowStateManager.mockReturnValue(mockFlowManager);
+  });
+
+  it('should return structured authentication-required without calling the transport', async () => {
+    const mockCallTool = jest.fn();
+    mockGetMCPManager.mockReturnValue({ callTool: mockCallTool });
+    mockGetMCPAuthenticationRequirement.mockResolvedValue({
+      success: false,
+      code: 'MCP_AUTHENTICATION_REQUIRED',
+      status: 'authentication_required',
+      authenticationRequired: true,
+      oauthRequired: true,
+      serverName: 'arcade-microsoft',
+      toolName: 'Microsoft_ListCalendarEvents',
+      message: "MCP server 'arcade-microsoft' requires authentication",
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      url: 'https://api.arcade.dev/mcp/microsoft',
+      requiresOAuth: true,
+    });
+
+    const toolInstance = await createMCPTool({
+      res: { write: jest.fn(), flush: jest.fn() },
+      user: { id: 'user-1', role: 'user' },
+      toolKey: `Microsoft_ListCalendarEvents${D}arcade-microsoft`,
+      provider: 'openai',
+      userMCPAuthMap: {},
+      availableTools: {
+        [`Microsoft_ListCalendarEvents${D}arcade-microsoft`]: {
+          function: {
+            description: 'List calendar events',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+      },
+    });
+
+    const result = await toolInstance.invoke(
+      { input: 'list my events' },
+      {
+        configurable: {
+          user: { id: 'user-1' },
+          user_id: 'user-1',
+          userMCPAuthMap: {},
+        },
+        metadata: {
+          provider: 'openai',
+          thread_id: 'thread-1',
+          run_id: 'run-1',
+        },
+        toolCall: {
+          id: 'call-auth-required',
+          name: 'Microsoft_ListCalendarEvents',
+          type: 'tool_call_chunk',
+          args: '{}',
+        },
+      },
+    );
+
+    expect(JSON.stringify(result)).toContain('MCP_AUTHENTICATION_REQUIRED');
+    expect(mockCallTool).not.toHaveBeenCalled();
   });
 
   it('should emit structured auth delta event when tool result contains consent continuation', async () => {

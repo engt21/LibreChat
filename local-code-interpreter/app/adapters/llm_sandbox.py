@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+import docker
 from llm_sandbox import ArtifactSandboxSession, SandboxBackend, SandboxSession, SupportedLanguage
 
 from app.models import AdapterExecutionResult
+from app.sandbox_cleanup import MANAGED_LABEL, OWNER_LABEL, OWNER_VALUE, SandboxContainerJanitor
 from app.settings import Settings
 
 from .base import SandboxAdapter
@@ -54,6 +56,19 @@ class LlmSandboxAdapter(SandboxAdapter):
         self._sessions_lock = threading.Lock()
         self._prewarm_lock = threading.Lock()
         self._prewarm_started = False
+        self._container_janitor = SandboxContainerJanitor(
+            docker.from_env(),
+            {
+                settings.python_image,
+                settings.javascript_image,
+                settings.java_image,
+                settings.cpp_image,
+                settings.go_image,
+                settings.ruby_image,
+                settings.r_image,
+            },
+            settings.workspace_host_root,
+        )
         self._run_configs: dict[str, SessionRunConfig] = {
             'python': SessionRunConfig(
                 language=SupportedLanguage.PYTHON,
@@ -168,6 +183,25 @@ class LlmSandboxAdapter(SandboxAdapter):
 
         for key in expired_keys:
             self._discard_runtime(key)
+
+    def cleanup_orphaned_containers(self) -> list[str]:
+        with self._sessions_lock:
+            active_container_ids = {
+                container_id
+                for runtime in self._sessions.values()
+                if (
+                    container_id := getattr(
+                        getattr(runtime.session, 'container', None),
+                        'id',
+                        None,
+                    )
+                )
+            }
+            return self._container_janitor.cleanup(
+                active_container_ids=active_container_ids,
+                ttl_seconds=max(self.settings.session_ttl_hours, 1) * 3600,
+                now=time.time(),
+            )
 
     def shutdown(self) -> None:
         with self._sessions_lock:
@@ -463,8 +497,25 @@ class LlmSandboxAdapter(SandboxAdapter):
             materialized_files.append(filename)
         return materialized_files
 
+    def _active_container_ids(self) -> set[str]:
+        with self._sessions_lock:
+            runtimes = list(self._sessions.values())
+
+        active_ids: set[str] = set()
+        for runtime in runtimes:
+            container = getattr(runtime.session, 'container', None)
+            container_id = getattr(container, 'id', None)
+            if container_id:
+                active_ids.add(container_id)
+        return active_ids
+
     def _runtime_configs(self, workspace_host_path: str) -> dict[str, object]:
         return {
+            'name': f'librechat-code-{uuid4().hex[:12]}',
+            'labels': {
+                MANAGED_LABEL: 'true',
+                OWNER_LABEL: OWNER_VALUE,
+            },
             'volumes': {
                 workspace_host_path: {
                     'bind': '/mnt/data',

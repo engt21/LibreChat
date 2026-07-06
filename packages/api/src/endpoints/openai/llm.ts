@@ -239,6 +239,17 @@ export function getOpenAILLMConfig({
     ? normalizeOllamaReasoningEffort(reasoning_effort)
     : reasoning_effort;
   const normalizedReasoningSummary = isOllamaEndpoint ? undefined : reasoning_summary;
+  const usesOpenAIMaxReasoning =
+    (normalizedReasoningEffort === ReasoningEffort.max ||
+      normalizedReasoningEffort === ReasoningEffort.ultra) &&
+    openAIModelCapabilities?.reasoningEffortOptions.includes(ReasoningEffort.max) === true;
+  const usesOpenAIUltraReasoning =
+    normalizedReasoningEffort === ReasoningEffort.ultra &&
+    openAIModelCapabilities?.reasoningEffortOptions.includes(ReasoningEffort.ultra) === true;
+  const requestReasoningEffort = usesOpenAIUltraReasoning
+    ? ReasoningEffort.max
+    : normalizedReasoningEffort;
+  const openAIReasoningMode = usesOpenAIUltraReasoning ? 'pro' : undefined;
 
   const usesOpenAIHostedResponses =
     !useOpenRouter &&
@@ -362,6 +373,7 @@ export function getOpenAILLMConfig({
   const requiresOpenAIResponsesApi =
     openAIModelCapabilities?.hasKnownCapabilities === true &&
     (openAIModelCapabilities.requiresResponsesApi ||
+      usesOpenAIMaxReasoning ||
       (openAIModelCapabilities.supportsReasoningSummary &&
         normalizedReasoningSummary != null &&
         normalizedReasoningSummary !== '') ||
@@ -394,7 +406,7 @@ export function getOpenAILLMConfig({
        * `include_reasoning` is legacy compat that maps to `{ enabled: true }` only when
        * no `reasoning` object is present, so we intentionally omit it here.
        */
-      modelKwargs.reasoning = { effort: normalizedReasoningEffort };
+      modelKwargs.reasoning = { effort: requestReasoningEffort };
       hasModelKwargs = true;
     } else {
       /** No explicit effort; fall back to legacy `include_reasoning` for reasoning token inclusion */
@@ -409,7 +421,8 @@ export function getOpenAILLMConfig({
   ) {
     llmConfig.reasoning = removeNullishValues(
       {
-        effort: normalizedReasoningEffort,
+        effort: requestReasoningEffort,
+        mode: openAIReasoningMode,
         summary: normalizedReasoningSummary,
       },
       true,
@@ -423,7 +436,7 @@ export function getOpenAILLMConfig({
   ) {
     modelKwargs.reasoning = removeNullishValues(
       {
-        effort: normalizedReasoningEffort,
+        effort: requestReasoningEffort,
         summary: normalizedReasoningSummary,
       },
       true,
@@ -439,13 +452,13 @@ export function getOpenAILLMConfig({
   ) {
     llmConfig.reasoning = removeNullishValues(
       {
-        effort: normalizedReasoningEffort,
+        effort: requestReasoningEffort,
         summary: normalizedReasoningSummary,
       },
       true,
     ) as OpenAI.Reasoning;
   } else if (hasReasoningParams({ reasoning_effort: normalizedReasoningEffort })) {
-    llmConfig.reasoning_effort = normalizedReasoningEffort;
+    llmConfig.reasoning_effort = requestReasoningEffort;
   }
 
   if (llmConfig.max_tokens != null) {

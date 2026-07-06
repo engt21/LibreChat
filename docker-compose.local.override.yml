@@ -12,12 +12,52 @@ x-langfuse-depends-on: &langfuse-depends-on
   langfuse-clickhouse:
     condition: service_healthy
 
+x-core-resources: &core-resources
+  cpu_shares: ${LIBRECHAT_CORE_CPU_SHARES:-2048}
+  pids_limit: ${LIBRECHAT_CORE_PIDS_LIMIT:-512}
+  blkio_config:
+    weight: 1000
+    device_read_bps:
+      - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+        rate: ${LIBRECHAT_CORE_READ_BPS:-200mb}
+    device_write_bps:
+      - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+        rate: ${LIBRECHAT_CORE_WRITE_BPS:-150mb}
+
+x-support-resources: &support-resources
+  cpu_shares: ${LIBRECHAT_SUPPORT_CPU_SHARES:-512}
+  pids_limit: ${LIBRECHAT_SUPPORT_PIDS_LIMIT:-192}
+  blkio_config:
+    weight: 300
+    device_read_bps:
+      - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+        rate: ${LIBRECHAT_SUPPORT_READ_BPS:-75mb}
+    device_write_bps:
+      - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+        rate: ${LIBRECHAT_SUPPORT_WRITE_BPS:-50mb}
+
+x-aux-resources: &aux-resources
+  cpu_shares: ${LIBRECHAT_AUX_CPU_SHARES:-128}
+  pids_limit: ${LIBRECHAT_AUX_PIDS_LIMIT:-128}
+  blkio_config:
+    weight: 100
+    device_read_bps:
+      - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+        rate: ${LIBRECHAT_AUX_READ_BPS:-25mb}
+    device_write_bps:
+      - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+        rate: ${LIBRECHAT_AUX_WRITE_BPS:-20mb}
+
 services:
   api:
+    <<: *core-resources
     image: ${LIBRECHAT_API_IMAGE:-librechat-local:latest}
     pull_policy: never
     restart: unless-stopped
-    mem_limit: ${LIBRECHAT_API_MEM_LIMIT:-1536m}
+    mem_limit: ${LIBRECHAT_API_MEM_LIMIT:-5120m}
+    mem_reservation: ${LIBRECHAT_API_MEM_RESERVATION:-3072m}
+    cpus: ${LIBRECHAT_API_CPUS:-3.5}
+    oom_score_adj: ${LIBRECHAT_API_OOM_SCORE_ADJ:--500}
     build:
       context: .
       dockerfile: Dockerfile
@@ -36,7 +76,7 @@ services:
         condition: service_healthy
     user: "0:0"
     environment:
-      NODE_OPTIONS: "--max-old-space-size=${LIBRECHAT_API_NODE_MAX_OLD_SPACE:-1024}"
+      NODE_OPTIONS: "--max-old-space-size=${LIBRECHAT_API_NODE_MAX_OLD_SPACE:-4096}"
       MONGO_URI: ${MONGO_URI}
       MEILI_HOST: http://meilisearch:7700
       DOMAIN_SERVER: ${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}
@@ -60,6 +100,12 @@ services:
       OPENAI_RAG_API_URL: ${OPENAI_RAG_API_URL:-http://rag_api:8000}
       AZURE_OPENAI_RAG_API_URL: ${AZURE_OPENAI_RAG_API_URL:-http://rag_api_azure:8000}
       GOOGLE_RAG_API_URL: ${GOOGLE_RAG_API_URL:-http://rag_api_google:8000}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3080/api/config').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 8s
+      retries: 4
+      start_period: 30s
     volumes:
       - type: bind
         source: ./librechat.yaml
@@ -69,10 +115,13 @@ services:
         target: /app/data/google-service-account.json
         read_only: true
   rag_api:
+    <<: *aux-resources
     container_name: ${LIBRECHAT_RAG_OPENAI_CONTAINER_NAME:-rag-api-openai-local}
     image: ${LIBRECHAT_RAG_IMAGE:-librechat-local-rag-api:latest}
     pull_policy: never
     mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-384m}
+    mem_reservation: ${LIBRECHAT_RAG_MEM_RESERVATION:-128m}
+    memswap_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-384m}
     cpus: ${LIBRECHAT_RAG_CPUS:-0.5}
     build:
       context: ${LOCAL_RAG_API_ROOT:-../rag_api}
@@ -105,10 +154,13 @@ services:
       retries: 10
       start_period: 15s
   rag_api_azure:
+    <<: *aux-resources
     container_name: ${LIBRECHAT_RAG_AZURE_CONTAINER_NAME:-rag-api-azure-local}
     image: ${LIBRECHAT_RAG_IMAGE:-librechat-local-rag-api:latest}
     pull_policy: never
     mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-384m}
+    mem_reservation: ${LIBRECHAT_RAG_MEM_RESERVATION:-128m}
+    memswap_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-384m}
     cpus: ${LIBRECHAT_RAG_CPUS:-0.5}
     build:
       context: ${LOCAL_RAG_API_ROOT:-../rag_api}
@@ -142,10 +194,13 @@ services:
       retries: 10
       start_period: 15s
   rag_api_google:
+    <<: *aux-resources
     container_name: ${LIBRECHAT_RAG_GOOGLE_CONTAINER_NAME:-rag-api-google-local}
     image: ${LIBRECHAT_RAG_IMAGE:-librechat-local-rag-api:latest}
     pull_policy: never
     mem_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-384m}
+    mem_reservation: ${LIBRECHAT_RAG_MEM_RESERVATION:-128m}
+    memswap_limit: ${LIBRECHAT_RAG_MEM_LIMIT:-384m}
     cpus: ${LIBRECHAT_RAG_CPUS:-0.5}
     build:
       context: ${LOCAL_RAG_API_ROOT:-../rag_api}
@@ -178,10 +233,14 @@ services:
       retries: 10
       start_period: 15s
   code-interpreter-local:
+    <<: *support-resources
     container_name: ${LIBRECHAT_CODE_CONTAINER_NAME:-code-interpreter-local}
     image: ${LIBRECHAT_CODE_IMAGE:-librechat-local-code-interpreter:latest}
     pull_policy: never
-    mem_limit: ${LIBRECHAT_CODE_MEM_LIMIT:-128m}
+    mem_limit: ${LIBRECHAT_CODE_MEM_LIMIT:-256m}
+    mem_reservation: ${LIBRECHAT_CODE_MEM_RESERVATION:-96m}
+    memswap_limit: ${LIBRECHAT_CODE_MEM_LIMIT:-256m}
+    cpus: ${LIBRECHAT_CODE_CPUS:-0.5}
     build:
       context: .
       dockerfile: local-code-interpreter/Dockerfile
@@ -190,12 +249,14 @@ services:
     environment:
       LOCAL_CODE_INTERPRETER_API_KEY: ${LIBRECHAT_CODE_API_KEY:-librechat-local-code-dev-key}
       LOCAL_CODE_WORKSPACE_ROOT: /data/workspaces
-      LOCAL_CODE_WORKSPACE_HOST_ROOT: ${LOCAL_CODE_WORKSPACE_HOST_ROOT:-/workspace/local-code-interpreter/data/workspaces}
+      LOCAL_CODE_WORKSPACE_HOST_ROOT: ${LOCAL_CODE_WORKSPACE_HOST_ROOT:?Set LOCAL_CODE_WORKSPACE_HOST_ROOT to the absolute host workspace path}
       LOCAL_CODE_EXECUTION_TIMEOUT_SECONDS: ${LOCAL_CODE_EXECUTION_TIMEOUT_SECONDS:-60}
-      LOCAL_CODE_ALLOW_NETWORK: ${LOCAL_CODE_ALLOW_NETWORK:-false}
-      LOCAL_CODE_MEMORY_LIMIT: ${LOCAL_CODE_MEMORY_LIMIT:-1g}
-      LOCAL_CODE_NANO_CPUS: ${LOCAL_CODE_NANO_CPUS:-1000000000}
-      LOCAL_CODE_PIDS_LIMIT: ${LOCAL_CODE_PIDS_LIMIT:-256}
+      LOCAL_CODE_SESSION_TTL_HOURS: ${LOCAL_CODE_SESSION_TTL_HOURS:-1}
+      LOCAL_CODE_CLEANUP_INTERVAL_SECONDS: ${LOCAL_CODE_CLEANUP_INTERVAL_SECONDS:-60}
+      LOCAL_CODE_ALLOW_NETWORK: ${LOCAL_CODE_ALLOW_NETWORK:-true}
+      LOCAL_CODE_MEMORY_LIMIT: ${LOCAL_CODE_MEMORY_LIMIT:-768m}
+      LOCAL_CODE_NANO_CPUS: ${LOCAL_CODE_NANO_CPUS:-500000000}
+      LOCAL_CODE_PIDS_LIMIT: ${LOCAL_CODE_PIDS_LIMIT:-128}
       LOCAL_CODE_SANDBOX_PYTHON_IMAGE: ${LOCAL_CODE_SANDBOX_PYTHON_IMAGE}
     volumes:
       - type: bind
@@ -217,22 +278,39 @@ services:
       retries: 10
       start_period: 15s
   mongodb:
+    <<: *core-resources
     container_name: ${LIBRECHAT_MONGO_CONTAINER_NAME:-chat-mongodb}
     restart: unless-stopped
-    mem_limit: ${LIBRECHAT_MONGO_MEM_LIMIT:-256m}
+    mem_limit: ${LIBRECHAT_MONGO_MEM_LIMIT:-1536m}
+    mem_reservation: ${LIBRECHAT_MONGO_MEM_RESERVATION:-768m}
+    cpus: ${LIBRECHAT_MONGO_CPUS:-1.5}
+    oom_score_adj: ${LIBRECHAT_MONGO_OOM_SCORE_ADJ:--750}
     user: "${LIBRECHAT_MONGO_USER:-999:999}"
-    command: ${LIBRECHAT_MONGO_COMMAND:-mongod --auth --bind_ip_all}
+    command: ${LIBRECHAT_MONGO_COMMAND:-mongod --auth --bind_ip_all --wiredTigerCacheSizeGB 0.75}
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({ping:1}).ok"]
+      interval: 15s
+      timeout: 10s
+      retries: 4
+      start_period: 30s
     ports:
       - "${LIBRECHAT_MONGO_BIND_HOST:-192.168.50.4}:${LIBRECHAT_MONGO_HOST_PORT:-27017}:27017"
   meilisearch:
+    <<: *support-resources
     container_name: ${LIBRECHAT_MEILI_CONTAINER_NAME:-chat-meilisearch}
     restart: unless-stopped
-    mem_limit: ${LIBRECHAT_MEILI_MEM_LIMIT:-256m}
+    mem_limit: ${LIBRECHAT_MEILI_MEM_LIMIT:-512m}
+    mem_reservation: ${LIBRECHAT_MEILI_MEM_RESERVATION:-128m}
+    memswap_limit: ${LIBRECHAT_MEILI_MEM_LIMIT:-512m}
+    cpus: ${LIBRECHAT_MEILI_CPUS:-0.75}
     user: "0:0"
   vectordb:
+    <<: *support-resources
     container_name: ${LIBRECHAT_VECTORDB_CONTAINER_NAME:-vectordb}
     restart: unless-stopped
-    mem_limit: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-512m}
+    mem_limit: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-768m}
+    mem_reservation: ${LIBRECHAT_VECTORDB_MEM_RESERVATION:-256m}
+    memswap_limit: ${LIBRECHAT_VECTORDB_MEM_LIMIT:-768m}
     shm_size: ${LIBRECHAT_VECTORDB_SHM_SIZE:-64m}
     cpus: ${LIBRECHAT_VECTORDB_CPUS:-1.0}
     environment:
@@ -252,16 +330,22 @@ services:
       - -c
       - max_connections=50
   langfuse-worker:
-    <<: *langfuse-env-file
+    profiles: ["langfuse"]
+    <<: [*langfuse-env-file, *aux-resources]
     image: docker.io/langfuse/langfuse-worker:3
     mem_limit: ${LIBRECHAT_LANGFUSE_WORKER_MEM_LIMIT:-600m}
+    mem_reservation: ${LIBRECHAT_LANGFUSE_WORKER_MEM_RESERVATION:-192m}
+    cpus: ${LIBRECHAT_LANGFUSE_WORKER_CPUS:-0.5}
     memswap_limit: ${LIBRECHAT_LANGFUSE_WORKER_MEM_LIMIT:-600m}
     depends_on: *langfuse-depends-on
     restart: unless-stopped
   langfuse-web:
-    <<: *langfuse-env-file
+    profiles: ["langfuse"]
+    <<: [*langfuse-env-file, *aux-resources]
     image: docker.io/langfuse/langfuse:3
     mem_limit: ${LIBRECHAT_LANGFUSE_WEB_MEM_LIMIT:-600m}
+    mem_reservation: ${LIBRECHAT_LANGFUSE_WEB_MEM_RESERVATION:-256m}
+    cpus: ${LIBRECHAT_LANGFUSE_WEB_CPUS:-0.5}
     memswap_limit: ${LIBRECHAT_LANGFUSE_WEB_MEM_LIMIT:-600m}
     environment:
       NODE_OPTIONS: "${LIBRECHAT_LANGFUSE_NODE_OPTIONS:-}"
@@ -270,12 +354,16 @@ services:
       - "${LIBRECHAT_LANGFUSE_WEB_HOST_PORT:-3000}:3000"
     restart: unless-stopped
   langfuse-model-pricing-sync:
+    profiles: ["langfuse"]
+    <<: *aux-resources
     env_file:
       - ./.env
       - ./langfuse/.env
     image: ${LIBRECHAT_API_IMAGE:-librechat-local:latest}
     pull_policy: never
     mem_limit: ${LIBRECHAT_LANGFUSE_SYNC_MEM_LIMIT:-256m}
+    mem_reservation: ${LIBRECHAT_LANGFUSE_SYNC_MEM_RESERVATION:-32m}
+    cpus: ${LIBRECHAT_LANGFUSE_SYNC_CPUS:-0.1}
     memswap_limit: ${LIBRECHAT_LANGFUSE_SYNC_MEM_LIMIT:-256m}
     depends_on:
       - langfuse-web
@@ -288,9 +376,12 @@ services:
       - "300"
     restart: unless-stopped
   langfuse-clickhouse:
-    <<: *langfuse-env-file
+    profiles: ["langfuse"]
+    <<: [*langfuse-env-file, *aux-resources]
     image: docker.io/clickhouse/clickhouse-server
     mem_limit: ${LIBRECHAT_LANGFUSE_CLICKHOUSE_MEM_LIMIT:-768m}
+    mem_reservation: ${LIBRECHAT_LANGFUSE_CLICKHOUSE_MEM_RESERVATION:-384m}
+    cpus: ${LIBRECHAT_LANGFUSE_CLICKHOUSE_CPUS:-0.75}
     memswap_limit: ${LIBRECHAT_LANGFUSE_CLICKHOUSE_MEM_LIMIT:-768m}
     user: "101:101"
     volumes:
@@ -308,9 +399,12 @@ services:
       start_period: 1s
     restart: unless-stopped
   langfuse-minio:
-    <<: *langfuse-env-file
+    profiles: ["langfuse"]
+    <<: [*langfuse-env-file, *aux-resources]
     image: cgr.dev/chainguard/minio
     mem_limit: ${LIBRECHAT_LANGFUSE_MINIO_MEM_LIMIT:-256m}
+    mem_reservation: ${LIBRECHAT_LANGFUSE_MINIO_MEM_RESERVATION:-64m}
+    cpus: ${LIBRECHAT_LANGFUSE_MINIO_CPUS:-0.25}
     memswap_limit: ${LIBRECHAT_LANGFUSE_MINIO_MEM_LIMIT:-256m}
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
@@ -327,9 +421,12 @@ services:
       start_period: 1s
     restart: unless-stopped
   langfuse-redis:
-    <<: *langfuse-env-file
+    profiles: ["langfuse"]
+    <<: [*langfuse-env-file, *aux-resources]
     image: docker.io/redis:7
     mem_limit: ${LIBRECHAT_LANGFUSE_REDIS_MEM_LIMIT:-128m}
+    mem_reservation: ${LIBRECHAT_LANGFUSE_REDIS_MEM_RESERVATION:-64m}
+    cpus: ${LIBRECHAT_LANGFUSE_REDIS_CPUS:-0.25}
     memswap_limit: ${LIBRECHAT_LANGFUSE_REDIS_MEM_LIMIT:-128m}
     command:
       - sh
@@ -344,9 +441,12 @@ services:
       retries: 10
     restart: unless-stopped
   langfuse-postgres:
-    <<: *langfuse-env-file
+    profiles: ["langfuse"]
+    <<: [*langfuse-env-file, *aux-resources]
     image: docker.io/postgres:17
     mem_limit: ${LIBRECHAT_LANGFUSE_POSTGRES_MEM_LIMIT:-128m}
+    mem_reservation: ${LIBRECHAT_LANGFUSE_POSTGRES_MEM_RESERVATION:-64m}
+    cpus: ${LIBRECHAT_LANGFUSE_POSTGRES_CPUS:-0.25}
     memswap_limit: ${LIBRECHAT_LANGFUSE_POSTGRES_MEM_LIMIT:-128m}
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
@@ -357,11 +457,14 @@ services:
       retries: 10
     restart: unless-stopped
   metrics:
+    <<: *aux-resources
     build:
       context: ${LIBRECHAT_EXPORTER_ROOT:-../librechat_exporter}
       dockerfile: Dockerfile
     image: librechat-exporter-local:latest
     mem_limit: ${LIBRECHAT_METRICS_MEM_LIMIT:-96m}
+    mem_reservation: ${LIBRECHAT_METRICS_MEM_RESERVATION:-32m}
+    cpus: ${LIBRECHAT_METRICS_CPUS:-0.15}
     memswap_limit: ${LIBRECHAT_METRICS_MEM_LIMIT:-96m}
     depends_on:
       - mongodb

@@ -12,8 +12,8 @@ Usage:
 Profiles:
   lint       MemoryMax=3G, Node heap=1024 MB, command: npm run lint
   lint:fix   MemoryMax=3G, Node heap=1024 MB, command: npm run lint:fix
-  build      MemoryMax=4G, Node heap=1536 MB, command: npm run build
-  frontend   MemoryMax=4G, Node heap=1536 MB, command: npm run frontend
+  build      Low-priority uncapped host build, Node heap=8192 MB, command: npm run build
+  frontend   Low-priority uncapped host build, Node heap=8192 MB, command: npm run frontend
   test:all   MemoryMax=3G, Node heap=1024 MB, command: npm run test:all
 
 Overrides:
@@ -30,7 +30,7 @@ Overrides:
 Examples:
   npm run lint:capped
   npm run build:capped
-  ./local-services/run-node-capped.sh --memory-max 2G --heap-mb 768 -- npm run build:api
+  ./local-services/run-node-capped.sh --memory-max none --heap-mb 8192 -- npm run build:api
 EOF
 }
 
@@ -60,13 +60,13 @@ if [[ "$1" != --* ]]; then
       command=(npm run lint:fix)
       ;;
     build)
-      memory_max="${LIBRECHAT_NODE_BUILD_MEMORY_MAX:-4G}"
-      heap_mb="${LIBRECHAT_NODE_BUILD_HEAP_MB:-1536}"
+      memory_max="${LIBRECHAT_NODE_BUILD_MEMORY_MAX:-none}"
+      heap_mb="${LIBRECHAT_NODE_BUILD_HEAP_MB:-8192}"
       command=(npm run build)
       ;;
     frontend)
-      memory_max="${LIBRECHAT_NODE_BUILD_MEMORY_MAX:-4G}"
-      heap_mb="${LIBRECHAT_NODE_BUILD_HEAP_MB:-1536}"
+      memory_max="${LIBRECHAT_NODE_BUILD_MEMORY_MAX:-none}"
+      heap_mb="${LIBRECHAT_NODE_BUILD_HEAP_MB:-8192}"
       command=(npm run frontend)
       ;;
     test:all)
@@ -138,6 +138,21 @@ if ! command -v systemd-run >/dev/null 2>&1; then
 fi
 
 node_options="--max-old-space-size=${heap_mb}"
+
+if [[ "$memory_max" == "none" ]]; then
+  echo "Running production-priority LibreChat Node command without a cgroup hard cap:"
+  echo "  Nice=15, IO class=idle"
+  echo "  NODE_OPTIONS=${node_options}"
+  echo "  LIBRECHAT_ROLLUP_SOURCEMAP=false"
+  printf '  Command:'
+  printf ' %q' "${command[@]}"
+  printf '\n'
+  exec nice -n 15 ionice -c 3 env \
+    NODE_OPTIONS="$node_options" \
+    LIBRECHAT_ROLLUP_SOURCEMAP=false \
+    LIBRECHAT_NODE_CAPPED=0 \
+    "${command[@]}"
+fi
 
 echo "Running capped LibreChat Node command:"
 echo "  MemoryMax=${memory_max}"

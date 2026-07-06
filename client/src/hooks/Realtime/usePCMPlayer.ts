@@ -5,6 +5,29 @@ export default function usePCMPlayer() {
   const contextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const pendingEnqueuesRef = useRef(0);
+  const idleResolversRef = useRef<Set<() => void>>(new Set());
+
+  const resolveIdle = useCallback(() => {
+    if (pendingEnqueuesRef.current > 0 || sourcesRef.current.size > 0) {
+      return;
+    }
+
+    for (const resolve of idleResolversRef.current) {
+      resolve();
+    }
+    idleResolversRef.current.clear();
+  }, []);
+
+  const waitForIdle = useCallback(() => {
+    if (pendingEnqueuesRef.current === 0 && sourcesRef.current.size === 0) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      idleResolversRef.current.add(resolve);
+    });
+  }, []);
 
   const ensureContext = useCallback(async () => {
     if (!contextRef.current) {
@@ -29,41 +52,51 @@ export default function usePCMPlayer() {
 
     sourcesRef.current.clear();
     nextStartTimeRef.current = 0;
+    resolveIdle();
 
     if (contextRef.current) {
       await contextRef.current.close().catch(() => undefined);
       contextRef.current = null;
     }
-  }, []);
+  }, [resolveIdle]);
 
   const enqueue = useCallback(
     async (audio: string, sampleRate: number) => {
-      const context = await ensureContext();
-      const samples = decodePCM16Base64(audio);
-      const buffer = context.createBuffer(1, samples.length, sampleRate);
-      const channelSamples = new Float32Array(samples.length);
+      pendingEnqueuesRef.current += 1;
 
-      channelSamples.set(samples);
-      buffer.copyToChannel(channelSamples, 0);
+      try {
+        const context = await ensureContext();
+        const samples = decodePCM16Base64(audio);
+        const buffer = context.createBuffer(1, samples.length, sampleRate);
+        const channelSamples = new Float32Array(samples.length);
 
-      const source = context.createBufferSource();
-      source.buffer = buffer;
-      source.connect(context.destination);
+        channelSamples.set(samples);
+        buffer.copyToChannel(channelSamples, 0);
 
-      const startTime = Math.max(context.currentTime, nextStartTimeRef.current);
-      source.start(startTime);
-      nextStartTimeRef.current = startTime + buffer.duration;
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(context.destination);
 
-      sourcesRef.current.add(source);
-      source.onended = () => {
-        sourcesRef.current.delete(source);
-      };
+        const startTime = Math.max(context.currentTime, nextStartTimeRef.current);
+        source.start(startTime);
+        nextStartTimeRef.current = startTime + buffer.duration;
+
+        sourcesRef.current.add(source);
+        source.onended = () => {
+          sourcesRef.current.delete(source);
+          resolveIdle();
+        };
+      } finally {
+        pendingEnqueuesRef.current -= 1;
+        resolveIdle();
+      }
     },
-    [ensureContext],
+    [ensureContext, resolveIdle],
   );
 
   return {
     enqueue,
     stopAll,
+    waitForIdle,
   };
 }

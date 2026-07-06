@@ -10,6 +10,46 @@ import type {
 import { handleMemoryArtifact } from '~/utils/memory';
 import store from '~/store';
 
+export function mergeStreamingAttachment(
+  attachments: TAttachment[],
+  incoming: TAttachment,
+): TAttachment[] {
+  const incomingIsImageStream =
+    incoming.partial != null ||
+    incoming.partialImageIndex != null ||
+    incoming.filepath?.startsWith('data:image/');
+
+  if (!incomingIsImageStream) {
+    const partialIndex = attachments.findIndex(
+      (attachment) => attachment.toolCallId === incoming.toolCallId && attachment.partial != null,
+    );
+
+    if (partialIndex < 0) {
+      return [...attachments, incoming];
+    }
+
+    const next = [...attachments];
+    next[partialIndex] = incoming;
+    return next;
+  }
+
+  const streamIndex = attachments.findIndex(
+    (attachment) =>
+      attachment.toolCallId === incoming.toolCallId &&
+      (attachment.partial != null ||
+        attachment.partialImageIndex != null ||
+        attachment.filepath?.startsWith('data:image/')),
+  );
+
+  if (streamIndex < 0) {
+    return [...attachments, incoming];
+  }
+
+  const next = [...attachments];
+  next[streamIndex] = incoming;
+  return next;
+}
+
 export default function useAttachmentHandler(queryClient?: QueryClient) {
   const setAttachmentsMap = useSetRecoilState(store.messageAttachmentsMap);
 
@@ -54,7 +94,7 @@ export default function useAttachmentHandler(queryClient?: QueryClient) {
         (prevMap as Record<string, TAttachment[] | undefined>)[messageId] || [];
       return {
         ...prevMap,
-        [messageId]: [...messageAttachments, data],
+        [messageId]: mergeStreamingAttachment(messageAttachments, data),
       };
     });
   };

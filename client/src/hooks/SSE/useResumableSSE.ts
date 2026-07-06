@@ -39,6 +39,36 @@ type ChatHelpers = Pick<
 
 const MAX_RETRIES = 5;
 
+export function serializeResumableErrorPayload(errorPayload: unknown): string | undefined {
+  if (errorPayload == null) {
+    return undefined;
+  }
+
+  if (typeof errorPayload === 'string') {
+    return errorPayload;
+  }
+
+  try {
+    return JSON.stringify(errorPayload);
+  } catch {
+    return String(errorPayload);
+  }
+}
+
+export function extractResumableErrorText(errorEnvelope: unknown): string | undefined {
+  if (errorEnvelope == null) {
+    return undefined;
+  }
+
+  if (typeof errorEnvelope !== 'object') {
+    return serializeResumableErrorPayload(errorEnvelope);
+  }
+
+  const normalizedEnvelope = errorEnvelope as Record<string, unknown>;
+  const errorPayload = normalizedEnvelope.error ?? normalizedEnvelope.message ?? normalizedEnvelope;
+  return serializeResumableErrorPayload(errorPayload);
+}
+
 /**
  * Hook for resumable SSE streams.
  * Separates generation start (POST) from stream subscription (GET EventSource).
@@ -422,13 +452,14 @@ export default function useResumableSSE(
 
           try {
             const errorData = JSON.parse(e.data);
-            const errorString = errorData.error ?? errorData.message ?? JSON.stringify(errorData);
+            const errorPayload = errorData.error ?? errorData.message ?? errorData;
+            const errorString = extractResumableErrorText(errorData) ?? e.data;
 
             // Check if it's a known error type (ViolationTypes or ErrorTypes)
             let isKnownError = false;
             try {
               const parsed =
-                typeof errorString === 'string' ? JSON.parse(errorString) : errorString;
+                typeof errorPayload === 'string' ? JSON.parse(errorPayload) : errorPayload;
               const errorType = parsed?.type ?? parsed?.code;
               if (errorType) {
                 const violationValues = Object.values(ViolationTypes) as string[];
@@ -576,6 +607,7 @@ export default function useResumableSSE(
       balanceQuery,
       removeActiveJob,
       queryClient,
+      setLatestWebSearchAction,
     ],
   );
 
@@ -630,10 +662,9 @@ export default function useResumableSSE(
       const axiosError = lastError as { response?: { data?: Record<string, unknown> } };
       const errorData = axiosError?.response?.data;
       if (errorData) {
+        const errorText = extractResumableErrorText(errorData) ?? JSON.stringify(errorData);
         errorHandler({
-          data: { text: JSON.stringify(errorData) } as unknown as Parameters<
-            typeof errorHandler
-          >[0]['data'],
+          data: { text: errorText } as unknown as Parameters<typeof errorHandler>[0]['data'],
           submission: currentSubmission as EventSubmission,
         });
       } else {

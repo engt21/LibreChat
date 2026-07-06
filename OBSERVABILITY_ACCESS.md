@@ -15,11 +15,13 @@ LibreChat observability runs entirely on the production VM `timeng@192.168.50.10
 
 Grafana is the supported logging UI. The dedicated `Loki Log Explorer — All Logs` dashboard is available at `https://librechatvm.tail6e13ff.ts.net:8445/d/loki-all-logs/loki-log-explorer-e28094-all-logs` and as a separate **Loki Explorer** card in the LibreChat admin console. It provides service, level, filename, source, rail, free-text/regex, time-range, log-volume, and all-log filtering. Loki `3100`, Promtail `9080`, and Blackbox Exporter `9115` remain VM-loopback-only and do not receive separate Tailscale URLs.
 
+The provisioned `LibreChat Memory LLM Usage` dashboard uses UID `librechat-memory-usage` and filters transaction metrics to `context="memory"`. It separates token volume, estimated cost, token type, provider/model attribution, and structured `[MemoryUsage]` logs. Langfuse traces for the same work use run name `MemoryRun` and `category=memory`, so operators can correlate transaction accounting, metrics, logs, and traces without mixing the background memory worker into the foreground chat category.
+
 
 ## Passwords and MFA
 
 - Grafana anonymous Viewer access is disabled. The `admin` account uses a reset local password, Grafana sessions/tokens were revoked, and signup remains disabled.
-- Both existing Langfuse owner accounts use reset local passwords and all Langfuse sessions were revoked. Langfuse sends password-reset messages to a VM-local Mailpit inbox using `SMTP_CONNECTION_URL=smtp://langfuse-mailpit:1025`. Open the protected reset inbox at port `8448`; it is not an Internet email relay. Public Langfuse signup remains disabled with `AUTH_DISABLE_SIGNUP=true`.
+- Langfuse is disabled by default after the July 6, 2026 production incident. All Langfuse services are behind the explicit Compose profile `langfuse`, and the LibreChat API runs with empty Langfuse credentials. Normal `docker compose up` operations must not start Langfuse, ClickHouse, MinIO, Redis, or its PostgreSQL dependency. Only re-enable the profile during an approved maintenance window after credentials and resource limits are verified.
 - The installed Grafana OSS and Langfuse local-credential implementations do not provide native local first-login TOTP enrollment or a server-side `mustChangePassword` flag. Prometheus and the metrics exporter do not have application accounts.
 - Tailscale membership is therefore the enforced MFA and network boundary for every observability URL. Application passwords are an additional layer for Grafana and Langfuse.
 - Temporary first-login credentials are stored outside the repository in a local mode-`0600` handoff file. Change each password immediately after signing in and delete the handoff file afterward. Never commit that file.

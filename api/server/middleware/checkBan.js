@@ -2,7 +2,7 @@ const { Keyv } = require('keyv');
 const uap = require('ua-parser-js');
 const { logger } = require('@librechat/data-schemas');
 const { isEnabled, keyvMongo } = require('@librechat/api');
-const { ViolationTypes } = require('librechat-data-provider');
+const { SystemRoles, ViolationTypes } = require('librechat-data-provider');
 const { removePorts } = require('~/server/utils');
 const denyRequest = require('./denyRequest');
 const { getLogStores } = require('~/cache');
@@ -62,10 +62,16 @@ const checkBan = async (req, res, next = () => {}) => {
 
     req.ip = removePorts(req);
     let userId = req.user?.id ?? req.user?._id ?? null;
+    let userRole = req.user?.role ?? null;
 
     if (!userId && req?.body?.email) {
-      const user = await findUser({ email: req.body.email }, '_id');
+      const user = await findUser({ email: req.body.email }, '_id role');
       userId = user?._id ? user._id.toString() : userId;
+      userRole = user?.role ?? userRole;
+    }
+
+    if (userRole === SystemRoles.ADMIN) {
+      return next();
     }
 
     if (!userId && !req.ip) {

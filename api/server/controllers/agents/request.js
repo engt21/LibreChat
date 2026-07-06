@@ -20,6 +20,31 @@ const { saveMessage } = require('~/models');
 
 const STREAM_FINALIZING_EVENT = 'stream_finalizing';
 
+function createStructuredStartupError({ message, status, ...details }) {
+  const error = new Error(message);
+  error.status = status;
+  error.streamErrorPayload = {
+    ...details,
+    message,
+    status,
+  };
+  return error;
+}
+
+function serializeStreamError(error, fallbackMessage) {
+  if (error?.streamErrorPayload) {
+    try {
+      return JSON.stringify(error.streamErrorPayload);
+    } catch (serializationError) {
+      logger.warn('[ResumableAgentController] Failed to serialize stream error payload', {
+        message: serializationError.message,
+      });
+    }
+  }
+
+  return error?.message || fallbackMessage;
+}
+
 function createCloseHandler(abortController) {
   return function (manual) {
     if (!manual) {
@@ -73,6 +98,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
   } = req.body;
 
   const userId = req.user.id;
+  const requestStartedAt = Date.now();
 
   const { allowed, pendingRequests, limit } = await reservePendingRequest(
     userId,
@@ -93,10 +119,30 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
   let client = null;
 
   try {
-    // --- Model-access preflight (VAL-MODEL-003) ---
-    // Resolve the agent and validate the model BEFORE sending the `started` response.
-    // This prevents "headers already sent" errors and late stream failures when a
-    // restricted user attempts to chat with a blocked model.
+    logger.debug(`[ResumableAgentController] Creating job`, {
+      streamId,
+      conversationId,
+      reqConversationId,
+      userId,
+    });
+
+    const job = await GenerationJobManager.createJob(streamId, userId, conversationId);
+    const jobCreatedAt = job.createdAt; // Capture creation time to detect job replacement
+    req._resumableStreamId = streamId;
+
+    // Return the stream identity before provider discovery, tool loading, or model validation.
+    // All preflight checks still complete before initializeClient can call a provider, while
+    // retained stream errors make late validation failures visible to reconnecting clients.
+    res.json({ streamId, conversationId, status: 'started' });
+    const startedResponseMs = Date.now() - requestStartedAt;
+    if (startedResponseMs > 500) {
+      logger.warn(`[ResumableAgentController] Slow started response: ${startedResponseMs}ms`, {
+        streamId,
+        conversationId,
+        userId,
+      });
+    }
+
     let rateLimitEndpoint = endpointOption?.endpoint || req.body?.endpoint;
     let rateLimitModel =
       endpointOption?.modelOptions?.model ||
@@ -106,8 +152,10 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
     if (endpointOption?.agent) {
       const preflightAgent = await endpointOption.agent;
       if (!preflightAgent) {
-        await decrementPendingRequest(userId);
-        return res.status(404).json({ error: 'Agent not found' });
+        throw createStructuredStartupError({
+          message: 'Agent not found',
+          status: 404,
+        });
       }
 
       const preflightModel = preflightAgent.model;
@@ -126,13 +174,20 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         });
 
         if (!validationResult.isValid) {
-          await decrementPendingRequest(userId);
-          return res.status(403).json({ error: validationResult.text || 'Illegal model request' });
+          throw createStructuredStartupError({
+            type: ViolationTypes.ILLEGAL_MODEL_REQUEST,
+            endpoint: preflightEndpoint,
+            model: preflightModel,
+            info:
+              preflightEndpoint && preflightModel
+                ? `${preflightEndpoint}|${preflightModel}`
+                : undefined,
+            message: validationResult.text || 'Illegal model request',
+            status: 403,
+          });
         }
       }
 
-      // Re-wrap the resolved agent as an already-resolved promise so initializeClient
-      // can still await it without re-fetching
       endpointOption.agent = Promise.resolve(preflightAgent);
     }
 
@@ -144,37 +199,18 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       });
 
       if (!rateLimitResult.allowed) {
-        await decrementPendingRequest(userId);
-        return res.status(429).json({
+        throw createStructuredStartupError({
           type: 'model_rate_limit',
-          message: `Model ${rateLimitResult.type} limit exceeded.`,
           endpoint: rateLimitEndpoint,
           model: rateLimitModel,
           limit: rateLimitResult.limit,
           current: rateLimitResult.current,
           window: rateLimitResult.window,
+          message: `Model ${rateLimitResult.type} limit exceeded.`,
+          status: 429,
         });
       }
     }
-
-    logger.debug(`[ResumableAgentController] Creating job`, {
-      streamId,
-      conversationId,
-      reqConversationId,
-      userId,
-    });
-
-    const job = await GenerationJobManager.createJob(streamId, userId, conversationId);
-    const jobCreatedAt = job.createdAt; // Capture creation time to detect job replacement
-    req._resumableStreamId = streamId;
-
-    // Send JSON response IMMEDIATELY so client can connect to SSE stream
-    // This is critical: tool loading (MCP OAuth) may emit events that the client needs to receive
-    res.json({ streamId, conversationId, status: 'started' });
-
-    // Note: We no longer use res.on('close') to abort since we send JSON immediately.
-    // The response closes normally after res.json(), which is not an abort condition.
-    // Abort handling is done through GenerationJobManager via the SSE stream connection.
 
     // Track if partial response was already saved to avoid duplicates
     let partialResponseSaved = false;
@@ -466,9 +502,10 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
           logger.debug(`[ResumableAgentController] Generation aborted for ${streamId}`);
           // abortJob already handled emitDone and completeJob
         } else {
+          const streamError = serializeStreamError(error, 'Generation failed');
           logger.error(`[ResumableAgentController] Generation error for ${streamId}:`, error);
-          await GenerationJobManager.emitError(streamId, error.message || 'Generation failed');
-          GenerationJobManager.completeJob(streamId, error.message);
+          await GenerationJobManager.emitError(streamId, streamError);
+          GenerationJobManager.completeJob(streamId, streamError);
         }
 
         await decrementPendingRequest(userId);
@@ -491,14 +528,21 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       await decrementPendingRequest(userId);
     });
   } catch (error) {
+    const streamError = serializeStreamError(error, 'Failed to start generation');
     logger.error('[ResumableAgentController] Initialization error:', error);
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message || 'Failed to start generation' });
+      if (error?.streamErrorPayload) {
+        res
+          .status(error.status || error.streamErrorPayload.status || 500)
+          .json(error.streamErrorPayload);
+      } else {
+        res.status(500).json({ error: streamError });
+      }
     } else {
       // JSON already sent, emit error to stream so client can receive it
-      await GenerationJobManager.emitError(streamId, error.message || 'Failed to start generation');
+      await GenerationJobManager.emitError(streamId, streamError);
     }
-    GenerationJobManager.completeJob(streamId, error.message);
+    GenerationJobManager.completeJob(streamId, streamError);
     await decrementPendingRequest(userId);
     if (client) {
       disposeClient(client);

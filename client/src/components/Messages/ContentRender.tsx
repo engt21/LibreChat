@@ -168,6 +168,7 @@ const ContentRender = memo(function ContentRender({
           ) : (
             <SubRow classes="text-xs">
               <SiblingSwitch
+                message={msg}
                 siblingIdx={siblingIdx}
                 siblingCount={siblingCount}
                 setSiblingIdx={setSiblingIdx}

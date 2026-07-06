@@ -85,6 +85,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 // Only mock the dependencies that are not database-related
 jest.mock('~/server/services/Config', () => ({
   getCachedTools: jest.fn().mockResolvedValue({
+    calculator: true,
     web_search: true,
     execute_code: true,
     file_search: true,
@@ -224,7 +225,7 @@ describe('Agent Controllers - Mass Assignment Protection', () => {
         instructions: 'Be helpful',
         provider: 'openai',
         model: 'gpt-4',
-        tools: ['web_search'],
+        tools: ['calculator'],
         model_parameters: { temperature: 0.7 },
         tool_resources: {
           file_search: { file_ids: ['file1', 'file2'] },
@@ -244,7 +245,7 @@ describe('Agent Controllers - Mass Assignment Protection', () => {
       expect(createdAgent.provider).toBe('openai');
       expect(createdAgent.model).toBe('gpt-4');
       expect(createdAgent.author.toString()).toBe(mockReq.user.id);
-      expect(createdAgent.tools).toContain('web_search');
+      expect(createdAgent.tools).toContain('calculator');
 
       // Verify in database
       const agentInDb = await Agent.findOne({ id: createdAgent.id });

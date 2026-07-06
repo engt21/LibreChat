@@ -380,6 +380,7 @@ describe('recordCollectedUsage', () => {
 
       await recordCollectedUsage(deps, {
         ...baseParams,
+        endpoint: 'openAI',
         messageId: 'msg-123',
         endpointTokenConfig,
         collectedUsage,
@@ -390,6 +391,7 @@ describe('recordCollectedUsage', () => {
           user: 'user-123',
           conversationId: 'convo-123',
           model: 'gpt-4',
+          endpoint: 'openAI',
           context: 'message',
           messageId: 'msg-123',
           balance: { enabled: true },

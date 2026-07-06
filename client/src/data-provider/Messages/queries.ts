@@ -40,3 +40,20 @@ export const useGetMessagesByConvoId = <TData = t.TMessage[]>(
     },
   );
 };
+
+export const useGetConversationUsage = (
+  conversationId: string,
+  messageIds: string[],
+  enabled = true,
+  refetchInterval: number | false = false,
+) =>
+  useQuery<t.TConversationUsage>(
+    [QueryKeys.conversationUsage, conversationId, messageIds],
+    () => dataService.getConversationUsage(conversationId, messageIds),
+    {
+      enabled: enabled && conversationId.length > 0 && messageIds.length > 0,
+      refetchOnWindowFocus: false,
+      keepPreviousData: true,
+      refetchInterval,
+    },
+  );

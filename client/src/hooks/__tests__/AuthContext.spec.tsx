@@ -184,6 +184,31 @@ describe('AuthContextProvider — login onError redirect handling', () => {
   });
 });
 
+describe('AuthContextProvider — MFA pending', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    window.history.replaceState({}, '', '/login');
+  });
+
+  afterEach(() => {
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('navigates to MFA enrollment and does not authenticate when login returns a pending MFA state', () => {
+    const { getByTestId } = renderProvider();
+
+    act(() => {
+      mockCapturedLoginOptions.onSuccess({
+        twoFAPending: true,
+        mfaEnrollmentRequired: true,
+      });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/login/2fa?enroll=true', { replace: true });
+    expect(getByTestId('consumer').getAttribute('data-authenticated')).toBe('false');
+  });
+});
+
 describe('AuthContextProvider — logout onSuccess/onError handling', () => {
   const mockSetTokenHeader = jest.requireMock('librechat-data-provider').setTokenHeader;
 
@@ -352,6 +377,81 @@ describe('AuthContextProvider — silentRefresh post-login redirect', () => {
     expect(mockNavigate).not.toHaveBeenCalledWith('https://evil.com/steal', expect.anything());
     expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
     jest.useRealTimers();
+  });
+});
+
+describe('AuthContextProvider — silentRefresh restart resilience', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    window.history.replaceState({}, '', '/c/restart-safe');
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('retries a transient refresh failure without redirecting to login', () => {
+    renderProviderLive();
+
+    const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+      unknown,
+      { onError: (error: unknown) => void },
+    ];
+
+    act(() => {
+      refreshOptions.onError({ response: { status: 503 } });
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockRefreshMutate).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+
+    expect(mockRefreshMutate).toHaveBeenCalledTimes(2);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('stops retrying and routes to MFA when refresh reports a pending MFA state', () => {
+    renderProviderLive();
+
+    const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (data: unknown) => void },
+    ];
+
+    act(() => {
+      refreshOptions.onSuccess({
+        twoFAPending: true,
+        mfaEnrollmentRequired: false,
+      });
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(30_000);
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/login/2fa', { replace: true });
+    expect(mockRefreshMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('redirects after a definitive refresh-token rejection', () => {
+    renderProviderLive();
+
+    const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+      unknown,
+      { onError: (error: unknown) => void },
+    ];
+
+    act(() => {
+      refreshOptions.onError({ response: { status: 403 } });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/login?redirect_to=%2Fc%2Frestart-safe');
+    expect(mockRefreshMutate).toHaveBeenCalledTimes(1);
   });
 });
 

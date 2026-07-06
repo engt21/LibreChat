@@ -137,6 +137,51 @@ jest.mock('@librechat/client', () => {
   };
 });
 
+describe('AdminConsole – memory model picker', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUpdateAdminSettingsMutateAsync.mockReset();
+    mockUser = { role: SystemRoles.ADMIN, adminRoleIds: [] };
+    resetQueryDefaults();
+    mockAdminPermissionsQuery.isSuccess = true;
+    mockAdminPermissionsQuery.data = {
+      isSuperAdmin: true,
+      permissions: Object.values(AdminPermissions),
+      adminRoles: [],
+    };
+    mockAdminModelsQuery.data = {
+      openAI: ['gpt-5.4-mini', 'gpt-5.6-terra'],
+      anthropic: ['claude-sonnet-4-5'],
+      assistants: ['assistant-placeholder'],
+    };
+  });
+
+  it('selects memory provider and model from the signed-in admin model inventory', async () => {
+    render(<AdminConsole />);
+
+    const provider = screen.getByLabelText('Provider');
+    const model = screen.getByLabelText('Model');
+    expect(provider).toHaveValue('openAI');
+    expect(model).toHaveValue('gpt-5.6-terra');
+    expect(screen.queryByText('assistant-placeholder')).not.toBeInTheDocument();
+
+    fireEvent.change(provider, { target: { value: 'anthropic' } });
+    expect(model).toHaveValue('claude-sonnet-4-5');
+    fireEvent.click(screen.getByText('com_admin_save_settings'));
+
+    await waitFor(() => {
+      expect(mockUpdateAdminSettingsMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-5',
+          }),
+        }),
+      );
+    });
+  });
+});
+
 jest.mock('~/components/Chat/Menus', () => ({
   OpenSidebar: () => null,
 }));

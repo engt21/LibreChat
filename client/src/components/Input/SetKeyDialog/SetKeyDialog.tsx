@@ -397,13 +397,10 @@ const SetKeyDialog = ({
         const shouldMergeExistingValues = Boolean(expiryTime);
 
         const emptyValues = Object.keys(data).filter((key) => {
-          if (key === 'models') {
+          if (key === 'models' || key === 'baseURL') {
             return false;
           }
           if (shouldMergeExistingValues && (key === 'apiKey' || key === 'baseURL')) {
-            return false;
-          }
-          if (key === 'baseURL' && !(userProvideURL ?? false)) {
             return false;
           }
           return data[key] === '';
@@ -422,9 +419,11 @@ const SetKeyDialog = ({
         const userProvidedData = Object.fromEntries(
           Object.entries({
             apiKey,
-            baseURL,
+            ...((userProvideURL ?? false) && (baseURL !== '' || shouldMergeExistingValues)
+              ? { baseURL }
+              : {}),
             ...(isAzure ? { models } : {}),
-          }).filter(([, value]) => value !== ''),
+          }).filter(([key, value]) => key === 'baseURL' || value !== ''),
         );
 
         if (shouldMergeExistingValues && Object.keys(userProvidedData).length === 0) {

@@ -91,29 +91,50 @@ const createSanitizedUploadWrapper = (uploadFunction) => {
  * @param {OpenAI | undefined} [params.openai] - If an OpenAI file, the initialized OpenAI client.
  */
 function enqueueDeleteOperation({ req, file, deleteFile, promises, resolvedFileIds, openai }) {
+  const deleteStoredCopies = async () => {
+    await deleteFile(req, file, openai);
+
+    const originalFilepath = file.metadata?.originalFilepath;
+    if (!originalFilepath || originalFilepath === file.filepath) {
+      return;
+    }
+
+    const { originalFilepath: _originalFilepath, ...metadata } = file.metadata;
+    await deleteFile(
+      req,
+      {
+        ...file,
+        filepath: originalFilepath,
+        embedded: false,
+        metadata: {
+          ...metadata,
+          ragProvider: undefined,
+          ragModel: undefined,
+        },
+      },
+      openai,
+    );
+  };
+
   if (checkOpenAIStorage(file.source)) {
     // Enqueue to leaky bucket
     promises.push(
       new Promise((resolve, reject) => {
-        LB_QueueAsyncCall(
-          () => deleteFile(req, file, openai),
-          [],
-          (err, result) => {
-            if (err) {
-              logger.error('Error deleting file from OpenAI source', err);
-              reject(err);
-            } else {
-              resolvedFileIds.push(file.file_id);
-              resolve(result);
-            }
-          },
-        );
+        LB_QueueAsyncCall(deleteStoredCopies, [], (err, result) => {
+          if (err) {
+            logger.error('Error deleting file from OpenAI source', err);
+            reject(err);
+          } else {
+            resolvedFileIds.push(file.file_id);
+            resolve(result);
+          }
+        });
       }),
     );
   } else {
     // Add directly to promises
     promises.push(
-      deleteFile(req, file)
+      deleteStoredCopies()
         .then(() => resolvedFileIds.push(file.file_id))
         .catch((err) => {
           logger.error('Error deleting file', err);
@@ -306,7 +327,7 @@ const processImageFile = async ({ req, res, metadata, returnFile = false }) => {
   const appConfig = req.config;
   const source = getFileStrategy(appConfig, { isImage: true });
   const { handleImageUpload } = getStrategyFunctions(source);
-  const { file_id, temp_file_id, endpoint } = metadata;
+  const { file_id, temp_file_id, endpoint, fileMetadata } = metadata;
 
   const { filepath, bytes, width, height } = await handleImageUpload({
     req,
@@ -328,6 +349,7 @@ const processImageFile = async ({ req, res, metadata, returnFile = false }) => {
       type: `image/${appConfig.imageOutputType}`,
       width,
       height,
+      metadata: fileMetadata,
     },
     true,
   );
@@ -488,7 +510,7 @@ const processFileUpload = async ({ req, res, metadata }) => {
 const processAgentFileUpload = async ({ req, res, metadata }) => {
   const { file } = req;
   const appConfig = req.config;
-  const { agent_id, tool_resource, file_id, temp_file_id = null } = metadata;
+  const { agent_id, tool_resource, agent_tool, file_id, temp_file_id = null } = metadata;
 
   let messageAttachment = !!metadata.message_file;
   const nativeTool = getNativeUploadTool({
@@ -575,6 +597,7 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
           file_id,
           agent_id,
           tool_resource: effectiveToolResource,
+          agent_tool,
         });
       }
       const result = await createFile(fileInfo, true);
@@ -584,9 +607,23 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
     };
 
     const createImageContextFile = async ({ text = '' }) => {
+      const source = getFileStrategy(appConfig, { isImage: true });
+      const { handleFileUpload } = getStrategyFunctions(source);
+      const sanitizedUploadFn = createSanitizedUploadWrapper(handleFileUpload);
+      const originalImage = await sanitizedUploadFn({
+        req,
+        file,
+        file_id: `${file_id}-original`,
+        basePath: 'uploads',
+      });
+      const originalFilepath = originalImage?.filepath;
       const imageResult = await processImageFile({
         req,
-        metadata: { file_id, temp_file_id },
+        metadata: {
+          file_id,
+          temp_file_id,
+          fileMetadata: originalFilepath ? { originalFilepath } : undefined,
+        },
         returnFile: true,
       });
 
@@ -605,6 +642,10 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
         .status(200)
         .json({ message: 'Agent file uploaded and processed successfully', ...result });
     };
+
+    if (messageAttachment && file.mimetype.startsWith('image/')) {
+      return await createImageContextFile({});
+    }
 
     const fileConfig = mergeFileConfig(appConfig.fileConfig);
 
@@ -766,6 +807,7 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
       file_id,
       agent_id,
       tool_resource: effectiveToolResource,
+      agent_tool,
     });
   }
 
@@ -777,6 +819,10 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
       returnFile: true,
     });
     filepath = result.filepath;
+    fileInfoMetadata = {
+      ...(fileInfoMetadata ?? {}),
+      originalFilepath: _filepath,
+    };
   }
 
   const fileInfo = removeNullishValues({

@@ -56,6 +56,10 @@ jest.mock('@modelcontextprotocol/sdk/client/auth.js', () => ({
   discoverAuthorizationServerMetadata: (...args) => mockDiscoverAuthServerMetadata(...args),
 }));
 
+jest.mock('~/models', () => ({
+  findMCPServerByServerName: jest.fn(),
+}));
+
 const mockGetMCPServerTools = jest.fn();
 const mockCacheMCPServerTools = jest.fn();
 jest.mock('~/server/services/Config', () => ({
@@ -165,6 +169,121 @@ describe('getMCPTools — pre-consent tool discovery (VAL-MCP-004)', () => {
     expect(mockManager.discoverServerTools).toHaveBeenCalledWith(
       expect.objectContaining({ serverName: 'arcade-microsoft', user: { id: 'user-1' } }),
     );
+  });
+
+  it('should classify authenticated availableTools as authorized before anonymous discovery', async () => {
+    const availableTools = {
+      'MicrosoftOutlookMail_SearchEmails___microsoft-tools': {
+        type: 'function',
+        function: {
+          name: 'MicrosoftOutlookMail_SearchEmails___microsoft-tools',
+          description: 'Search Outlook mail',
+          parameters: { type: 'object' },
+        },
+      },
+    };
+
+    mockRegistryInstance.getAllServerConfigs.mockResolvedValue({
+      'microsoft-tools': {
+        type: 'streamable-http',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools-read',
+        requiresOAuth: true,
+      },
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'streamable-http',
+      url: 'https://api.arcade.dev/mcp/microsoft-tools-read',
+      requiresOAuth: true,
+    });
+    mockRegistryInstance.getOAuthServers.mockResolvedValue(new Set(['microsoft-tools']));
+
+    const mockManager = {
+      getServerToolFunctions: jest.fn().mockResolvedValue(null),
+      discoverServerTools: jest.fn(),
+    };
+    mockGetMCPManager.mockReturnValue(mockManager);
+    mockReinitMCPServer.mockResolvedValue({
+      oauthRequired: false,
+      availableTools,
+      tools: [],
+    });
+
+    const req = createReq();
+    const res = createRes();
+    await getMCPTools(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const server = res.body.servers['microsoft-tools'];
+    expect(server).toBeDefined();
+    expect(server.authState).toBe('authorized');
+    expect(server.tools).toEqual([
+      {
+        name: 'MicrosoftOutlookMail_SearchEmails',
+        pluginKey: 'MicrosoftOutlookMail_SearchEmails___microsoft-tools',
+        description: 'Search Outlook mail',
+      },
+    ]);
+    expect(mockReinitMCPServer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'microsoft-tools',
+        returnOnOAuth: true,
+      }),
+    );
+    expect(mockManager.discoverServerTools).not.toHaveBeenCalled();
+  });
+
+  it('should surface authentication-required without falling back to transport discovery', async () => {
+    mockRegistryInstance.getAllServerConfigs.mockResolvedValue({
+      'microsoft-tools': {
+        type: 'streamable-http',
+        url: 'https://api.arcade.dev/mcp/microsoft-tools-read',
+        requiresOAuth: true,
+      },
+    });
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      type: 'streamable-http',
+      url: 'https://api.arcade.dev/mcp/microsoft-tools-read',
+      requiresOAuth: true,
+      oauthMetadata: {
+        authorization_servers: ['https://login.microsoftonline.com/common/v2.0'],
+      },
+    });
+    mockRegistryInstance.getOAuthServers.mockResolvedValue(new Set(['microsoft-tools']));
+
+    const mockManager = {
+      getServerToolFunctions: jest.fn().mockResolvedValue(null),
+      discoverServerTools: jest.fn(),
+    };
+    mockGetMCPManager.mockReturnValue(mockManager);
+    mockReinitMCPServer.mockResolvedValue({
+      success: false,
+      code: 'MCP_AUTHENTICATION_REQUIRED',
+      status: 'authentication_required',
+      authenticationRequired: true,
+      oauthRequired: true,
+      oauthUrl: null,
+      tools: null,
+      availableTools: null,
+      serverName: 'microsoft-tools',
+      message: "MCP server 'microsoft-tools' requires authentication",
+    });
+
+    const req = createReq();
+    const res = createRes();
+    await getMCPTools(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.servers['microsoft-tools']).toEqual(
+      expect.objectContaining({
+        authState: 'not_connected',
+        authenticationRequired: expect.objectContaining({
+          code: 'MCP_AUTHENTICATION_REQUIRED',
+          status: 'authentication_required',
+        }),
+      }),
+    );
+    expect(mockManager.discoverServerTools).not.toHaveBeenCalled();
+    expect(mockDiscoverAuthServerMetadata).not.toHaveBeenCalled();
   });
 
   it('should surface authState "authorized" for fully authorized OAuth servers', async () => {

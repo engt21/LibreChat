@@ -304,6 +304,30 @@ export const adminBYOKSettingsSchema = z.object({
 
 export type TAdminBYOKSettings = z.infer<typeof adminBYOKSettingsSchema>;
 
+export const adminMemorySettingsSchema = z.object({
+  automaticSaveEnabled: z.boolean().default(true),
+  provider: z.string().min(1).default('openAI'),
+  model: z.string().min(1).default('gpt-5.6-terra'),
+  instructions: z.string().max(20000).nullable().default(null),
+  requireExplicitRequest: z.boolean().default(true),
+  processAfterResponse: z.boolean().default(true),
+  includeAssistantContext: z.boolean().default(true),
+  messageWindowSize: z.number().int().min(1).max(20).default(5),
+  contextCharLimit: z.number().int().min(1000).max(100000).default(60000),
+  maxWritesPerTurn: z.number().int().min(1).max(10).default(6),
+  maxAttempts: z.number().int().min(1).max(3).default(3),
+  processingTimeoutMs: z.number().int().min(1000).max(120000).default(60000),
+  tokenLimit: z.number().int().min(100).max(100000).nullable().default(6000),
+  maxValueTokens: z.number().int().min(25).max(5000).default(500),
+  charLimit: z.number().int().min(100).max(50000).default(4000),
+  auditEnabled: z.boolean().default(true),
+  consolidateMemories: z.boolean().default(true),
+  validKeys: z.array(z.string().regex(/^[a-z_]+$/)).default([]),
+  customIntentPhrases: z.array(z.string().min(1).max(200)).default([]),
+});
+
+export type TAdminMemorySettings = z.infer<typeof adminMemorySettingsSchema>;
+
 export const adminDeterministicToolSettingsSchema = z.object({
   calculator: z.boolean().default(true),
   textAnalyzer: z.boolean().default(true),
@@ -311,9 +335,7 @@ export const adminDeterministicToolSettingsSchema = z.object({
   jsonUtility: z.boolean().default(true),
 });
 
-export type TAdminDeterministicToolSettings = z.infer<
-  typeof adminDeterministicToolSettingsSchema
->;
+export type TAdminDeterministicToolSettings = z.infer<typeof adminDeterministicToolSettingsSchema>;
 
 export const adminSettingsSchema = z.object({
   settingsId: z.string(),
@@ -322,6 +344,7 @@ export const adminSettingsSchema = z.object({
   platformPrompt: platformPromptSchema,
   observability: observabilityLinksSchema,
   byok: adminBYOKSettingsSchema.default({ providers: {} }),
+  memory: adminMemorySettingsSchema.default({}),
   deterministicTools: adminDeterministicToolSettingsSchema.default({}),
   mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),
   mcpAllowedDomains: z.array(z.string()).optional(),
@@ -336,6 +359,7 @@ export const adminSettingsUpdateSchema = z.object({
   platformPrompt: platformPromptSchema.optional(),
   observability: observabilityLinksSchema.partial().optional(),
   byok: adminBYOKSettingsSchema.partial().optional(),
+  memory: adminMemorySettingsSchema.partial().optional(),
   deterministicTools: adminDeterministicToolSettingsSchema.partial().optional(),
   mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),
   mcpAllowedDomains: z.array(z.string()).optional(),

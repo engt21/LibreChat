@@ -299,6 +299,44 @@ else
 fi
 echo
 
+echo -e "${BOLD}== Production resource isolation contracts ==${NC}"
+if ! "$ROOT_DIR/local-services/verify-production-resource-contracts.sh"; then
+  exit_code=1
+fi
+echo
+
+echo -e "${BOLD}== API runtime and memory safeguards ==${NC}"
+if $stable_running; then
+  stable_container="$(resolve_stable_api_container)"
+  if ! "$ROOT_DIR/local-services/verify-api-runtime-contract.sh" --container "$stable_container"; then
+    exit_code=1
+  fi
+  if ! "$ROOT_DIR/local-services/verify-api-memory-headroom.sh" --container "$stable_container"; then
+    exit_code=1
+  fi
+else
+  echo -e "${YELLOW}Stable API is not running; deployed runtime and cgroup safeguards cannot be verified.${NC}"
+  exit_code=1
+fi
+echo
+
+echo -e "${BOLD}== Authentication and memory runtime contracts ==${NC}"
+if $stable_running; then
+  stable_container="$(resolve_stable_api_container)"
+  if "$ROOT_DIR/local-services/verify-auth-memory-runtime-contracts.sh" --container "$stable_container"; then
+    echo -e "${GREEN}Stable authentication and memory contracts match source and deployed runtime.${NC}"
+  else
+    echo -e "${RED}Stable authentication or memory runtime contract is broken; do not promote or restart production until repaired.${NC}"
+    exit_code=1
+  fi
+else
+  echo -e "${YELLOW}Stable API is not running; checking repository authentication and memory contracts only.${NC}"
+  if ! "$ROOT_DIR/local-services/verify-auth-memory-runtime-contracts.sh"; then
+    exit_code=1
+  fi
+fi
+echo
+
 if [[ $exit_code -eq 0 ]]; then
   echo -e "${GREEN}All checks passed.${NC}"
 else

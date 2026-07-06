@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { Run, Providers } from '@librechat/agents';
+import { Run, Providers, GraphEvents } from '@librechat/agents';
 import type { IUser } from '@librechat/data-schemas';
 import type { Response } from 'express';
 import { processMemory } from './memory';
@@ -536,5 +536,132 @@ describe('Memory Agent Header Resolution', () => {
     const runConfig = (Run.create as jest.Mock).mock.calls[0][0];
 
     expect(runConfig.graphConfig.llmConfig.temperature).toBe(0.7);
+  });
+});
+
+describe('Memory mutation enforcement', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('forces the exact memory tool for every explicit mutation attempt', async () => {
+    const mockRes = {
+      write: jest.fn(),
+      end: jest.fn(),
+      headersSent: false,
+    } as unknown as Response;
+
+    await processMemory({
+      res: mockRes,
+      userId: 'user-123',
+      setMemory: jest.fn(),
+      deleteMemory: jest.fn(),
+      messages: [],
+      memory: '',
+      messageId: 'msg-123',
+      conversationId: 'conv-123',
+      intent: 'save',
+      maxAttempts: 2,
+      llmConfig: { provider: Providers.OPENAI, model: 'gpt-4.1-mini' },
+    });
+
+    expect(Run.create as jest.Mock).toHaveBeenCalledTimes(2);
+    expect((Run.create as jest.Mock).mock.calls[0][0].graphConfig.llmConfig.tool_choice).toBe(
+      'set_memory',
+    );
+    expect((Run.create as jest.Mock).mock.calls[1][0].graphConfig.llmConfig.tool_choice).toBe(
+      'set_memory',
+    );
+  });
+
+  it('persists an explicit save through the validated fallback when the model skips tools', async () => {
+    const setMemory = jest.fn().mockResolvedValue({ ok: true, changed: true });
+    const recordMemoryEvent = jest.fn().mockResolvedValue(undefined);
+    const { HumanMessage } = jest.requireActual('@langchain/core/messages');
+
+    await processMemory({
+      res: { write: jest.fn(), end: jest.fn(), headersSent: false } as unknown as Response,
+      userId: 'user-123',
+      setMemory,
+      deleteMemory: jest.fn(),
+      recordMemoryEvent,
+      messages: [
+        new HumanMessage(
+          '# Current Chat Request and Recent Context:\n\nHuman: Remember OLD_VALUE.\nAssistant: Earlier response.\nHuman: You MUST use the memory tool now. Save this exact durable fact to memory: CODEX_MEMORY_VALIDATION.\n\n# Completed Assistant and Tool Context:\n\nAssistant: Confirmed.',
+        ),
+      ],
+      memory: '',
+      messageId: 'response-123',
+      sourceMessageId: 'request-123',
+      conversationId: 'conv-123',
+      intent: 'save',
+      evidence: 'use the memory tool',
+      maxAttempts: 2,
+      maxWritesPerTurn: 2,
+      maxValueTokens: 500,
+      llmConfig: { provider: Providers.OPENAI, model: 'gpt-4.1-mini' },
+    });
+
+    expect(setMemory).toHaveBeenCalledTimes(1);
+    expect(setMemory.mock.calls[0][0]).toMatchObject({
+      userId: 'user-123',
+      value: 'CODEX_MEMORY_VALIDATION.\n\nAssistant: Confirmed.',
+    });
+    expect(setMemory.mock.calls[0][0].key).toMatch(/^[a-z_]+$/);
+    expect(recordMemoryEvent).toHaveBeenCalledWith(expect.objectContaining({ status: 'saved' }));
+    expect(recordMemoryEvent).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'no_action' }));
+  });
+
+});
+
+describe('Memory model observability', () => {
+  it('collects every memory LLM call and labels the Langfuse trace as memory', async () => {
+    const onUsage = jest.fn();
+    const processStream = jest.fn(async () => {
+      const runConfig = (Run.create as jest.Mock).mock.calls.at(-1)[0];
+      runConfig.customHandlers[GraphEvents.CHAT_MODEL_END].handle(
+        GraphEvents.CHAT_MODEL_END,
+        {
+          output: {
+            usage_metadata: {
+              input_tokens: 42,
+              output_tokens: 7,
+            },
+          },
+        },
+        { ls_model_name: 'gpt-5.6-terra' },
+      );
+    });
+    (Run.create as jest.Mock).mockImplementationOnce(() => ({ processStream }));
+
+    await processMemory({
+      res: { write: jest.fn(), end: jest.fn(), headersSent: false } as unknown as Response,
+      userId: 'user-123',
+      setMemory: jest.fn(),
+      deleteMemory: jest.fn(),
+      messages: [],
+      memory: 'No existing memories',
+      messageId: 'memory-response-123',
+      conversationId: 'conversation-123',
+      instructions: 'Use the memory tool.',
+      llmConfig: {
+        provider: Providers.OPENAI,
+        model: 'gpt-5.6-terra',
+      },
+      intent: 'save',
+      onUsage,
+    });
+
+    expect(onUsage).toHaveBeenCalledWith([
+      { input_tokens: 42, output_tokens: 7, model: 'gpt-5.6-terra' },
+    ]);
+    const streamConfig = processStream.mock.calls[0][1];
+    expect(streamConfig.runName).toBe('MemoryRun');
+    expect(streamConfig.configurable.traceMetadata).toMatchObject({
+      category: 'memory',
+      operation: 'memory_mutation',
+      provider: Providers.OPENAI,
+      model: 'gpt-5.6-terra',
+    });
   });
 });

@@ -52,14 +52,18 @@ MFA_TOKEN_AUDIENCE=librechat-mfa
 | Credential or challenge | Lifetime | Renewal behavior | Exposure and revocation |
 | --- | --- | --- | --- |
 | LibreChat access JWT | 15 minutes | A valid refresh session issues a new access JWT | Stateless bearer token; JWT-secret rotation invalidates all outstanding access JWTs |
-| LibreChat refresh session | 30 days | The refresh token rotates on use, but the MongoDB session keeps its original absolute expiration; activity does not extend it indefinitely | Cookie is `HttpOnly`, `Secure`, and `SameSite=Lax`; only a SHA-256 token hash is stored in MongoDB; logout, password reset, MFA reset, admin revocation, or session deletion invalidates it |
+| LibreChat refresh session | 30 days | The refresh token rotates on use, but the MongoDB session keeps its original absolute expiration; activity does not extend it indefinitely | Cookie is `HttpOnly`, `Secure`, and `SameSite=Lax`; the signed `sessionId`/`jti` resolves the persistent MongoDB session while a SHA-256 token hash is retained for legacy compatibility; logout, password reset, MFA reset, admin revocation, or session deletion invalidates it |
 | Pending MFA challenge | 5 minutes | Never renewed; the user must restart password login after expiry or five failed verification attempts | Cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, and scoped to `/api/auth/2fa` |
 | Password reset and email-verification token | 15 minutes | One-time flow | Token record is TTL-backed in MongoDB; successful password reset revokes every refresh session |
 | OAuth CSRF/session state | 10 minutes | One-time callback flow | Purpose-bound secure cookies; not an application login session |
 
 The practical login experience is monthly: a local user can remain signed in for up to 30 days, while the browser silently exchanges the refresh session for a new 15-minute access JWT. A month-long access JWT is intentionally not used because a copied bearer token cannot be individually revoked and would remain immediately usable for the full month. The short access JWT plus month-long, server-revocable refresh session provides the requested monthly sign-in window without creating a month-long bearer-token exposure.
 
-Access tokens carry `tokenType=access`; refresh tokens carry `tokenType=refresh`, a session ID, issuer, audience, and JWT ID. Refresh tokens are stored only as SHA-256 hashes in MongoDB and rotate whenever refreshed. Password reset revokes every active user session.
+Routine API restarts, image rebuilds, and complete frontend promotions do not revoke refresh sessions. The browser preserves its React Query cache during silent refresh and retries transient network, proxy, rate-limit, and server failures with capped exponential backoff. It redirects to login only after a definitive authentication rejection or a successful refresh response that contains no usable token. This prevents a deployment-time `502`/`503` window from being mistaken for an expired login.
+
+Users with the platform `ADMIN` role are exempt from automated violation bans. `checkBan` resolves the submitted login email before applying either user or source-IP bans and allows administrators to proceed to normal credential and MFA validation. `banViolation` also refuses to create an automated admin ban, clear admin authentication cookies, or revoke admin refresh sessions. Deliberate administrator suspension remains an explicit operator action rather than a side effect of model, tool, login, or request-limit counters.
+
+Access tokens carry `tokenType=access`; refresh tokens carry `tokenType=refresh`, a matching session ID and JWT ID, issuer, and audience. Current refresh and Realtime-cookie validation resolve the signed persistent session ID instead of requiring the latest rotated token hash, so parallel browser refreshes after an API restart cannot invalidate each other. Refresh-token hashes remain stored for legacy-token fallback. Password reset revokes every active user session.
 
 ## Account policy
 
@@ -71,7 +75,7 @@ MIN_PASSWORD_LENGTH=12
 ALLOW_PASSWORD_RESET=false
 ```
 
-The environment default and the persisted global `AppSettings.registrationEnabled` override are both disabled; the database override takes precedence when present. The minimum applies to registration and password reset. Existing passwords remain usable so users can authenticate and enroll MFA without an unplanned password migration.
+The environment default and the persisted global `AppSettings.registrationEnabled` override are both disabled; the database override takes precedence when present. The minimum applies to registration and password reset. Existing passwords remain usable so users can authenticate and enroll MFA without an unplanned password migration. The login form must therefore validate only that a password is present and at most 128 characters; it must not apply `MIN_PASSWORD_LENGTH` client-side because that would block legacy accounts before the request reaches the server.
 
 Invalid email, password, passwordless-provider, and unverified-email cases return the same external response. Nonexistent/passwordless users still execute a dummy bcrypt comparison to reduce timing-based enumeration. Submitted passwords are never written to validation logs.
 
@@ -115,3 +119,34 @@ Rollback order:
 - Logout and password reset revoke server-side sessions.
 - OIDC/SAML/social-login callbacks use the HTTPS tailnet origin.
 - MCP OAuth callbacks continue using the configured loopback callback base.
+
+## Deployment safety runbook
+
+`AUTH_DEPLOYMENT_SAFETY.md` is the mandatory operator runbook for auth/session/MFA/JWT package builds,
+container builders, production restarts, failure diagnosis, and rollback. Its fail-closed checks take
+precedence over generic health checks.
+
+## 2026-07-05 authentication incident and preservation guard
+
+A production MFA loop was caused by source/package skew, not by the administrator's password or TOTP secret. The browser completed `POST /api/auth/login` and `POST /api/auth/2fa/verify-temp`, but the immediately following `POST /api/auth/refresh` returned `403 Invalid refresh token`. The deployed `@librechat/data-schemas` bundle generated a legacy refresh JWT without the issuer, `librechat-refresh` audience, and `tokenType=refresh` claims that the current verifier required.
+
+Recovery rules:
+
+- Do not reset a password, rotate a TOTP secret, or delete sessions merely because the browser returns from MFA to the password page. Inspect the login, MFA verification, and refresh requests as one chain.
+- Preserve the existing password hash exactly unless the account owner explicitly requests a password reset.
+- Routine builds, restarts, runtime deltas, and frontend promotions must not delete MongoDB sessions. Session revocation is reserved for logout, password reset, MFA reset, an explicit administrator action, or a confirmed compromise.
+- Deploy authentication controllers and `packages/data-schemas/dist` as a matched contract whenever refresh-token claims or verification rules change.
+- Keep current refresh lookup session-ID based. Returning to hash-only lookup reintroduces a post-restart race where parallel refresh requests rotate the hash and force password/TOTP reauthentication.
+- Administrators remain subject to password and MFA verification, but are exempt from automated violation bans. Deliberate administrator suspension is an explicit operator action.
+
+Run the fail-closed contract check before any stable mutation and against the deployed container afterward:
+
+```bash
+npm run verify:auth-memory-runtime-contracts
+ssh timeng@192.168.50.104 \
+  'cd /opt/LibreChat-custom && ./local-services/verify-auth-memory-runtime-contracts.sh --container LibreChat'
+```
+
+The verifier checks refresh-token issuer/audience/type/JWT-ID parity in both source and the compiled `packages/data-schemas/dist/index.cjs`, pending-MFA refresh behavior, root-scoped stale-cookie cleanup, transient client refresh retries, administrator ban protection, absence of blanket deployment-time session deletion, and the compiled memory package exports that share the same source/dist deployment risk.
+
+A July 6 recurrence proved that checking only the TypeScript source is insufficient. An isolated builder cloned the live container, whose package source was older than its previously hot-fixed compiled dist, and rebuilding `data-schemas` silently removed the refresh claims. Any builder based on a live image must receive `packages/data-schemas/src/methods/session.ts` or a complete synchronized source tree before building. The compiled-claim gate must pass before any restart or client-dist promotion.

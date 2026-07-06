@@ -1,7 +1,7 @@
 const { logger } = require('@librechat/data-schemas');
 const { isEnabled, math } = require('@librechat/api');
-const { ViolationTypes } = require('librechat-data-provider');
-const { deleteAllUserSessions } = require('~/models');
+const { SystemRoles, ViolationTypes } = require('librechat-data-provider');
+const { deleteAllUserSessions, findUser } = require('~/models');
 const { removePorts } = require('~/server/utils');
 const getLogStores = require('./getLogStores');
 
@@ -38,6 +38,12 @@ const banViolation = async (req, res, errorMessage) => {
   }
 
   const { type, user_id, prev_count, violation_count } = errorMessage;
+
+  const user = req.user?.role ? req.user : await findUser({ _id: user_id }, '_id role');
+  if (user?.role === SystemRoles.ADMIN) {
+    logger.warn(`[BAN] Skipping automated ban for administrator ${user_id}.`);
+    return;
+  }
 
   const prevThreshold = Math.floor(prev_count / interval);
   const currentThreshold = Math.floor(violation_count / interval);

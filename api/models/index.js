@@ -11,6 +11,7 @@ const {
   updateMessage,
   deleteMessagesSince,
   deleteMessages,
+  deleteMessageBranch,
 } = require('./Message');
 const { getConvoTitle, getConvo, saveConvo, deleteConvos } = require('./Conversation');
 const { getPreset, getPresets, reorderPresets, savePreset, deletePresets } = require('./Preset');
@@ -45,6 +46,7 @@ module.exports = {
   updateMessage,
   deleteMessagesSince,
   deleteMessages,
+  deleteMessageBranch,
 
   getConvoTitle,
   getConvo,

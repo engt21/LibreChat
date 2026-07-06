@@ -5,6 +5,7 @@ import { useToastContext } from '@librechat/client';
 import { useAuthContext } from '~/hooks';
 import usePCMPlayer from './usePCMPlayer';
 import useRealtimeMicrophone from './useRealtimeMicrophone';
+import { notifyMicrophoneAccessError } from '~/utils/microphonePermission';
 
 type ConnectionStatus = 'idle' | 'connecting' | 'connected';
 
@@ -21,6 +22,8 @@ type StartSessionParams = {
   model: string;
   instructions: string;
   voice?: string;
+  contextEntries?: Array<Pick<RealtimeTranscriptEntry, 'role' | 'text' | 'source'>>;
+  tools?: string[];
 };
 
 type TranscriptEvent = {
@@ -153,6 +156,7 @@ export default function useRealtimeSession() {
   const sessionAudioRef = useRef<TRealtimeAudioConfig | null>(null);
   const currentUserTranscriptRef = useRef('');
   const currentAssistantTranscriptRef = useRef('');
+  const assistantAudioActiveRef = useRef(false);
 
   const [status, setStatus] = useState<ConnectionStatus>('idle');
   const [sessionEndpoint, setSessionEndpoint] = useState<string | null>(null);
@@ -278,6 +282,7 @@ export default function useRealtimeSession() {
       }
 
       finalizeTranscript('user', text || currentUserTranscriptRef.current, 'voice');
+      currentUserTranscriptRef.current = '';
       setCurrentUserTranscript('');
     },
     [finalizeTranscript],
@@ -312,6 +317,7 @@ export default function useRealtimeSession() {
       assistantDidFinalizeRef.current = true;
       finalizeTranscript('assistant', bestDraft.text, 'voice');
       assistantDraftsRef.current = {};
+      currentAssistantTranscriptRef.current = '';
       syncAssistantDraft({});
     },
     [finalizeTranscript, syncAssistantDraft],
@@ -326,6 +332,15 @@ export default function useRealtimeSession() {
           setSessionModel((event.model as string) ?? null);
           setStatus('connected');
           break;
+        case 'tool.started':
+          showToast({ message: `Using ${event.name as string}…`, status: 'info' });
+          break;
+        case 'tool.failed':
+          showToast({
+            message: (event.message as string) || `Realtime tool failed: ${event.name as string}`,
+            status: 'error',
+          });
+          break;
         case 'session.stopped':
         case 'session.closed':
           void stopSession();
@@ -333,6 +348,7 @@ export default function useRealtimeSession() {
         case 'input_audio_buffer.speech_started':
         case 'response.interrupted':
           void player.stopAll();
+          assistantAudioActiveRef.current = false;
           break;
         case 'transcript.input':
           handleInputTranscript(event as unknown as TranscriptEvent);
@@ -342,14 +358,17 @@ export default function useRealtimeSession() {
           break;
         case 'audio.output':
           if (typeof event.audio === 'string' && typeof event.sampleRate === 'number') {
+            assistantAudioActiveRef.current = true;
             void player.enqueue(event.audio, event.sampleRate);
           }
           break;
         case 'audio.output.done':
           break;
         case 'response.started':
+          assistantAudioActiveRef.current = true;
           assistantDraftsRef.current = {};
           assistantDidFinalizeRef.current = false;
+          currentAssistantTranscriptRef.current = '';
           syncAssistantDraft({});
           break;
         case 'response.done':
@@ -364,6 +383,9 @@ export default function useRealtimeSession() {
           assistantDraftsRef.current = {};
           assistantDidFinalizeRef.current = false;
           syncAssistantDraft({});
+          void player.waitForIdle().then(() => {
+            assistantAudioActiveRef.current = false;
+          });
           break;
         case 'error':
           showToast({
@@ -395,7 +417,15 @@ export default function useRealtimeSession() {
   );
 
   const startSession = useCallback(
-    async ({ wsPath, endpoint, model, instructions, voice }: StartSessionParams) => {
+    async ({
+      wsPath,
+      endpoint,
+      model,
+      instructions,
+      voice,
+      contextEntries,
+      tools,
+    }: StartSessionParams) => {
       await stopSession();
       clearTranscriptHistory();
       const nextSessionStartedAt = new Date().toISOString();
@@ -440,6 +470,8 @@ export default function useRealtimeSession() {
             model,
             instructions,
             voice,
+            contextEntries,
+            tools,
           }),
         );
       };
@@ -503,7 +535,7 @@ export default function useRealtimeSession() {
       await microphone.startRecording({
         sampleRate: sessionAudioRef.current.inputSampleRate,
         onChunk: (audio) => {
-          if (socketRef.current?.readyState !== WebSocket.OPEN) {
+          if (assistantAudioActiveRef.current || socketRef.current?.readyState !== WebSocket.OPEN) {
             return;
           }
 
@@ -512,8 +544,9 @@ export default function useRealtimeSession() {
       });
     } catch (error) {
       showToast({
-        message: error instanceof Error ? error.message : 'Failed to start the microphone.',
+        message: notifyMicrophoneAccessError(error),
         status: 'error',
+        duration: 12000,
       });
       await microphone.stopRecording();
     }
@@ -521,10 +554,6 @@ export default function useRealtimeSession() {
 
   const stopMicrophone = useCallback(async () => {
     await microphone.stopRecording();
-
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
-    }
   }, [microphone]);
 
   const cancelResponse = useCallback(async () => {

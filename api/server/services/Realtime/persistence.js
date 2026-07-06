@@ -1,4 +1,7 @@
 const { createImportBatchBuilder } = require('~/server/utils/import/importBatchBuilder');
+const { v4: uuidv4 } = require('uuid');
+const { Constants } = require('librechat-data-provider');
+const { getConvo, saveConvo, saveMessage } = require('~/models');
 
 const MAX_REALTIME_TITLE_LENGTH = 80;
 
@@ -27,7 +30,69 @@ function buildRealtimeConversationTitle(entries, model) {
     : seedTitle;
 }
 
-async function saveRealtimeConversation({ userId, endpoint, model, entries, startedAt, endedAt }) {
+async function appendRealtimeEntries({
+  userId,
+  conversationId,
+  parentMessageId,
+  endpoint,
+  model,
+  entries,
+  endedAt,
+}) {
+  const conversation = await getConvo(userId, conversationId);
+  if (!conversation) {
+    throw new Error('Realtime conversation could not be resumed because the chat was not found.');
+  }
+
+  const req = { user: { id: userId }, body: {} };
+  let currentParentMessageId = parentMessageId || Constants.NO_PARENT;
+
+  for (const entry of entries) {
+    const messageId = uuidv4();
+    await saveMessage(
+      req,
+      {
+        messageId,
+        conversationId,
+        parentMessageId: currentParentMessageId,
+        endpoint,
+        model,
+        sender: entry.role === 'user' ? 'user' : model,
+        text: entry.text,
+        isCreatedByUser: entry.role === 'user',
+        unfinished: false,
+        error: false,
+        metadata: { realtime: true, source: entry.source },
+      },
+      { context: 'Realtime conversation append' },
+    );
+    currentParentMessageId = messageId;
+  }
+
+  return await saveConvo(
+    req,
+    {
+      conversationId,
+      title: conversation.title,
+      endpoint: conversation.endpoint,
+      model: conversation.model,
+      updatedAt: endedAt ? new Date(endedAt) : new Date(),
+    },
+    { context: 'Realtime conversation append', noUpsert: true },
+  );
+}
+
+async function saveRealtimeConversation({
+  userId,
+  conversationId,
+  parentMessageId,
+  endpoint,
+  model,
+  textModel,
+  entries,
+  startedAt,
+  endedAt,
+}) {
   const normalizedEntries = normalizeRealtimeEntries(entries);
 
   if (!userId) {
@@ -46,7 +111,20 @@ async function saveRealtimeConversation({ userId, endpoint, model, entries, star
     throw new Error('Realtime conversation persistence requires at least one transcript entry.');
   }
 
+  if (conversationId && conversationId !== 'new') {
+    return appendRealtimeEntries({
+      userId,
+      conversationId,
+      parentMessageId,
+      endpoint,
+      model,
+      entries: normalizedEntries,
+      endedAt,
+    });
+  }
+
   const builder = createImportBatchBuilder(userId);
+  const savedModel = textModel || model;
   builder.startConversation(endpoint);
 
   for (const entry of normalizedEntries) {
@@ -55,7 +133,7 @@ async function saveRealtimeConversation({ userId, endpoint, model, entries, star
       continue;
     }
 
-    builder.addGptMessage(entry.text, model, model);
+    builder.addGptMessage(entry.text, savedModel, savedModel);
   }
 
   const createdAt = startedAt ? new Date(startedAt) : new Date();
@@ -65,7 +143,7 @@ async function saveRealtimeConversation({ userId, endpoint, model, entries, star
     createdAt,
     {
       endpoint,
-      model,
+      model: savedModel,
     },
   );
 
@@ -81,4 +159,5 @@ module.exports = {
   normalizeRealtimeEntries,
   buildRealtimeConversationTitle,
   saveRealtimeConversation,
+  appendRealtimeEntries,
 };

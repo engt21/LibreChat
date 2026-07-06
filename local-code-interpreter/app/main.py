@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import threading
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
@@ -15,6 +17,9 @@ store = SessionStore(settings)
 adapter = LlmSandboxAdapter(settings)
 
 app = FastAPI(title='LibreChat Local Code Interpreter', version='0.1.0')
+logger = logging.getLogger(__name__)
+cleanup_stop = threading.Event()
+cleanup_thread: threading.Thread | None = None
 
 
 def require_api_key(x_api_key: str | None = Header(default=None, alias='X-API-Key')) -> None:
@@ -23,19 +28,42 @@ def require_api_key(x_api_key: str | None = Header(default=None, alias='X-API-Ke
 
 
 def get_runtime() -> tuple[Settings, SessionStore, LlmSandboxAdapter]:
-    store.cleanup_expired_sessions()
     adapter.cleanup_expired_sessions()
+    store.cleanup_expired_sessions()
     return settings, store, adapter
 
 
 @app.on_event('startup')
 def startup_runtime() -> None:
+    global cleanup_thread
     adapter.start_background_prewarm()
+    cleanup_stop.clear()
+    cleanup_thread = threading.Thread(target=cleanup_runtime_loop, daemon=True)
+    cleanup_thread.start()
 
 
 @app.on_event('shutdown')
 def shutdown_runtime() -> None:
+    cleanup_stop.set()
+    if cleanup_thread is not None:
+        cleanup_thread.join(timeout=5)
     adapter.shutdown()
+
+
+def cleanup_runtime_once() -> None:
+    adapter.cleanup_expired_sessions()
+    removed = adapter.cleanup_orphaned_containers()
+    if removed:
+        logger.info('Removed %d expired local Code Interpreter sandbox containers', len(removed))
+
+
+def cleanup_runtime_loop() -> None:
+    while not cleanup_stop.is_set():
+        try:
+            cleanup_runtime_once()
+        except Exception:
+            logger.exception('Local Code Interpreter sandbox cleanup failed')
+        cleanup_stop.wait(settings.cleanup_interval_seconds)
 
 
 @app.get('/v1/health')

@@ -57,18 +57,22 @@ jest.mock('@librechat/agents', () => ({
 }));
 
 // Mock @librechat/api with createAxiosInstance and code-server agents
-jest.mock('@librechat/api', () => {
-  const http = require('http');
-  const https = require('https');
-  return {
-    logAxiosError: jest.fn(),
-    getBasePath: jest.fn(() => ''),
-    sanitizeFilename: jest.fn((name) => name),
-    createAxiosInstance: jest.fn(() => mockAxios),
-    codeServerHttpAgent: new http.Agent({ keepAlive: false }),
-    codeServerHttpsAgent: new https.Agent({ keepAlive: false }),
-  };
-});
+jest.mock(
+  '@librechat/api',
+  () => {
+    const http = require('http');
+    const https = require('https');
+    return {
+      logAxiosError: jest.fn(),
+      getBasePath: jest.fn(() => ''),
+      sanitizeFilename: jest.fn((name) => name),
+      createAxiosInstance: jest.fn(() => mockAxios),
+      codeServerHttpAgent: new http.Agent({ keepAlive: false }),
+      codeServerHttpsAgent: new https.Agent({ keepAlive: false }),
+    };
+  },
+  { virtual: true },
+);
 
 // Re-alias for backward compat in test assertions
 const axios = mockAxios;
@@ -256,6 +260,190 @@ describe('Code Process', () => {
       ]);
       expect(result.toolContext).toContain('/mnt/data/sample.xlsx');
       expect(result.toolContext).toContain('(attached by user)');
+    });
+
+    it('prefers the original image when lazily staging a vision attachment', async () => {
+      const getDownloadStream = jest.fn().mockResolvedValue('original-image-stream');
+      const uploadCodeEnvFile = jest.fn().mockResolvedValue('session-image/file-image');
+
+      getFiles.mockResolvedValue([]);
+      getStrategyFunctions.mockImplementation((source) => {
+        if (source === FileSources.execute_code) {
+          return { handleFileUpload: uploadCodeEnvFile };
+        }
+        return { getDownloadStream };
+      });
+
+      const imageAttachment = {
+        file_id: 'file-image-123',
+        filename: 'diagram.png',
+        filepath: '/images/diagram-vision.webp',
+        source: FileSources.local,
+        context: FileContext.message_attachment,
+        metadata: {
+          nativeTool: EToolResources.execute_code,
+          originalFilepath: '/uploads/diagram-original.png',
+        },
+      };
+
+      await primeFiles(
+        {
+          req: mockReq,
+          agentId: 'agent-123',
+          tool_resources: {
+            [EToolResources.execute_code]: {
+              files: [imageAttachment],
+              file_ids: [],
+            },
+          },
+        },
+        'test-api-key',
+      );
+
+      expect(getDownloadStream).toHaveBeenCalledWith(mockReq, '/uploads/diagram-original.png');
+      expect(uploadCodeEnvFile).toHaveBeenCalledWith({
+        req: mockReq,
+        stream: 'original-image-stream',
+        filename: 'diagram.png',
+        entity_id: undefined,
+        apiKey: 'test-api-key',
+      });
+      expect(updateFile).toHaveBeenCalledWith({
+        file_id: 'file-image-123',
+        metadata: {
+          nativeTool: EToolResources.execute_code,
+          originalFilepath: '/uploads/diagram-original.png',
+          fileIdentifier: 'session-image/file-image',
+        },
+      });
+    });
+
+    it('falls back to the processed image when staging the original image fails', async () => {
+      const getDownloadStream = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('original image unavailable'))
+        .mockResolvedValueOnce('processed-image-stream');
+      const uploadCodeEnvFile = jest.fn().mockResolvedValue('session-image/file-image');
+
+      getFiles.mockResolvedValue([]);
+      getStrategyFunctions.mockImplementation((source) => {
+        if (source === FileSources.execute_code) {
+          return { handleFileUpload: uploadCodeEnvFile };
+        }
+        return { getDownloadStream };
+      });
+
+      const imageAttachment = {
+        file_id: 'file-image-123',
+        filename: 'diagram.png',
+        filepath: '/images/diagram-vision.webp',
+        source: FileSources.local,
+        context: FileContext.message_attachment,
+        metadata: {
+          nativeTool: EToolResources.execute_code,
+          originalFilepath: '/uploads/diagram-original.png',
+        },
+      };
+
+      await primeFiles(
+        {
+          req: mockReq,
+          agentId: 'agent-123',
+          tool_resources: {
+            [EToolResources.execute_code]: {
+              files: [imageAttachment],
+              file_ids: [],
+            },
+          },
+        },
+        'test-api-key',
+      );
+
+      expect(getDownloadStream).toHaveBeenNthCalledWith(
+        1,
+        mockReq,
+        '/uploads/diagram-original.png',
+      );
+      expect(getDownloadStream).toHaveBeenNthCalledWith(2, mockReq, '/images/diagram-vision.webp');
+      expect(uploadCodeEnvFile).toHaveBeenCalledWith({
+        req: mockReq,
+        stream: 'processed-image-stream',
+        filename: 'diagram.png',
+        entity_id: undefined,
+        apiKey: 'test-api-key',
+      });
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Could not stage original image file-image-123; falling back to processed file',
+        expect.any(Error),
+      );
+    });
+
+    it('falls back to the processed image when uploading the original image fails', async () => {
+      const getDownloadStream = jest
+        .fn()
+        .mockResolvedValueOnce('original-image-stream')
+        .mockResolvedValueOnce('processed-image-stream');
+      const uploadCodeEnvFile = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('original stream rejected'))
+        .mockResolvedValueOnce('session-image/file-image');
+
+      getFiles.mockResolvedValue([]);
+      getStrategyFunctions.mockImplementation((source) => {
+        if (source === FileSources.execute_code) {
+          return { handleFileUpload: uploadCodeEnvFile };
+        }
+        return { getDownloadStream };
+      });
+
+      const imageAttachment = {
+        file_id: 'file-image-123',
+        filename: 'diagram.png',
+        filepath: '/images/diagram-vision.webp',
+        source: FileSources.local,
+        context: FileContext.message_attachment,
+        metadata: {
+          nativeTool: EToolResources.execute_code,
+          originalFilepath: '/uploads/diagram-original.png',
+        },
+      };
+
+      await primeFiles(
+        {
+          req: mockReq,
+          agentId: 'agent-123',
+          tool_resources: {
+            [EToolResources.execute_code]: {
+              files: [imageAttachment],
+              file_ids: [],
+            },
+          },
+        },
+        'test-api-key',
+      );
+
+      expect(uploadCodeEnvFile).toHaveBeenNthCalledWith(1, {
+        req: mockReq,
+        stream: 'original-image-stream',
+        filename: 'diagram.png',
+        entity_id: undefined,
+        apiKey: 'test-api-key',
+      });
+      expect(uploadCodeEnvFile).toHaveBeenNthCalledWith(2, {
+        req: mockReq,
+        stream: 'processed-image-stream',
+        filename: 'diagram.png',
+        entity_id: undefined,
+        apiKey: 'test-api-key',
+      });
+      expect(updateFile).toHaveBeenCalledWith({
+        file_id: 'file-image-123',
+        metadata: {
+          nativeTool: EToolResources.execute_code,
+          originalFilepath: '/uploads/diagram-original.png',
+          fileIdentifier: 'session-image/file-image',
+        },
+      });
     });
   });
 

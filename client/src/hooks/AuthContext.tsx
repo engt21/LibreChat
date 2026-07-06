@@ -40,11 +40,14 @@ const AuthContextProvider = ({
   children: ReactNode;
 }) => {
   const isExternalRedirectRef = useRef(false);
+  const refreshRetryTimerRef = useRef<number | undefined>(undefined);
+  const refreshFailureCountRef = useRef(0);
   const [user, setUser] = useRecoilState(store.user);
   const logoutRedirectRef = useRef<string | undefined>(undefined);
   const [token, setToken] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isMFAPending, setIsMFAPending] = useState<boolean>(false);
   const setQueriesEnabled = useSetRecoilState<boolean>(store.queriesEnabled);
 
   const { data: userRole = null } = useGetRole(SystemRoles.USER, {
@@ -88,18 +91,45 @@ const AuthContextProvider = ({
     [navigate, setUser, setQueriesEnabled],
   );
   const doSetError = useTimeout({ callback: (error) => setError(error as string | undefined) });
+  const doSetErrorRef = useRef(doSetError);
+  doSetErrorRef.current = doSetError;
+  const clearRefreshRetryState = useCallback(() => {
+    refreshFailureCountRef.current = 0;
+    if (refreshRetryTimerRef.current != null) {
+      window.clearTimeout(refreshRetryTimerRef.current);
+      refreshRetryTimerRef.current = undefined;
+    }
+  }, []);
+  const setPendingMFAState = useCallback(
+    (mfaEnrollmentRequired?: boolean) => {
+      clearRefreshRetryState();
+      setError(undefined);
+      setQueriesEnabled(false);
+      setUser(undefined);
+      setToken(undefined);
+      setTokenHeader(undefined);
+      setIsAuthenticated(false);
+      setIsMFAPending(true);
+      navigate(mfaEnrollmentRequired ? '/login/2fa?enroll=true' : '/login/2fa', {
+        replace: true,
+      });
+    },
+    [clearRefreshRetryState, navigate, setQueriesEnabled, setUser],
+  );
 
   const loginUser = useLoginUserMutation({
     onSuccess: (data: t.TLoginResponse) => {
       const { user, token, twoFAPending, mfaEnrollmentRequired } = data;
       if (twoFAPending) {
-        navigate(mfaEnrollmentRequired ? '/login/2fa?enroll=true' : '/login/2fa', { replace: true });
+        setPendingMFAState(mfaEnrollmentRequired);
         return;
       }
+      setIsMFAPending(false);
       setError(undefined);
       setUserContext({ token, isAuthenticated: true, user, redirect: '/c/new' });
     },
     onError: (error: TResError | unknown) => {
+      setIsMFAPending(false);
       const resError = error as TResError;
       doSetError(resError.message);
       // Preserve a valid redirect_to across login failures so the deep link survives retries.
@@ -125,6 +155,7 @@ const AuthContextProvider = ({
         window.location.replace(data.redirect);
         return;
       }
+      setIsMFAPending(false);
       setUserContext({
         token: undefined,
         isAuthenticated: false,
@@ -133,6 +164,7 @@ const AuthContextProvider = ({
       });
     },
     onError: (error) => {
+      setIsMFAPending(false);
       doSetError((error as Error).message);
       setUserContext({
         token: undefined,
@@ -146,6 +178,7 @@ const AuthContextProvider = ({
 
   const logout = useCallback(
     (redirect?: string) => {
+      setIsMFAPending(false);
       if (redirect) {
         logoutRedirectRef.current = redirect;
       }
@@ -156,9 +189,12 @@ const AuthContextProvider = ({
 
   const userQuery = useGetUserQuery({ enabled: !!(token ?? '') });
 
-  const login = (data: t.TLoginUser) => {
-    loginUser.mutate(data);
-  };
+  const login = useCallback(
+    (data: t.TLoginUser) => {
+      loginUser.mutate(data);
+    },
+    [loginUser],
+  );
 
   const silentRefresh = useCallback(() => {
     if (authConfig?.test === true) {
@@ -170,11 +206,22 @@ const AuthContextProvider = ({
     }
     refreshToken.mutate(undefined, {
       onSuccess: (data: t.TRefreshTokenResponse | undefined) => {
+        clearRefreshRetryState();
         if (isExternalRedirectRef.current) {
           return;
         }
-        const { user, token = '' } = data ?? {};
+        const refreshData =
+          data != null && typeof data === 'object'
+            ? (data as Partial<t.TRefreshTokenResponse> &
+                Pick<t.TLoginResponse, 'twoFAPending' | 'mfaEnrollmentRequired'>)
+            : {};
+        if (refreshData.twoFAPending) {
+          setPendingMFAState(refreshData.mfaEnrollmentRequired);
+          return;
+        }
+        const { user, token = '' } = refreshData;
         if (token) {
+          setIsMFAPending(false);
           const storedRedirect = sessionStorage.getItem(SESSION_KEY);
           sessionStorage.removeItem(SESSION_KEY);
           const baseUrl = apiBaseUrl();
@@ -190,6 +237,7 @@ const AuthContextProvider = ({
           setUserContext({ user, token, isAuthenticated: true, redirect });
           return;
         }
+        setIsMFAPending(false);
         console.log('Token is not present. User is not authenticated.');
         if (authConfig?.test === true) {
           return;
@@ -204,11 +252,38 @@ const AuthContextProvider = ({
         if (authConfig?.test === true) {
           return;
         }
-        navigate(buildLoginRedirectUrl());
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        const isTransientFailure =
+          status == null || status === 408 || status === 425 || status === 429 || status >= 500;
+        if (!isTransientFailure) {
+          clearRefreshRetryState();
+          setIsMFAPending(false);
+          navigate(buildLoginRedirectUrl());
+          return;
+        }
+
+        const retryDelay = Math.min(30_000, 1000 * 2 ** refreshFailureCountRef.current);
+        refreshFailureCountRef.current += 1;
+        if (refreshRetryTimerRef.current != null) {
+          window.clearTimeout(refreshRetryTimerRef.current);
+        }
+        refreshRetryTimerRef.current = window.setTimeout(() => {
+          refreshRetryTimerRef.current = undefined;
+          silentRefresh();
+        }, retryDelay);
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are stable at mount; adding refreshToken causes infinite re-fire
   }, []);
+
+  useEffect(
+    () => () => {
+      if (refreshRetryTimerRef.current != null) {
+        window.clearTimeout(refreshRetryTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (isExternalRedirectRef.current) {
@@ -217,18 +292,19 @@ const AuthContextProvider = ({
     if (userQuery.data) {
       setUser(userQuery.data);
     } else if (userQuery.isError) {
-      doSetError((userQuery.error as Error).message);
+      doSetErrorRef.current((userQuery.error as Error).message);
       navigate(buildLoginRedirectUrl(), { replace: true });
     }
     if (error != null && error && isAuthenticated) {
-      doSetError(undefined);
+      doSetErrorRef.current(undefined);
     }
-    if (token == null || !token || !isAuthenticated) {
+    if (!isMFAPending && (token == null || !token || !isAuthenticated)) {
       silentRefresh();
     }
   }, [
     token,
     isAuthenticated,
+    isMFAPending,
     userQuery.data,
     userQuery.isError,
     userQuery.error,
@@ -242,6 +318,7 @@ const AuthContextProvider = ({
   useEffect(() => {
     const handleTokenUpdate = (event: CustomEvent<string>) => {
       console.log('tokenUpdated event received event');
+      setIsMFAPending(false);
       setUserContext({
         token: event.detail,
         isAuthenticated: true,
@@ -271,7 +348,7 @@ const AuthContextProvider = ({
       isAuthenticated,
     }),
 
-    [user, error, isAuthenticated, token, userRole, adminRole],
+    [user, error, isAuthenticated, token, userRole, adminRole, login, logout],
   );
 
   return <AuthContext.Provider value={memoedValue}>{children}</AuthContext.Provider>;

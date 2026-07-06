@@ -54,6 +54,8 @@ describe('ModelController loadModels', () => {
   let getUserKey;
   let getUserKeyValues;
   let loadModels;
+  let getModelsConfig;
+  let resetStartupModelRefresh;
 
   beforeEach(() => {
     jest.resetModules();
@@ -70,7 +72,7 @@ describe('ModelController loadModels', () => {
     ({ getAppConfig } = require('~/server/services/Config/app'));
     ({ getLogStores } = require('~/cache'));
     ({ getUserKey, getUserKeyValues } = require('~/models'));
-    ({ loadModels } = require('./ModelController'));
+    ({ loadModels, getModelsConfig, resetStartupModelRefresh } = require('./ModelController'));
     mockCache = {
       get: jest.fn(),
       set: jest.fn(),
@@ -90,6 +92,45 @@ describe('ModelController loadModels', () => {
 
   afterEach(() => {
     process.env = originalEnv;
+  });
+
+  it('reuses the permission-filtered model snapshot across requests for the same user', async () => {
+    const cachedModelsConfig = {
+      openAI: ['gpt-5.6'],
+      anthropic: [],
+      assistants: [],
+      azureOpenAI: [],
+      google: [],
+      ollama: [],
+    };
+    mockCache.get.mockResolvedValue(cachedModelsConfig);
+    loadConfigModels.mockResolvedValue({ ollama: [] });
+
+    const first = await getModelsConfig({ user: { id: 'user-1', role: 'USER' } });
+    const second = await getModelsConfig({ user: { id: 'user-1', role: 'USER' } });
+
+    expect(first).toBeDefined();
+    expect(second).toBe(first);
+    expect(mockCache.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears per-user model snapshots when discovery caches are reset', async () => {
+    const cachedModelsConfig = {
+      openAI: ['gpt-5.6'],
+      anthropic: [],
+      assistants: [],
+      azureOpenAI: [],
+      google: [],
+      ollama: [],
+    };
+    mockCache.get.mockResolvedValue(cachedModelsConfig);
+    loadConfigModels.mockResolvedValue({ ollama: [] });
+
+    await getModelsConfig({ user: { id: 'user-1', role: 'USER' } });
+    resetStartupModelRefresh();
+    await getModelsConfig({ user: { id: 'user-1', role: 'USER' } });
+
+    expect(mockCache.get).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the cached models config when Google and Ollama models are unchanged', async () => {

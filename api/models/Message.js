@@ -1,7 +1,8 @@
+const mongoose = require('mongoose');
 const { z } = require('zod');
 const { logger } = require('@librechat/data-schemas');
 const { createTempChatExpirationDate } = require('@librechat/api');
-const { Message } = require('~/db/models');
+const { Message, ToolCall, Transaction } = require('~/db/models');
 
 const idSchema = z.string().uuid();
 
@@ -359,6 +360,73 @@ async function deleteMessages(filter) {
   }
 }
 
+async function deleteMessageBranch(req, { conversationId, messageId }) {
+  const user = req.user?.id;
+  if (!user) {
+    throw new Error('User not authenticated');
+  }
+
+  const messages = await Message.find({ conversationId, user })
+    .select('messageId parentMessageId isCreatedByUser')
+    .lean();
+  const target = messages.find((message) => message.messageId === messageId);
+
+  if (!target) {
+    return { status: 'not_found', deletedCount: 0 };
+  }
+  if (target.isCreatedByUser) {
+    return { status: 'invalid_target', deletedCount: 0 };
+  }
+
+  const prompt = messages.find(
+    (message) => message.messageId === target.parentMessageId && message.isCreatedByUser === true,
+  );
+  if (!prompt) {
+    return { status: 'not_found', deletedCount: 0 };
+  }
+
+  const descendantIds = new Set([prompt.messageId]);
+  let addedDescendant = true;
+  while (addedDescendant) {
+    addedDescendant = false;
+    for (const message of messages) {
+      if (
+        message.messageId &&
+        !descendantIds.has(message.messageId) &&
+        descendantIds.has(message.parentMessageId)
+      ) {
+        descendantIds.add(message.messageId);
+        addedDescendant = true;
+      }
+    }
+  }
+
+  const messageIds = [...descendantIds];
+  const messageFilter = { conversationId, user, messageId: { $in: messageIds } };
+  const relatedFilter = { conversationId, messageId: { $in: messageIds } };
+  const topologyType = mongoose.connection.getClient()?.topology?.description?.type;
+  const supportsTransactions = topologyType != null && !['Single', 'Unknown'].includes(topologyType);
+  let result;
+
+  if (supportsTransactions) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await ToolCall.deleteMany(relatedFilter, { session });
+        await Transaction.deleteMany(relatedFilter, { session });
+        result = await Message.deleteMany(messageFilter, { session });
+      });
+    } finally {
+      await session.endSession();
+    }
+  } else {
+    result = await Message.deleteMany(messageFilter);
+    await Promise.all([ToolCall.deleteMany(relatedFilter), Transaction.deleteMany(relatedFilter)]);
+  }
+
+  return { status: 'deleted', deletedCount: result?.deletedCount ?? 0 };
+}
+
 module.exports = {
   saveMessage,
   bulkSaveMessages,
@@ -369,4 +437,5 @@ module.exports = {
   getMessages,
   getMessage,
   deleteMessages,
+  deleteMessageBranch,
 };

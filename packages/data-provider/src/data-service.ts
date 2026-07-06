@@ -18,6 +18,7 @@ import type {
   TImageGenerationPrefsUpdate,
 } from './imageGeneration';
 import type { TModelSteeringPrefs, TModelSteeringPrefsUpdate } from './modelSteering';
+import type { TConversationUsage } from './messages';
 import * as config from './config';
 import request from './request';
 import * as s from './schemas';
@@ -948,6 +949,16 @@ export const branchMessage = async (
   return request.post(endpoints.messagesBranch(), payload);
 };
 
+export const deleteMessageBranch = async ({
+  conversationId,
+  messageId,
+}: {
+  conversationId: string;
+  messageId: string;
+}): Promise<{ deletedCount: number }> => {
+  return request.delete(endpoints.messagesBranchDelete(conversationId, messageId));
+};
+
 export function getMessagesByConvoId(conversationId: string): Promise<s.TMessage[]> {
   if (
     conversationId === config.Constants.NEW_CONVO ||
@@ -956,6 +967,13 @@ export function getMessagesByConvoId(conversationId: string): Promise<s.TMessage
     return Promise.resolve([]);
   }
   return request.get(endpoints.messages({ conversationId }));
+}
+
+export function getConversationUsage(
+  conversationId: string,
+  messageIds: string[],
+): Promise<TConversationUsage> {
+  return request.post(endpoints.conversationUsage(conversationId), { messageIds });
 }
 
 export function getPrompt(id: string): Promise<{ prompt: t.TPrompt }> {

@@ -22,13 +22,13 @@ describe('Zod Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should invalidate a short password', () => {
+    it('should accept an existing password shorter than the registration minimum', () => {
       const result = loginSchema.safeParse({
         email: 'test@example.com',
         password: 'pass',
       });
 
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
     });
 
     it('should handle email with unusual characters', () => {
@@ -459,22 +459,13 @@ describe('Zod Schemas', () => {
     // was set when the validators module was loaded
     const minLength = parseInt(process.env.MIN_PASSWORD_LENGTH, 10) || 8;
 
-    it('should respect the configured minimum password length for login', () => {
-      // Test password exactly at minimum length
-      const resultValid = loginSchema.safeParse({
+    it('should not apply the configured registration minimum to login', () => {
+      const result = loginSchema.safeParse({
         email: 'test@example.com',
-        password: 'a'.repeat(minLength),
+        password: 'a',
       });
-      expect(resultValid.success).toBe(true);
 
-      // Test password one character below minimum
-      if (minLength > 1) {
-        const resultInvalid = loginSchema.safeParse({
-          email: 'test@example.com',
-          password: 'a'.repeat(minLength - 1),
-        });
-        expect(resultInvalid.success).toBe(false);
-      }
+      expect(result.success).toBe(true);
     });
 
     it('should respect the configured minimum password length for registration', () => {

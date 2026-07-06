@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { encodePCM16Base64, resampleFloat32 } from './audio';
+import { requestMicrophoneStream } from '~/utils/microphonePermission';
 
 type StartRecordingOptions = {
   sampleRate: number;
@@ -48,15 +49,7 @@ export default function useRealtimeMicrophone() {
         return;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-        video: false,
-      });
+      const stream = await requestMicrophoneStream();
 
       const AudioContextCtor =
         window.AudioContext || (window as AudioContextWindow).webkitAudioContext;

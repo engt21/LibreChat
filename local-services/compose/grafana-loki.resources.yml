@@ -1,0 +1,46 @@
+services:
+  loki:
+    mem_limit: 512m
+    mem_reservation: 128m
+    memswap_limit: 512m
+    cpus: 0.4
+    cpu_shares: 96
+    pids_limit: 128
+    blkio_config:
+      weight: 80
+      device_read_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 25mb
+      device_write_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 20mb
+  promtail:
+    mem_limit: 192m
+    mem_reservation: 48m
+    memswap_limit: 192m
+    cpus: 0.2
+    cpu_shares: 64
+    pids_limit: 96
+    blkio_config:
+      weight: 50
+      device_read_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 20mb
+      device_write_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 10mb
+  grafana:
+    mem_limit: 384m
+    mem_reservation: 96m
+    memswap_limit: 384m
+    cpus: 0.35
+    cpu_shares: 96
+    pids_limit: 128
+    blkio_config:
+      weight: 80
+      device_read_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 20mb
+      device_write_bps:
+        - path: ${LIBRECHAT_BLKIO_DEVICE:-/dev/sda}
+          rate: 15mb

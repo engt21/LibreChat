@@ -188,6 +188,84 @@ describe('forkConversation', () => {
     ).rejects.toThrow('Failed to fetch messages');
   });
 
+  test('should reject a fork whose selected message is not persisted yet', async () => {
+    await expect(
+      forkConversation({
+        originalConvoId: 'abc123',
+        targetMessageId: 'pending-message',
+        requestUserId: 'user1',
+        option: ForkOptions.DIRECT_PATH,
+      }),
+    ).rejects.toMatchObject({
+      message: 'The selected message is not available yet. Wait for it to finish and try again.',
+      statusCode: 400,
+    });
+
+    expect(bulkSaveConvos).not.toHaveBeenCalled();
+    expect(bulkSaveMessages).not.toHaveBeenCalled();
+  });
+
+  test('should reject a fork whose selected message is unfinished', async () => {
+    getMessages.mockResolvedValue(
+      mockMessages.map((message) =>
+        message.messageId === '3' ? { ...message, unfinished: true } : message,
+      ),
+    );
+
+    await expect(
+      forkConversation({
+        originalConvoId: 'abc123',
+        targetMessageId: '3',
+        requestUserId: 'user1',
+        option: ForkOptions.DIRECT_PATH,
+      }),
+    ).rejects.toMatchObject({
+      message: 'The selected message is not available yet. Wait for it to finish and try again.',
+      statusCode: 400,
+    });
+  });
+
+  test('should reject split forks whose latest message is not persisted yet', async () => {
+    await expect(
+      forkConversation({
+        originalConvoId: 'abc123',
+        targetMessageId: '3',
+        latestMessageId: 'pending-message',
+        requestUserId: 'user1',
+        option: ForkOptions.DIRECT_PATH,
+        splitAtTarget: true,
+      }),
+    ).rejects.toMatchObject({
+      message: 'The latest message is not available yet. Wait for it to finish and try again.',
+      statusCode: 400,
+    });
+
+    expect(bulkSaveConvos).not.toHaveBeenCalled();
+    expect(bulkSaveMessages).not.toHaveBeenCalled();
+  });
+
+  test('should reject split forks whose latest message is unfinished', async () => {
+    getMessages.mockResolvedValue(
+      mockMessages.map((message) =>
+        message.messageId === '3' ? { ...message, unfinished: true } : message,
+      ),
+    );
+
+    await expect(
+      forkConversation({
+        originalConvoId: 'abc123',
+        targetMessageId: '2',
+        latestMessageId: '3',
+        requestUserId: 'user1',
+        option: ForkOptions.DIRECT_PATH,
+        splitAtTarget: true,
+      }),
+    ).rejects.toMatchObject({
+      message: 'The latest message is not available yet. Wait for it to finish and try again.',
+      statusCode: 400,
+    });
+  });
+
   test('should increment tag counts when forking conversation with tags', async () => {
     const mockConvoWithTags = {
       ...mockConversation,
@@ -700,6 +778,32 @@ describe('splitAtTargetLevel', () => {
 });
 
 describe('cloneMessagesWithTimestamps', () => {
+  test('should clone out-of-order messages with parents before children', () => {
+    const messagesToClone = [
+      {
+        messageId: 'child',
+        parentMessageId: 'parent',
+        text: 'Child',
+        createdAt: '2023-01-01T00:01:00Z',
+      },
+      {
+        messageId: 'parent',
+        parentMessageId: Constants.NO_PARENT,
+        text: 'Parent',
+        createdAt: '2023-01-01T00:00:00Z',
+      },
+    ];
+    const importBatchBuilder = createImportBatchBuilder('testUser');
+    importBatchBuilder.startConversation();
+
+    cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder);
+
+    const parent = importBatchBuilder.messages.find((message) => message.text === 'Parent');
+    const child = importBatchBuilder.messages.find((message) => message.text === 'Child');
+    expect(importBatchBuilder.messages.map((message) => message.text)).toEqual(['Parent', 'Child']);
+    expect(child.parentMessageId).toBe(parent.messageId);
+  });
+
   test('should maintain proper timestamp order between parent and child messages', () => {
     // Create messages with out-of-order timestamps
     const messagesToClone = [

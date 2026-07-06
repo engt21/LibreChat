@@ -117,7 +117,8 @@ describe('OpenAIImageTools', () => {
           output_format: 'png',
         },
         {
-          type: 'image_generation.completed',
+          type: 'image_generation.partial_image',
+          partial_image_index: 1,
           b64_json: 'final-image',
           output_format: 'png',
         },
@@ -210,6 +211,84 @@ describe('OpenAIImageTools', () => {
     );
     expect(mockEmitChunk).not.toHaveBeenCalled();
     expect(result.artifact.content[0].image_url.url).toBe('data:image/png;base64,azure-final');
+  });
+
+  it('preserves every generated image and aligned file ID when n is greater than one', async () => {
+    mockGenerate.mockResolvedValue({
+      data: [
+        { b64_json: 'first-image' },
+        { b64_json: 'second-image' },
+        { b64_json: 'third-image' },
+      ],
+      output_format: 'png',
+    });
+
+    const [imageGenTool] = createOpenAIImageTools({
+      isAgent: true,
+      req: { user: { id: 'user-1' } },
+      model: 'gpt-image-2',
+      imageOutputType: 'png',
+    });
+
+    const result = await imageGenTool.invoke(
+      { prompt: 'three watercolor foxes', n: 3 },
+      {
+        toolCall: { id: 'call-1' },
+        metadata: { run_id: 'message-1', thread_id: 'conversation-1' },
+      },
+    );
+
+    expect(mockGenerate).toHaveBeenCalledWith(
+      expect.objectContaining({ n: 3 }),
+      expect.any(Object),
+    );
+    expect(result.artifact.content).toEqual([
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,first-image' } },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,second-image' } },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,third-image' } },
+    ]);
+    expect(result.artifact.file_ids).toHaveLength(3);
+    expect(new Set(result.artifact.file_ids).size).toBe(3);
+    expect(result.content[0].text).toContain('generated_image_ids: [');
+  });
+
+  it('preserves multiple completed images returned by the streaming API', async () => {
+    mockGenerate.mockReturnValue(
+      streamEvents([
+        {
+          type: 'image_generation.completed',
+          b64_json: 'first-final',
+          output_format: 'png',
+        },
+        {
+          type: 'image_generation.completed',
+          b64_json: 'second-final',
+          output_format: 'png',
+        },
+      ]),
+    );
+
+    const [imageGenTool] = createOpenAIImageTools({
+      isAgent: true,
+      req: { user: { id: 'user-1' } },
+      streamId: 'stream-1',
+      model: 'gpt-image-2',
+      imageOutputType: 'png',
+    });
+
+    const result = await imageGenTool.invoke(
+      { prompt: 'two watercolor foxes', n: 2 },
+      {
+        toolCall: { id: 'call-1' },
+        metadata: { run_id: 'message-1', thread_id: 'conversation-1' },
+      },
+    );
+
+    expect(result.artifact.content.map((part) => part.image_url.url)).toEqual([
+      'data:image/png;base64,first-final',
+      'data:image/png;base64,second-final',
+    ]);
+    expect(result.artifact.file_ids).toHaveLength(2);
   });
 
   it('falls back to non-streaming generation when the streaming request is unsupported', async () => {

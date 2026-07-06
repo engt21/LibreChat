@@ -155,6 +155,30 @@ describe('Keys Routes', () => {
       });
     });
 
+    it('should remove a saved base URL when a merged update clears it', async () => {
+      getUserKeyValues.mockResolvedValue({
+        apiKey: 'saved-key',
+        baseURL: 'https://us.api.openai.com/v1',
+      });
+      updateUserKey.mockResolvedValue({});
+
+      const response = await request(app)
+        .put('/api/keys')
+        .send({
+          name: 'openAI',
+          value: JSON.stringify({ baseURL: '' }),
+          merge: true,
+        });
+
+      expect(response.status).toBe(201);
+      expect(updateUserKey).toHaveBeenCalledWith({
+        userId: 'test-user-123',
+        name: 'openAI',
+        value: JSON.stringify({ apiKey: 'saved-key' }),
+        expiresAt: undefined,
+      });
+    });
+
     it('should keep partial JSON payloads when no existing key is stored', async () => {
       getUserKeyValues.mockRejectedValue(new Error('missing key'));
       updateUserKey.mockResolvedValue({});

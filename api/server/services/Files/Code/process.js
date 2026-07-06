@@ -414,14 +414,30 @@ const primeFiles = async (options, apiKey) => {
       const { handleFileUpload: uploadCodeEnvFile } = getStrategyFunctions(
         FileSources.execute_code,
       );
-      const stream = await getDownloadStream(options.req, file.filepath);
-      fileIdentifier = await uploadCodeEnvFile({
-        req: options.req,
-        stream,
-        filename: file.filename,
-        entity_id: queryParams.entity_id,
-        apiKey,
-      });
+      const originalFilepath = file.metadata?.originalFilepath;
+      const uploadFilepath = async (filepath) => {
+        const stream = await getDownloadStream(options.req, filepath);
+        return uploadCodeEnvFile({
+          req: options.req,
+          stream,
+          filename: file.filename,
+          entity_id: queryParams.entity_id,
+          apiKey,
+        });
+      };
+
+      try {
+        fileIdentifier = await uploadFilepath(originalFilepath ?? file.filepath);
+      } catch (error) {
+        if (!originalFilepath || originalFilepath === file.filepath) {
+          throw error;
+        }
+        logger.warn(
+          `Could not stage original image ${file.file_id}; falling back to processed file`,
+          error,
+        );
+        fileIdentifier = await uploadFilepath(file.filepath);
+      }
 
       const updatedMetadata = {
         ...(file.metadata ?? {}),

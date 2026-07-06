@@ -155,6 +155,73 @@ describe('SetKeyDialog', () => {
     expect(screen.getByTestId('input-models')).toHaveValue('gpt-4o-mini,gpt-5-nano');
   });
 
+  it('allows saving an OpenAI API key without an optional base URL override', async () => {
+    const saveUserKey = jest.fn();
+    mockUseUserKey.mockReturnValue({
+      getExpiry: () => null,
+      getValue: () => '',
+      saveUserKey,
+      isLoading: false,
+    });
+
+    render(
+      <SetKeyDialog
+        open={true}
+        onOpenChange={jest.fn()}
+        endpoint={EModelEndpoint.openAI}
+        userProvideURL={true}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId('input-apiKey'), {
+      target: { value: 'sk-openai-test' },
+    });
+    fireEvent.click(screen.getByText('com_ui_submit'));
+
+    await waitFor(() => {
+      expect(saveUserKey).toHaveBeenCalledWith(
+        JSON.stringify({ apiKey: 'sk-openai-test' }),
+        null,
+        false,
+      );
+    });
+  });
+
+  it('allows clearing a saved OpenAI base URL without re-entering the key', async () => {
+    const saveUserKey = jest.fn();
+    mockUseUserKey.mockReturnValue({
+      getExpiry: () => 'never',
+      getValue: () =>
+        JSON.stringify({
+          apiKey: 'saved-openai-key',
+          baseURL: 'https://us.api.openai.com/v1',
+        }),
+      saveUserKey,
+      isLoading: false,
+    });
+
+    render(
+      <SetKeyDialog
+        open={true}
+        onOpenChange={jest.fn()}
+        endpoint={EModelEndpoint.openAI}
+        userProvideURL={true}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('input-baseURL')).toHaveValue('https://us.api.openai.com/v1');
+    });
+
+    fireEvent.change(screen.getByTestId('input-apiKey'), { target: { value: '' } });
+    fireEvent.change(screen.getByTestId('input-baseURL'), { target: { value: '' } });
+    fireEvent.click(screen.getByText('com_ui_submit'));
+
+    await waitFor(() => {
+      expect(saveUserKey).toHaveBeenCalledWith(JSON.stringify({ baseURL: '' }), null, true);
+    });
+  });
+
   it('preloads saved Google settings and shows when a service key is already stored', async () => {
     mockUseUserKey.mockReturnValue({
       getExpiry: () => 'never',

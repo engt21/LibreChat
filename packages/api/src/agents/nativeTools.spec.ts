@@ -38,6 +38,23 @@ describe('nativeTools', () => {
   });
 
   describe('selectNativeTools', () => {
+    it('maps saved OpenAI agent tools to provider-native tools', () => {
+      const selection = selectNativeTools({
+        agentId: 'agent_saved',
+        provider: EModelEndpoint.openAI,
+        model: 'gpt-5',
+        tools: [Tools.web_search, Tools.execute_code, Tools.file_search],
+        codeInterpreterMode: CodeInterpreterModes.provider_native,
+      });
+
+      expect(selection.enableWebSearch).toBe(true);
+      expect(selection.openAIExecuteCode).toBe(true);
+      expect(selection.openAIFileSearch).toBe(true);
+      expect(selection.stripTools).toEqual(
+        new Set([Tools.web_search, Tools.execute_code, Tools.file_search]),
+      );
+    });
+
     it('maps ephemeral OpenAI chat-bar toggles to provider-native tools', () => {
       const selection = selectNativeTools({
         agentId: 'ephemeral-agent',

@@ -29,6 +29,7 @@ class Settings:
     workspace_root: str
     workspace_host_root: str
     session_ttl_hours: int
+    cleanup_interval_seconds: int
     execution_timeout_seconds: int
     allow_network: bool
     memory_limit: str
@@ -53,7 +54,11 @@ def get_settings() -> Settings:
             'LOCAL_CODE_WORKSPACE_HOST_ROOT',
             '/workspace/local-code-interpreter/data/workspaces',
         ),
-        session_ttl_hours=_get_int('LOCAL_CODE_SESSION_TTL_HOURS', 24),
+        session_ttl_hours=max(_get_int('LOCAL_CODE_SESSION_TTL_HOURS', 1), 1),
+        cleanup_interval_seconds=max(
+            _get_int('LOCAL_CODE_CLEANUP_INTERVAL_SECONDS', 60),
+            10,
+        ),
         execution_timeout_seconds=_get_int('LOCAL_CODE_EXECUTION_TIMEOUT_SECONDS', 60),
         allow_network=_get_bool('LOCAL_CODE_ALLOW_NETWORK', False),
         memory_limit=os.getenv('LOCAL_CODE_MEMORY_LIMIT', '1g'),

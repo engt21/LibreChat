@@ -237,6 +237,13 @@ export default function Fork({
 
   const forkConvo = useForkConvoMutation({
     onSuccess: (data) => {
+      if (!data.conversation?.conversationId || !data.messages?.length) {
+        showToast({
+          message: localize('com_ui_fork_error'),
+          status: 'error',
+        });
+        return;
+      }
       navigateToConvo(data.conversation);
       showToast({
         message: localize('com_ui_fork_success'),

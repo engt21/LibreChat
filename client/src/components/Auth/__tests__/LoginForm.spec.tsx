@@ -136,7 +136,23 @@ test('submits login form', async () => {
   expect(mockLogin).toHaveBeenCalledWith({ email: 'test@example.com', password: 'password' });
 });
 
-test('displays validation error messages', async () => {
+test('submits an existing password shorter than the current registration minimum', async () => {
+  const hardenedConfig = { ...mockStartupConfig, minPasswordLength: 12 };
+  const { getByLabelText } = render(
+    <Login onSubmit={mockLogin} startupConfig={hardenedConfig} {...defaultAuthProps} />,
+  );
+  const emailInput = getByLabelText(/email/i);
+  const passwordInput = getByLabelText(/password/i);
+  const submitButton = getByTestId(document.body, 'login-button');
+
+  await userEvent.type(emailInput, 'legacy@example.com');
+  await userEvent.type(passwordInput, 'legacy8');
+  await userEvent.click(submitButton);
+
+  expect(mockLogin).toHaveBeenCalledWith({ email: 'legacy@example.com', password: 'legacy8' });
+});
+
+test('displays email validation errors without applying registration password policy', async () => {
   const { getByLabelText, getByText } = render(
     <Login onSubmit={mockLogin} startupConfig={mockStartupConfig} {...defaultAuthProps} />,
   );
@@ -149,5 +165,5 @@ test('displays validation error messages', async () => {
   await userEvent.click(submitButton);
 
   expect(getByText(/You must enter a valid email address/i)).toBeInTheDocument();
-  expect(getByText(/Password must be at least 8 characters/i)).toBeInTheDocument();
+  expect(mockLogin).not.toHaveBeenCalled();
 });

@@ -28,6 +28,7 @@ const {
   getRequestedMCPToolKeys,
 } = require('~/server/services/Tools/mcpToolFilter');
 const { Agent, AclEntry, User } = require('~/db/models');
+
 const DEEP_RESEARCH_INSTRUCTIONS = [
   'Deep Research mode is enabled. Produce a comprehensive, decision-useful report rather than a quick answer.',
   'Search broadly, prioritize primary and authoritative sources, verify important claims across independent sources, and use Code Interpreter for exact calculations or data analysis.',
@@ -691,9 +692,10 @@ const updateAgent = async (searchParameter, updateData, options = {}) => {
  * @param {string} params.agent_id
  * @param {string} params.tool_resource
  * @param {string} params.file_id
+ * @param {string} [params.agent_tool]
  * @returns {Promise<Agent>} The updated agent.
  */
-const addAgentResourceFile = async ({ req, agent_id, tool_resource, file_id }) => {
+const addAgentResourceFile = async ({ req, agent_id, tool_resource, file_id, agent_tool }) => {
   const searchParameter = { id: agent_id };
   let agent = await getAgent(searchParameter);
   if (!agent) {
@@ -714,7 +716,7 @@ const addAgentResourceFile = async ({ req, agent_id, tool_resource, file_id }) =
 
   const updateData = {
     $addToSet: {
-      tools: tool_resource,
+      tools: agent_tool ?? tool_resource,
       [fileIdsPath]: file_id,
     },
   };

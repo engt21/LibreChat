@@ -64,15 +64,8 @@ const getAvailableTools = async (req, res) => {
       return res.status(401).json({ message: 'Unauthorized' });
     }
     const cache = getLogStores(CacheKeys.TOOL_CACHE);
-    const cachedToolsArray = await cache.get(CacheKeys.TOOLS);
 
     const appConfig = req.config ?? (await getAppConfig({ role: req.user?.role }));
-
-    // Return early if we have cached tools
-    if (cachedToolsArray != null) {
-      res.status(200).json(cachedToolsArray);
-      return;
-    }
 
     /** @type {Record<string, FunctionTool> | null} Get tool definitions to filter which tools are actually available */
     let toolDefinitions = await getCachedTools();

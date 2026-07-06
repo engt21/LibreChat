@@ -198,3 +198,14 @@ coordination/orchestration/*
 claude-flow
 # Removed Windows wrapper files per user request
 hive-mind-prompt-*.txt
+
+# Browser network captures and local validation artifacts
+*.har
+.playwright-cli/
+.playwright-mcp/.auth/
+.playwright-mcp/*.png
+.playwright-mcp/*.txt
+.playwright-mcp/*.json
+.codex-snapshots/
+.factory/artifacts/
+output/playwright/

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRecoilValue } from 'recoil';
 import { Close } from '@radix-ui/react-popover';
-import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, GripVertical } from 'lucide-react';
 import { Flipper, Flipped } from 'react-flip-toolkit';
 import { useDrag, useDrop } from 'react-dnd';
 import { getEndpointField } from 'librechat-data-provider';
@@ -107,6 +107,7 @@ const PresetItems: FC<{
   onSetDefaultPreset: (preset: TPreset, remove?: boolean) => void;
   onSelectPreset: (preset: TPreset) => void;
   onChangePreset: (preset: TPreset) => void;
+  onDuplicatePreset: (preset: TPreset) => void;
   onDeletePreset: (preset: TPreset) => void;
   onReorderPresets: (presets: TPreset[], persist?: boolean) => void;
   clearAllPresets: () => void;
@@ -116,6 +117,7 @@ const PresetItems: FC<{
   onSetDefaultPreset,
   onSelectPreset,
   onChangePreset,
+  onDuplicatePreset,
   onDeletePreset,
   onReorderPresets,
   clearAllPresets,
@@ -363,6 +365,23 @@ const PresetItems: FC<{
                                 }}
                               >
                                 <PinIcon unpin={defaultPreset?.presetId === presetId} />
+                              </button>
+                            }
+                          />
+                          <TooltipAnchor
+                            description={localize('com_ui_duplicate')}
+                            aria-label={localize('com_ui_duplicate')}
+                            render={
+                              <button
+                                type="button"
+                                className="m-0 h-full rounded-md p-2 text-gray-400 hover:text-gray-700 focus:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 dark:focus:text-gray-200 sm:invisible sm:group-focus-within:visible sm:group-hover:visible"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  onDuplicatePreset(preset);
+                                }}
+                              >
+                                <Copy className="size-4" aria-hidden="true" />
                               </button>
                             }
                           />

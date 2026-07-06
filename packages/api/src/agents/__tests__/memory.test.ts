@@ -189,6 +189,32 @@ describe('createMemoryTool', () => {
       expect(result[0]).toBe('Error setting memory for key "test"');
       expect(result[1]).toBeUndefined();
     });
+
+    it('does not emit an artifact when the stored value is already current', async () => {
+      mockSetMemory.mockResolvedValue({ ok: true, changed: false });
+      const tool = createMemoryTool({
+        userId: 'test-user',
+        setMemory: mockSetMemory,
+      });
+
+      const result = await tool.func({ key: 'test', value: 'some value' });
+
+      expect(result).toEqual(['Memory for key "test" is already current.', undefined]);
+    });
+
+    it('allows only one automatic write by default', async () => {
+      const tool = createMemoryTool({
+        userId: 'test-user',
+        setMemory: mockSetMemory,
+      });
+
+      const first = await tool.func({ key: 'first', value: 'first value' });
+      const second = await tool.func({ key: 'second', value: 'second value' });
+
+      expect(first[1]).toBeDefined();
+      expect(second).toEqual(['Memory write limit reached for this turn.', undefined]);
+      expect(mockSetMemory).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
@@ -381,7 +407,7 @@ describe('processMemory - GPT-5+ handling', () => {
     }
   });
 
-  it('should use default model (gpt-4.1-mini) without temperature removal when no llmConfig provided', async () => {
+  it('should use the broadly available default model when no llmConfig is provided', async () => {
     await processMemory({
       res: mockRes as Response,
       userId: 'test-user',
@@ -396,16 +422,9 @@ describe('processMemory - GPT-5+ handling', () => {
     });
 
     const { Run } = jest.requireMock('@librechat/agents');
-    expect(Run.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        graphConfig: expect.objectContaining({
-          llmConfig: expect.objectContaining({
-            model: 'gpt-4.1-mini',
-            temperature: 0.4, // Default temperature should remain
-          }),
-        }),
-      }),
-    );
+    const callArgs = (Run.create as jest.Mock).mock.calls[0][0];
+    expect(callArgs.graphConfig.llmConfig.model).toBe('gpt-4.1-mini');
+    expect(callArgs.graphConfig.llmConfig.temperature).toBe(0.4);
   });
 
   it('should use max_output_tokens when useResponsesApi is true', async () => {

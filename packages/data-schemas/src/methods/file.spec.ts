@@ -476,6 +476,26 @@ describe('File Methods', () => {
   });
 
   describe('getUserCodeFiles', () => {
+    it('should retrieve ordinary message attachments for lazy execute_code staging', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const attachmentFileId = uuidv4();
+
+      await fileMethods.createFile({
+        file_id: attachmentFileId,
+        user: userId,
+        filename: 'resume.pdf',
+        filepath: '/uploads/resume.pdf',
+        type: 'application/pdf',
+        bytes: 100,
+        context: FileContext.message_attachment,
+      });
+
+      const files = await fileMethods.getUserCodeFiles([attachmentFileId]);
+
+      expect(files).toHaveLength(1);
+      expect(files[0].file_id).toBe(attachmentFileId);
+    });
+
     it('should retrieve native execute_code uploads', async () => {
       const userId = new mongoose.Types.ObjectId();
       const nativeCodeFileId = uuidv4();

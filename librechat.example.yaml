@@ -636,22 +636,28 @@ endpoints:
 
 # Memory configuration for user memories
 # memory:
-#   # (optional) Disable memory functionality
+#   # (optional) Disable memory retrieval and mutation entirely
 #   disabled: false
-#   # (optional) Restrict memory keys to specific values to limit memory storage and improve consistency
+#   # (optional) YAML fallback for allowed keys. Admin Console > Memory system overrides this
+#   # when its Allowed keys list is non-empty.
 #   validKeys: ["preferences", "work_info", "personal_info", "skills", "interests", "context"]
-#   # (optional) Maximum token limit for memory storage (not yet implemented for token counting)
+#   # (optional) YAML fallback for total memory storage. Replacement updates subtract the old value.
 #   tokenLimit: 10000
 #   # (optional) Enable personalization features (defaults to true if memory is configured)
 #   # When false, users will not see the Personalization tab in settings
 #   personalize: true
-#   # Memory agent configuration - either use an existing agent by ID or define inline
+#   # Memory agent fallback. The Admin Console can override provider, model, instructions,
+#   # explicit-intent policy, post-response context, limits, retries, timeout, and auditing.
 #   agent:
 #     # Option 1: Use existing agent by ID
 #     id: "your-memory-agent-id"
 #     # Option 2: Define agent inline
-#     # provider: "openai"
-#     # model: "gpt-4o-mini"
-#     # instructions: "You are a memory management assistant. Store and manage user information accurately."
+#     # provider: "openAI" # EModelEndpoint casing is required
+#     # model: "gpt-5.6-terra"
+#     # instructions: "Perform only the explicit memory mutation requested by the user."
 #     # model_parameters:
 #     #   temperature: 0.1
+#
+# Automatic mutations use an application-level explicit intent gate and, by default, run after
+# the main assistant response so researched facts and tool results can be saved accurately.
+# See MEMORY_SYSTEM.md for architecture, defaults, administration, audit records, and rollback.

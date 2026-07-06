@@ -25,6 +25,7 @@ const PresetsMenu: FC = () => {
     onFileSelected,
     onSelectPreset,
     onChangePreset,
+    onDuplicatePreset,
     clearAllPresets,
     onDeletePreset,
     onReorderPresets,
@@ -89,6 +90,7 @@ const PresetsMenu: FC = () => {
               onSetDefaultPreset={onSetDefaultPreset}
               onSelectPreset={onSelectPreset}
               onChangePreset={onChangePreset}
+              onDuplicatePreset={onDuplicatePreset}
               onDeletePreset={onDeletePreset}
               onReorderPresets={onReorderPresets}
               clearAllPresets={clearAllPresets}

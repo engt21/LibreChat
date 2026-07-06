@@ -47,6 +47,9 @@ const {
   TextAnalyzer,
   StringUtility,
   JsonUtility,
+  AgentBuilder,
+  LocalCodeInterpreter,
+  LocalFileSearch,
 } = require('../');
 const { primeFiles: primeCodeFiles } = require('~/server/services/Files/Code/process');
 const { createFileSearchTool, primeFiles: primeSearchFiles } = require('./fileSearch');
@@ -265,6 +268,7 @@ const loadTools = async ({
     text_analyzer: TextAnalyzer,
     string_utility: StringUtility,
     json_utility: JsonUtility,
+
     google: GoogleSearchAPI,
     open_weather: OpenWeather,
     wolfram: StructuredWolfram,
@@ -275,6 +279,56 @@ const loadTools = async ({
   };
 
   const customConstructors = {
+    agent_builder: async () =>
+      new AgentBuilder({
+        req: options.req,
+        defaultProvider: agent?.provider ?? endpoint,
+        defaultModel: agent?.model ?? options.req?.body?.model,
+      }),
+    local_code_interpreter: async (toolContextMap) => {
+      const authValues = await loadAuthValues({
+        userId: user,
+        authFields: [EnvVar.CODE_API_KEY],
+      });
+      const codeApiKey = authValues[EnvVar.CODE_API_KEY];
+      const { files, toolContext } = await primeCodeFiles(
+        {
+          ...options,
+          agentId: agent?.id,
+        },
+        codeApiKey,
+      );
+      if (toolContext) {
+        toolContextMap.local_code_interpreter = toolContext;
+      }
+      const tool = createCodeExecutionTool({
+        user_id: user,
+        files,
+        ...authValues,
+      });
+      tool.name = 'local_code_interpreter';
+      tool.description = new LocalCodeInterpreter({ override: true }).description;
+      tool.apiKey = codeApiKey;
+      return tool;
+    },
+    local_file_search: async (toolContextMap) => {
+      const { files, toolContext } = await primeSearchFiles({
+        ...options,
+        agentId: agent?.id,
+      });
+      if (toolContext) {
+        toolContextMap.local_file_search = toolContext;
+      }
+      const tool = await createFileSearchTool({
+        userId: user,
+        files,
+        entity_id: agent?.id,
+        req: options.req,
+      });
+      tool.name = 'local_file_search';
+      tool.description = new LocalFileSearch({ override: true }).description;
+      return tool;
+    },
     image_gen_oai: async (toolContextMap) => {
       const authValues = await loadOpenAIImageAuthValues({ userId: user });
       const imageFiles = options.tool_resources?.[EToolResources.image_edit]?.files ?? [];

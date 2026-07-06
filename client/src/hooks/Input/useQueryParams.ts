@@ -165,11 +165,12 @@ export default function useQueryParams({
           preset: newPreset,
           keepLatestMessage: true,
           keepAddedConvos: true,
+          keepFiles: true,
         });
         return;
       }
 
-      newConversation({ preset: newPreset, keepAddedConvos: true });
+      newConversation({ preset: newPreset, keepAddedConvos: true, keepFiles: true });
     },
     [
       queryClient,

@@ -77,7 +77,11 @@ const useSetIndexOptions: TUseSetOptions = (preset = false) => {
       }));
     }
 
-    if (isAnthropicEndpoint && anthropicEphemeralOptionKeys.has(param)) {
+    if (
+      isAnthropicEndpoint &&
+      typeof param === 'string' &&
+      anthropicEphemeralOptionKeys.has(param)
+    ) {
       setEphemeralAgent((prevAgent) => ({
         ...(prevAgent ?? {}),
         [param]: newValue,

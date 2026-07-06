@@ -170,7 +170,7 @@ async function generateImageWithPartials({
     },
   );
 
-  let finalEvent = null;
+  const finalEvents = [];
   let latestEvent = null;
 
   for await (const event of stream) {
@@ -192,22 +192,37 @@ async function generateImageWithPartials({
     });
 
     if (event.type === IMAGE_GENERATION_COMPLETED_EVENT) {
-      finalEvent = event;
+      finalEvents.push(event);
     }
   }
 
-  const imageEvent = finalEvent ?? latestEvent;
-  if (!imageEvent?.b64_json) {
+  let imageEvents = finalEvents;
+  if (imageEvents.length === 0 && latestEvent) {
+    imageEvents = [latestEvent];
+  }
+  const completedImages = imageEvents.filter((event) => event?.b64_json);
+  if (completedImages.length === 0) {
     return null;
   }
 
+  if (finalEvents.length === 0) {
+    emitPartialImageAttachment({
+      res: fields.res,
+      streamId: fields.streamId,
+      event: { ...completedImages[0], type: IMAGE_GENERATION_COMPLETED_EVENT },
+      toolName,
+      output_format,
+      runnableConfig,
+    });
+  }
+
   return {
-    data: [{ b64_json: imageEvent.b64_json }],
-    background: imageEvent.background,
-    output_format: imageEvent.output_format || output_format,
-    quality: imageEvent.quality,
-    size: imageEvent.size,
-    usage: imageEvent.usage,
+    data: completedImages.map((event) => ({ b64_json: event.b64_json })),
+    background: completedImages.at(-1).background,
+    output_format: completedImages.at(-1).output_format || output_format,
+    quality: completedImages.at(-1).quality,
+    size: completedImages.at(-1).size,
+    usage: completedImages.at(-1).usage,
   };
 }
 
@@ -394,28 +409,28 @@ Error Message: ${error.message}`);
       // For gpt-image-1, the response contains base64-encoded images
       // TODO: handle cost in `resp.usage`
       output_format = resp.output_format || output_format;
-      const base64Image = resp.data[0].b64_json;
-
-      if (!base64Image) {
+      const generatedImages = (resp.data ?? []).filter((image) => image?.b64_json);
+      if (generatedImages.length === 0) {
         return returnValue(
           'No image data returned from OpenAI API. There may be a problem with the API or your configuration.',
         );
       }
 
-      const content = [
-        {
-          type: ContentTypes.IMAGE_URL,
-          image_url: {
-            url: `data:image/${output_format};base64,${base64Image}`,
-          },
+      const content = generatedImages.map((image) => ({
+        type: ContentTypes.IMAGE_URL,
+        image_url: {
+          url: `data:image/${output_format};base64,${image.b64_json}`,
         },
-      ];
-
-      const file_ids = [v4()];
+      }));
+      const file_ids = generatedImages.map(() => v4());
+      const generatedImageIds = file_ids.map((fileId) => `"${fileId}"`).join(', ');
       const response = [
         {
           type: ContentTypes.TEXT,
-          text: displayMessage + `\n\ngenerated_image_id: "${file_ids[0]}"`,
+          text:
+            displayMessage +
+            `\n\ngenerated_image_id: "${file_ids[0]}"` +
+            (file_ids.length > 1 ? `\ngenerated_image_ids: [${generatedImageIds}]` : ''),
         },
       ];
       return [response, { content, file_ids }];

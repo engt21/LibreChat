@@ -1,5 +1,5 @@
 import { Providers } from '@librechat/agents';
-import { EModelEndpoint } from 'librechat-data-provider';
+import { EModelEndpoint, EToolResources, FileContext } from 'librechat-data-provider';
 import type { Agent } from 'librechat-data-provider';
 import type { ServerRequest, InitializeResultBase } from '~/types';
 import type { InitializeAgentDbMethods } from '../initialize';
@@ -48,18 +48,20 @@ jest.mock('~/endpoints', () => ({
 }));
 
 jest.mock('~/files', () => ({
-  filterFilesByEndpointConfig: jest.fn(() => []),
+  filterFilesByEndpointConfig: jest.fn((_req, { files }) => files),
 }));
 
 jest.mock('~/prompts', () => ({
   generateArtifactsPrompt: jest.fn(() => null),
 }));
 
+const mockPrimeResources = jest.fn().mockResolvedValue({
+  attachments: [],
+  tool_resources: undefined,
+});
+
 jest.mock('../resources', () => ({
-  primeResources: jest.fn().mockResolvedValue({
-    attachments: [],
-    tool_resources: undefined,
-  }),
+  primeResources: (...args: unknown[]) => mockPrimeResources(...args),
 }));
 
 import { initializeAgent } from '../initialize';
@@ -350,5 +352,69 @@ describe('initializeAgent — deterministic default tools', () => {
     expect(requestedTools).toContain('string_utility');
     expect(requestedTools).toContain('json_utility');
     expect(requestedTools).not.toContain('calculator');
+  });
+});
+
+describe('initializeAgent — Code Interpreter thread attachments', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrimeResources.mockResolvedValue({ attachments: [], tool_resources: undefined });
+  });
+
+  it('marks ordinary branch attachments for lazy execute_code staging', async () => {
+    const { agent, req, res, loadTools, db } = createMocks();
+    agent.tools = [EToolResources.execute_code];
+    mockExtractLibreChatParams.mockReturnValue({
+      resendFiles: true,
+      maxContextTokens: undefined,
+      modelOptions: { model: 'test-model' },
+    });
+    mockGetThreadData.mockReturnValue({
+      messageIds: ['message-1'],
+      fileIds: ['resume-file'],
+    });
+
+    const resumeFile = {
+      file_id: 'resume-file',
+      filename: 'resume.pdf',
+      filepath: '/uploads/resume.pdf',
+      type: 'application/pdf',
+      context: FileContext.message_attachment,
+      metadata: {},
+    };
+
+    db.getConvoFiles = jest.fn().mockResolvedValue(['resume-file']);
+    db.getMessages = jest
+      .fn()
+      .mockResolvedValue([
+        { messageId: 'message-1', parentMessageId: 'root', files: [{ file_id: 'resume-file' }] },
+      ]);
+    db.getCodeGeneratedFiles = jest.fn().mockResolvedValue([]);
+    db.getUserCodeFiles = jest.fn().mockResolvedValue([resumeFile]);
+    db.updateFilesUsage = jest.fn().mockResolvedValue([resumeFile]);
+
+    await initializeAgent(
+      {
+        req,
+        res,
+        agent,
+        loadTools,
+        conversationId: 'conversation-1',
+        parentMessageId: 'message-1',
+        endpointOption: { endpoint: EModelEndpoint.agents },
+        allowedProviders: new Set([Providers.OPENAI]),
+        isInitialAgent: true,
+      },
+      db,
+    );
+
+    const primeCall = mockPrimeResources.mock.calls[0][0];
+    const attachments = await primeCall.attachments;
+    expect(attachments).toEqual([
+      expect.objectContaining({
+        file_id: 'resume-file',
+        metadata: expect.objectContaining({ nativeTool: EToolResources.execute_code }),
+      }),
+    ]);
   });
 });

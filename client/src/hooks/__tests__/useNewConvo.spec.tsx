@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { RecoilRoot, useRecoilValue } from 'recoil';
-import { LocalStorageKeys } from 'librechat-data-provider';
+import { FileSources, LocalStorageKeys } from 'librechat-data-provider';
 import type {
   TConversation,
   TEndpointsConfig,
@@ -12,6 +12,7 @@ import type {
 } from 'librechat-data-provider';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
+import type { ExtendedFile } from '~/common';
 import store from '~/store';
 import useNewConvo from '../useNewConvo';
 
@@ -92,7 +93,13 @@ jest.mock('../useChatBadges', () => ({
   useResetChatBadges: jest.fn(() => jest.fn()),
 }));
 
-function renderUseNewConvo(defaultPreset?: Partial<TPreset>) {
+function renderUseNewConvo({
+  defaultPreset,
+  initialFiles,
+}: {
+  defaultPreset?: Partial<TPreset>;
+  initialFiles?: Map<string, ExtendedFile>;
+} = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -104,6 +111,9 @@ function renderUseNewConvo(defaultPreset?: Partial<TPreset>) {
           initializeState={({ set }) => {
             if (defaultPreset) {
               set(store.defaultPreset, defaultPreset as TPreset);
+            }
+            if (initialFiles) {
+              set(store.filesByIndex(0), initialFiles);
             }
           }}
         >
@@ -117,7 +127,8 @@ function renderUseNewConvo(defaultPreset?: Partial<TPreset>) {
     () => {
       const newConvo = useNewConvo();
       const conversation = useRecoilValue(store.conversationByIndex(0));
-      return { ...newConvo, conversation };
+      const files = useRecoilValue(store.filesByIndex(0));
+      return { ...newConvo, conversation, files };
     },
     { wrapper },
   );
@@ -141,7 +152,7 @@ describe('useNewConvo default preset selection', () => {
       model: 'claude-sonnet-4.5',
     };
 
-    const { result } = renderUseNewConvo(pinnedPreset);
+    const { result } = renderUseNewConvo({ defaultPreset: pinnedPreset });
 
     act(() => {
       result.current.newConversation();
@@ -167,7 +178,7 @@ describe('useNewConvo default preset selection', () => {
       model: 'claude-opus-4.5',
     };
 
-    const { result } = renderUseNewConvo(pinnedPreset);
+    const { result } = renderUseNewConvo({ defaultPreset: pinnedPreset });
 
     act(() => {
       result.current.newConversation();
@@ -193,7 +204,7 @@ describe('useNewConvo default preset selection', () => {
       spec: 'admin-default-spec',
     };
 
-    const { result } = renderUseNewConvo(adminDefaultSpecPreset);
+    const { result } = renderUseNewConvo({ defaultPreset: adminDefaultSpecPreset });
 
     act(() => {
       result.current.newConversation();
@@ -203,5 +214,76 @@ describe('useNewConvo default preset selection', () => {
       expect(result.current.conversation?.endpoint).toBe('anthropic');
       expect(result.current.conversation?.model).toBe('claude-sonnet-4.5');
     });
+  });
+});
+
+describe('useNewConvo local file handling', () => {
+  const localFile = {
+    file_id: 'file-local-pdf',
+    temp_file_id: 'temp-local-pdf',
+    filepath: '/app/uploads/file-local-pdf.pdf',
+    filename: 'local.pdf',
+    size: 1024,
+    progress: 1,
+    source: FileSources.local,
+  } as ExtendedFile;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    localStorage.clear();
+    (useGetModelsQuery as jest.Mock).mockReturnValue({ data: mockModelsData });
+    (useGetEndpointsQuery as jest.Mock).mockReturnValue({ data: mockEndpointsConfig });
+    (useGetStartupConfig as jest.Mock).mockReturnValue({ data: mockStartupConfig });
+  });
+
+  it('preserves active tools during an explicitly compatible model transition', async () => {
+    const { result } = renderUseNewConvo();
+
+    act(() => {
+      result.current.newConversation({
+        preset: { endpoint: 'openAI', model: 'gpt-5.6', spec: 'top-model-spec' },
+        keepTools: true,
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockApplyModelSpecEffects).toHaveBeenCalledWith(
+        expect.objectContaining({
+          specName: 'top-model-spec',
+          preserveExisting: true,
+        }),
+      );
+    });
+  });
+
+  it('preserves local uploads during model or preset changes', async () => {
+    const { result } = renderUseNewConvo({
+      initialFiles: new Map([[localFile.file_id, localFile]]),
+    });
+
+    act(() => {
+      result.current.newConversation({
+        preset: { endpoint: 'anthropic', model: 'claude-sonnet-4.5' },
+        keepFiles: true,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.conversation?.endpoint).toBe('anthropic');
+    });
+    expect(result.current.files.get(localFile.file_id)).toEqual(localFile);
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('still clears local uploads for an actual new chat', () => {
+    const { result } = renderUseNewConvo({
+      initialFiles: new Map([[localFile.file_id, localFile]]),
+    });
+
+    act(() => {
+      result.current.newConversation();
+    });
+
+    expect(result.current.files.size).toBe(0);
   });
 });

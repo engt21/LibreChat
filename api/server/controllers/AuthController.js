@@ -2,7 +2,7 @@ const cookies = require('cookie');
 const jwt = require('jsonwebtoken');
 const openIdClient = require('openid-client');
 const { logger } = require('@librechat/data-schemas');
-const { isEnabled, findOpenIDUser } = require('@librechat/api');
+const { isEnabled, findOpenIDUser, shouldUseSecureCookie } = require('@librechat/api');
 const {
   requestPasswordReset,
   setOpenIDAuthTokens,
@@ -18,7 +18,62 @@ const {
   findUser,
 } = require('~/models');
 const { getGraphApiToken } = require('~/server/services/GraphTokenService');
+const MFA_COOKIE = 'mfa_pending';
+
+const isTransientAuthStoreError = (error) => {
+  const name = error?.name ?? '';
+  const message = error?.message ?? '';
+  return (
+    error?.code === 'GENERATE_TOKEN_FAILED' ||
+    /MongoNetworkError|MongoServerSelectionError|MongoTopologyClosedError/.test(name) ||
+    /server monitor timeout|connection .*interrupted|topology .*closed|ECONNRESET|ETIMEDOUT/i.test(
+      message,
+    )
+  );
+};
 const { getOpenIdConfig, getOpenIdEmail } = require('~/strategies');
+
+function clearPendingCookie(res) {
+  res.clearCookie?.(MFA_COOKIE, {
+    httpOnly: true,
+    secure: shouldUseSecureCookie(),
+    sameSite: 'strict',
+    path: '/',
+  });
+}
+
+function getPendingMFAResponse(parsedCookies, res) {
+  const pendingToken = parsedCookies[MFA_COOKIE];
+  if (!pendingToken) {
+    return null;
+  }
+
+  try {
+    const payload = jwt.verify(
+      pendingToken,
+      process.env.MFA_TEMP_TOKEN_SECRET || process.env.JWT_SECRET,
+      {
+        issuer: process.env.JWT_ISSUER || 'librechat',
+        audience: process.env.MFA_TOKEN_AUDIENCE || 'librechat-mfa',
+      },
+    );
+
+    if (payload.tokenType !== 'mfa_pending' || payload.twoFAPending !== true || !payload.userId) {
+      throw new Error('MFA_PENDING_INVALID');
+    }
+
+    return {
+      twoFAPending: true,
+      mfaEnrollmentRequired: payload.enrollmentRequired === true,
+    };
+  } catch (error) {
+    logger.warn('[refreshController] Clearing stale MFA pending cookie', {
+      error: error.message,
+    });
+    clearPendingCookie(res);
+    return null;
+  }
+}
 
 const registrationController = async (req, res) => {
   try {
@@ -67,6 +122,10 @@ const resetPasswordController = async (req, res) => {
 const refreshController = async (req, res) => {
   const parsedCookies = req.headers.cookie ? cookies.parse(req.headers.cookie) : {};
   const token_provider = parsedCookies.token_provider;
+  const pendingMFAResponse = getPendingMFAResponse(parsedCookies, res);
+  if (pendingMFAResponse) {
+    return res.status(200).json(pendingMFAResponse);
+  }
 
   logger.debug('[refreshController] Cookies present:', {
     hasRefreshToken: !!parsedCookies.refreshToken,
@@ -159,6 +218,10 @@ const refreshController = async (req, res) => {
     if (payload.tokenType && payload.tokenType !== 'refresh') {
       throw new Error('Invalid refresh token type');
     }
+    const sessionId = payload.sessionId ?? payload.jti;
+    if (payload.sessionId && payload.jti && payload.sessionId !== payload.jti) {
+      throw new Error('Refresh token session claims do not match');
+    }
     const user = await getUserById(payload.id, '-password -__v -totpSecret -backupCodes');
     if (!user) {
       return res.status(401).redirect('/login');
@@ -171,11 +234,16 @@ const refreshController = async (req, res) => {
       return res.status(200).send({ token, user });
     }
 
-    /** Session with the hashed refresh token */
+    /**
+     * Current refresh tokens are purpose-bound to a persistent session ID. Look up
+     * that session directly so parallel refreshes after a process restart cannot
+     * invalidate each other merely because one request rotated the stored hash.
+     * Keep the hash lookup only for legacy tokens that predate sessionId/jti.
+     */
     const session = await findSession(
       {
         userId: userId,
-        refreshToken: refreshToken,
+        ...(sessionId ? { sessionId } : { refreshToken }),
       },
       { lean: false },
     );
@@ -198,8 +266,14 @@ const refreshController = async (req, res) => {
       res.status(401).send('Refresh token expired or not found for this user');
     }
   } catch (err) {
+    if (isTransientAuthStoreError(err)) {
+      logger.error('[refreshController] Authentication store temporarily unavailable:', err);
+      res.set?.('Retry-After', '2');
+      return res.status(503).send('Authentication service temporarily unavailable');
+    }
+
     logger.error(`[refreshController] Invalid refresh token:`, err);
-    res.status(403).send('Invalid refresh token');
+    return res.status(403).send('Invalid refresh token');
   }
 };
 

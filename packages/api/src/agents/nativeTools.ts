@@ -8,7 +8,6 @@ import {
   anthropicSettings,
   checkOpenAIStorage,
   EModelEndpoint,
-  isEphemeralAgentId,
   getAnthropicModelCapabilities,
   getOpenAIModelCapabilities,
 } from 'librechat-data-provider';
@@ -192,7 +191,7 @@ const shouldUseProviderNativeCodeInterpreter = (provider: string) => {
 };
 
 export const selectNativeTools = ({
-  agentId,
+  agentId: _agentId,
   provider,
   tools,
   tool_resources,
@@ -221,14 +220,12 @@ export const selectNativeTools = ({
     googleCodeExecution: false,
   };
 
-  if (!isEphemeralAgentId(agentId)) {
-    return selection;
-  }
-
   const requestedTools = new Set(tools ?? []);
 
   if (isOpenAIProvider(provider)) {
-    const useProviderNativeCodeInterpreter = shouldUseProviderNativeCodeInterpreter(provider);
+    const useProviderNativeCodeInterpreter =
+      codeInterpreterMode === PROVIDER_NATIVE_CODE_INTERPRETER ||
+      (codeInterpreterMode == null && shouldUseProviderNativeCodeInterpreter(provider));
     const openAIModelCapabilities = getOpenAIModelCapabilities(model);
     const supportsOpenAINativeTools =
       openAIModelCapabilities.supportsOpenAIResponsesApi ||
@@ -315,7 +312,8 @@ export const selectNativeTools = ({
   const codeFiles = tool_resources?.execute_code?.files ?? [];
   const enableGoogleWebSearch = requestedTools.has(Tools.web_search);
   const enableGoogleCodeExecution =
-    shouldUseProviderNativeCodeInterpreter(provider) &&
+    (codeInterpreterMode === PROVIDER_NATIVE_CODE_INTERPRETER ||
+      (codeInterpreterMode == null && shouldUseProviderNativeCodeInterpreter(provider))) &&
     requestedTools.has(Tools.execute_code) &&
     codeFiles.length === 0;
 

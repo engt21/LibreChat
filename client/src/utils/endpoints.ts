@@ -229,9 +229,11 @@ export function applyModelSpecEphemeralAgent({
   convoId,
   modelSpec,
   updateEphemeralAgent,
+  existingAgent,
 }: {
   convoId?: string | null;
   modelSpec?: t.TModelSpec;
+  existingAgent?: t.TEphemeralAgent | null;
   updateEphemeralAgent: ((convoId: string, agent: t.TEphemeralAgent | null) => void) | undefined;
 }) {
   if (!modelSpec || !updateEphemeralAgent) {
@@ -281,6 +283,10 @@ export function applyModelSpecEphemeralAgent({
         // ignore parse errors
       }
     }
+  }
+
+  if (existingAgent) {
+    Object.assign(agent, existingAgent);
   }
 
   updateEphemeralAgent(key, agent);

@@ -35,6 +35,10 @@ const OPENAI_DATED_SNAPSHOT_REGEX = /(?:-\d{4}-\d{2}-\d{2}|-\d{4}(?:-[a-z]+)?)$/
 const OPENAI_RELEASE_ORDER = [
   OPENAI_CHAT_LATEST_MODEL,
   'gpt-chat-latest',
+  'gpt-5.6',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
   'gpt-5.5',
   'gpt-5.5-pro',
   'gpt-5.4',
@@ -454,6 +458,7 @@ function applyDynamicSuggestedModelSpecs(modelSpecsConfig, modelsConfig = {}) {
       const label = humanizeModelName(model);
       list[listIndex] = {
         ...list[listIndex],
+        name: label,
         label,
         description: getSuggestedDescription(endpoint),
         preset: {

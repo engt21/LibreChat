@@ -57,6 +57,7 @@ export const useSaveRealtimeConversationMutation = (): UseMutationResult<
           conversation,
         );
         addConvoToAllQueries(queryClient, conversation);
+        queryClient.invalidateQueries([QueryKeys.messages, conversation.conversationId]);
       },
     },
   );

@@ -365,7 +365,9 @@ describe('useQueryParams', () => {
 
     // Assert initial state
     expect(mockGetQueryData).toHaveBeenCalledWith(expect.anything());
-    expect(mockNewConversation).toHaveBeenCalled();
+    expect(mockNewConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ keepFiles: true }),
+    );
     expect(mockSubmitMessage).not.toHaveBeenCalled(); // Not submitted yet
 
     // Now mock conversation update to trigger settings application check

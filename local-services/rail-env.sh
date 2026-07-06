@@ -103,6 +103,73 @@ resolve_touchdown_backwards_log_dir() {
   printf '%s\n' "/pool/home/timeng/touchdown/logs_backward"
 }
 
+have_command() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+resolve_existing_path() {
+  local target="$1"
+
+  if have_command realpath; then
+    realpath -e "$target" 2>/dev/null && return 0
+  fi
+
+  readlink -f "$target" 2>/dev/null
+}
+
+normalize_block_device_path() {
+  local device="$1"
+  local resolved
+
+  [[ "$device" == /dev/* ]] || return 1
+  resolved="$(resolve_existing_path "$device")" || return 1
+  [[ -b "$resolved" ]] || return 1
+  printf '%s\n' "$resolved"
+}
+
+detect_linux_root_backing_block_device() {
+  local current parent resolved
+  local -a parents=()
+
+  [[ "$(uname -s)" == "Linux" ]] || return 1
+  have_command findmnt || return 1
+
+  current="$(findmnt -no SOURCE / 2>/dev/null | head -1)"
+  [[ -n "$current" ]] || return 1
+  current="$(normalize_block_device_path "$current")" || return 1
+
+  if ! have_command lsblk; then
+    printf '%s\n' "$current"
+    return 0
+  fi
+
+  while true; do
+    mapfile -t parents < <(lsblk -ndo PKNAME "$current" 2>/dev/null | awk 'NF { print "/dev/" $1 }' | awk '!seen[$0]++')
+    if (( ${#parents[@]} == 0 )); then
+      printf '%s\n' "$current"
+      return 0
+    fi
+    if (( ${#parents[@]} != 1 )); then
+      return 1
+    fi
+
+    parent="${parents[0]}"
+    resolved="$(normalize_block_device_path "$parent")" || return 1
+    current="$resolved"
+  done
+}
+
+resolve_stable_blkio_device() {
+  local configured="${LIBRECHAT_STABLE_BLKIO_DEVICE:-${LIBRECHAT_BLKIO_DEVICE:-}}"
+
+  if [[ -n "$configured" ]]; then
+    printf '%s\n' "$configured"
+    return 0
+  fi
+
+  detect_linux_root_backing_block_device
+}
+
 read_runtime_env_value() {
   local root_dir="$1"
   local key="$2"
@@ -215,6 +282,8 @@ resolve_librechat_rail() {
 
   case "$requested_rail" in
     stable)
+      local stable_blkio_device
+
       export LIBRECHAT_RAIL="stable"
       export COMPOSE_PROJECT_NAME="librechat-stable"
       export LIBRECHAT_STACK_SLUG="librechat-stable"
@@ -243,8 +312,39 @@ resolve_librechat_rail() {
       export LOCAL_CODE_INTERPRETER_DATA_DIR="$root_dir/local-code-interpreter/data"
       export LOCAL_CODE_WORKSPACE_HOST_ROOT="$root_dir/local-code-interpreter/data/workspaces"
       export LOCAL_CODE_SANDBOX_PYTHON_IMAGE="librechat-local-sandbox-python-stable:latest"
-      export LIBRECHAT_API_MEM_LIMIT="3072m"
-      export LIBRECHAT_API_NODE_MAX_OLD_SPACE="2048"
+      export LIBRECHAT_API_MEM_LIMIT="5120m"
+      export LIBRECHAT_API_MEM_RESERVATION="3072m"
+      export LIBRECHAT_API_NODE_MAX_OLD_SPACE="4096"
+      export LIBRECHAT_API_CPUS="3.5"
+      export LIBRECHAT_MONGO_MEM_LIMIT="1536m"
+      export LIBRECHAT_MONGO_MEM_RESERVATION="768m"
+      export LIBRECHAT_MONGO_CPUS="1.5"
+      export LIBRECHAT_MONGO_COMMAND="mongod --auth --bind_ip_all --wiredTigerCacheSizeGB 0.75"
+      export LIBRECHAT_MEILI_MEM_LIMIT="512m"
+      export LIBRECHAT_MEILI_MEM_RESERVATION="128m"
+      export LIBRECHAT_VECTORDB_MEM_LIMIT="768m"
+      export LIBRECHAT_VECTORDB_MEM_RESERVATION="256m"
+      export LIBRECHAT_RAG_MEM_LIMIT="384m"
+      export LIBRECHAT_RAG_MEM_RESERVATION="128m"
+      export LIBRECHAT_CODE_MEM_LIMIT="256m"
+      export LIBRECHAT_CODE_MEM_RESERVATION="96m"
+      export LOCAL_CODE_MEMORY_LIMIT="768m"
+      export LOCAL_CODE_NANO_CPUS="500000000"
+      export LOCAL_CODE_PIDS_LIMIT="128"
+      export LIBRECHAT_LANGFUSE_CLICKHOUSE_MEM_LIMIT="1024m"
+      export LIBRECHAT_LANGFUSE_WEB_MEM_LIMIT="768m"
+      export LIBRECHAT_LANGFUSE_WORKER_MEM_LIMIT="512m"
+      export LIBRECHAT_LANGFUSE_SYNC_MEM_LIMIT="128m"
+      export LIBRECHAT_LANGFUSE_MINIO_MEM_LIMIT="192m"
+      export LIBRECHAT_LANGFUSE_REDIS_MEM_LIMIT="192m"
+      export LIBRECHAT_LANGFUSE_REDIS_MAXMEMORY="128mb"
+      export LIBRECHAT_LANGFUSE_POSTGRES_MEM_LIMIT="192m"
+      export LIBRECHAT_METRICS_MEM_LIMIT="96m"
+      stable_blkio_device="$(resolve_stable_blkio_device)" || {
+        echo "Could not resolve the stable blkio device from the root filesystem; set LIBRECHAT_STABLE_BLKIO_DEVICE explicitly." >&2
+        return 1
+      }
+      export LIBRECHAT_BLKIO_DEVICE="$stable_blkio_device"
       unset LANGFUSE_BASE_URL
       unset LANGFUSE_UI_URL
       # Stable does not override Langfuse NODE_OPTIONS; the container uses

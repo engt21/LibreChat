@@ -4,6 +4,8 @@ import { useGetCustomConfigSpeechQuery } from 'librechat-data-provider/react-que
 import { logger } from '~/utils';
 import store from '~/store';
 
+const EXTERNAL_STT_MIGRATION_KEY = 'externalSTTMigrationV1';
+
 /**
  * Initializes speech-related Recoil values from the server-side custom
  * configuration on first load (only when the user is authenticated)
@@ -34,6 +36,16 @@ export default function useSpeechSettingsInit(isAuthenticated: boolean) {
     if (!isAuthenticated || !data || data.message === 'not_found') return;
 
     logger.log('Initializing speech settings from config:', data);
+
+    const storedEngine = localStorage.getItem('engineSTT');
+    if (
+      data.sttExternal &&
+      localStorage.getItem(EXTERNAL_STT_MIGRATION_KEY) === null &&
+      (storedEngine === 'browser' || storedEngine === JSON.stringify('browser'))
+    ) {
+      setters.engineSTT('external');
+      localStorage.setItem(EXTERNAL_STT_MIGRATION_KEY, 'complete');
+    }
 
     Object.entries(data).forEach(([key, value]) => {
       if (key === 'sttExternal' || key === 'ttsExternal') return;

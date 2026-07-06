@@ -622,6 +622,53 @@ describe('getOpenAILLMConfig', () => {
       });
     });
 
+    it.each([EModelEndpoint.openAI, EModelEndpoint.azureOpenAI])(
+      'should send max reasoning effort for GPT-5.6 models on %s',
+      (endpoint) => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint,
+        modelOptions: {
+          model: 'gpt-5.6-sol',
+          reasoning_effort: ReasoningEffort.max,
+        },
+        addParams: {
+          useResponsesApi: false,
+        },
+      });
+
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).toHaveProperty('reasoning', {
+        effort: ReasoningEffort.max,
+      });
+      },
+    );
+
+    it.each([EModelEndpoint.openAI, EModelEndpoint.azureOpenAI])(
+      'should map GPT-5.6 ultra to max effort with pro reasoning mode on %s',
+      (endpoint) => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint,
+        modelOptions: {
+          model: 'gpt-5.6-sol',
+          reasoning_effort: ReasoningEffort.ultra,
+        },
+        addParams: {
+          useResponsesApi: false,
+        },
+      });
+
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).toHaveProperty('reasoning', {
+        effort: ReasoningEffort.max,
+        mode: 'pro',
+      });
+      },
+    );
+
     it('should use reasoning object for non-OpenAI endpoints', () => {
       const result = getOpenAILLMConfig({
         apiKey: 'test-api-key',

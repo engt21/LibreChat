@@ -1624,7 +1624,7 @@ describe('AgentClient - titleConvo', () => {
 
       // Verify the buffer message was created
       expect(processedMessage.constructor.name).toBe('HumanMessage');
-      expect(processedMessage.content).toContain('# Current Chat:');
+      expect(processedMessage.content).toContain('# Current Chat Request and Recent Context:');
 
       // Verify that image URLs are not in the buffer string
       expect(processedMessage.content).not.toContain('image_url');
@@ -1745,6 +1745,28 @@ describe('AgentClient - titleConvo', () => {
       expect(processedMessage.content).not.toContain('Response 1');
     });
 
+    it('preserves the explicit save request before truncating large completed tool context', async () => {
+      const { HumanMessage } = require('@langchain/core/messages');
+      client.memoryContextCharLimit = 500;
+      client.memoryIncludeAssistantContext = true;
+
+      await client.runMemory(
+        [new HumanMessage('Save all of the hotel and masterclass details to memory.')],
+        [
+          {
+            type: 'tool_result',
+            output: 'x'.repeat(5000),
+          },
+        ],
+      );
+
+      const processedMessage = mockProcessMemory.mock.calls[0][0][0];
+      expect(processedMessage.content).toContain(
+        'Save all of the hotel and masterclass details to memory.',
+      );
+      expect(processedMessage.content.length).toBeLessThanOrEqual(500);
+    });
+
     it('should return early if processMemory is not set', async () => {
       const { HumanMessage } = require('@langchain/core/messages');
       client.processMemory = null;
@@ -1753,6 +1775,73 @@ describe('AgentClient - titleConvo', () => {
 
       expect(result).toBeUndefined();
       expect(mockProcessMemory).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('finalizeMemoryProcessing', () => {
+    let client;
+
+    beforeEach(() => {
+      client = new AgentClient({
+        req: {
+          user: { id: 'user-123' },
+          config: {
+            endpoints: {
+              [EModelEndpoint.agents]: {
+                allowedProviders: [EModelEndpoint.openAI],
+              },
+            },
+          },
+        },
+        res: {},
+        agent: {
+          id: 'agent-123',
+          endpoint: EModelEndpoint.openAI,
+          provider: EModelEndpoint.openAI,
+          model_parameters: { model: 'gpt-4' },
+        },
+      });
+      client.artifactPromises = [];
+    });
+
+    it('awaits bounded memory completion when processing before the response', async () => {
+      const attachments = [{ type: 'memory' }];
+      client.memoryProcessAfterResponse = false;
+      client.memoryProcessingTimeoutMs = 4321;
+
+      const awaitSpy = jest
+        .spyOn(client, 'awaitMemoryWithTimeout')
+        .mockResolvedValue(attachments);
+
+      const result = await client.finalizeMemoryProcessing(Promise.resolve(attachments));
+
+      expect(awaitSpy).toHaveBeenCalledWith(expect.any(Promise), 4321);
+      expect(result).toBe(attachments);
+    });
+
+    it('detaches post-response memory processing without waiting for the timeout window', async () => {
+      let resolveMemory;
+      const memoryPromise = new Promise((resolve) => {
+        resolveMemory = resolve;
+      });
+
+      client.memoryProcessAfterResponse = true;
+
+      const awaitSpy = jest.spyOn(client, 'awaitMemoryWithTimeout');
+      const detachSpy = jest.spyOn(client, 'detachMemoryProcessing');
+
+      const result = await client.finalizeMemoryProcessing(memoryPromise);
+
+      expect(awaitSpy).not.toHaveBeenCalled();
+      expect(detachSpy).toHaveBeenCalledWith(memoryPromise);
+      expect(result).toBeUndefined();
+
+      const attachment = { type: 'memory', key: 'travel_preferences' };
+      resolveMemory([attachment]);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(client.artifactPromises).toEqual([attachment]);
     });
   });
 
@@ -2222,6 +2311,9 @@ describe('AgentClient - titleConvo', () => {
       };
 
       mockReq = {
+        body: {
+          text: 'Remember that I prefer concise answers.',
+        },
         user: {
           id: 'user-123',
           personalization: {
@@ -2254,6 +2346,118 @@ describe('AgentClient - titleConvo', () => {
       mockLoadAgent = require('~/models/Agent').loadAgent;
       mockInitializeAgent = require('@librechat/api').initializeAgent;
       mockCreateMemoryProcessor = require('@librechat/api').createMemoryProcessor;
+    });
+
+    it('records memory LLM usage under the separate memory context and provider', async () => {
+      mockCheckAccess.mockResolvedValue(true);
+      mockInitializeAgent.mockResolvedValue({
+        ...mockAgent,
+        provider: EModelEndpoint.openAI,
+        endpointTokenConfig: { 'gpt-4': { prompt: 1, completion: 2 } },
+      });
+      mockCreateMemoryProcessor.mockResolvedValue([undefined, jest.fn()]);
+
+      client = new AgentClient(mockOptions);
+      client.conversationId = 'convo-123';
+      client.responseMessageId = 'response-123';
+      client.parentMessageId = 'parent-123';
+      client.recordCollectedUsage = jest.fn().mockResolvedValue(undefined);
+
+      await client.useMemory();
+
+      const processorOptions = mockCreateMemoryProcessor.mock.calls[0][0];
+      await processorOptions.onUsage([{ input_tokens: 12, output_tokens: 3, model: 'gpt-4' }]);
+
+      expect(client.recordCollectedUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: 'memory',
+          endpoint: EModelEndpoint.openAI,
+          model: 'gpt-4',
+          endpointTokenConfig: { 'gpt-4': { prompt: 1, completion: 2 } },
+          collectedUsage: [{ input_tokens: 12, output_tokens: 3, model: 'gpt-4' }],
+        }),
+      );
+    });
+
+    it('uses the safe fallback memory model when the admin policy still points at the legacy terra default', async () => {
+      mockReq.config.memory = { agent: {} };
+      mockReq.appSettings = {
+        memory: {
+          provider: EModelEndpoint.openAI,
+          model: 'gpt-5.6-terra',
+        },
+      };
+      mockCheckAccess.mockResolvedValue(true);
+      mockInitializeAgent.mockResolvedValue({
+        id: Constants.EPHEMERAL_AGENT_ID,
+        provider: EModelEndpoint.openAI,
+        model: 'gpt-4.1-mini',
+      });
+      mockCreateMemoryProcessor.mockResolvedValue([undefined, jest.fn()]);
+
+      client = new AgentClient(mockOptions);
+      client.conversationId = 'convo-123';
+      client.responseMessageId = 'response-123';
+
+      await client.useMemory();
+
+      expect(mockInitializeAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent: expect.objectContaining({
+            id: Constants.EPHEMERAL_AGENT_ID,
+            provider: EModelEndpoint.openAI,
+            model: 'gpt-4.1-mini',
+          }),
+        }),
+        expect.any(Object),
+      );
+      expect(client.memoryProcessingTimeoutMs).toBe(10000);
+    });
+
+    it('falls back to the safe memory model when the configured admin model is unavailable', async () => {
+      mockReq.config.memory = { agent: {} };
+      mockReq.appSettings = {
+        memory: {
+          provider: EModelEndpoint.openAI,
+          model: 'gpt-4o-mini',
+        },
+      };
+      mockCheckAccess.mockResolvedValue(true);
+      mockInitializeAgent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: Constants.EPHEMERAL_AGENT_ID,
+          provider: EModelEndpoint.openAI,
+          model: 'gpt-4.1-mini',
+        });
+      mockCreateMemoryProcessor.mockResolvedValue([undefined, jest.fn()]);
+
+      client = new AgentClient(mockOptions);
+      client.conversationId = 'convo-123';
+      client.responseMessageId = 'response-123';
+
+      await client.useMemory();
+
+      expect(mockInitializeAgent).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          agent: expect.objectContaining({
+            provider: EModelEndpoint.openAI,
+            model: 'gpt-4o-mini',
+          }),
+        }),
+        expect.any(Object),
+      );
+      expect(mockInitializeAgent).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          agent: expect.objectContaining({
+            provider: EModelEndpoint.openAI,
+            model: 'gpt-4.1-mini',
+          }),
+        }),
+        expect.any(Object),
+      );
     });
 
     it('should use current agent when memory config agent.id matches current agent id', async () => {
@@ -2317,12 +2521,18 @@ describe('AgentClient - titleConvo', () => {
       );
     });
 
-    it('should return early when prelimAgent is undefined (no valid memory agent config)', async () => {
+    it('uses the safe fallback memory model when no dedicated memory agent config is available', async () => {
       mockReq.config.memory = {
         agent: {},
       };
 
       mockCheckAccess.mockResolvedValue(true);
+      mockInitializeAgent.mockResolvedValue({
+        id: Constants.EPHEMERAL_AGENT_ID,
+        provider: EModelEndpoint.openAI,
+        model: 'gpt-4.1-mini',
+      });
+      mockCreateMemoryProcessor.mockResolvedValue([undefined, jest.fn()]);
 
       client = new AgentClient(mockOptions);
       client.conversationId = 'convo-123';
@@ -2331,8 +2541,17 @@ describe('AgentClient - titleConvo', () => {
       const result = await client.useMemory();
 
       expect(result).toBeUndefined();
-      expect(mockInitializeAgent).not.toHaveBeenCalled();
-      expect(mockCreateMemoryProcessor).not.toHaveBeenCalled();
+      expect(mockInitializeAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent: expect.objectContaining({
+            id: Constants.EPHEMERAL_AGENT_ID,
+            provider: EModelEndpoint.openAI,
+            model: 'gpt-4.1-mini',
+          }),
+        }),
+        expect.any(Object),
+      );
+      expect(mockCreateMemoryProcessor).toHaveBeenCalledTimes(1);
     });
 
     it('should create ephemeral agent when no id but model and provider are specified', async () => {
@@ -2368,6 +2587,41 @@ describe('AgentClient - titleConvo', () => {
         }),
         expect.any(Object),
       );
+    });
+
+    it.each([
+      [
+        'nested regenerate user message',
+        {
+          text: '',
+          isRegenerate: true,
+          userMessage: { text: 'Remember that this retry must be saved.' },
+        },
+      ],
+      [
+        'edited regenerate content',
+        {
+          text: '',
+          isRegenerate: true,
+          editedContent: { type: 'text', text: 'Update my memories with this edited retry.' },
+        },
+      ],
+    ])('forces memory processing from %s', async (_label, body) => {
+      mockReq.body = body;
+      mockCheckAccess.mockResolvedValue(true);
+      mockInitializeAgent.mockResolvedValue({
+        ...mockAgent,
+        provider: EModelEndpoint.openAI,
+      });
+      mockCreateMemoryProcessor.mockResolvedValue([undefined, jest.fn()]);
+
+      client = new AgentClient(mockOptions);
+      client.conversationId = 'convo-123';
+      client.responseMessageId = 'response-123';
+
+      await client.useMemory();
+
+      expect(mockCreateMemoryProcessor).toHaveBeenCalledTimes(1);
     });
   });
 

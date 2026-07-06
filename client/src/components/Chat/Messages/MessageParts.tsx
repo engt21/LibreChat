@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import { useRecoilValue } from 'recoil';
 import type { TMessageContentParts } from 'librechat-data-provider';
+import { Spinner } from '@librechat/client';
 import type { TMessageProps, TMessageIcon } from '~/common';
 import { useMessageHelpers, useLocalize, useAttachments, useContentMetadata } from '~/hooks';
 import MessageIcon from '~/components/Chat/Messages/MessageIcon';
@@ -147,12 +148,26 @@ export default function Message(props: TMessageProps) {
                     isLatestMessage={messageId === latestMessageId}
                     content={message.content as Array<TMessageContentParts | undefined>}
                   />
+                  {isLast &&
+                    isSubmitting &&
+                    !message.text &&
+                    (!Array.isArray(message.content) || message.content.length === 0) && (
+                      <div
+                        className="flex items-center gap-2 py-1 text-sm text-text-secondary"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        <Spinner className="size-4" />
+                        <span>{localize('com_ui_generating')}</span>
+                      </div>
+                    )}
                 </div>
                 {isLast && isSubmitting ? (
                   <div className="mt-1 h-[31px] bg-transparent" />
                 ) : (
                   <SubRow classes="text-xs">
                     <SiblingSwitch
+                      message={message}
                       siblingIdx={siblingIdx}
                       siblingCount={siblingCount}
                       setSiblingIdx={setSiblingIdx}

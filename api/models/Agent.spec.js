@@ -98,6 +98,22 @@ describe('models/Agent', () => {
       expect(count).toBe(1);
     });
 
+    test('should store a distinct agent tool while keeping the shared resource bucket', async () => {
+      const agent = await createBasicAgent();
+      const fileId = uuidv4();
+
+      const updatedAgent = await addAgentResourceFile({
+        agent_id: agent.id,
+        tool_resource: 'file_search',
+        agent_tool: 'local_file_search',
+        file_id: fileId,
+      });
+
+      expect(updatedAgent.tools).toContain('local_file_search');
+      expect(updatedAgent.tools).not.toContain('file_search');
+      expect(updatedAgent.tool_resources.file_search.file_ids).toContain(fileId);
+    });
+
     test('should not duplicate tool_resource in tools if already present', async () => {
       const agent = await createBasicAgent();
       const fileId1 = uuidv4();

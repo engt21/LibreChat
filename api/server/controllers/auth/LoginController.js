@@ -7,13 +7,38 @@ const { requiresMFAEnrollment } = require('~/server/services/mfaPolicy');
 
 const MFA_COOKIE = 'mfa_pending';
 
-function setMFAPendingCookie(res, userId, enrollmentRequired) {
-  const token = generate2FATempToken(userId, enrollmentRequired);
-  res.cookie(MFA_COOKIE, token, {
+function clearPendingCookie(res) {
+  res.clearCookie(MFA_COOKIE, {
     httpOnly: true,
     secure: shouldUseSecureCookie(),
     sameSite: 'strict',
-    path: '/api/auth/2fa',
+    path: '/',
+  });
+}
+
+function setMFAPendingCookie(res, userId, enrollmentRequired) {
+  const secure = shouldUseSecureCookie();
+  const cookiePaths = ['/', '/api', '/api/auth', '/api/auth/refresh'];
+  const authCookieNames = [
+    'refreshToken',
+    'token_provider',
+    'openid_access_token',
+    'openid_id_token',
+    'openid_user_id',
+  ];
+
+  for (const name of authCookieNames) {
+    for (const path of cookiePaths) {
+      res.clearCookie(name, { httpOnly: true, secure, path });
+    }
+  }
+
+  const token = generate2FATempToken(userId, enrollmentRequired);
+  res.cookie(MFA_COOKIE, token, {
+    httpOnly: true,
+    secure,
+    sameSite: 'strict',
+    path: '/',
     maxAge: 5 * 60 * 1000,
   });
 }
@@ -29,12 +54,15 @@ const loginController = async (req, res) => {
     const enrollmentRequired = requiresMFAEnrollment(req.user);
     if (req.user.twoFactorEnabled || enrollmentRequired) {
       setMFAPendingCookie(res, req.user._id, enrollmentRequired);
-      return res.status(200).json({ twoFAPending: true, mfaEnrollmentRequired: enrollmentRequired });
+      return res
+        .status(200)
+        .json({ twoFAPending: true, mfaEnrollmentRequired: enrollmentRequired });
     }
 
     const { password: _p, totpSecret: _t, __v, ...user } = req.user;
     user.id = user._id.toString();
 
+    clearPendingCookie(res);
     const token = await setAuthTokens(req.user._id, res);
 
     return res.status(200).send({ token, user });

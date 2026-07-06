@@ -33,6 +33,7 @@ const {
   getFiles,
 } = require('~/models');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+const { resolveChatReferences } = require('~/server/services/ChatReferences');
 const { checkBalance } = require('~/models/balanceMethods');
 const { truncateToolCallOutputs } = require('./prompts');
 const TextStream = require('./TextStream');
@@ -603,6 +604,11 @@ class BaseClient {
     let userMessagePromise;
     const { user, head, isEdited, conversationId, responseMessageId, saveOptions, userMessage } =
       await this.handleStartMethods(message, opts);
+    const modelMessage = await resolveChatReferences({
+      text: message,
+      userId: user,
+      currentConversationId: conversationId,
+    });
 
     if (opts.progressCallback) {
       opts.onProgress = opts.progressCallback.call(null, {
@@ -618,6 +624,14 @@ class BaseClient {
     // depending on subclass implementation of handling messages
     // When this is an edit, all messages are already in currentMessages, both user and response
     if (isEdited) {
+      if (modelMessage !== message) {
+        const userMessageIndex = this.currentMessages.findIndex(
+          (currentMessage) => currentMessage.messageId === userMessage.messageId,
+        );
+        if (userMessageIndex >= 0) {
+          this.currentMessages[userMessageIndex] = { ...userMessage, text: modelMessage };
+        }
+      }
       let latestMessage = this.currentMessages[this.currentMessages.length - 1];
       if (!latestMessage) {
         latestMessage = {
@@ -645,7 +659,9 @@ class BaseClient {
       }
       this.continued = true;
     } else {
-      this.currentMessages.push(userMessage);
+      this.currentMessages.push(
+        modelMessage === message ? userMessage : { ...userMessage, text: modelMessage },
+      );
     }
 
     /**
@@ -1387,18 +1403,25 @@ class BaseClient {
         allFiles.push(file);
         continue;
       }
-      if (
+      const isToolManagedFile =
         file.embedded === true ||
         file.metadata?.fileIdentifier != null ||
-        this.isNativeToolFile(file)
-      ) {
+        this.isNativeToolFile(file);
+
+      if (file.type.startsWith('image/')) {
+        categorizedAttachments.images.push(file);
+        if (isToolManagedFile) {
+          allFiles.push(file);
+        }
+        continue;
+      }
+
+      if (isToolManagedFile) {
         allFiles.push(file);
         continue;
       }
 
-      if (file.type.startsWith('image/')) {
-        categorizedAttachments.images.push(file);
-      } else if (file.type === 'application/pdf') {
+      if (file.type === 'application/pdf') {
         categorizedAttachments.documents.push(file);
         allFiles.push(file);
       } else if (isBedrock && isBedrockDocumentType(file.type)) {

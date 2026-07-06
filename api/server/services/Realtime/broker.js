@@ -6,6 +6,7 @@ const { authenticateRealtimeRequest } = require('./auth');
 const { resolveRealtimeSessionConfig, validateRealtimeModelAccess } = require('./modelService');
 const GeminiRealtimeAdapter = require('./providers/GeminiRealtimeAdapter');
 const OpenAILikeRealtimeAdapter = require('./providers/OpenAILikeRealtimeAdapter');
+const { loadRealtimeTools, executeRealtimeTool } = require('./tools');
 
 function safeSend(socket, event) {
   if (socket.readyState !== WebSocket.OPEN) {
@@ -15,7 +16,7 @@ function safeSend(socket, event) {
   socket.send(JSON.stringify(event));
 }
 
-function createAdapter({ providerConfig, instructions, voice, onEvent }) {
+function createAdapter({ providerConfig, instructions, voice, tools, onEvent }) {
   if (providerConfig.provider === 'google') {
     return new GeminiRealtimeAdapter({
       clientOptions: providerConfig.clientOptions,
@@ -30,18 +31,22 @@ function createAdapter({ providerConfig, instructions, voice, onEvent }) {
 
   return new OpenAILikeRealtimeAdapter({
     provider: providerConfig.provider,
+    model: providerConfig.model,
     wsURL: providerConfig.wsURL,
     headers: providerConfig.headers,
     audioConfig: providerConfig.audioConfig,
     instructions,
     voice,
     transcriptionModel: providerConfig.transcriptionModel,
+    realtimeApi: providerConfig.realtimeApi,
+    tools,
     onEvent,
   });
 }
 
 async function handleConnection(socket, req, user) {
   let adapter = null;
+  let realtimeToolMap = new Map();
 
   const closeAdapter = () => {
     if (!adapter) {
@@ -52,9 +57,26 @@ async function handleConnection(socket, req, user) {
     adapter = null;
   };
 
-  const handleAdapterEvent = (event) => {
+  const handleAdapterEvent = async (event) => {
     if (event?.type === 'session.closed') {
       adapter = null;
+    }
+
+    if (event?.type === 'tool.call') {
+      safeSend(socket, { type: 'tool.started', name: event.name });
+      try {
+        const output = await executeRealtimeTool({
+          toolMap: realtimeToolMap,
+          name: event.name,
+          argumentsText: event.arguments,
+        });
+        adapter?.sendToolOutput(event.callId, output);
+        safeSend(socket, { type: 'tool.completed', name: event.name });
+      } catch (error) {
+        adapter?.sendToolOutput(event.callId, JSON.stringify({ error: error.message }));
+        safeSend(socket, { type: 'tool.failed', name: event.name, message: error.message });
+      }
+      return;
     }
 
     safeSend(socket, event);
@@ -102,6 +124,18 @@ async function handleConnection(socket, req, user) {
             model,
           });
 
+          const realtimeTools =
+            providerConfig.provider === 'openai' || providerConfig.provider === 'azure'
+              ? await loadRealtimeTools({
+                  req: { ...req, user },
+                  appConfig,
+                  endpoint,
+                  model: providerConfig.model,
+                  tools: event.tools,
+                })
+              : { definitions: [], toolMap: new Map(), enabledTools: [] };
+          realtimeToolMap = realtimeTools.toolMap;
+
           // Validate against the resolved model so providers that legitimately
           // resolve a default model server-side (e.g. xAI) are not rejected
           // prematurely when the client omits `model`.
@@ -115,10 +149,12 @@ async function handleConnection(socket, req, user) {
             providerConfig,
             instructions: event.instructions || 'You are a helpful assistant.',
             voice: event.voice,
+            tools: realtimeTools.definitions,
             onEvent: handleAdapterEvent,
           });
 
           await adapter.connect();
+          adapter.seedConversation?.(event.contextEntries);
 
           safeSend(socket, {
             type: 'session.started',
@@ -126,6 +162,7 @@ async function handleConnection(socket, req, user) {
             provider: providerConfig.provider,
             model: providerConfig.model,
             audioConfig: providerConfig.audioConfig,
+            enabledTools: realtimeTools.enabledTools,
           });
           break;
         }

@@ -44,12 +44,8 @@ resolve_stable_api_container() {
     return
   fi
 
-  by_label="$(docker ps \
-    --filter 'label=com.docker.compose.project=librechat-stable' \
-    --filter 'label=com.docker.compose.service=api' \
-    --format '{{.Names}}' 2>/dev/null | head -1)"
-  if [[ -n "$by_label" ]]; then
-    printf '%s\n' "$by_label"
+  if docker inspect LibreChat >/dev/null 2>&1; then
+    printf '%s\n' "LibreChat"
     return
   fi
 
@@ -58,8 +54,12 @@ resolve_stable_api_container() {
     return
   fi
 
-  if docker inspect LibreChat >/dev/null 2>&1; then
-    printf '%s\n' "LibreChat"
+  by_label="$(docker ps \
+    --filter 'label=com.docker.compose.project=librechat-stable' \
+    --filter 'label=com.docker.compose.service=api' \
+    --format '{{.Names}}' 2>/dev/null | grep -vE 'builder|repair|contract' | head -1)"
+  if [[ -n "$by_label" ]]; then
+    printf '%s\n' "$by_label"
     return
   fi
 
@@ -123,11 +123,6 @@ case "$rail" in
     fail "Rail must be 'dev' or 'stable', got: $rail"
     ;;
 esac
-
-if [[ "$rail" == "stable" ]]; then
-  echo "Validating mandatory OpenAI reasoning preservation invariants before stable frontend promotion..."
-  "$ROOT_DIR/local-services/verify-openai-reasoning-preservation.sh" --container "$container"
-fi
 
 [[ "$health_timeout" =~ ^[0-9]+$ ]] || fail "--health-timeout must be an integer."
 [[ -d "$dist_dir" ]] || fail "Built frontend directory is missing: $dist_dir"
@@ -213,7 +208,45 @@ command -v docker >/dev/null 2>&1 || fail "docker is required for deployment."
 docker inspect "$container" >/dev/null 2>&1 || fail "Target container does not exist: $container"
 [[ "$(docker inspect -f '{{.State.Running}}' "$container")" == "true" ]] || fail "Target container is not running: $container"
 
+if [[ "$rail" == "stable" ]]; then
+  echo "Validating mandatory OpenAI reasoning preservation invariants before stable frontend promotion..."
+  "$ROOT_DIR/local-services/verify-openai-reasoning-preservation.sh" --container "$container"
+  echo "Validating authentication and memory runtime contracts before stable frontend promotion..."
+  "$ROOT_DIR/local-services/verify-auth-memory-runtime-contracts.sh" --container "$container"
+  echo "Validating canonical API runtime contract before stable frontend promotion..."
+  "$ROOT_DIR/local-services/verify-api-runtime-contract.sh" --container "$container"
+  echo "Validating API memory headroom before stable frontend promotion..."
+  "$ROOT_DIR/local-services/verify-api-memory-headroom.sh" --container "$container"
+fi
+
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+maintenance_file="${LIBRECHAT_HEALTH_MAINTENANCE_FILE:-$HOME/.local/state/librechat-health-monitor/maintenance}"
+maintenance_started=false
+deployment_fallback="$ROOT_DIR/local-services/librechat-deployment-fallback.sh"
+fallback_started=false
+clear_deploy_maintenance() {
+  if $maintenance_started; then
+    rm -f "$maintenance_file"
+  fi
+}
+client_deployment_cleanup() {
+  if $fallback_started; then
+    "$deployment_fallback" abort >/dev/null 2>&1 || true
+  else
+    clear_deploy_maintenance
+  fi
+}
+if [[ "$rail" == "stable" ]]; then
+  [[ -x "$deployment_fallback" ]] || fail "Missing deployment fallback helper: $deployment_fallback"
+  "$deployment_fallback" start
+  fallback_started=true
+  mkdir -p "$(dirname "$maintenance_file")"
+  expires=$(( $(date +%s) + ${LIBRECHAT_DEPLOY_MAINTENANCE_SECONDS:-1800} ))
+  printf 'expires=%s\nreason=%s\nstarted=%s\n' "$expires" "frontend deployment $timestamp" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$maintenance_file"
+  chmod 600 "$maintenance_file"
+  maintenance_started=true
+  trap client_deployment_cleanup EXIT
+fi
 snapshot_dir="$ROOT_DIR/output/client-dist-deployments/${timestamp}-${rail}-predeploy"
 container_stage="/app/client.dist.stage-${timestamp}"
 container_rollback="/app/client.dist.rollback-${timestamp}"
@@ -223,6 +256,14 @@ mkdir -p "$snapshot_dir/client-dist"
 echo "Snapshotting current $rail client dist to: $snapshot_dir/client-dist"
 docker cp "$container:/app/client/dist/." "$snapshot_dir/client-dist/" >/dev/null
 cp "$dist_dir/$MANIFEST_FILENAME" "$snapshot_dir/candidate-manifest.json"
+if [[ "$rail" == "stable" ]]; then
+  pointer_dir="$HOME/.local/state/librechat-health-monitor"
+  mkdir -p "$pointer_dir"
+  printf 'type=client\nsnapshot=%s\ncontainer=%s\nroot=%s\ncreated_epoch=%s\ncreated_utc=%s\n' \
+    "$snapshot_dir" "$container" "$ROOT_DIR" "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "$pointer_dir/last-stable.env"
+  chmod 600 "$pointer_dir/last-stable.env"
+fi
 
 echo "Staging complete built dist in $container"
 docker exec "$container" sh -lc "rm -rf '$container_stage' '$container_rollback' '$container_failed'; mkdir -p '$container_stage'"
@@ -266,14 +307,31 @@ if ! wait_for_entry_asset "$entry_asset" /tmp/librechat-client-deploy-index.html
   if ! wait_for_entry_asset "$rollback_entry_asset" /tmp/librechat-client-rollback-index.html; then
     fail "Deployment failed and automatic rollback did not recover HTTP health. Inspect $snapshot_dir and container logs immediately."
   fi
+  if [[ "$rail" == "stable" ]]; then
+    "$deployment_fallback" finish
+    fallback_started=false
+  fi
   fail "Deployment was rolled back and prior frontend health recovered. Inspect $snapshot_dir and container logs."
 fi
 
 if [[ "$rail" == "stable" ]]; then
   echo "Re-validating mandatory OpenAI reasoning preservation invariants after stable frontend promotion..."
   "$ROOT_DIR/local-services/verify-openai-reasoning-preservation.sh" --container "$container"
+  echo "Re-validating authentication and memory runtime contracts after stable frontend promotion..."
+  "$ROOT_DIR/local-services/verify-auth-memory-runtime-contracts.sh" --container "$container"
+  echo "Re-validating canonical API runtime contract after stable frontend promotion..."
+  "$ROOT_DIR/local-services/verify-api-runtime-contract.sh" --container "$container"
+  echo "Re-validating API memory headroom after stable frontend promotion..."
+  "$ROOT_DIR/local-services/verify-api-memory-headroom.sh" --container "$container"
 fi
 
+if [[ "$rail" == "stable" ]]; then
+  "$deployment_fallback" finish
+  fallback_started=false
+fi
+clear_deploy_maintenance
+maintenance_started=false
+trap - EXIT
 echo "Complete built frontend deployed successfully to $rail."
 echo "Rollback copy retained in container: $container_rollback"
 echo "Host rollback snapshot retained at: $snapshot_dir/client-dist"

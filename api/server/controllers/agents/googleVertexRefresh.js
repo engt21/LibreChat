@@ -1,7 +1,7 @@
 const { Providers } = require('@librechat/agents');
 const { logger } = require('@librechat/data-schemas');
 const { CacheKeys } = require('librechat-data-provider');
-const { refreshGoogleVertexModelAccess } = require('@librechat/api');
+const librechatApi = require('@librechat/api');
 const { getLogStores } = require('~/cache');
 
 async function invalidateGoogleSelectorCaches() {
@@ -20,6 +20,12 @@ async function invalidateGoogleSelectorCaches() {
 
 async function maybeRefreshGoogleVertexModelAccess({ error, provider, clientOptions, model }) {
   if (provider !== Providers.VERTEXAI) {
+    return false;
+  }
+
+  const refreshGoogleVertexModelAccess = librechatApi.refreshGoogleVertexModelAccess;
+  if (typeof refreshGoogleVertexModelAccess !== 'function') {
+    logger.debug('[Google][Vertex Discovery] Runtime refresh helper is unavailable; skipping refresh');
     return false;
   }
 

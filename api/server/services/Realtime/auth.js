@@ -38,10 +38,14 @@ async function getCookieAuthenticatedUserId(cookieHeader = '') {
   const tokenProvider = parsedCookies.token_provider;
 
   if (tokenProvider === 'openid' && isEnabled(process.env.OPENID_REUSE_TOKENS)) {
-    const openidPayload = verifyToken(parsedCookies.openid_user_id, process.env.JWT_REFRESH_SECRET, {
-      issuer: process.env.JWT_ISSUER || 'librechat',
-      audience: process.env.JWT_REFRESH_AUDIENCE || 'librechat-refresh',
-    });
+    const openidPayload = verifyToken(
+      parsedCookies.openid_user_id,
+      process.env.JWT_REFRESH_SECRET,
+      {
+        issuer: process.env.JWT_ISSUER || 'librechat',
+        audience: process.env.JWT_REFRESH_AUDIENCE || 'librechat-refresh',
+      },
+    );
     return typeof openidPayload?.id === 'string' &&
       (!openidPayload.tokenType || openidPayload.tokenType === 'openid_user')
       ? openidPayload.id
@@ -54,15 +58,24 @@ async function getCookieAuthenticatedUserId(cookieHeader = '') {
   });
   if (
     typeof refreshPayload?.id !== 'string' ||
-    !refreshPayload?.sessionId ||
     (refreshPayload.tokenType && refreshPayload.tokenType !== 'refresh')
+  ) {
+    return null;
+  }
+
+  const sessionId = refreshPayload.sessionId ?? refreshPayload.jti;
+  if (
+    !sessionId ||
+    (refreshPayload.sessionId &&
+      refreshPayload.jti &&
+      refreshPayload.sessionId !== refreshPayload.jti)
   ) {
     return null;
   }
 
   const session = await findSession({
     userId: refreshPayload.id,
-    refreshToken: parsedCookies.refreshToken,
+    sessionId,
   }).catch(() => null);
 
   if (!session?.expiration || session.expiration <= new Date()) {

@@ -138,7 +138,7 @@ Per-conversation toggle state lives at `LocalStorageKeys.LAST_IMAGE_GENERATION_T
 
 ### Streamed previews
 
-`OpenAIImageGen.tsx` consumes the normal per-tool `attachments` array. During an OpenAI GPT-image stream, the backend sends transient data-URL attachments for `image_generation.partial_image` and `image_generation.completed`; the component displays the newest attachment immediately and suppresses the fake `PixelCard` once a real preview exists. When the final persisted file attachment arrives from `createToolEndCallback`, it is appended last and replaces the transient data URL without changing the saved message shape.
+`OpenAIImageGen.tsx` consumes the normal per-tool `attachments` array. During an OpenAI GPT-image stream, the backend sends transient data-URL attachments for each real `image_generation.partial_image` event and the component displays the newest provider image immediately. The generic `PixelCard` placeholder is never rendered; before the first provider image arrives, the UI shows progress text only. The Image API does not require a separate completed event, so when streaming ends the backend promotes the last real partial event to a non-partial completed preview. When the final persisted file attachment arrives from `createToolEndCallback`, it replaces the transient data URL without changing the saved message shape. Responses API built-in image generation uses its separate `response.image_generation_call.partial_image` / `response.completed` contract and must be handled on that response stream rather than being mistaken for Image API events.
 
 ## Permissions
 
@@ -169,7 +169,7 @@ Per-user keys saved through the existing user-key flow are also resolved via `lo
 | `api/server/controllers/__tests__/ImageGenerationController.spec.js`            | get/patch/permission/error paths                                    |
 | `api/models/__tests__/applyImageGenerationTool.spec.js`                         | tool-key selection per endpoint and prefs                           |
 | `api/app/clients/tools/structured/specs/OpenAIImageTools.spec.js`               | OpenAI partial-image streaming, Azure non-streaming guard, fallback |
-| `client/src/components/Chat/Messages/Content/__tests__/OpenAIImageGen.test.tsx` | partial preview rendering and final-attachment replacement          |
+| `client/src/components/Chat/Messages/Content/__tests__/OpenAIImageGen.test.tsx` | partial preview replacement and all persisted multi-image finals    |
 
 Run them all:
 
@@ -213,3 +213,14 @@ The Settings → Image generation tab loads only for users whose role grants `IM
 - **Curated newest-first ordering matters.** The `pickDefaultImageModel` helper relies on the curated list ordering for fallback. Keep `fluxKnownModels` and `stabilityKnownModels` in newest-first order with explicit `releasedAt` timestamps.
 - **Auto-injection must not regress to "openai-only".** The candidate chain explicitly walks `openai → google → flux`, so even if the active endpoint is unrecognized we still produce a working tool key when the user has any provider configured.
 - **Partial-image streaming should stay additive.** The final saved image still flows through `createToolEndCallback`/`saveBase64Image`; transient preview attachments must not be persisted into the response message or replace the artifact saver.
+
+## July 6, 2026 streaming UI correction
+
+OpenAI Image API tool arguments stream incrementally and are not valid JSON until the tool call has
+finished emitting arguments. `OpenAIImageGen.tsx` must parse only complete-looking JSON and must not
+log incomplete fragments as errors. During the gap before the first provider event, show progress
+text only. Once attachment events arrive, render the actual base64/provider preview and replace it
+with every persisted final image. Never restore the synthetic pixel-blob preview.
+
+Production validation generated and rendered real 768x768 OpenAI images, and the browser console no
+longer emitted repeated `Unexpected end of JSON input` errors for partial tool arguments.

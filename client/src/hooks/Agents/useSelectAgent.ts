@@ -29,6 +29,7 @@ export default function useSelectAgent() {
         newConversation({
           template: { ...(template as Partial<TConversation>) },
           preset: template as Partial<TPreset>,
+          keepFiles: true,
         });
         return;
       }
@@ -40,6 +41,7 @@ export default function useSelectAgent() {
         template: currentConvo,
         preset: template as Partial<TPreset>,
         keepLatestMessage: true,
+        keepFiles: true,
       });
     },
     [getConversation, getDefaultConversation, newConversation],

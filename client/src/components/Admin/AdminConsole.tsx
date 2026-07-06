@@ -52,6 +52,7 @@ import {
   useUpdateAdminSettingsMutation,
   useRefreshAdminModelsMutation,
 } from '~/data-provider';
+import MemorySystemSettings from './MemorySystemSettings';
 
 const DEFAULT_SETTINGS: TAdminSettings = {
   settingsId: 'global',
@@ -63,6 +64,27 @@ const DEFAULT_SETTINGS: TAdminSettings = {
     grafanaUrl: '',
     metricsUrl: '',
     prometheusUrl: '',
+  },
+  memory: {
+    automaticSaveEnabled: true,
+    provider: 'openAI',
+    model: 'gpt-5.6-terra',
+    instructions: null,
+    requireExplicitRequest: true,
+    processAfterResponse: true,
+    includeAssistantContext: true,
+    messageWindowSize: 5,
+    contextCharLimit: 24000,
+    maxWritesPerTurn: 1,
+    maxAttempts: 2,
+    processingTimeoutMs: 10000,
+    tokenLimit: 6000,
+    maxValueTokens: 500,
+    charLimit: 4000,
+    auditEnabled: true,
+    consolidateMemories: true,
+    validKeys: [],
+    customIntentPhrases: [],
   },
   deterministicTools: {
     calculator: true,
@@ -304,7 +326,7 @@ export default function AdminConsole() {
   const adminSettingsQuery = useAdminSettingsQuery({ enabled: canReadSettings });
   const adminObservabilityQuery = useAdminObservabilityQuery({ enabled: canReadObservability });
   const adminRolesQuery = useAdminRolesQuery({ enabled: isSuperAdmin });
-  const adminModelsQuery = useGetModelsQuery({ enabled: isSuperAdmin });
+  const adminModelsQuery = useGetModelsQuery({ enabled: canReadSettings });
 
   const updateSettingsMutation = useUpdateAdminSettingsMutation({
     onSuccess: () => {
@@ -463,6 +485,10 @@ export default function AdminConsole() {
             ...adminSettingsQuery.data.byok?.providers,
           },
         },
+        memory: {
+          ...DEFAULT_SETTINGS.memory,
+          ...adminSettingsQuery.data.memory,
+        },
         deterministicTools: {
           ...DEFAULT_SETTINGS.deterministicTools,
           ...adminSettingsQuery.data.deterministicTools,
@@ -506,9 +532,7 @@ export default function AdminConsole() {
   );
   const modelAccessEntries = useMemo(
     () =>
-      availableModelEntries.filter(
-        ([endpoint]) => !MODEL_ACCESS_EXCLUDED_ENDPOINTS.has(endpoint),
-      ),
+      availableModelEntries.filter(([endpoint]) => !MODEL_ACCESS_EXCLUDED_ENDPOINTS.has(endpoint)),
     [availableModelEntries],
   );
 
@@ -651,6 +675,7 @@ export default function AdminConsole() {
       platformPrompt: settingsForm.platformPrompt?.trim() ? settingsForm.platformPrompt : null,
       observability: settingsForm.observability,
       byok: settingsForm.byok,
+      memory: settingsForm.memory,
       deterministicTools: settingsForm.deterministicTools,
       mcpDomainFilterMode: settingsForm.mcpDomainFilterMode ?? 'denylist',
       mcpAllowedDomains: settingsForm.mcpAllowedDomains ?? [],
@@ -1553,6 +1578,13 @@ export default function AdminConsole() {
                   </div>
                 </div>
               </div>
+
+              <MemorySystemSettings
+                value={settingsForm.memory}
+                modelEntries={modelAccessEntries}
+                disabled={!canWriteSettings}
+                onChange={(memory) => setSettingsForm((current) => ({ ...current, memory }))}
+              />
 
               <div className="rounded-xl border border-border-light bg-surface-primary p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">

@@ -185,12 +185,14 @@ describe('PluginController', () => {
         },
       };
 
-      const mockCachedPlugins = [
+      require('~/app/clients/tools').availableTools.push(
+        { name: 'user-tool', pluginKey: 'user-tool', description: 'User tool' },
         { name: 'user-tool', pluginKey: 'user-tool', description: 'Duplicate user tool' },
-        { name: 'ManifestTool', pluginKey: 'manifest-tool', description: 'Manifest tool' },
-      ];
+      );
 
-      mockCache.get.mockResolvedValue(mockCachedPlugins);
+      mockCache.get.mockResolvedValue([
+        { name: 'stale-tool', pluginKey: 'stale-tool', description: 'Stale cached tool' },
+      ]);
       getCachedTools.mockResolvedValueOnce(mockUserTools);
       mockReq.config = {
         mcpConfig: null,
@@ -205,6 +207,8 @@ describe('PluginController', () => {
       // The real filterUniquePlugins should have deduplicated tools with same pluginKey
       const userToolCount = responseData.filter((tool) => tool.pluginKey === 'user-tool').length;
       expect(userToolCount).toBe(1);
+      expect(responseData.some((tool) => tool.pluginKey === 'stale-tool')).toBe(false);
+      expect(mockCache.set).toHaveBeenCalledWith(CacheKeys.TOOLS, responseData);
     });
 
     it('should use checkPluginAuth to verify authentication status', async () => {
@@ -292,7 +296,7 @@ describe('PluginController', () => {
 
   describe('helper function integration', () => {
     it('should handle error cases gracefully', async () => {
-      mockCache.get.mockRejectedValue(new Error('Cache error'));
+      mockCache.set.mockRejectedValue(new Error('Cache error'));
 
       await getAvailableTools(mockReq, mockRes);
 

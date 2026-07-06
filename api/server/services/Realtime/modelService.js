@@ -92,6 +92,11 @@ function buildRealtimeDescriptor({
 }) {
   const unique = uniqueModels(models);
 
+  if (provider === 'openai' && unique.includes(DEFAULT_OPENAI_REALTIME_MODELS[0])) {
+    unique.splice(unique.indexOf(DEFAULT_OPENAI_REALTIME_MODELS[0]), 1);
+    unique.unshift(DEFAULT_OPENAI_REALTIME_MODELS[0]);
+  }
+
   if (unique.length === 0 && !requiresUserKey) {
     return null;
   }
@@ -466,7 +471,6 @@ async function resolveOpenAISessionConfig({ req, model }) {
   const baseURL = extractBaseURL(process.env.OPENAI_REVERSE_PROXY ?? '') ?? OPENAI_DEFAULT_BASE_URL;
   const headers = {
     Authorization: `Bearer ${apiKey}`,
-    'OpenAI-Beta': 'realtime=v1',
   };
 
   if (process.env.OPENAI_ORGANIZATION && baseURL.includes('openai')) {
@@ -481,6 +485,7 @@ async function resolveOpenAISessionConfig({ req, model }) {
     headers,
     audioConfig: DEFAULT_PROVIDER_AUDIO[EModelEndpoint.openAI],
     transcriptionModel: 'gpt-4o-mini-transcribe',
+    realtimeApi: 'ga',
   };
 }
 
@@ -506,10 +511,10 @@ async function resolveAzureSessionConfig({ req, appConfig, model }) {
       headers: {
         ...(mapped.headers ?? {}),
         'api-key': mapped.azureOptions.azureOpenAIApiKey,
-        'OpenAI-Beta': 'realtime=v1',
       },
       audioConfig: DEFAULT_PROVIDER_AUDIO[EModelEndpoint.azureOpenAI],
       transcriptionModel: null,
+      realtimeApi: 'ga',
     };
   }
 
@@ -544,10 +549,10 @@ async function resolveAzureSessionConfig({ req, appConfig, model }) {
     }),
     headers: {
       'api-key': apiKey,
-      'OpenAI-Beta': 'realtime=v1',
     },
     audioConfig: DEFAULT_PROVIDER_AUDIO[EModelEndpoint.azureOpenAI],
     transcriptionModel: null,
+    realtimeApi: 'ga',
   };
 }
 
@@ -622,6 +627,7 @@ async function resolveXAISessionConfig({ req, appConfig, endpointName, model }) 
       Authorization: `Bearer ${apiKey}`,
     },
     audioConfig: DEFAULT_PROVIDER_AUDIO.xai,
+    realtimeApi: 'compatible',
   };
 }
 

@@ -17,6 +17,9 @@ const CodeInterpreterMath = require('./structured/CodeInterpreterMath');
 const TextAnalyzer = require('./structured/TextAnalyzer');
 const StringUtility = require('./structured/StringUtility');
 const JsonUtility = require('./structured/JsonUtility');
+const AgentBuilder = require('./structured/AgentBuilder');
+const LocalCodeInterpreter = require('./structured/LocalCodeInterpreter');
+const LocalFileSearch = require('./structured/LocalFileSearch');
 
 module.exports = {
   ...manifest,
@@ -37,4 +40,7 @@ module.exports = {
   TextAnalyzer,
   StringUtility,
   JsonUtility,
+  AgentBuilder,
+  LocalCodeInterpreter,
+  LocalFileSearch,
 };

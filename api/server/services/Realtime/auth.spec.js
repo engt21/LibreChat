@@ -25,7 +25,11 @@ describe('authenticateRealtimeRequest', () => {
   });
 
   it('authenticates with the websocket query token', async () => {
-    const token = jwt.sign({ id: '507f1f77bcf86cd799439011' }, process.env.JWT_SECRET);
+    const token = jwt.sign(
+      { id: '507f1f77bcf86cd799439011', tokenType: 'access' },
+      process.env.JWT_SECRET,
+      { issuer: 'librechat', audience: 'librechat-api' },
+    );
 
     const user = await authenticateRealtimeRequest({
       url: `/api/realtime/ws?token=${token}`,
@@ -42,8 +46,17 @@ describe('authenticateRealtimeRequest', () => {
 
   it('falls back to the refresh-token cookie when no access token is present', async () => {
     const refreshToken = jwt.sign(
-      { id: '507f1f77bcf86cd799439011', sessionId: '507f191e810c19729de860ea' },
+      {
+        id: '507f1f77bcf86cd799439011',
+        sessionId: '507f191e810c19729de860ea',
+        tokenType: 'refresh',
+      },
       process.env.JWT_REFRESH_SECRET,
+      {
+        issuer: 'librechat',
+        audience: 'librechat-refresh',
+        jwtid: '507f191e810c19729de860ea',
+      },
     );
 
     findSession.mockResolvedValue({ expiration: new Date(Date.now() + 60_000) });
@@ -58,15 +71,24 @@ describe('authenticateRealtimeRequest', () => {
 
     expect(findSession).toHaveBeenCalledWith({
       userId: '507f1f77bcf86cd799439011',
-      refreshToken,
+      sessionId: '507f191e810c19729de860ea',
     });
     expect(user.id).toBe('507f1f77bcf86cd799439011');
   });
 
   it('falls back to the refresh-token cookie when the query token is stale or invalid', async () => {
     const refreshToken = jwt.sign(
-      { id: '507f1f77bcf86cd799439011', sessionId: '507f191e810c19729de860ea' },
+      {
+        id: '507f1f77bcf86cd799439011',
+        sessionId: '507f191e810c19729de860ea',
+        tokenType: 'refresh',
+      },
       process.env.JWT_REFRESH_SECRET,
+      {
+        issuer: 'librechat',
+        audience: 'librechat-refresh',
+        jwtid: '507f191e810c19729de860ea',
+      },
     );
 
     findSession.mockResolvedValue({ expiration: new Date(Date.now() + 60_000) });
@@ -85,8 +107,9 @@ describe('authenticateRealtimeRequest', () => {
   it('accepts the signed openid_user_id cookie when OpenID token reuse is enabled', async () => {
     process.env.OPENID_REUSE_TOKENS = 'true';
     const openidUserId = jwt.sign(
-      { id: '507f1f77bcf86cd799439011' },
+      { id: '507f1f77bcf86cd799439011', tokenType: 'openid_user' },
       process.env.JWT_REFRESH_SECRET,
+      { issuer: 'librechat', audience: 'librechat-refresh' },
     );
 
     const user = await authenticateRealtimeRequest({

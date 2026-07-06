@@ -17,9 +17,17 @@ import { isEphemeralAgent } from '~/common';
 function FileSearch({
   agent_id,
   files: _files,
+  enabled,
+  showToggle = true,
+  title,
+  agentTool,
 }: {
   agent_id: string;
   files?: [string, ExtendedFile][];
+  enabled?: boolean;
+  showToggle?: boolean;
+  title?: string;
+  agentTool?: string;
 }) {
   const localize = useLocalize();
   const { watch } = useFormContext<AgentForm>();
@@ -36,7 +44,11 @@ function FileSearch({
 
   const { handleFileChange } = useFileHandlingNoChatContext(
     {
-      additionalMetadata: { agent_id, tool_resource: EToolResources.file_search },
+      additionalMetadata: {
+        agent_id,
+        tool_resource: EToolResources.file_search,
+        agent_tool: agentTool,
+      },
       endpointOverride,
       endpointTypeOverride: endpointType,
       fileSetter: setFiles,
@@ -47,7 +59,11 @@ function FileSearch({
   const { handleSharePointFiles, isProcessing, downloadProgress } =
     useSharePointFileHandlingNoChatContext(
       {
-        additionalMetadata: { agent_id, tool_resource: EToolResources.file_search },
+        additionalMetadata: {
+          agent_id,
+          tool_resource: EToolResources.file_search,
+          agent_tool: agentTool,
+        },
         endpointOverride,
         endpointTypeOverride: endpointType,
         fileSetter: setFiles,
@@ -65,7 +81,7 @@ function FileSearch({
     750,
   );
 
-  const fileSearchChecked = watch(AgentCapabilities.file_search);
+  const fileSearchChecked = enabled ?? watch(AgentCapabilities.file_search);
   const isUploadDisabled = endpointFileConfig?.disabled ?? false;
 
   const sharePointEnabled = startupConfig?.sharePointFilePickerEnabled;
@@ -128,11 +144,11 @@ function FileSearch({
       <div className="mb-1.5 flex items-center gap-2">
         <span>
           <label className="text-token-text-primary block font-medium">
-            {localize('com_assistants_file_search')}
+            {title ?? localize('com_assistants_file_search')}
           </label>
         </span>
       </div>
-      <FileSearchCheckbox />
+      {showToggle && <FileSearchCheckbox />}
       <div className="flex flex-col gap-3">
         {/* File Search (RAG API) Files */}
         <FileRow

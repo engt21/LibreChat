@@ -35,6 +35,30 @@ function getDefaultBYOKSettings() {
   };
 }
 
+function getDefaultMemorySettings() {
+  return {
+    automaticSaveEnabled: true,
+    provider: 'openAI',
+    model: 'gpt-5.6-terra',
+    instructions: null,
+    requireExplicitRequest: true,
+    processAfterResponse: true,
+    includeAssistantContext: true,
+    messageWindowSize: 5,
+    contextCharLimit: 60000,
+    maxWritesPerTurn: 6,
+    maxAttempts: 3,
+    processingTimeoutMs: 60000,
+    tokenLimit: 6000,
+    maxValueTokens: 500,
+    charLimit: 4000,
+    auditEnabled: true,
+    consolidateMemories: true,
+    validKeys: [],
+    customIntentPhrases: [],
+  };
+}
+
 function getDefaultDeterministicToolSettings() {
   return {
     calculator: true,
@@ -50,6 +74,21 @@ function normalizeDeterministicToolSettings(settings) {
     textAnalyzer: settings?.textAnalyzer !== false,
     stringUtility: settings?.stringUtility !== false,
     jsonUtility: settings?.jsonUtility !== false,
+  };
+}
+
+function normalizeMemorySettings(memory) {
+  return {
+    ...getDefaultMemorySettings(),
+    ...(memory || {}),
+    instructions:
+      typeof memory?.instructions === 'string' && memory.instructions.trim()
+        ? memory.instructions.trim()
+        : null,
+    validKeys: Array.isArray(memory?.validKeys) ? memory.validKeys : [],
+    customIntentPhrases: Array.isArray(memory?.customIntentPhrases)
+      ? memory.customIntentPhrases.map((phrase) => phrase.trim()).filter(Boolean)
+      : [],
   };
 }
 
@@ -82,6 +121,7 @@ function toEffectiveAppSettings(doc) {
       ...(doc?.observability || {}),
     },
     byok: normalizeBYOKSettings(doc?.byok),
+    memory: normalizeMemorySettings(doc?.memory),
     deterministicTools: normalizeDeterministicToolSettings(doc?.deterministicTools),
     mcpDomainFilterMode: doc?.mcpDomainFilterMode ?? 'denylist',
     mcpAllowedDomains: doc?.mcpAllowedDomains ?? [],
@@ -104,6 +144,7 @@ async function invalidateAppSettingsCaches() {
 
   await Promise.all([
     configCache.delete(CacheKeys.STARTUP_CONFIG),
+    configCache.delete(CacheKeys.ENDPOINT_CONFIG),
     appConfigCache.delete('_BASE_'),
     appConfigCache.delete(SystemRoles.USER),
     appConfigCache.delete(SystemRoles.ADMIN),
@@ -146,6 +187,13 @@ async function updateAppSettings(updates, settingsId = DEFAULT_SETTINGS_ID) {
           },
         })
       : undefined;
+  const nextMemory =
+    updates?.memory !== undefined
+      ? normalizeMemorySettings({
+          ...(current?.memory || {}),
+          ...(updates.memory || {}),
+        })
+      : undefined;
   const nextDeterministicTools =
     updates?.deterministicTools !== undefined
       ? normalizeDeterministicToolSettings({
@@ -166,6 +214,7 @@ async function updateAppSettings(updates, settingsId = DEFAULT_SETTINGS_ID) {
       : {}),
     observability: nextObservability,
     ...(nextBYOK !== undefined ? { byok: nextBYOK } : {}),
+    ...(nextMemory !== undefined ? { memory: nextMemory } : {}),
     ...(nextDeterministicTools !== undefined ? { deterministicTools: nextDeterministicTools } : {}),
     ...(updates?.mcpDomainFilterMode !== undefined
       ? { mcpDomainFilterMode: updates.mcpDomainFilterMode }
@@ -198,11 +247,13 @@ module.exports = {
   DEFAULT_SETTINGS_ID,
   getDefaultObservabilityLinks,
   getDefaultBYOKSettings,
+  getDefaultMemorySettings,
   getDefaultDeterministicToolSettings,
   getAppSettingsDoc,
   getEffectiveAppSettings,
   invalidateAppSettingsCaches,
-  normalizeDeterministicToolSettings,
   normalizePlatformPrompt,
+  normalizeMemorySettings,
+  normalizeDeterministicToolSettings,
   updateAppSettings,
 };

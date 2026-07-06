@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useToastContext } from '@librechat/client';
 import { Controller, useWatch, useFormContext } from 'react-hook-form';
-import { EModelEndpoint, getEndpointField } from 'librechat-data-provider';
+import { AgentCapabilities, EModelEndpoint, getEndpointField } from 'librechat-data-provider';
 import type { AgentForm, IconComponentTypes } from '~/common';
 import {
   removeFocusOutlines,
@@ -12,23 +12,18 @@ import {
   cn,
 } from '~/utils';
 import { ToolSelectDialog, MCPToolSelectDialog } from '~/components/Tools';
-import useAgentCapabilities from '~/hooks/Agents/useAgentCapabilities';
 import { useFileMapContext, useAgentPanelContext } from '~/Providers';
 import AgentCategorySelector from './AgentCategorySelector';
 import Action from '~/components/SidePanel/Builder/Action';
 import { useLocalize, useVisibleTools } from '~/hooks';
 import { Panel, isEphemeralAgent } from '~/common';
-import { useGetAgentFiles } from '~/data-provider';
 import { icons } from '~/hooks/Endpoint/Icons';
+import { useGetAgentFiles } from '~/data-provider';
 import Instructions from './Instructions';
 import AgentAvatar from './AgentAvatar';
-import FileContext from './FileContext';
-import SearchForm from './Search/Form';
-import FileSearch from './FileSearch';
-import Artifacts from './Artifacts';
 import AgentTool from './AgentTool';
-import CodeForm from './Code/Form';
 import MCPTools from './MCPTools';
+import ToolCapabilities from './ToolCapabilities';
 
 const labelClass = 'mb-2 text-token-text-primary block font-medium';
 const inputClass = cn(
@@ -66,7 +61,6 @@ export default function AgentConfig() {
   const agent_id = useWatch({ control, name: 'id' });
 
   const { data: agentFiles = [] } = useGetAgentFiles(agent_id);
-
   const mergedFileMap = useMemo(() => {
     const newFileMap = { ...fileMap };
     agentFiles.forEach((file) => {
@@ -77,75 +71,14 @@ export default function AgentConfig() {
     return newFileMap;
   }, [fileMap, agentFiles]);
 
-  const {
-    codeEnabled,
-    toolsEnabled,
-    contextEnabled,
-    actionsEnabled,
-    artifactsEnabled,
-    webSearchEnabled,
-    fileSearchEnabled,
-  } = useAgentCapabilities(agentsConfig?.capabilities);
-
-  const context_files = useMemo(() => {
-    if (typeof agent === 'string') {
-      return [];
+  const processedAgent = useMemo(() => {
+    if (typeof agent === 'string' || agent?.id !== agent_id) {
+      return undefined;
     }
-
-    if (agent?.id !== agent_id) {
-      return [];
-    }
-
-    if (agent.context_files) {
-      return agent.context_files;
-    }
-
-    const _agent = processAgentOption({
-      agent,
-      fileMap: mergedFileMap,
-    });
-    return _agent.context_files ?? [];
+    return processAgentOption({ agent, fileMap: mergedFileMap });
   }, [agent, agent_id, mergedFileMap]);
 
-  const knowledge_files = useMemo(() => {
-    if (typeof agent === 'string') {
-      return [];
-    }
-
-    if (agent?.id !== agent_id) {
-      return [];
-    }
-
-    if (agent.knowledge_files) {
-      return agent.knowledge_files;
-    }
-
-    const _agent = processAgentOption({
-      agent,
-      fileMap: mergedFileMap,
-    });
-    return _agent.knowledge_files ?? [];
-  }, [agent, agent_id, mergedFileMap]);
-
-  const code_files = useMemo(() => {
-    if (typeof agent === 'string') {
-      return [];
-    }
-
-    if (agent?.id !== agent_id) {
-      return [];
-    }
-
-    if (agent.code_files) {
-      return agent.code_files;
-    }
-
-    const _agent = processAgentOption({
-      agent,
-      fileMap: mergedFileMap,
-    });
-    return _agent.code_files ?? [];
-  }, [agent, agent_id, mergedFileMap]);
+  const actionsEnabled = agentsConfig?.capabilities?.includes(AgentCapabilities.actions) ?? false;
 
   const handleAddActions = useCallback(() => {
     if (isEphemeralAgent(agent_id)) {
@@ -284,27 +217,11 @@ export default function AgentConfig() {
             </div>
           </button>
         </div>
-        {(codeEnabled ||
-          fileSearchEnabled ||
-          artifactsEnabled ||
-          contextEnabled ||
-          webSearchEnabled) && (
-          <div className="mb-4 flex w-full flex-col items-start gap-3">
-            <label className="text-token-text-primary block font-medium">
-              {localize('com_assistants_capabilities')}
-            </label>
-            {/* Code Execution */}
-            {codeEnabled && <CodeForm agent_id={agent_id} files={code_files} />}
-            {/* Web Search */}
-            {webSearchEnabled && <SearchForm />}
-            {/* File Context */}
-            {contextEnabled && <FileContext agent_id={agent_id} files={context_files} />}
-            {/* Artifacts */}
-            {artifactsEnabled && <Artifacts />}
-            {/* File Search */}
-            {fileSearchEnabled && <FileSearch agent_id={agent_id} files={knowledge_files} />}
-          </div>
-        )}
+        <ToolCapabilities
+          agentId={agent_id}
+          codeFiles={processedAgent?.code_files}
+          knowledgeFiles={processedAgent?.knowledge_files}
+        />
         {/* MCP Section */}
         {availableMCPServers != null && availableMCPServers.length > 0 && (
           <MCPTools
@@ -318,16 +235,10 @@ export default function AgentConfig() {
         <div className="mb-4">
           <label className={labelClass}>
             {(() => {
-              if (toolsEnabled === true && actionsEnabled === true) {
+              if (actionsEnabled === true) {
                 return localize('com_ui_tools_and_actions');
               }
-              if (toolsEnabled === true) {
-                return localize('com_ui_tools');
-              }
-              if (actionsEnabled === true) {
-                return localize('com_assistants_actions');
-              }
-              return '';
+              return localize('com_ui_tools');
             })()}
           </label>
           <div>
@@ -361,18 +272,16 @@ export default function AgentConfig() {
                 ))}
             </div>
             <div className="mt-2 flex space-x-2">
-              {(toolsEnabled ?? false) && (
-                <button
-                  type="button"
-                  onClick={() => setShowToolDialog(true)}
-                  className="btn btn-neutral border-token-border-light relative h-9 w-full rounded-lg font-medium"
-                  aria-haspopup="dialog"
-                >
-                  <div className="flex w-full items-center justify-center gap-2">
-                    {localize('com_assistants_add_tools')}
-                  </div>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowToolDialog(true)}
+                className="btn btn-neutral border-token-border-light relative h-9 w-full rounded-lg font-medium"
+                aria-haspopup="dialog"
+              >
+                <div className="flex w-full items-center justify-center gap-2">
+                  {localize('com_assistants_add_tools')}
+                </div>
+              </button>
               {(actionsEnabled ?? false) && (
                 <button
                   type="button"

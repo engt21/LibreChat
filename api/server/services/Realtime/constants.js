@@ -1,13 +1,29 @@
 const { EModelEndpoint } = require('librechat-data-provider');
 
-const DEFAULT_OPENAI_REALTIME_MODELS = ['gpt-realtime', 'gpt-realtime-mini', 'gpt-realtime-1.5'];
+const DEFAULT_OPENAI_REALTIME_MODELS = [
+  'gpt-realtime-2',
+  'gpt-realtime-1.5',
+  'gpt-realtime',
+  'gpt-realtime-mini',
+];
 const DEFAULT_GEMINI_REALTIME_MODELS = ['gemini-live-2.5-flash-preview'];
 const DEFAULT_XAI_REALTIME_MODELS = ['grok-voice-agent'];
 
 const DEFAULT_PROVIDER_AUDIO = {
   [EModelEndpoint.openAI]: {
-    defaultVoice: 'alloy',
-    voices: ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'],
+    defaultVoice: 'marin',
+    voices: [
+      'marin',
+      'cedar',
+      'alloy',
+      'ash',
+      'ballad',
+      'coral',
+      'echo',
+      'sage',
+      'shimmer',
+      'verse',
+    ],
     inputSampleRate: 24000,
     outputSampleRate: 24000,
     inputMimeType: 'audio/pcm',

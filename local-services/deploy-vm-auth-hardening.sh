@@ -168,6 +168,6 @@ for _ in $(seq 1 60); do
 done
 curl -fsS http://127.0.0.1:3080/api/config >/dev/null
 curl --resolve "$TAILSCALE_HOSTNAME:$TAILSCALE_HTTPS_PORT:$TAILSCALE_IP" -fsS "$canonical_origin/api/config" >/dev/null
-docker exec LibreChat node -e 'const mongoose = require("mongoose"); (async () => { await mongoose.connect(process.env.MONGO_URI); await mongoose.connection.collection("appsettings").updateOne({ settingsId: "global" }, { $set: { registrationEnabled: false, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } }, { upsert: true }); await mongoose.connection.collection("sessions").deleteMany({}); await mongoose.disconnect(); })().catch((error) => { console.error(error.message); process.exit(1); });'
+docker exec LibreChat node -e 'const mongoose = require("mongoose"); (async () => { await mongoose.connect(process.env.MONGO_URI); await mongoose.connection.collection("appsettings").updateOne({ settingsId: "global" }, { $set: { registrationEnabled: false, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } }, { upsert: true }); await mongoose.disconnect(); })().catch((error) => { console.error(error.message); process.exit(1); });'
 printf 'Deployment complete. Rollback: %s\nBuild artifacts: %s\nRelease image: %s\nRollback image: %s\n' "$rollback" "$build_root" "$release_image" "$rollback_image"
 REMOTE

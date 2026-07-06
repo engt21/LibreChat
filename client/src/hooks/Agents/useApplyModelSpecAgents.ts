@@ -1,7 +1,11 @@
 import { useCallback } from 'react';
 import { Constants } from 'librechat-data-provider';
 import type { TStartupConfig, TSubmission } from 'librechat-data-provider';
-import { useUpdateEphemeralAgent, useApplyNewAgentTemplate } from '~/store/agents';
+import {
+  useGetEphemeralAgent,
+  useUpdateEphemeralAgent,
+  useApplyNewAgentTemplate,
+} from '~/store/agents';
 import { getModelSpec, applyModelSpecEphemeralAgent } from '~/utils';
 
 /**
@@ -13,22 +17,29 @@ import { getModelSpec, applyModelSpecEphemeralAgent } from '~/utils';
  * to null so BadgeRowContext can apply localStorage defaults (non-spec experience).
  */
 export function useApplyModelSpecEffects() {
+  const getEphemeralAgent = useGetEphemeralAgent();
   const updateEphemeralAgent = useUpdateEphemeralAgent();
   const applyModelSpecEffects = useCallback(
     ({
       convoId,
       specName,
       startupConfig,
+      preserveExisting = false,
     }: {
       convoId: string | null;
       specName?: string | null;
       startupConfig?: TStartupConfig;
+      preserveExisting?: boolean;
     }) => {
+      const key = (convoId ?? Constants.NEW_CONVO) || Constants.NEW_CONVO;
       if (specName == null || !specName) {
+        if (preserveExisting) {
+          return;
+        }
         if (startupConfig?.modelSpecs?.list?.length) {
           /** Specs are configured but none selected — reset ephemeral agent to null
            *  so BadgeRowContext fills all values (tool toggles + MCP) from localStorage. */
-          updateEphemeralAgent((convoId ?? Constants.NEW_CONVO) || Constants.NEW_CONVO, null);
+          updateEphemeralAgent(key, null);
         }
         return;
       }
@@ -42,9 +53,10 @@ export function useApplyModelSpecEffects() {
         convoId,
         modelSpec,
         updateEphemeralAgent,
+        existingAgent: preserveExisting ? getEphemeralAgent(key) : null,
       });
     },
-    [updateEphemeralAgent],
+    [getEphemeralAgent, updateEphemeralAgent],
   );
 
   return applyModelSpecEffects;

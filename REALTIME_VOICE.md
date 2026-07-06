@@ -11,11 +11,15 @@ This branch adds a provider-brokered realtime voice mode to LibreChat.
 
 LibreChat exposes these through a single **Realtime Voice** dialog in the chat input.
 
-Completed realtime sessions are also persisted back into LibreChat as normal conversations, so they appear in the left sidebar and reopen like any other saved chat.
+When Realtime Voice is opened from an existing chat, the latest chat turns are seeded into the live session and new user/assistant transcripts append to that same conversation with normal parent-message linkage. A session started from a new chat is saved as a normal text-resumable conversation, so switching between voice and typing preserves one continuous history in the sidebar.
 
 ## Important behavior
 
+Chat dictation and Realtime Voice use the same microphone permission flow. If a browser has already remembered a denial, the app shows recovery steps specific to Brave, Safari, iPhone Safari, or an iPhone Home Screen web app; browsers do not permit a site to reopen the native permission prompt until that remembered block is reset.
+
 The microphone is intentionally unavailable until a realtime session is connected.
+
+On speakerphone/mobile devices, LibreChat temporarily suppresses microphone uplink while assistant audio is queued or playing so the device speaker does not interrupt its own response. OpenAI semantic VAD uses low eagerness to allow natural pauses without cutting the user off prematurely.
 
 If you see the mic as disabled, the usual cause is:
 
@@ -55,7 +59,9 @@ If you see the mic as disabled, the usual cause is:
 6. Click **Connect**.
 7. After the dialog status changes to `connected`, click **Start mic**.
 8. Speak, or type into the dialog and send text turns.
-9. Disconnect or close the dialog to save the captured realtime transcript into the sidebar.
+9. Disconnect or close the dialog to append the captured user and assistant turns to the active chat. You can then continue the same conversation by typing or reopen Realtime Voice later.
+
+If Web Search is enabled for the active chat, OpenAI/Azure Realtime sessions expose it as a server-executed function tool through LibreChat's authenticated tool loader. Tools that require file artifacts, OAuth approval, or interactive action confirmation remain available in normal text mode until their Realtime result/approval flows are implemented; the dialog states this explicitly instead of advertising tools it cannot safely complete.
 
 ## Provider setup
 
@@ -120,6 +126,12 @@ If a provider is shown with a reason like “Add your key in LibreChat settings,
 
 ## Recent fixes in this branch
 
+- OpenAI realtime now uses the GA WebSocket contract: no `OpenAI-Beta` header, nested `session.audio` configuration, GA `response.output_*` events, semantic VAD interruption, and `reasoning.effort: low` for responsive voice turns.
+- OpenAI defaults to `gpt-realtime-2` with the `marin` voice while keeping older realtime models selectable when the account exposes them.
+- Both user input transcription and assistant audio transcripts are finalized into the visible transcript and saved conversation history without stale draft duplication.
+- Existing text-chat context is seeded into Realtime, completed voice turns append to the active conversation with normal message linkage, and newly created voice chats save with a text-capable OpenAI model so users can continue typing afterward.
+- The active chat's Web Search toggle is honored in OpenAI/Azure Realtime through a server-side function-tool bridge; tool execution stays behind LibreChat authentication and access policy.
+- The normal chat microphone now defaults to configured server STT instead of browser speech recognition, records through `MediaRecorder`, prefers Safari/iPhone-compatible MP4 audio, and reports HTTPS/permission/browser capability failures directly.
 - The provider/model/voice picker now keeps its local selection stable instead of re-deriving it on every async refresh.
 - The model and voice selectors now use in-dialog custom popovers instead of native `<select>` menus, which stops the picker from collapsing immediately inside the modal.
 - Failed realtime connects now fall back to `idle` instead of leaving the dialog stuck in `connecting`.
@@ -146,6 +158,11 @@ Lessons reinforced by earlier local work on model-picker behavior, native provid
 - If a live modality should behave like normal chat history, persist it through the same conversation-import path instead of inventing a parallel storage surface.
 - Prefer live capability/model discovery over hardcoded provider assumptions whenever an API already exposes that metadata.
 - Match the UI affordance to the provider's real behavior so controls do not promise features the backend cannot actually perform.
+- Components rendered by `ChatForm` or another ancestor/sibling of `MessagesView` must use `useChatContext()` (or an explicitly optional message-view hook), never strict `useMessagesOperations()`, `useMessagesState()`, or `useMessagesViewContext()`. Add a regression test that renders the component without `MessagesViewProvider`; `/c/new` must not crash before any messages exist.
+
+### 2026-07-01 production incident: new-chat provider boundary crash
+
+A Realtime Voice context-seeding change made `RealtimeButton` call strict Messages View hooks even though the button renders in `ChatForm`, outside `MessagesViewProvider`. The production `/c/new` route therefore failed immediately with `useMessagesViewContext must be used within MessagesViewProvider`. The fix reads `getMessages` and `latestMessageId` from the enclosing `ChatContext`, and `RealtimeButton.spec.tsx` permanently covers rendering without a Messages View provider. For future changes, verify component ownership in the rendered tree before choosing a narrowed context hook; hook availability is determined by provider ancestry, not by feature proximity.
 
 ### Route check fails
 

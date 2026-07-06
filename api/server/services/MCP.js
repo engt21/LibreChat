@@ -30,7 +30,7 @@ const {
 } = require('~/config');
 const { findToken, createToken, updateToken } = require('~/models');
 const { getGraphApiToken } = require('./GraphTokenService');
-const { reinitMCPServer } = require('./Tools/mcp');
+const { reinitMCPServer, getMCPAuthenticationRequirement } = require('./Tools/mcp');
 const { getAppConfig } = require('./Config');
 const { getEffectiveAppSettings } = require('./Admin/appSettings');
 const { getLogStores } = require('~/cache');
@@ -700,6 +700,25 @@ function createToolInstance({
 
       const customUserVars =
         config?.configurable?.userMCPAuthMap?.[`${Constants.mcp_prefix}${serverName}`];
+
+      const serverConfig = await getMCPServersRegistry().getServerConfig(serverName, userId);
+      const authenticationRequirement = await getMCPAuthenticationRequirement({
+        user: config?.configurable?.user,
+        serverName,
+        serverConfig,
+        toolName,
+      });
+      if (authenticationRequirement) {
+        return [
+          [
+            {
+              type: ContentTypes.TEXT,
+              text: JSON.stringify(authenticationRequirement),
+            },
+          ],
+          authenticationRequirement,
+        ];
+      }
 
       const result = await mcpManager.callTool({
         serverName,

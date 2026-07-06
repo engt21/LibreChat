@@ -20,6 +20,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
     key,
     value,
     tokenCount = 0,
+    metadata,
   }: t.SetMemoryParams): Promise<t.MemoryResult> {
     try {
       if (key?.toLowerCase() === 'nothing') {
@@ -38,9 +39,16 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
         value,
         tokenCount,
         updated_at: new Date(),
+        source: metadata?.source,
+        sourceConversationId: metadata?.conversationId,
+        sourceMessageId: metadata?.messageId,
+        sourceResponseMessageId: metadata?.responseMessageId,
+        sourceModel: metadata?.model,
+        promptVersion: metadata?.promptVersion,
+        evidence: metadata?.evidence,
       });
 
-      return { ok: true };
+      return { ok: true, changed: true };
     } catch (error) {
       throw new Error(
         `Failed to create memory: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -56,6 +64,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
     key,
     value,
     tokenCount = 0,
+    metadata,
   }: t.SetMemoryParams): Promise<t.MemoryResult> {
     try {
       if (key?.toLowerCase() === 'nothing') {
@@ -63,12 +72,30 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
       }
 
       const MemoryEntry = mongoose.models.MemoryEntry;
+      const existingMemory = await MemoryEntry.findOne({ userId, key }).lean();
+      if (
+        existingMemory &&
+        existingMemory.value === value &&
+        (existingMemory.tokenCount || 0) === tokenCount
+      ) {
+        return { ok: true, changed: false };
+      }
+
       await MemoryEntry.findOneAndUpdate(
         { userId, key },
         {
-          value,
-          tokenCount,
-          updated_at: new Date(),
+          $set: {
+            value,
+            tokenCount,
+            updated_at: new Date(),
+            source: metadata?.source,
+            sourceConversationId: metadata?.conversationId,
+            sourceMessageId: metadata?.messageId,
+            sourceResponseMessageId: metadata?.responseMessageId,
+            sourceModel: metadata?.model,
+            promptVersion: metadata?.promptVersion,
+            evidence: metadata?.evidence,
+          },
         },
         {
           upsert: true,
@@ -76,7 +103,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
         },
       );
 
-      return { ok: true };
+      return { ok: true, changed: true };
     } catch (error) {
       throw new Error(
         `Failed to set memory: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -115,6 +142,17 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
     }
   }
 
+  async function recordMemoryEvent(params: t.RecordMemoryEventParams): Promise<t.MemoryResult> {
+    try {
+      const MemoryEvent = mongoose.models.MemoryEvent;
+      await MemoryEvent.create(params);
+      return { ok: true };
+    } catch (error) {
+      logger.error('Failed to record memory event:', error);
+      return { ok: false };
+    }
+  }
+
   /**
    * Gets and formats all memories for a user in two different formats
    */
@@ -125,7 +163,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
       const memories = await getAllUserMemories(userId);
 
       if (!memories || memories.length === 0) {
-        return { withKeys: '', withoutKeys: '', totalTokens: 0 };
+        return { withKeys: '', withoutKeys: '', totalTokens: 0, tokenCountsByKey: {} };
       }
 
       const sortedMemories = memories.sort(
@@ -135,6 +173,9 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
       const totalTokens = sortedMemories.reduce((sum, memory) => {
         return sum + (memory.tokenCount || 0);
       }, 0);
+      const tokenCountsByKey = Object.fromEntries(
+        sortedMemories.map((memory) => [memory.key, memory.tokenCount || 0]),
+      );
 
       const withKeys = sortedMemories
         .map((memory, index) => {
@@ -151,10 +192,10 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
         })
         .join('\n\n');
 
-      return { withKeys, withoutKeys, totalTokens };
+      return { withKeys, withoutKeys, totalTokens, tokenCountsByKey };
     } catch (error) {
       logger.error('Failed to get formatted memories:', error);
-      return { withKeys: '', withoutKeys: '', totalTokens: 0 };
+      return { withKeys: '', withoutKeys: '', totalTokens: 0, tokenCountsByKey: {} };
     }
   }
 
@@ -164,6 +205,7 @@ export function createMemoryMethods(mongoose: typeof import('mongoose')) {
     deleteMemory,
     getAllUserMemories,
     getFormattedMemories,
+    recordMemoryEvent,
   };
 }
 

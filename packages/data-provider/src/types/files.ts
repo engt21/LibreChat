@@ -120,6 +120,7 @@ export type TFile = {
   metadata?: {
     fileIdentifier?: string;
     nativeTool?: EToolResources;
+    originalFilepath?: string;
     ragProvider?: string;
     ragModel?: string;
     transcriptionReference?: {

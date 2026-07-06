@@ -23,15 +23,18 @@ jest.mock('~/models', () => ({
 jest.mock('@librechat/api', () => ({
   isEnabled: jest.fn(),
   findOpenIDUser: jest.fn(),
+  shouldUseSecureCookie: jest.fn(),
 }));
 
 const openIdClient = require('openid-client');
-const { isEnabled, findOpenIDUser } = require('@librechat/api');
+const { isEnabled, findOpenIDUser, shouldUseSecureCookie } = require('@librechat/api');
 const { graphTokenController, refreshController } = require('./AuthController');
 const { getGraphApiToken } = require('~/server/services/GraphTokenService');
-const { setOpenIDAuthTokens } = require('~/server/services/AuthService');
+const { setAuthTokens, setOpenIDAuthTokens } = require('~/server/services/AuthService');
 const { getOpenIdConfig, getOpenIdEmail } = require('~/strategies');
-const { updateUser } = require('~/models');
+const { findSession, getUserById, updateUser } = require('~/models');
+
+const ORIGINAL_ENV = { ...process.env };
 
 describe('graphTokenController', () => {
   let req, res;
@@ -298,5 +301,231 @@ describe('refreshController – OpenID path', () => {
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith('Refresh token not provided');
+  });
+});
+
+describe('refreshController – pending MFA', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.MFA_TEMP_TOKEN_SECRET = 'mfa-secret';
+    process.env.JWT_ISSUER = 'librechat';
+    process.env.MFA_TOKEN_AUDIENCE = 'librechat-mfa';
+    shouldUseSecureCookie.mockReturnValue(true);
+  });
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it('returns a distinct MFA-pending auth state instead of a retryable refresh failure', async () => {
+    const jwt = require('jsonwebtoken');
+    const pendingToken = jwt.sign(
+      {
+        userId: '507f1f77bcf86cd799439011',
+        tokenType: 'mfa_pending',
+        twoFAPending: true,
+        enrollmentRequired: true,
+      },
+      process.env.MFA_TEMP_TOKEN_SECRET,
+      {
+        issuer: process.env.JWT_ISSUER,
+        audience: process.env.MFA_TOKEN_AUDIENCE,
+      },
+    );
+    const req = {
+      headers: { cookie: `mfa_pending=${pendingToken}; refreshToken=existing-refresh` },
+      session: {},
+    };
+    const res = {
+      clearCookie: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+      send: jest.fn(),
+      redirect: jest.fn(),
+    };
+
+    await refreshController(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      twoFAPending: true,
+      mfaEnrollmentRequired: true,
+    });
+    expect(res.clearCookie).not.toHaveBeenCalled();
+    expect(res.redirect).not.toHaveBeenCalled();
+    expect(findSession).not.toHaveBeenCalled();
+  });
+
+  it('clears an expired MFA-pending cookie and falls back to the normal unauthenticated refresh response', async () => {
+    const jwt = require('jsonwebtoken');
+    const expiredPendingToken = jwt.sign(
+      {
+        userId: '507f1f77bcf86cd799439011',
+        tokenType: 'mfa_pending',
+        twoFAPending: true,
+      },
+      process.env.MFA_TEMP_TOKEN_SECRET,
+      {
+        issuer: process.env.JWT_ISSUER,
+        audience: process.env.MFA_TOKEN_AUDIENCE,
+        expiresIn: -1,
+      },
+    );
+    const req = {
+      headers: { cookie: `mfa_pending=${expiredPendingToken}` },
+      session: {},
+    };
+    const res = {
+      clearCookie: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+      send: jest.fn(),
+      redirect: jest.fn(),
+    };
+
+    await refreshController(req, res);
+
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'mfa_pending',
+      expect.objectContaining({
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+        path: '/',
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith('Refresh token not provided');
+    expect(res.redirect).not.toHaveBeenCalled();
+  });
+});
+describe('refreshController – persistent local sessions', () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.JWT_REFRESH_SECRET = 'refresh-secret';
+    process.env.JWT_ISSUER = 'librechat';
+    process.env.JWT_REFRESH_AUDIENCE = 'librechat-refresh';
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('looks up the signed session ID so parallel refresh rotation survives restarts', async () => {
+    const jwt = require('jsonwebtoken');
+    const userId = '507f1f77bcf86cd799439011';
+    const sessionId = '507f191e810c19729de860ea';
+    const refreshToken = jwt.sign(
+      { id: userId, sessionId, tokenType: 'refresh' },
+      process.env.JWT_REFRESH_SECRET,
+      {
+        issuer: process.env.JWT_ISSUER,
+        audience: process.env.JWT_REFRESH_AUDIENCE,
+        jwtid: sessionId,
+      },
+    );
+    const session = { _id: sessionId, expiration: new Date(Date.now() + 60_000) };
+    const user = { _id: userId };
+    const req = {
+      headers: { cookie: `refreshToken=${refreshToken}; token_provider=librechat` },
+      query: {},
+      session: {},
+    };
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      send: jest.fn(),
+      redirect: jest.fn(),
+    };
+
+    getUserById.mockResolvedValue(user);
+    findSession.mockResolvedValue(session);
+    setAuthTokens.mockResolvedValue('access-token');
+
+    await refreshController(req, res);
+
+    expect(findSession).toHaveBeenCalledWith({ userId, sessionId }, { lean: false });
+    expect(setAuthTokens).toHaveBeenCalledWith(userId, res, session);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith({ token: 'access-token', user });
+  });
+
+  it('preserves the session and returns 503 when MongoDB is temporarily unavailable', async () => {
+    const jwt = require('jsonwebtoken');
+    const userId = '507f1f77bcf86cd799439011';
+    const sessionId = '507f191e810c19729de860ea';
+    const refreshToken = jwt.sign(
+      { id: userId, sessionId, tokenType: 'refresh' },
+      process.env.JWT_REFRESH_SECRET,
+      {
+        issuer: process.env.JWT_ISSUER,
+        audience: process.env.JWT_REFRESH_AUDIENCE,
+        jwtid: sessionId,
+      },
+    );
+    const req = {
+      headers: { cookie: `refreshToken=${refreshToken}; token_provider=librechat` },
+      query: {},
+      session: {},
+    };
+    const res = {
+      set: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+      send: jest.fn(),
+      redirect: jest.fn(),
+    };
+
+    getUserById.mockResolvedValue({ _id: userId });
+    findSession.mockResolvedValue({
+      _id: sessionId,
+      expiration: new Date(Date.now() + 60_000),
+    });
+    setAuthTokens.mockRejectedValue(
+      Object.assign(new Error('Failed to generate refresh token'), {
+        name: 'SessionError',
+        code: 'GENERATE_TOKEN_FAILED',
+      }),
+    );
+
+    await refreshController(req, res);
+
+    expect(res.set).toHaveBeenCalledWith('Retry-After', '2');
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.send).toHaveBeenCalledWith('Authentication service temporarily unavailable');
+    expect(res.redirect).not.toHaveBeenCalled();
+  });
+
+  it('rejects mismatched signed session claims', async () => {
+    const jwt = require('jsonwebtoken');
+    const refreshToken = jwt.sign(
+      {
+        id: '507f1f77bcf86cd799439011',
+        sessionId: '507f191e810c19729de860ea',
+        tokenType: 'refresh',
+      },
+      process.env.JWT_REFRESH_SECRET,
+      {
+        issuer: process.env.JWT_ISSUER,
+        audience: process.env.JWT_REFRESH_AUDIENCE,
+        jwtid: '507f191e810c19729de860eb',
+      },
+    );
+    const req = {
+      headers: { cookie: `refreshToken=${refreshToken}; token_provider=librechat` },
+      query: {},
+      session: {},
+    };
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      send: jest.fn(),
+      redirect: jest.fn(),
+    };
+
+    await refreshController(req, res);
+
+    expect(findSession).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.send).toHaveBeenCalledWith('Invalid refresh token');
   });
 });

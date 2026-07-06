@@ -22,7 +22,7 @@ function clearPendingCookie(res) {
     httpOnly: true,
     secure: shouldUseSecureCookie(),
     sameSite: 'strict',
-    path: '/api/auth/2fa',
+    path: '/',
   });
 }
 
@@ -62,7 +62,9 @@ async function clearFailures(payload) {
 
 function pendingError(res) {
   clearPendingCookie(res);
-  return res.status(401).json({ message: 'Your sign-in verification expired. Please sign in again.' });
+  return res
+    .status(401)
+    .json({ message: 'Your sign-in verification expired. Please sign in again.' });
 }
 
 const setup2FAWithPendingToken = async (req, res) => {
@@ -104,7 +106,9 @@ const verify2FAWithTempToken = async (req, res) => {
   try {
     if ((await getAttemptCount(payload)) >= MFA_MAX_ATTEMPTS) {
       clearPendingCookie(res);
-      return res.status(429).json({ message: 'Too many verification attempts. Please sign in again.' });
+      return res
+        .status(429)
+        .json({ message: 'Too many verification attempts. Please sign in again.' });
     }
 
     const user = await getUserById(
@@ -123,7 +127,9 @@ const verify2FAWithTempToken = async (req, res) => {
 
     const { token, backupCode } = req.body;
     if (enrolling && req.body.backupCodesAcknowledged !== true) {
-      return res.status(400).json({ message: 'Download and acknowledge your backup codes before completing MFA setup.' });
+      return res.status(400).json({
+        message: 'Download and acknowledge your backup codes before completing MFA setup.',
+      });
     }
     const secret = await getTOTPSecret(secretSource);
     let isVerified = false;
@@ -137,7 +143,9 @@ const verify2FAWithTempToken = async (req, res) => {
       const attempts = await recordFailure(payload);
       if (attempts >= MFA_MAX_ATTEMPTS) {
         clearPendingCookie(res);
-        return res.status(429).json({ message: 'Too many verification attempts. Please sign in again.' });
+        return res
+          .status(429)
+          .json({ message: 'Too many verification attempts. Please sign in again.' });
       }
       return res.status(401).json({ message: 'Invalid verification code.' });
     }

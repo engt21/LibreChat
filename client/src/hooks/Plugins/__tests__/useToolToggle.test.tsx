@@ -2,7 +2,7 @@ import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { LocalStorageKeys, Tools } from 'librechat-data-provider';
 import { RecoilRoot, useRecoilValue, useSetRecoilState } from 'recoil';
-import { ephemeralAgentByConvoId } from '~/store';
+import store, { ephemeralAgentByConvoId } from '~/store';
 import { useToolToggle } from '../useToolToggle';
 
 /**
@@ -173,6 +173,51 @@ describe('useToolToggle', () => {
   // ─── Ephemeral Agent Sync ──────────────────────────────────────────
 
   describe('ephemeral agent reflects toggle state', () => {
+    it('preserves uploaded files while toggling Code Interpreter and image generation', () => {
+      const conversationId = 'openai-tool-files';
+      const uploadedFiles = new Map([
+        [
+          'uploaded-image',
+          {
+            file_id: 'uploaded-image',
+            filepath: '/images/user/uploaded-image.png',
+            type: 'image/png',
+            progress: 1,
+          },
+        ],
+      ]);
+      const wrapperWithFiles = ({ children }: { children: React.ReactNode }) => (
+        <RecoilRoot initializeState={({ set }) => set(store.filesByIndex(0), uploadedFiles)}>
+          {children}
+        </RecoilRoot>
+      );
+      const TestComponent = () => {
+        const codeInterpreter = useToolToggle({
+          conversationId,
+          toolKey: Tools.execute_code,
+          localStorageKey: LocalStorageKeys.LAST_CODE_TOGGLE_,
+          isAuthenticated: true,
+        });
+        const imageGeneration = useToolToggle({
+          conversationId,
+          toolKey: Tools.image_generation,
+          localStorageKey: LocalStorageKeys.LAST_IMAGE_GENERATION_TOGGLE_,
+          isAuthenticated: true,
+        });
+        const files = useRecoilValue(store.filesByIndex(0));
+        return { codeInterpreter, imageGeneration, files };
+      };
+
+      const { result } = renderHook(() => TestComponent(), { wrapper: wrapperWithFiles });
+
+      act(() => {
+        result.current.codeInterpreter.handleChange({ value: true });
+        result.current.imageGeneration.handleChange({ value: true });
+      });
+
+      expect(result.current.files).toEqual(uploadedFiles);
+    });
+
     it('should update ephemeral agent when user toggles a tool', async () => {
       const conversationId = 'convo-sync-test';
       const TestComponent = () => {

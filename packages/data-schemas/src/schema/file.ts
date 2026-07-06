@@ -74,6 +74,7 @@ const file: Schema<IMongoFile> = new Schema(
     metadata: {
       fileIdentifier: String,
       nativeTool: String,
+      originalFilepath: String,
       ragProvider: String,
       ragModel: String,
       transcriptionReference: {

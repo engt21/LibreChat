@@ -12,6 +12,27 @@ const {
 } = require('librechat-data-provider');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 
+const supportsOriginalImageDetail = ({ provider, endpoint, model }) => {
+  const effectiveProvider = provider ?? endpoint;
+  if (effectiveProvider !== EModelEndpoint.openAI || typeof model !== 'string') {
+    return false;
+  }
+
+  return /^gpt-5\.(?:[4-9]|[1-9]\d+)(?:$|-(?!mini(?:$|-)|nano(?:$|-)))/i.test(model);
+};
+
+const resolveImageDetail = ({ requestedDetail, provider, endpoint, model }) => {
+  if (requestedDetail && requestedDetail !== ImageDetail.auto) {
+    return requestedDetail;
+  }
+
+  if (supportsOriginalImageDetail({ provider, endpoint, model })) {
+    return 'original';
+  }
+
+  return ImageDetail.high;
+};
+
 /**
  * Converts a readable stream to a base64 encoded string.
  *
@@ -89,11 +110,12 @@ const blobStorageSources = new Set([FileSources.azure_blob, FileSources.s3, File
  * @param {object} params - Object containing provider/endpoint information
  * @param {Providers | EModelEndpoint | string} [params.provider] - The provider for the image
  * @param {string} [params.endpoint] - Optional: The endpoint for the image
+ * @param {string} [params.model] - Optional: The model receiving the image
  * @param {string} [mode] - Optional: The endpoint mode for the image.
  * @returns {Promise<{ files: MongoFile[]; image_urls: MessageContentImageUrl[] }>} - A promise that resolves to the result object containing the encoded images and file details.
  */
 async function encodeAndFormat(req, files, params, mode) {
-  const { provider, endpoint } = params;
+  const { provider, endpoint, model } = params;
   const effectiveEndpoint = endpoint ?? provider;
   const promises = [];
   /** @type {Record<FileSources, Pick<ReturnType<typeof getStrategyFunctions>, 'prepareImagePayload' | 'getDownloadStream'>>} */
@@ -148,7 +170,12 @@ async function encodeAndFormat(req, files, params, mode) {
     promises.push(preparePayload(req, file));
   }
 
-  const detail = req.body.imageDetail ?? ImageDetail.auto;
+  const detail = resolveImageDetail({
+    requestedDetail: req.body.imageDetail,
+    provider,
+    endpoint,
+    model,
+  });
 
   /** @type {Array<[MongoFile, string]>} */
   const formattedImages = await Promise.all(promises);
@@ -252,4 +279,5 @@ async function encodeAndFormat(req, files, params, mode) {
 
 module.exports = {
   encodeAndFormat,
+  resolveImageDetail,
 };

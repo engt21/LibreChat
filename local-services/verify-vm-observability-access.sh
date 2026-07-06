@@ -49,7 +49,7 @@ ip=$TAILSCALE_IP
 curl --resolve "$host:8443:$ip" -fsS "https://$host:8443/api/config" >/dev/null
 response=$(curl --resolve "$host:8444:$ip" -fsS "https://$host:8444/api/auth/providers")
 grep -Fq "https://$host:8444/api/auth/callback/credentials" <<<"$response"
-mailpit_auth=$(sed -n 's/^MP_UI_AUTH=//p' /opt/LibreChat-custom/.secrets/mailpit.env)
+mailpit_auth=$(sudo sed -n 's/^MP_UI_AUTH=//p' /opt/LibreChat-custom/.secrets/mailpit.env)
 [[ -n "$mailpit_auth" ]]
 status=$(curl --resolve "$host:8448:$ip" -sS -o /dev/null -w '%{http_code}' "https://$host:8448/")
 [[ "$status" == "401" ]]

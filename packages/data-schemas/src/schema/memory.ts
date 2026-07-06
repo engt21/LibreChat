@@ -28,6 +28,13 @@ const MemoryEntrySchema: Schema<IMemoryEntry> = new Schema({
     type: Date,
     default: Date.now,
   },
+  source: { type: String, enum: ['automatic', 'manual'] },
+  sourceConversationId: { type: String },
+  sourceMessageId: { type: String },
+  sourceResponseMessageId: { type: String },
+  sourceModel: { type: String },
+  promptVersion: { type: String },
+  evidence: { type: String },
 });
 
 export default MemoryEntrySchema;

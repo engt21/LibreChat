@@ -48,6 +48,12 @@ describe('realtime model service URL builders', () => {
     expect(url).toBe('wss://api.openai.com/v1/realtime?model=gpt-realtime-1.5');
   });
 
+  it('uses gpt-realtime-2 as the first OpenAI fallback model', () => {
+    const { DEFAULT_OPENAI_REALTIME_MODELS } = require('~/server/services/Realtime/constants');
+
+    expect(DEFAULT_OPENAI_REALTIME_MODELS[0]).toBe('gpt-realtime-2');
+  });
+
   it('builds an Azure GA realtime websocket URL with model query param', () => {
     const url = buildAzureRealtimeURL({
       baseURL: 'https://example.openai.azure.com/openai/v1',

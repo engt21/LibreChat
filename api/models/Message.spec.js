@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
-const { messageSchema } = require('@librechat/data-schemas');
-const { MongoMemoryServer } = require('mongodb-memory-server');
+const { messageSchema, toolCallSchema, transactionSchema } = require('@librechat/data-schemas');
+const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
 const {
   saveMessage,
@@ -11,14 +11,28 @@ const {
   bulkSaveMessages,
   updateMessageText,
   deleteMessagesSince,
+  deleteMessageBranch,
 } = require('./Message');
 
 jest.mock('~/server/services/Config/app');
+jest.mock(
+  '@librechat/api',
+  () => ({
+    createTempChatExpirationDate: jest.fn((interfaceConfig) => {
+      const configured = Number(interfaceConfig?.temporaryChatRetention);
+      const hours = Number.isFinite(configured) ? Math.min(Math.max(configured, 1), 8760) : 720;
+      return new Date(Date.now() + hours * 60 * 60 * 1000);
+    }),
+  }),
+  { virtual: true },
+);
 
 /**
  * @type {import('mongoose').Model<import('@librechat/data-schemas').IMessage>}
  */
 let Message;
+let ToolCall;
+let Transaction;
 
 describe('Message Operations', () => {
   let mongoServer;
@@ -26,9 +40,11 @@ describe('Message Operations', () => {
   let mockMessageData;
 
   beforeAll(async () => {
-    mongoServer = await MongoMemoryServer.create();
+    mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
     const mongoUri = mongoServer.getUri();
     Message = mongoose.models.Message || mongoose.model('Message', messageSchema);
+    ToolCall = mongoose.models.ToolCall || mongoose.model('ToolCall', toolCallSchema);
+    Transaction = mongoose.models.Transaction || mongoose.model('Transaction', transactionSchema);
     await mongoose.connect(mongoUri);
   });
 
@@ -40,6 +56,8 @@ describe('Message Operations', () => {
   beforeEach(async () => {
     // Clear database
     await Message.deleteMany({});
+    await ToolCall.deleteMany({});
+    await Transaction.deleteMany({});
 
     mockReq = {
       user: { id: 'user123' },
@@ -217,6 +235,206 @@ describe('Message Operations', () => {
 
       expect(user123Messages).toHaveLength(0);
       expect(user456Messages).toHaveLength(1);
+    });
+  });
+
+  describe('deleteMessageBranch', () => {
+    it('deletes the originating prompt, every generation fragment, descendants, and tool calls', async () => {
+      const conversationId = uuidv4();
+      const userObjectId = new mongoose.Types.ObjectId();
+      await Message.create([
+        {
+          messageId: 'prompt',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: true,
+          text: 'Prompt',
+        },
+        {
+          messageId: 'route-a',
+          parentMessageId: 'prompt',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: false,
+          text: 'A',
+        },
+        {
+          messageId: 'route-a-followup',
+          parentMessageId: 'route-a',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: true,
+          text: 'Continue A',
+        },
+        {
+          messageId: 'route-a-answer',
+          parentMessageId: 'route-a-followup',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: false,
+          text: 'A continued',
+        },
+        {
+          messageId: 'route-b',
+          parentMessageId: 'prompt',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: false,
+          text: 'B',
+        },
+        {
+          messageId: 'unrelated-prompt',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: true,
+          text: 'Keep me',
+        },
+      ]);
+      await ToolCall.create([
+        {
+          conversationId,
+          messageId: 'route-a',
+          toolId: 'route-tool',
+          user: userObjectId,
+        },
+        {
+          conversationId,
+          messageId: 'unrelated-prompt',
+          toolId: 'unrelated-tool',
+          user: userObjectId,
+        },
+      ]);
+      await Transaction.create([
+        {
+          conversationId,
+          messageId: 'route-a',
+          tokenType: 'completion',
+          rawAmount: -20,
+          user: userObjectId,
+        },
+        {
+          conversationId,
+          messageId: 'unrelated-prompt',
+          tokenType: 'prompt',
+          rawAmount: -10,
+          user: userObjectId,
+        },
+      ]);
+
+      const result = await deleteMessageBranch(mockReq, {
+        conversationId,
+        messageId: 'route-a',
+      });
+
+      expect(result).toEqual({ status: 'deleted', deletedCount: 5 });
+      const remainingIds = (await Message.find({ conversationId, user: 'user123' }).lean()).map(
+        (message) => message.messageId,
+      );
+      expect(remainingIds).toEqual(['unrelated-prompt']);
+      await expect(ToolCall.find({ conversationId }).lean()).resolves.toEqual([
+        expect.objectContaining({ messageId: 'unrelated-prompt', toolId: 'unrelated-tool' }),
+      ]);
+      await expect(Transaction.find({ conversationId }).lean()).resolves.toEqual([
+        expect.objectContaining({ messageId: 'unrelated-prompt', tokenType: 'prompt' }),
+      ]);
+    });
+
+    it('rolls back related deletions when message deletion fails', async () => {
+      const conversationId = uuidv4();
+      const userObjectId = new mongoose.Types.ObjectId();
+      await Message.create([
+        {
+          messageId: 'prompt',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: true,
+          text: 'Prompt',
+        },
+        {
+          messageId: 'route-a',
+          parentMessageId: 'prompt',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: false,
+          text: 'A',
+        },
+      ]);
+      await ToolCall.create({
+        conversationId,
+        messageId: 'route-a',
+        toolId: 'execute_code',
+        user: userObjectId,
+      });
+      await Transaction.create({
+        conversationId,
+        messageId: 'route-a',
+        tokenType: 'completion',
+        rawAmount: -20,
+        user: userObjectId,
+      });
+      const deleteSpy = jest.spyOn(Message, 'deleteMany').mockRejectedValueOnce(new Error('failed'));
+
+      await expect(
+        deleteMessageBranch(mockReq, { conversationId, messageId: 'route-a' }),
+      ).rejects.toThrow('failed');
+
+      deleteSpy.mockRestore();
+      await expect(Message.countDocuments({ conversationId })).resolves.toBe(2);
+      await expect(ToolCall.countDocuments({ conversationId })).resolves.toBe(1);
+      await expect(Transaction.countDocuments({ conversationId })).resolves.toBe(1);
+    });
+
+    it('deletes a prompt even when only one generation exists', async () => {
+      const conversationId = uuidv4();
+      await Message.create([
+        {
+          messageId: 'prompt',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: true,
+          text: 'Prompt',
+        },
+        {
+          messageId: 'only-route',
+          parentMessageId: 'prompt',
+          conversationId,
+          user: 'user123',
+          isCreatedByUser: false,
+          text: 'Only answer',
+        },
+      ]);
+
+      await expect(
+        deleteMessageBranch(mockReq, { conversationId, messageId: 'only-route' }),
+      ).resolves.toEqual({ status: 'deleted', deletedCount: 2 });
+      await expect(Message.countDocuments({ conversationId })).resolves.toBe(0);
+    });
+
+    it("does not delete another user's route", async () => {
+      const conversationId = uuidv4();
+      await Message.create([
+        {
+          messageId: 'victim-route-a',
+          parentMessageId: 'victim-prompt',
+          conversationId,
+          user: 'victim',
+          isCreatedByUser: false,
+          text: 'A',
+        },
+        {
+          messageId: 'victim-route-b',
+          parentMessageId: 'victim-prompt',
+          conversationId,
+          user: 'victim',
+          isCreatedByUser: false,
+          text: 'B',
+        },
+      ]);
+
+      await expect(
+        deleteMessageBranch(mockReq, { conversationId, messageId: 'victim-route-a' }),
+      ).resolves.toEqual({ status: 'not_found', deletedCount: 0 });
+      await expect(Message.countDocuments({ conversationId, user: 'victim' })).resolves.toBe(2);
     });
   });
 

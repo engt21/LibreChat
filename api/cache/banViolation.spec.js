@@ -6,7 +6,10 @@ const banViolation = require('./banViolation');
 jest.mock('~/models', () => ({
   ...jest.requireActual('~/models'),
   deleteAllUserSessions: jest.fn().mockResolvedValue(true),
+  findUser: jest.fn().mockResolvedValue(null),
 }));
+
+const { deleteAllUserSessions, findUser } = require('~/models');
 
 describe('banViolation', () => {
   let mongoServer;
@@ -57,6 +60,18 @@ describe('banViolation', () => {
   it('should not ban if errorMessage is not provided', async () => {
     await banViolation(req, res, null);
     expect(errorMessage.ban).toBeFalsy();
+  });
+
+  it('should never automatically ban or revoke sessions for an administrator', async () => {
+    findUser.mockResolvedValueOnce({ _id: errorMessage.user_id, role: 'ADMIN' });
+    errorMessage.prev_count = 19;
+    errorMessage.violation_count = 20;
+
+    await banViolation(req, res, errorMessage);
+
+    expect(errorMessage.ban).toBeFalsy();
+    expect(deleteAllUserSessions).not.toHaveBeenCalled();
+    expect(res.clearCookie).not.toHaveBeenCalled();
   });
 
   it('[1/3] should ban if violation_count crosses the interval threshold: 19 -> 39', async () => {

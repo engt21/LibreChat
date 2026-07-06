@@ -38,7 +38,7 @@ jest.mock('~/models', () => ({
   updateFileUsage: jest.fn(),
 }));
 
-const { getConvo, saveConvo } = require('~/models');
+const { getConvo, getMessages, saveConvo } = require('~/models');
 
 jest.mock('@librechat/agents', () => {
   const actual = jest.requireActual('@librechat/agents');
@@ -612,6 +612,33 @@ describe('BaseClient', () => {
       );
     });
 
+    test('uses owned linked-chat context for completion while saving the original prompt', async () => {
+      const referencedConversationId = 'ce34b36e-025e-4b07-baf8-ee6ac489f11a';
+      const prompt = `Compare this with https://example.test/c/${referencedConversationId}`;
+      getConvo.mockImplementation(async (userId, conversationId) => {
+        if (userId === 'user-1' && conversationId === referencedConversationId) {
+          return { conversationId, title: 'Referenced chat' };
+        }
+        return null;
+      });
+      getMessages.mockResolvedValue([
+        { isCreatedByUser: true, text: 'Historical question' },
+        { isCreatedByUser: false, sender: 'Assistant', text: 'Historical answer' },
+      ]);
+      TestClient.saveMessageToDatabase = jest.fn().mockResolvedValue({ message: {} });
+
+      await TestClient.sendMessage(prompt, { user: 'user-1' });
+
+      const completionPayload = TestClient.sendCompletion.mock.calls[0][0];
+      expect(completionPayload.at(-1).content).toContain('Historical question');
+      expect(completionPayload.at(-1).content).toContain('Historical answer');
+      expect(TestClient.saveMessageToDatabase).toHaveBeenCalledWith(
+        expect.objectContaining({ isCreatedByUser: true, text: prompt }),
+        expect.any(Object),
+        'user-1',
+      );
+    });
+
     test('should handle existing conversation when getConvo retrieves one', async () => {
       const existingConvo = {
         conversationId: 'existing-convo-id',
@@ -1107,6 +1134,29 @@ describe('BaseClient', () => {
       const processedAttachments = await TestClient.processAttachments({}, [nativeAttachment]);
 
       expect(processedAttachments).toEqual([nativeAttachment]);
+    });
+
+    test.each([
+      ['native execute_code metadata', { nativeTool: EToolResources.execute_code }],
+      ['local tool file identifier', { fileIdentifier: 'sandbox-file-123' }],
+    ])('processAttachments sends tool-routed images to vision for %s', async (_, metadata) => {
+      const toolImage = {
+        ...attachment,
+        metadata,
+      };
+      TestClient.addImageURLs = jest.fn(async (message, images) => {
+        message.image_urls = [
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } },
+        ];
+        return images;
+      });
+
+      const message = {};
+      const processedAttachments = await TestClient.processAttachments(message, [toolImage]);
+
+      expect(TestClient.addImageURLs).toHaveBeenCalledWith(message, [toolImage]);
+      expect(message.image_urls).toHaveLength(1);
+      expect(processedAttachments).toEqual([toolImage]);
     });
 
     test('sendMessage keeps native execute_code uploads after attachment processing', async () => {

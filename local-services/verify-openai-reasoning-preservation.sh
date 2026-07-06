@@ -54,6 +54,36 @@ const rootDirectory = process.argv[2];
 const container = process.argv[3] || '';
 const requirements = [
   {
+    file: 'packages/data-provider/src/schemas.ts',
+    purpose: 'GPT-5.6 max and Ultra reasoning enum values',
+    patterns: [/max = 'max'/, /ultra = 'ultra'/],
+  },
+  {
+    file: 'packages/data-provider/src/openai.ts',
+    purpose: 'GPT-5.6 model capability resolution',
+    patterns: [/minorVersion >= 6/, /ReasoningEffort.max/, /ReasoningEffort.ultra/],
+  },
+  {
+    file: 'packages/data-provider/src/parameterSettings.ts',
+    purpose: 'GPT-5.6 reasoning picker options',
+    patterns: [/ReasoningEffort.max/, /ReasoningEffort.ultra/, /com_ui_ultra/],
+  },
+  {
+    file: 'packages/data-provider/src/openai.spec.ts',
+    purpose: 'GPT-5.6 capability regression coverage',
+    patterns: [/adds max and ultra controls for GPT-5.6 preview models/],
+  },
+  {
+    file: 'packages/api/src/endpoints/openai/llm.ts',
+    purpose: 'GPT-5.6 wire mapping and bounded hosted OpenAI/Azure Responses web search',
+    patterns: [/ReasoningEffort.ultra/, /effort: requestReasoningEffort/, /mode: openAIReasoningMode/, /const DEFAULT_OPENAI_WEB_SEARCH_MAX_TOOL_CALLS = 6;/],
+  },
+  {
+    file: 'packages/api/src/endpoints/openai/llm.spec.ts',
+    purpose: 'GPT-5.6 wire mapping regression coverage',
+    patterns: [/should map GPT-5\.6 ultra to max effort with pro reasoning mode/, /should send max reasoning effort for GPT-5\.6 models/],
+  },
+  {
     file: 'packages/api/src/endpoints/openai/llm.ts',
     purpose: 'bounded hosted OpenAI/Azure Responses web search',
     patterns: [
@@ -184,8 +214,12 @@ const fs = require('node:fs');
 
 const runtimeRequirements = [
   {
+    file: '/app/packages/data-provider/dist/index.js',
+    patterns: [/ultra/, /com_ui_ultra/, /minorVersion >= 6|minorVersion>=6/],
+  },
+  {
     file: '/app/packages/api/dist/index.js',
-    patterns: [/max_tool_calls/, /getOpenAIWebSearchMaxToolCalls/],
+    patterns: [/max_tool_calls/, /getOpenAIWebSearchMaxToolCalls/, /openAIReasoningMode[^\n]{0,80}'pro'|mode:.*pro|mode="pro"|mode:"pro"/],
   },
   {
     file: '/app/node_modules/@librechat/agents/dist/cjs/stream.cjs',
