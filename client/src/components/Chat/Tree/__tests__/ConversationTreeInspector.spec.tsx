@@ -110,13 +110,14 @@ describe('ConversationTreeInspector', () => {
           canCreate: true,
         }}
         created={null}
-        undoDetails={null}
+        pendingUndoTarget={null}
         error={null}
         stabilization={null}
         onModeChange={jest.fn()}
         onCreate={jest.fn()}
         onUndo={jest.fn()}
         onConfirmUndoContinuations={jest.fn()}
+        onCancelPendingUndoTarget={jest.fn()}
         onStopAndGraft={jest.fn()}
         onWaitForCompletion={jest.fn()}
         onCancelStabilization={jest.fn()}
@@ -141,6 +142,7 @@ describe('ConversationTreeInspector', () => {
     const onStopAndGraft = jest.fn();
     const onWaitForCompletion = jest.fn();
     const onCancelStabilization = jest.fn();
+    const onCancelPendingUndoTarget = jest.fn();
     const onConfirmUndoContinuations = jest.fn();
 
     render(
@@ -163,38 +165,49 @@ describe('ConversationTreeInspector', () => {
           copiedMessageCount: 2,
           createdMessages: [],
         }}
-        undoDetails={{
+        pendingUndoTarget={{
           graftId: 'graft-1',
-          bridgeMessageId: 'bridge-1',
-          copiedMessageIds: ['copy-1'],
-          continuationMessageIds: [
-            'continuation-message-0001',
-            'continuation-message-0002',
-            'continuation-message-0003',
-            'continuation-message-0004',
-            'continuation-message-0005',
-            'continuation-message-0006',
-          ],
-          copiedCounts: {
-            messages: 3,
-            toolCalls: 2,
-            files: 1,
-            images: 0,
-            approximateTokens: 120,
+          created: {
+            graftId: 'graft-1',
+            bridgeMessageId: 'bridge-1',
+            copiedRootMessageId: 'copy-1',
+            activeCopiedMessageId: 'copy-2',
+            copiedMessageCount: 2,
+            createdMessages: [],
           },
-          continuationCounts: {
-            messages: 6,
-            toolCalls: 1,
-            files: 2,
-            images: 1,
-            approximateTokens: 240,
+          details: {
+            graftId: 'graft-1',
+            bridgeMessageId: 'bridge-1',
+            copiedMessageIds: ['copy-1'],
+            continuationMessageIds: [
+              'continuation-message-0001',
+              'continuation-message-0002',
+              'continuation-message-0003',
+              'continuation-message-0004',
+              'continuation-message-0005',
+              'continuation-message-0006',
+            ],
+            copiedCounts: {
+              messages: 3,
+              toolCalls: 2,
+              files: 1,
+              images: 0,
+              approximateTokens: 120,
+            },
+            continuationCounts: {
+              messages: 6,
+              toolCalls: 1,
+              files: 2,
+              images: 1,
+              approximateTokens: 240,
+            },
+            canUndoWithoutContinuations: false,
+            mode: 'generation',
+            sourceState: 'complete',
+            destinationState: 'complete',
+            copiedRootMessageId: 'copy-1',
+            activeCopiedMessageId: 'copy-2',
           },
-          canUndoWithoutContinuations: false,
-          mode: 'generation',
-          sourceState: 'complete',
-          destinationState: 'complete',
-          copiedRootMessageId: 'copy-1',
-          activeCopiedMessageId: 'copy-2',
         }}
         error={{
           error: 'Busy',
@@ -208,6 +221,7 @@ describe('ConversationTreeInspector', () => {
         onCreate={jest.fn()}
         onUndo={jest.fn()}
         onConfirmUndoContinuations={onConfirmUndoContinuations}
+        onCancelPendingUndoTarget={onCancelPendingUndoTarget}
         onStopAndGraft={onStopAndGraft}
         onWaitForCompletion={onWaitForCompletion}
         onCancelStabilization={onCancelStabilization}
@@ -216,7 +230,9 @@ describe('ConversationTreeInspector', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop and graft' }));
     fireEvent.click(screen.getByRole('button', { name: 'Wait for it to finish' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    const cancelButtons = screen.getAllByRole('button', { name: 'Cancel' });
+    fireEvent.click(cancelButtons[0]);
+    fireEvent.click(cancelButtons[1]);
     fireEvent.click(
       screen.getByRole('button', { name: 'Undo graft and delete later continuation' }),
     );
@@ -233,6 +249,7 @@ describe('ConversationTreeInspector', () => {
     expect(onStopAndGraft).toHaveBeenCalled();
     expect(onWaitForCompletion).toHaveBeenCalled();
     expect(onCancelStabilization).toHaveBeenCalled();
+    expect(onCancelPendingUndoTarget).toHaveBeenCalled();
     expect(onConfirmUndoContinuations).toHaveBeenCalled();
   });
 
@@ -257,31 +274,35 @@ describe('ConversationTreeInspector', () => {
           copiedMessageCount: 2,
           createdMessages: [],
         }}
-        undoDetails={{
+        pendingUndoTarget={{
           graftId: 'graft-a',
-          bridgeMessageId: 'bridge-a',
-          copiedMessageIds: ['copy-a-1'],
-          continuationMessageIds: ['continuation-message-0001'],
-          copiedCounts: {
-            messages: 1,
-            toolCalls: 0,
-            files: 0,
-            images: 0,
-            approximateTokens: 32,
+          created: null,
+          details: {
+            graftId: 'graft-a',
+            bridgeMessageId: 'bridge-a',
+            copiedMessageIds: ['copy-a-1'],
+            continuationMessageIds: ['continuation-message-0001'],
+            copiedCounts: {
+              messages: 1,
+              toolCalls: 0,
+              files: 0,
+              images: 0,
+              approximateTokens: 32,
+            },
+            continuationCounts: {
+              messages: 1,
+              toolCalls: 0,
+              files: 0,
+              images: 0,
+              approximateTokens: 16,
+            },
+            canUndoWithoutContinuations: false,
+            mode: 'generation',
+            sourceState: 'complete',
+            destinationState: 'complete',
+            copiedRootMessageId: 'copy-a-1',
+            activeCopiedMessageId: 'copy-a-2',
           },
-          continuationCounts: {
-            messages: 1,
-            toolCalls: 0,
-            files: 0,
-            images: 0,
-            approximateTokens: 16,
-          },
-          canUndoWithoutContinuations: false,
-          mode: 'generation',
-          sourceState: 'complete',
-          destinationState: 'complete',
-          copiedRootMessageId: 'copy-a-1',
-          activeCopiedMessageId: 'copy-a-2',
         }}
         error={null}
         stabilization={null}
@@ -289,6 +310,7 @@ describe('ConversationTreeInspector', () => {
         onCreate={jest.fn()}
         onUndo={jest.fn()}
         onConfirmUndoContinuations={jest.fn()}
+        onCancelPendingUndoTarget={jest.fn()}
         onStopAndGraft={jest.fn()}
         onWaitForCompletion={jest.fn()}
         onCancelStabilization={jest.fn()}
@@ -297,6 +319,78 @@ describe('ConversationTreeInspector', () => {
 
     expect(screen.getByText('Undo target')).toBeInTheDocument();
     expect(screen.getByText('graft-a')).toBeInTheDocument();
+  });
+
+  it('keeps destructive recovery visible and cancellable when no current created graft remains', () => {
+    const onConfirmUndoContinuations = jest.fn();
+    const onCancelPendingUndoTarget = jest.fn();
+
+    render(
+      <ConversationTreeInspector
+        sourceNode={sourceNode}
+        destinationNode={destinationNode}
+        statusText="Preview requested"
+        listOpen={false}
+        onToggleList={jest.fn()}
+        listContent={<div>List content</div>}
+        phase="undo-preview"
+        pendingAction={null}
+        mode="generation"
+        preview={null}
+        created={null}
+        pendingUndoTarget={{
+          graftId: 'graft-a',
+          created: null,
+          details: {
+            graftId: 'graft-a',
+            bridgeMessageId: 'bridge-a',
+            copiedMessageIds: ['copy-a-1'],
+            continuationMessageIds: ['continuation-message-0001'],
+            copiedCounts: {
+              messages: 1,
+              toolCalls: 0,
+              files: 0,
+              images: 0,
+              approximateTokens: 32,
+            },
+            continuationCounts: {
+              messages: 1,
+              toolCalls: 0,
+              files: 0,
+              images: 0,
+              approximateTokens: 16,
+            },
+            canUndoWithoutContinuations: false,
+            mode: 'generation',
+            sourceState: 'complete',
+            destinationState: 'complete',
+            copiedRootMessageId: 'copy-a-1',
+            activeCopiedMessageId: 'copy-a-2',
+          },
+        }}
+        error={null}
+        stabilization={null}
+        onModeChange={jest.fn()}
+        onCreate={jest.fn()}
+        onUndo={jest.fn()}
+        onConfirmUndoContinuations={onConfirmUndoContinuations}
+        onCancelPendingUndoTarget={onCancelPendingUndoTarget}
+        onStopAndGraft={jest.fn()}
+        onWaitForCompletion={jest.fn()}
+        onCancelStabilization={jest.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(screen.getByText('Undo scope')).toBeInTheDocument();
+    expect(screen.getByText('Undo target')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Undo graft and delete later continuation' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(onConfirmUndoContinuations).toHaveBeenCalled();
+    expect(onCancelPendingUndoTarget).toHaveBeenCalled();
   });
 
   it('disables destructive controls and exposes busy state while an action is already pending', () => {
@@ -343,31 +437,35 @@ describe('ConversationTreeInspector', () => {
           copiedMessageCount: 2,
           createdMessages: [],
         }}
-        undoDetails={{
+        pendingUndoTarget={{
           graftId: 'graft-1',
-          bridgeMessageId: 'bridge-1',
-          copiedMessageIds: ['copy-1'],
-          continuationMessageIds: ['later-1'],
-          copiedCounts: {
-            messages: 2,
-            toolCalls: 0,
-            files: 0,
-            images: 0,
-            approximateTokens: 12,
+          created: null,
+          details: {
+            graftId: 'graft-1',
+            bridgeMessageId: 'bridge-1',
+            copiedMessageIds: ['copy-1'],
+            continuationMessageIds: ['later-1'],
+            copiedCounts: {
+              messages: 2,
+              toolCalls: 0,
+              files: 0,
+              images: 0,
+              approximateTokens: 12,
+            },
+            continuationCounts: {
+              messages: 1,
+              toolCalls: 0,
+              files: 0,
+              images: 0,
+              approximateTokens: 8,
+            },
+            canUndoWithoutContinuations: false,
+            mode: 'generation',
+            sourceState: 'complete',
+            destinationState: 'complete',
+            copiedRootMessageId: 'copy-1',
+            activeCopiedMessageId: 'copy-2',
           },
-          continuationCounts: {
-            messages: 1,
-            toolCalls: 0,
-            files: 0,
-            images: 0,
-            approximateTokens: 8,
-          },
-          canUndoWithoutContinuations: false,
-          mode: 'generation',
-          sourceState: 'complete',
-          destinationState: 'complete',
-          copiedRootMessageId: 'copy-1',
-          activeCopiedMessageId: 'copy-2',
         }}
         error={null}
         stabilization={{
@@ -378,6 +476,7 @@ describe('ConversationTreeInspector', () => {
         onCreate={jest.fn()}
         onUndo={jest.fn()}
         onConfirmUndoContinuations={jest.fn()}
+        onCancelPendingUndoTarget={jest.fn()}
         onStopAndGraft={jest.fn()}
         onWaitForCompletion={jest.fn()}
         onCancelStabilization={jest.fn()}

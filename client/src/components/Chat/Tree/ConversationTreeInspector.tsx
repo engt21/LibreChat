@@ -7,6 +7,7 @@ import type {
 } from 'librechat-data-provider';
 import useLocalize from '~/hooks/useLocalize';
 import type {
+  GenerationGraftPendingUndoTarget,
   ParsedGenerationGraftError,
   GenerationGraftPendingAction,
   GenerationGraftPhase,
@@ -26,13 +27,14 @@ type ConversationTreeInspectorProps = {
   mode: TGenerationGraftMode;
   preview: TGenerationGraftPreviewResponse | null;
   created: TGenerationGraftCreateResponse | null;
-  undoDetails: TGenerationGraftDetailsResponse | null;
+  pendingUndoTarget: GenerationGraftPendingUndoTarget | null;
   error: ParsedGenerationGraftError | null;
   stabilization: GenerationGraftStabilizationState | null;
   onModeChange: (mode: TGenerationGraftMode) => void;
   onCreate: () => void | Promise<void>;
   onUndo: () => void | Promise<void>;
   onConfirmUndoContinuations: () => void | Promise<void>;
+  onCancelPendingUndoTarget: () => void;
   onStopAndGraft: () => void | Promise<void>;
   onWaitForCompletion: () => void | Promise<void>;
   onCancelStabilization: () => void;
@@ -149,18 +151,20 @@ export default function ConversationTreeInspector({
   mode,
   preview,
   created,
-  undoDetails,
+  pendingUndoTarget,
   error,
   stabilization,
   onModeChange,
   onCreate,
   onUndo,
   onConfirmUndoContinuations,
+  onCancelPendingUndoTarget,
   onStopAndGraft,
   onWaitForCompletion,
   onCancelStabilization,
 }: ConversationTreeInspectorProps) {
   const localize = useLocalize();
+  const undoDetails = pendingUndoTarget?.details ?? null;
   const sourceLifecycle =
     getLifecycleLabel(localize, preview?.sourceState ?? sourceNode?.lifecycle ?? null) ?? null;
   const destinationLifecycle =
@@ -348,7 +352,7 @@ export default function ConversationTreeInspector({
         </div>
       ) : null}
 
-      {created && undoDetails ? (
+      {undoDetails ? (
         <div className="grid gap-3 rounded-2xl border border-border-medium bg-surface-primary p-3">
           <div>
             <div className="text-sm font-medium text-text-primary">
@@ -362,7 +366,7 @@ export default function ConversationTreeInspector({
             <div className="text-xs uppercase tracking-wide text-text-secondary">
               {localize('com_ui_generation_tree_undo_target')}
             </div>
-            <div className="mt-1 break-all font-medium">{undoDetails.graftId}</div>
+            <div className="mt-1 break-all font-medium">{pendingUndoTarget?.graftId}</div>
           </div>
           <CountSection
             title={localize('com_ui_generation_tree_copied_counts')}
@@ -443,16 +447,26 @@ export default function ConversationTreeInspector({
             {localize('com_ui_generation_tree_undo')}
           </button>
         ) : null}
-        {created && undoDetails ? (
-          <button
-            type="button"
-            aria-busy={pendingAction === 'undo-destructive'}
-            className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-primary disabled:opacity-50"
-            disabled={actionPending}
-            onClick={() => void onConfirmUndoContinuations()}
-          >
-            {localize('com_ui_generation_tree_undo_destructive')}
-          </button>
+        {undoDetails ? (
+          <>
+            <button
+              type="button"
+              aria-busy={pendingAction === 'undo-destructive'}
+              className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-primary disabled:opacity-50"
+              disabled={actionPending}
+              onClick={() => void onConfirmUndoContinuations()}
+            >
+              {localize('com_ui_generation_tree_undo_destructive')}
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-secondary disabled:opacity-50"
+              disabled={actionPending}
+              onClick={onCancelPendingUndoTarget}
+            >
+              {localize('com_ui_cancel')}
+            </button>
+          </>
         ) : null}
       </div>
 

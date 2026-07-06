@@ -429,7 +429,7 @@ export default function ConversationTreeDialog({
                       mode={generationGraft.mode}
                       preview={generationGraft.preview}
                       created={generationGraft.created}
-                      undoDetails={generationGraft.undoDetails}
+                      pendingUndoTarget={generationGraft.pendingUndoTarget}
                       error={generationGraft.error}
                       stabilization={generationGraft.stabilization}
                       listOpen={true}
@@ -441,6 +441,7 @@ export default function ConversationTreeDialog({
                       onConfirmUndoContinuations={() =>
                         void generationGraft.confirmUndoContinuations()
                       }
+                      onCancelPendingUndoTarget={generationGraft.cancelPendingUndoTarget}
                       onStopAndGraft={() => void generationGraft.stopAndGraft()}
                       onWaitForCompletion={() => void generationGraft.waitForCompletion()}
                       onCancelStabilization={generationGraft.cancelStabilization}
@@ -504,7 +505,7 @@ export default function ConversationTreeDialog({
                     mode={generationGraft.mode}
                     preview={generationGraft.preview}
                     created={generationGraft.created}
-                    undoDetails={generationGraft.undoDetails}
+                    pendingUndoTarget={generationGraft.pendingUndoTarget}
                     error={generationGraft.error}
                     stabilization={generationGraft.stabilization}
                     listOpen={listOpen}
@@ -516,6 +517,7 @@ export default function ConversationTreeDialog({
                     onConfirmUndoContinuations={() =>
                       void generationGraft.confirmUndoContinuations()
                     }
+                    onCancelPendingUndoTarget={generationGraft.cancelPendingUndoTarget}
                     onStopAndGraft={() => void generationGraft.stopAndGraft()}
                     onWaitForCompletion={() => void generationGraft.waitForCompletion()}
                     onCancelStabilization={generationGraft.cancelStabilization}

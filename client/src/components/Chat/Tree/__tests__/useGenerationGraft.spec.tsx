@@ -1041,6 +1041,131 @@ describe('useGenerationGraft', () => {
     expect(result.current.created?.graftId).toBe('graft-b');
   });
 
+  it('preserves a pending continuation recovery target after the current graft is safely undone', async () => {
+    const continuationConflict = createGraftError({
+      error: 'The graft has continuations.',
+      code: 'GRAFT_HAS_CONTINUATIONS',
+      continuationMessageIds: ['later-a-1'],
+    });
+    mockPreviewMutateAsync.mockResolvedValueOnce(createPreviewResponse()).mockResolvedValueOnce(
+      createPreviewResponse({
+        destinationMessageId: 'errored-destination',
+      }),
+    );
+    mockCreateMutateAsync
+      .mockResolvedValueOnce(
+        createCreateResult({
+          graftId: 'graft-a',
+          bridgeMessageId: 'bridge-a',
+          copiedRootMessageId: 'copy-a-1',
+          activeCopiedMessageId: 'copy-a-2',
+          createdMessages: [
+            { messageId: 'bridge-a', conversationId: 'convo-1', text: 'Bridge A' } as never,
+            { messageId: 'copy-a-1', conversationId: 'convo-1', text: 'Copy A1' } as never,
+            { messageId: 'copy-a-2', conversationId: 'convo-1', text: 'Copy A2' } as never,
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        createCreateResult({
+          graftId: 'graft-b',
+          bridgeMessageId: 'bridge-b',
+          copiedRootMessageId: 'copy-b-1',
+          activeCopiedMessageId: 'copy-b-2',
+          createdMessages: [
+            { messageId: 'bridge-b', conversationId: 'convo-1', text: 'Bridge B' } as never,
+            { messageId: 'copy-b-1', conversationId: 'convo-1', text: 'Copy B1' } as never,
+            { messageId: 'copy-b-2', conversationId: 'convo-1', text: 'Copy B2' } as never,
+          ],
+        }),
+      );
+    mockedDataService.undoGenerationGraft
+      .mockRejectedValueOnce(continuationConflict as never)
+      .mockResolvedValueOnce({
+        graftId: 'graft-b',
+        deletedMessageIds: ['bridge-b', 'copy-b-1'],
+        deletedCount: 2,
+      } as never)
+      .mockResolvedValueOnce({
+        graftId: 'graft-a',
+        deletedMessageIds: ['bridge-a', 'copy-a-1', 'later-a-1'],
+        deletedCount: 3,
+      } as never);
+    mockedDataService.getGenerationGraft.mockResolvedValueOnce(
+      createDetails({
+        graftId: 'graft-a',
+        bridgeMessageId: 'bridge-a',
+        copiedMessageIds: ['copy-a-1'],
+        continuationMessageIds: ['later-a-1'],
+        copiedRootMessageId: 'copy-a-1',
+        activeCopiedMessageId: 'copy-a-2',
+      }),
+    );
+
+    const { result } = setup();
+
+    act(() => {
+      result.current.selectDestinationMessage('complete-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('complete-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+    await waitFor(() => expect(result.current.created?.graftId).toBe('graft-a'));
+
+    act(() => {
+      result.current.selectDestinationMessage('errored-destination');
+    });
+
+    await act(async () => {
+      await result.current.requestPreview('errored-destination');
+    });
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+
+    await act(async () => {
+      await result.current.createGraft();
+    });
+    await waitFor(() => expect(result.current.created?.graftId).toBe('graft-b'));
+
+    const firstToast = mockShowToast.mock.calls[0]?.[0];
+    expect(firstToast).toBeDefined();
+
+    await act(async () => {
+      firstToast.onAction();
+      await Promise.resolve();
+    });
+
+    expect(result.current.pendingUndoTarget?.graftId).toBe('graft-a');
+    expect(result.current.phase).toBe('undo-preview');
+
+    await act(async () => {
+      await result.current.undoGraft();
+    });
+
+    expect(mockedDataService.undoGenerationGraft).toHaveBeenNthCalledWith(2, 'convo-1', 'graft-b', {
+      includeContinuations: false,
+    });
+    expect(result.current.created).toBeNull();
+    expect(result.current.pendingUndoTarget?.graftId).toBe('graft-a');
+    expect(result.current.undoDetails?.graftId).toBe('graft-a');
+    expect(result.current.phase).toBe('undo-preview');
+
+    await act(async () => {
+      await result.current.confirmUndoContinuations();
+    });
+
+    expect(mockedDataService.undoGenerationGraft).toHaveBeenNthCalledWith(3, 'convo-1', 'graft-a', {
+      includeContinuations: true,
+    });
+    expect(result.current.pendingUndoTarget).toBeNull();
+    expect(result.current.created).toBeNull();
+  });
+
   it('performs a safe undo and exits created state on success', async () => {
     const { result } = setup();
 

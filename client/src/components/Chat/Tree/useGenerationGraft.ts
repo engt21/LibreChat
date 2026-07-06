@@ -66,7 +66,7 @@ type SelectionSnapshot = SelectionState & {
   activeSourceLeafMessageId: string | null;
 };
 
-type PendingUndoTarget = {
+export type GenerationGraftPendingUndoTarget = {
   graftId: string;
   created: TGenerationGraftCreateResponse | null;
   details: TGenerationGraftDetailsResponse | null;
@@ -294,7 +294,8 @@ export default function useGenerationGraft({
   const [preview, setPreview] = useState<TGenerationGraftPreviewResponse | null>(null);
   const [previewRevision, setPreviewRevision] = useState<string | null>(null);
   const [created, setCreated] = useState<TGenerationGraftCreateResponse | null>(null);
-  const [pendingUndoTarget, setPendingUndoTarget] = useState<PendingUndoTarget | null>(null);
+  const [pendingUndoTarget, setPendingUndoTarget] =
+    useState<GenerationGraftPendingUndoTarget | null>(null);
   const [error, setError] = useState<ParsedGenerationGraftError | null>(null);
   const [stabilization, setStabilization] = useState<GenerationGraftStabilizationState | null>(
     null,
@@ -318,7 +319,7 @@ export default function useGenerationGraft({
     activeSourceLeafMessageId,
   });
   const createdRef = useRef<TGenerationGraftCreateResponse | null>(null);
-  const pendingUndoTargetRef = useRef<PendingUndoTarget | null>(null);
+  const pendingUndoTargetRef = useRef<GenerationGraftPendingUndoTarget | null>(null);
   const stabilizationRef = useRef<GenerationGraftStabilizationState | null>(stabilization);
   const operationTokenRef = useRef(0);
   const isMountedRef = useRef(true);
@@ -792,6 +793,7 @@ export default function useGenerationGraft({
   const resetDeletedGraftState = useCallback((graftId: string) => {
     const isCurrentCreated = createdRef.current?.graftId === graftId;
     const isPendingUndoTarget = pendingUndoTargetRef.current?.graftId === graftId;
+    const nextPendingUndoTarget = isPendingUndoTarget ? null : pendingUndoTargetRef.current;
 
     if (!isCurrentCreated && !isPendingUndoTarget) {
       return null;
@@ -808,16 +810,26 @@ export default function useGenerationGraft({
       setPreview(null);
       setPreviewRevision(null);
       setStabilization(null);
-      setPhase(getBasePhase(selectionRef.current));
+      setPhase(
+        nextPendingUndoTarget?.details != null
+          ? 'undo-preview'
+          : getBasePhase(selectionRef.current),
+      );
       return null;
     }
 
-    setPhase(createdRef.current != null ? 'created' : getBasePhase(selectionRef.current));
+    setPhase(
+      nextPendingUndoTarget?.details != null
+        ? 'undo-preview'
+        : createdRef.current != null
+          ? 'created'
+          : getBasePhase(selectionRef.current),
+    );
     return null;
   }, []);
 
   const undoSpecificGraft = useCallback(
-    async (target: PendingUndoTarget | null, includeContinuations: boolean) => {
+    async (target: GenerationGraftPendingUndoTarget | null, includeContinuations: boolean) => {
       if (target == null || target.graftId.length === 0) {
         return null;
       }
@@ -929,6 +941,17 @@ export default function useGenerationGraft({
 
     return undoSpecificGraft(pendingUndoTargetRef.current, true);
   }, [undoSpecificGraft]);
+
+  const cancelPendingUndoTarget = useCallback(() => {
+    if (pendingUndoTargetRef.current == null) {
+      return null;
+    }
+
+    setPendingUndoTarget(null);
+    setError(null);
+    setPhase(createdRef.current != null ? 'created' : getBasePhase(selectionRef.current));
+    return null;
+  }, []);
 
   const createGraft = useCallback(async () => {
     if (!previewMatchesCurrentSelection(preview) || preview?.canCreate !== true) {
@@ -1140,6 +1163,7 @@ export default function useGenerationGraft({
     mode: selection.mode,
     preview,
     created,
+    pendingUndoTarget,
     undoDetails,
     error,
     stabilization,
@@ -1167,6 +1191,7 @@ export default function useGenerationGraft({
     createGraft,
     undoGraft,
     confirmUndoContinuations,
+    cancelPendingUndoTarget,
     stopAndGraft: () => waitForStabilization({ stop: true }),
     waitForCompletion: () => waitForStabilization({ stop: false }),
     cancelStabilization: () => {
