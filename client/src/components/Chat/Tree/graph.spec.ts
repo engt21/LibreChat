@@ -202,6 +202,48 @@ describe('conversation tree graph normalization', () => {
     });
   });
 
+  it('treats missing author flags as non-assistant unless bridge metadata overrides the role', () => {
+    const graph = normalizeConversationGraph([
+      createMessage({
+        messageId: 'root',
+        text: 'root',
+        isCreatedByUser: true,
+      }),
+      {
+        messageId: 'missing-author',
+        parentMessageId: 'root',
+        text: 'missing author',
+        metadata: {},
+      },
+      {
+        messageId: 'bridge-missing-author',
+        parentMessageId: 'root',
+        text: 'bridge missing author',
+        metadata: {
+          generationGraft: {
+            kind: 'generation_graft',
+            graftId: 'graft-missing-author',
+          },
+        },
+      },
+      createMessage({
+        messageId: 'assistant-target',
+        parentMessageId: 'root',
+        text: 'assistant target',
+        isCreatedByUser: false,
+      }),
+    ]);
+
+    expect(graph.nodes.get('missing-author')?.role).toBe('user');
+    expect(graph.nodes.get('bridge-missing-author')?.role).toBe('graft_bridge');
+    expect(getInvalidGraftReason(graph, 'missing-author', 'assistant-target')).toBe(
+      'INVALID_SOURCE',
+    );
+    expect(getInvalidGraftReason(graph, 'assistant-target', 'missing-author')).toBe(
+      'INVALID_DESTINATION',
+    );
+  });
+
   it('assigns one-based generation indices only to assistant siblings', () => {
     const graph = normalizeConversationGraph([
       createMessage({

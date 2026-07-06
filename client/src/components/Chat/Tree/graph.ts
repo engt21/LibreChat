@@ -169,7 +169,7 @@ function classifyRole(message: ConversationTreeMessageLike): ConversationTreeNod
     return 'graft_bridge';
   }
 
-  return message.isCreatedByUser === true ? 'user' : 'assistant';
+  return message.isCreatedByUser === false ? 'assistant' : 'user';
 }
 
 function classifyLifecycle(

@@ -13,6 +13,8 @@ export const NODE_HEIGHT = 92;
 export const HORIZONTAL_GAP = 96;
 export const VERTICAL_GAP = 28;
 
+const VISIBLE_OWNER = '__visible__';
+
 type Span = {
   start: number;
   end: number;
@@ -97,22 +99,19 @@ function normalizeManualPositions(
   return new Map(entries);
 }
 
-function getTraversalRootsWithHidden(
-  graph: ConversationTreeGraph,
-  hiddenIds: Set<string>,
-): string[] {
+function getTraversalRoots(graph: ConversationTreeGraph): string[] {
   const roots: string[] = [];
   const seen = new Set<string>();
 
   for (const id of graph.rootIds) {
-    if (graph.nodes.has(id) && !seen.has(id) && !hiddenIds.has(id)) {
+    if (graph.nodes.has(id) && !seen.has(id)) {
       roots.push(id);
       seen.add(id);
     }
   }
 
   for (const id of graph.orderedIds) {
-    if (graph.nodes.has(id) && !seen.has(id) && !hiddenIds.has(id)) {
+    if (graph.nodes.has(id) && !seen.has(id)) {
       roots.push(id);
       seen.add(id);
     }
@@ -121,31 +120,59 @@ function getTraversalRootsWithHidden(
   return roots;
 }
 
-function countHiddenDescendants(graph: ConversationTreeGraph, rootId: string): number {
-  const visited = new Set<string>([rootId]);
-  const stack = [...(graph.nodes.get(rootId)?.childIds ?? [])];
-  let count = 0;
+function collectVisibilityState(
+  graph: ConversationTreeGraph,
+  collapsedIds: Set<string>,
+): {
+  visibleIds: Set<string>;
+  hiddenDescendantCounts: Map<string, number>;
+} {
+  const visibleIds = new Set<string>();
+  const hiddenDescendantCounts = new Map<string, number>();
+  const assignedOwners = new Map<string, string>();
 
-  while (stack.length > 0) {
-    const currentId = stack.pop();
-    if (currentId == null || visited.has(currentId)) {
-      continue;
+  const visit = (messageId: string, ownerId: string, path: Set<string>) => {
+    if (path.has(messageId)) {
+      return;
     }
 
-    const currentNode = graph.nodes.get(currentId);
-    if (currentNode == null) {
-      continue;
+    if (assignedOwners.has(messageId)) {
+      return;
     }
 
-    visited.add(currentId);
-    count += 1;
-
-    for (let index = currentNode.childIds.length - 1; index >= 0; index -= 1) {
-      stack.push(currentNode.childIds[index]);
+    const graphNode = graph.nodes.get(messageId);
+    if (graphNode == null) {
+      return;
     }
+
+    assignedOwners.set(messageId, ownerId);
+    const nextPath = new Set(path);
+    nextPath.add(messageId);
+
+    if (ownerId === VISIBLE_OWNER) {
+      visibleIds.add(messageId);
+
+      const childOwnerId = collapsedIds.has(messageId) ? messageId : VISIBLE_OWNER;
+      for (const childId of graphNode.childIds) {
+        visit(childId, childOwnerId, nextPath);
+      }
+      return;
+    }
+
+    hiddenDescendantCounts.set(ownerId, (hiddenDescendantCounts.get(ownerId) ?? 0) + 1);
+    for (const childId of graphNode.childIds) {
+      visit(childId, ownerId, nextPath);
+    }
+  };
+
+  for (const rootId of getTraversalRoots(graph)) {
+    visit(rootId, VISIBLE_OWNER, new Set());
   }
 
-  return count;
+  return {
+    visibleIds,
+    hiddenDescendantCounts,
+  };
 }
 
 function computeBounds(nodes: Iterable<PositionedTreeNode>): ConversationTreeLayoutBounds {
@@ -191,38 +218,11 @@ export function layoutConversationTree(
   const collapsedIds = new Set(options.collapsedIds ?? []);
   const manualPositions = normalizeManualPositions(options.manualPositions);
   const positionedById = new Map<string, PositionedTreeNode>();
-  const hiddenDescendantCounts = new Map<string, number>();
-  const hiddenIds = new Set<string>();
   const edges: ConversationTreeLayoutEdge[] = [];
   const secondarySize = getSecondarySize(orientation);
   const secondaryGap = getSecondaryGap(orientation);
+  const { visibleIds, hiddenDescendantCounts } = collectVisibilityState(graph, collapsedIds);
   let nextSecondaryStart = 0;
-
-  for (const collapsedId of collapsedIds) {
-    const visited = new Set<string>([collapsedId]);
-    const stack = [...(graph.nodes.get(collapsedId)?.childIds ?? [])];
-
-    while (stack.length > 0) {
-      const currentId = stack.pop();
-      if (currentId == null || visited.has(currentId)) {
-        continue;
-      }
-
-      const currentNode = graph.nodes.get(currentId);
-      if (currentNode == null) {
-        continue;
-      }
-
-      visited.add(currentId);
-      hiddenIds.add(currentId);
-
-      for (let index = currentNode.childIds.length - 1; index >= 0; index -= 1) {
-        stack.push(currentNode.childIds[index]);
-      }
-    }
-  }
-
-  const traversalRoots = getTraversalRootsWithHidden(graph, hiddenIds);
 
   const placeNode = (messageId: string, depth: number, path: Set<string>): Span | null => {
     if (path.has(messageId)) {
@@ -247,11 +247,9 @@ export function layoutConversationTree(
     nextPath.add(messageId);
 
     const visibleChildren: Array<{ id: string; span: Span }> = [];
-    if (collapsedIds.has(messageId)) {
-      hiddenDescendantCounts.set(messageId, countHiddenDescendants(graph, messageId));
-    } else {
+    if (!collapsedIds.has(messageId)) {
       for (const childId of graphNode.childIds) {
-        if (!graph.nodes.has(childId) || nextPath.has(childId)) {
+        if (!visibleIds.has(childId) || !graph.nodes.has(childId) || nextPath.has(childId)) {
           continue;
         }
 
@@ -293,7 +291,10 @@ export function layoutConversationTree(
     };
   };
 
-  for (const rootId of traversalRoots) {
+  for (const rootId of getTraversalRoots(graph)) {
+    if (!visibleIds.has(rootId)) {
+      continue;
+    }
     placeNode(rootId, 0, new Set());
   }
 

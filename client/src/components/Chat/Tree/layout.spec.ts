@@ -137,6 +137,50 @@ describe('conversation tree layout', () => {
     ]);
   });
 
+  it('assigns hidden descendants to the first visible collapsed ancestor and ignores stale ids', () => {
+    const graph = normalizeConversationGraph([
+      createMessage({ messageId: 'root', text: 'root', isCreatedByUser: true }),
+      createMessage({
+        messageId: 'branch',
+        parentMessageId: 'root',
+        text: 'branch',
+        isCreatedByUser: false,
+      }),
+      createMessage({
+        messageId: 'nested-collapsed',
+        parentMessageId: 'branch',
+        text: 'nested collapsed',
+        isCreatedByUser: true,
+      }),
+      createMessage({
+        messageId: 'leaf-assistant',
+        parentMessageId: 'nested-collapsed',
+        text: 'leaf assistant',
+        isCreatedByUser: false,
+      }),
+      createMessage({
+        messageId: 'sibling',
+        parentMessageId: 'root',
+        text: 'sibling',
+        isCreatedByUser: false,
+      }),
+    ]);
+
+    const layout = layoutConversationTree(graph, {
+      orientation: 'horizontal',
+      collapsedIds: ['branch', 'nested-collapsed', 'missing-collapsed-id'],
+    });
+
+    expect([...layout.nodes.keys()]).toEqual(['root', 'branch', 'sibling']);
+    expect(layout.hiddenDescendantCounts.get('branch')).toBe(2);
+    expect(layout.hiddenDescendantCounts.has('nested-collapsed')).toBe(false);
+    expect(layout.hiddenDescendantCounts.has('missing-collapsed-id')).toBe(false);
+    expect(layout.edges).toEqual([
+      { id: 'root->branch', sourceId: 'root', targetId: 'branch' },
+      { id: 'root->sibling', sourceId: 'root', targetId: 'sibling' },
+    ]);
+  });
+
   it('applies manual positions last and expands bounds to the overridden coordinates', () => {
     const graph = normalizeConversationGraph([
       createMessage({ messageId: 'root', text: 'root', isCreatedByUser: true }),
