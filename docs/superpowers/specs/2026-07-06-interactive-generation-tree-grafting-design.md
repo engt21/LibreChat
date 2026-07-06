@@ -1,6 +1,6 @@
 # Interactive Generation Tree Grafting Design
 
-**Status:** Proposed and user-approved in principle; awaiting written-spec review
+**Status:** Reviewed; amended to support complete and incomplete generation pairings
 **Date:** 2026-07-06
 **Repository:** `/pool/home/timeng/LibreChat-custom`
 **Implementation worktree:** `/pool/home/timeng/LibreChat-tree-grafting`
@@ -8,8 +8,9 @@
 ## 1. Summary
 
 LibreChat will gain a fully interactive conversation-tree workspace that lets a user visually
-graft one completed assistant generation, or its complete descendant subtree, onto another
-completed assistant generation in the same conversation.
+graft an assistant generation, or its complete descendant subtree, onto another assistant
+generation in the same conversation. Sources and destinations may be complete, stopped partial,
+aborted, or errored generations.
 
 The graft is non-destructive:
 
@@ -58,6 +59,8 @@ Prompt
 8. Keep the existing message store as a single-parent tree.
 9. Prevent stale, duplicate, oversized, cross-user, or partial graft operations.
 10. Preserve all July 5-6 production customizations and deployment safeguards.
+11. Support complete-to-complete, partial-to-complete, complete-to-partial, and
+    partial-to-partial grafts.
 
 ## 4. Non-Goals
 
@@ -69,7 +72,7 @@ The initial release will not:
 - merge messages across different conversations;
 - automatically ask a model to reconcile contradictory answers;
 - rerun historical tools;
-- allow grafting unfinished or actively generating messages;
+- clone an actively mutating stream without first stabilizing or waiting for it;
 - persist arbitrary manual graph coordinates as conversation data.
 
 Cross-conversation grafting and model-assisted synthesis may be designed separately after the
@@ -96,8 +99,9 @@ A source must be:
 - owned by the authenticated user;
 - in the current conversation;
 - an assistant generation;
-- completed and not marked `unfinished`;
-- free of an active generation beneath the selected copied region.
+- in a stable complete or incomplete state before the mutation is committed;
+- free of an actively mutating descendant inside the selected copied region when subtree mode is
+  used.
 
 ### 6.2 Valid destination
 
@@ -105,14 +109,54 @@ A destination must be:
 
 - owned by the authenticated user;
 - in the same conversation;
-- a completed assistant generation;
+- an assistant generation in a stable complete or incomplete state before commit;
 - different from the source;
 - outside the source's ancestor and descendant set.
 
 Blocking ancestor/descendant overlap prevents confusing recursive copies such as grafting an
 ancestor beneath one of its own descendants.
 
-### 6.3 Copy modes
+### 6.3 Generation lifecycle states
+
+The graft workflow distinguishes persisted completeness from live stream activity:
+
+1. **Complete** — the generation finished normally.
+2. **Stopped partial** — generation was stopped and its partial output was persisted.
+3. **Aborted partial** — generation ended through an abort path and retained partial output.
+4. **Errored partial** — generation ended with an error and retained partial output.
+5. **Actively streaming** — the generation is still changing.
+
+The `unfinished` database flag alone is not authoritative because stale historical rows may retain
+that flag. The server combines persisted message state with the canonical active-generation status.
+
+Complete, stopped, aborted, and errored generations are immediately graftable in every source and
+destination combination.
+
+An actively streaming generation must be resolved before the graft mutation:
+
+- **Stop and graft current partial output** aborts the stream, waits for final persistence, refreshes
+  the tree revision, and opens the authoritative preview.
+- **Wait for it to finish** keeps the source and destination selection, watches canonical generation
+  status, and automatically refreshes the preview when the stream settles.
+- **Cancel** returns to the unchanged graph.
+
+If both selected regions contain active streams, each active stream must settle before confirmation.
+The graft is never built from browser-only transient text.
+
+### 6.4 Supported pairing matrix
+
+Every stable combination is supported:
+
+| Source | Destination | Behavior |
+| --- | --- | --- |
+| Complete | Complete | Copy normally |
+| Partial | Complete | Copy partial source with an explicit partial-context warning |
+| Complete | Partial | Attach after the stable partial destination |
+| Partial | Partial | Preserve both partial states and warn that neither is a complete answer |
+
+Here, Partial means stopped, aborted, or errored output that is no longer actively mutating.
+
+### 6.5 Copy modes
 
 The confirmation inspector offers:
 
@@ -121,7 +165,7 @@ The confirmation inspector offers:
 
 Generation only is the default.
 
-### 6.4 Bridge message
+### 6.6 Bridge message
 
 Two sibling generations are both assistant messages. Directly parenting one assistant message under
 another would create consecutive assistant roles and could break provider-specific message
@@ -135,14 +179,23 @@ Destination assistant
     └── Copied source assistant
 ```
 
-The bridge text is fixed application text, not user-controlled prompt text:
+For a complete source and destination, the bridge text is fixed application text, not
+user-controlled prompt text:
 
 > An alternate completed assistant generation was grafted into this branch. Treat the following
 > assistant message and any copied continuation as prior conversation context.
 
 The normal transcript renders this as a compact graft card rather than a user chat bubble.
 
-### 6.5 Active continuation
+If either side is incomplete, the fixed bridge text additionally states:
+
+> One or both grafted generations are incomplete. Treat their content as partial prior context and
+> do not assume that either represents a finished answer.
+
+The bridge metadata retains the exact source and destination lifecycle states so future rendering
+does not depend on mutable historical flags.
+
+### 6.7 Active continuation
 
 After a successful graft:
 
@@ -325,6 +378,7 @@ Node text is truncated safely, with full content available in the inspector.
 Before confirmation, the inspector shows:
 
 - source and destination excerpts;
+- source and destination lifecycle states;
 - copy mode;
 - exact message count;
 - approximate copied token count;
@@ -355,6 +409,8 @@ type GenerationGraftMetadata = {
   copiedMessageIds: string[];
   activeCopiedMessageId: string;
   mode: 'generation' | 'subtree';
+  sourceState: 'complete' | 'stopped_partial' | 'aborted_partial' | 'errored_partial';
+  destinationState: 'complete' | 'stopped_partial' | 'aborted_partial' | 'errored_partial';
   createdAt: string;
 };
 ```
@@ -392,6 +448,8 @@ Request:
 ```
 
 Response includes authoritative counts, warnings, active copied source leaf, and a tree revision.
+If a selected region is actively streaming, the response identifies the active message IDs and
+returns `GRAFT_REQUIRES_STABILIZATION` without mutating anything.
 
 ### 10.2 Create
 
@@ -459,7 +517,7 @@ The service performs:
 
 1. user and conversation ownership validation;
 2. source and destination lookup;
-3. completion and active-generation validation;
+3. lifecycle classification and active-generation validation;
 4. ancestor/descendant overlap validation;
 5. copied-set calculation;
 6. node-count and payload-size validation;
@@ -525,7 +583,7 @@ Initial safeguards:
 - per-user graft preview and mutation rate limits;
 - one active graft mutation per conversation;
 - server timeout with compensating cleanup;
-- no graft while the conversation has an active generation;
+- no graft commit while the selected source, destination, or copied subtree is actively mutating;
 - no graft of expired or missing attachment references without a visible warning.
 
 Limits are configuration constants and can be adjusted after production measurements.
@@ -538,7 +596,7 @@ Expected errors include:
 - `400 INVALID_SOURCE`;
 - `400 INVALID_DESTINATION`;
 - `400 OVERLAPPING_BRANCHES`;
-- `409 GENERATION_ACTIVE`;
+- `409 GRAFT_REQUIRES_STABILIZATION`;
 - `409 TREE_CHANGED`;
 - `409 GRAFT_HAS_CONTINUATIONS`;
 - `413 GRAFT_TOO_LARGE`;
@@ -624,6 +682,12 @@ Tests cover:
 - source preserved;
 - parent ID remapping;
 - bridge role and fixed text;
+- complete-to-complete, partial-to-complete, complete-to-partial, and partial-to-partial pairings;
+- stopped, aborted, and errored partial-state preservation;
+- active source stop-and-graft flow;
+- active destination stop-and-graft flow;
+- wait-for-completion flow with retained selection;
+- rejection of browser-only transient snapshots;
 - attachment message-ID remapping;
 - tool-call cloning;
 - active-leaf mapping;
@@ -649,6 +713,9 @@ Tests cover:
 - hidden-descendant badges;
 - drag source and valid target highlighting;
 - invalid target reasons;
+- complete and partial node-state badges;
+- active-stream stabilization dialog;
+- retained drag selection while waiting for completion;
 - edge auto-pan;
 - drop opening preview without mutation;
 - server preview gating confirmation;
@@ -669,10 +736,13 @@ Use a synthetic dev account and conversation to validate:
 4. confirm generation-only preview;
 5. continue from the grafted copy;
 6. undo the graft and continuation;
-7. repeat with a subtree containing tools, files, and an image;
-8. resize desktop and mobile viewports;
-9. verify zoom, pan, mini-map, collapse, fit, keyboard, and touch-equivalent controls;
-10. confirm original branches are unchanged.
+7. repeat all four complete/partial source and destination pairings;
+8. repeat while the source is actively streaming using Stop and graft;
+9. repeat while the destination is actively streaming using Wait for it to finish;
+10. repeat with a subtree containing tools, files, and an image;
+11. resize desktop and mobile viewports;
+12. verify zoom, pan, mini-map, collapse, fit, keyboard, and touch-equivalent controls;
+13. confirm original branches are unchanged.
 
 ## 22. Documentation
 
@@ -719,14 +789,18 @@ The feature is complete when:
 3. the original source remains unchanged;
 4. the copied generation appears beneath a compact graft bridge;
 5. future model calls include both destination and copied source context in valid role order;
-6. generation-only and complete-subtree modes work;
-7. tools, attachments, files, and images remain visible without being rerun;
-8. the graph fits the viewport and supports pan, zoom, mini-map, search, focus, and orientation;
-9. branches expand and collapse predictably;
-10. mouse, touch-equivalent, and keyboard workflows work;
-11. the graft is visibly traceable to its source;
-12. undo is immediate when safe and explicitly guarded when continuations exist;
-13. stale, active, overlapping, unauthorized, duplicate, and oversized operations are rejected;
-14. all focused and preservation tests pass;
-15. documentation is current;
-16. the guarded production deployment and live validation pass.
+6. every complete/partial source and destination pairing works;
+7. actively streaming selections can be stopped and grafted or awaited without using transient
+   browser-only text;
+8. generation-only and complete-subtree modes work;
+9. tools, attachments, files, and images remain visible without being rerun;
+10. the graph fits the viewport and supports pan, zoom, mini-map, search, focus, and orientation;
+11. branches expand and collapse predictably;
+12. mouse, touch-equivalent, and keyboard workflows work;
+13. the graft is visibly traceable to its source;
+14. undo is immediate when safe and explicitly guarded when continuations exist;
+15. stale, overlapping, unauthorized, duplicate, and oversized operations are rejected;
+16. active operations require explicit stabilization or waiting;
+17. all focused and preservation tests pass;
+18. documentation is current;
+19. the guarded production deployment and live validation pass.
