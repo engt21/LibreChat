@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event';
 
 let mockConversationId = 'conversation-1';
 let latestExitComplete: (() => void) | undefined;
+const renderSnapshots: Array<{
+  conversationId: string;
+  open: boolean;
+  focusMessageId: string | null;
+  sourceMessageId: string | null;
+}> = [];
 
 jest.mock('./ChatContext', () => ({
   useChatContext: () => ({
@@ -57,6 +63,12 @@ import { GenerationTreeProvider, useGenerationTree } from './GenerationTreeConte
 
 function Controls() {
   const { open, focusMessageId, sourceMessageId, openTree, closeTree } = useGenerationTree();
+  renderSnapshots.push({
+    conversationId: mockConversationId,
+    open,
+    focusMessageId,
+    sourceMessageId,
+  });
 
   return (
     <>
@@ -92,6 +104,7 @@ describe('GenerationTreeProvider', () => {
   beforeEach(() => {
     mockConversationId = 'conversation-1';
     latestExitComplete = undefined;
+    renderSnapshots.length = 0;
     jest.useFakeTimers();
   });
 
@@ -242,5 +255,45 @@ describe('GenerationTreeProvider', () => {
     expect(screen.getByTestId('provider-state')).toHaveTextContent('"open":false');
     expect(screen.getByTestId('provider-state')).toHaveTextContent('"focusMessageId":null');
     expect(screen.getByTestId('provider-state')).toHaveTextContent('"sourceMessageId":null');
+  });
+
+  it('never renders stale open, focus, or source state for a new conversation', async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    const { rerender } = render(
+      <GenerationTreeProvider>
+        <Controls />
+      </GenerationTreeProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Graft assistant-2' }));
+    renderSnapshots.length = 0;
+
+    mockConversationId = 'conversation-2';
+    rerender(
+      <GenerationTreeProvider>
+        <Controls />
+      </GenerationTreeProvider>,
+    );
+
+    expect(renderSnapshots).toEqual(
+      expect.arrayContaining([
+        {
+          conversationId: 'conversation-2',
+          open: false,
+          focusMessageId: null,
+          sourceMessageId: null,
+        },
+      ]),
+    );
+    expect(
+      renderSnapshots.some(
+        (snapshot) =>
+          snapshot.conversationId === 'conversation-2' &&
+          (snapshot.open ||
+            snapshot.focusMessageId === 'assistant-2' ||
+            snapshot.sourceMessageId === 'assistant-2'),
+      ),
+    ).toBe(false);
   });
 });

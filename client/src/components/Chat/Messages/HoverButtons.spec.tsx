@@ -98,5 +98,7 @@ describe('HoverButtons', () => {
     expect(children.indexOf('generation-tree-actions-assistant-error')).toBeLessThan(
       children.indexOf('com_ui_regenerate'),
     );
+    expect(container.firstElementChild).toHaveClass('group');
+    expect(container.firstElementChild).toHaveClass('gap-0.5');
   });
 });

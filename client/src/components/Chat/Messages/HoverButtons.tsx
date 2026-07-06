@@ -163,7 +163,7 @@ const HoverButtons = ({
 
   if (error === true) {
     return (
-      <div className="visible flex justify-center self-end lg:justify-start">
+      <div className="group visible flex justify-center gap-0.5 self-end focus-within:outline-none lg:justify-start">
         <GenerationTreeActions message={message} isLast={isLast} />
         {regenerateEnabled && (
           <HoverButton

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { OGDialog, OGDialogContent, OGDialogTitle } from '@librechat/client';
+import { useCallback, useEffect, useId, useRef } from 'react';
+import { OGDialog, OGDialogContent, OGDialogDescription, OGDialogTitle } from '@librechat/client';
 import useLocalize from '~/hooks/useLocalize';
 
 const EXIT_RESET_DELAY_MS = 200;
@@ -20,6 +20,7 @@ export default function ConversationTreeDialog({
   onExitComplete,
 }: ConversationTreeDialogProps) {
   const localize = useLocalize();
+  const descriptionId = useId();
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitCompletedRef = useRef(false);
 
@@ -70,6 +71,7 @@ export default function ConversationTreeDialog({
         data-testid="generation-tree-dialog"
         data-focused-message-id={focusMessageId ?? ''}
         data-source-message-id={sourceMessageId ?? ''}
+        aria-describedby={descriptionId}
         className="h-[85vh] max-h-[85vh] w-[96vw] max-w-5xl overflow-hidden border-border-light bg-surface-primary p-0 text-text-primary"
         onAnimationEnd={(event) => {
           if ((event.currentTarget as HTMLElement).dataset.state === 'closed') {
@@ -87,9 +89,9 @@ export default function ConversationTreeDialog({
             {localize('com_sidepanel_conversation_tree')}
           </OGDialogTitle>
           <div className="flex flex-1 flex-col gap-3 px-4 py-3">
-            <p className="text-sm text-text-secondary">
+            <OGDialogDescription id={descriptionId} className="text-sm text-text-secondary">
               {localize('com_ui_conversation_tree_description')}
-            </p>
+            </OGDialogDescription>
             <div className="grid gap-2 rounded-lg border border-dashed border-border-medium bg-surface-secondary p-3 text-sm text-text-secondary">
               <div>
                 <span className="font-medium text-text-primary">
