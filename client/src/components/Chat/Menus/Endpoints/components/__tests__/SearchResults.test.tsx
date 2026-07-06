@@ -161,15 +161,14 @@ describe('SearchResults', () => {
     expect(screen.getByRole('button', { name: 'com_endpoint_config_key Custom' })).toBeInTheDocument();
   });
 
-  it('does not render settings buttons for My Agents search results even for super admins', () => {
+  it('does not render My Agents in model search results', () => {
     mockIsSuperAdmin = true;
     mockSelectedValues = { endpoint: 'agents', model: 'agent-1', modelSpec: '' };
 
     render(<SearchResults results={[agentsEndpoint]} localize={localize} searchValue="agent" />);
 
-    expect(
-      screen.queryByRole('button', { name: 'com_endpoint_config_key My Agents' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('My Agents')).not.toBeInTheDocument();
+    expect(screen.queryByText('Agent One')).not.toBeInTheDocument();
   });
 
   it('labels OpenAI alpha matches separately in search results', () => {

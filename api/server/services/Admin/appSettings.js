@@ -35,6 +35,24 @@ function getDefaultBYOKSettings() {
   };
 }
 
+function getDefaultDeterministicToolSettings() {
+  return {
+    calculator: true,
+    textAnalyzer: true,
+    stringUtility: true,
+    jsonUtility: true,
+  };
+}
+
+function normalizeDeterministicToolSettings(settings) {
+  return {
+    calculator: settings?.calculator !== false,
+    textAnalyzer: settings?.textAnalyzer !== false,
+    stringUtility: settings?.stringUtility !== false,
+    jsonUtility: settings?.jsonUtility !== false,
+  };
+}
+
 function normalizeBYOKSettings(byok) {
   const defaults = getDefaultBYOKSettings();
   const providers = { ...defaults.providers };
@@ -64,6 +82,7 @@ function toEffectiveAppSettings(doc) {
       ...(doc?.observability || {}),
     },
     byok: normalizeBYOKSettings(doc?.byok),
+    deterministicTools: normalizeDeterministicToolSettings(doc?.deterministicTools),
     mcpDomainFilterMode: doc?.mcpDomainFilterMode ?? 'denylist',
     mcpAllowedDomains: doc?.mcpAllowedDomains ?? [],
     mcpPublishedServers: Array.isArray(doc?.mcpPublishedServers) ? doc.mcpPublishedServers : null,
@@ -127,6 +146,13 @@ async function updateAppSettings(updates, settingsId = DEFAULT_SETTINGS_ID) {
           },
         })
       : undefined;
+  const nextDeterministicTools =
+    updates?.deterministicTools !== undefined
+      ? normalizeDeterministicToolSettings({
+          ...(current?.deterministicTools || {}),
+          ...(updates.deterministicTools || {}),
+        })
+      : undefined;
 
   const persistedUpdates = {
     ...(updates?.registrationEnabled !== undefined
@@ -140,6 +166,7 @@ async function updateAppSettings(updates, settingsId = DEFAULT_SETTINGS_ID) {
       : {}),
     observability: nextObservability,
     ...(nextBYOK !== undefined ? { byok: nextBYOK } : {}),
+    ...(nextDeterministicTools !== undefined ? { deterministicTools: nextDeterministicTools } : {}),
     ...(updates?.mcpDomainFilterMode !== undefined
       ? { mcpDomainFilterMode: updates.mcpDomainFilterMode }
       : {}),
@@ -171,9 +198,11 @@ module.exports = {
   DEFAULT_SETTINGS_ID,
   getDefaultObservabilityLinks,
   getDefaultBYOKSettings,
+  getDefaultDeterministicToolSettings,
   getAppSettingsDoc,
   getEffectiveAppSettings,
   invalidateAppSettingsCaches,
+  normalizeDeterministicToolSettings,
   normalizePlatformPrompt,
   updateAppSettings,
 };

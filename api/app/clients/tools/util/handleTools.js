@@ -44,6 +44,9 @@ const {
   createOpenAIImageTools,
   ScientificCalculator,
   CodeInterpreterMath,
+  TextAnalyzer,
+  StringUtility,
+  JsonUtility,
 } = require('../');
 const { primeFiles: primeCodeFiles } = require('~/server/services/Files/Code/process');
 const { createFileSearchTool, primeFiles: primeSearchFiles } = require('./fileSearch');
@@ -259,6 +262,9 @@ const loadTools = async ({
     calculator: Calculator,
     scientific_calculator: ScientificCalculator,
     code_interpreter_math: CodeInterpreterMath,
+    text_analyzer: TextAnalyzer,
+    string_utility: StringUtility,
+    json_utility: JsonUtility,
     google: GoogleSearchAPI,
     open_weather: OpenWeather,
     wolfram: StructuredWolfram,

@@ -110,6 +110,7 @@ export type TEphemeralAgent = {
   mcp?: string[];
   mcpToolFilter?: Record<string, string[]>;
   web_search?: boolean;
+  deep_research?: boolean;
   web_search_mode?: WebSearchModes;
   web_fetch?: boolean;
   anthropic_code_execution?: boolean;

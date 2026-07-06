@@ -1,10 +1,8 @@
 import React, { useMemo, useCallback } from 'react';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import {
-  Permissions,
   alternateName,
   EModelEndpoint,
-  PermissionTypes,
   getEndpointField,
   getConfigDefaults,
   isAssistantsEndpoint,
@@ -19,7 +17,7 @@ import type {
 import type { Endpoint } from '~/common';
 import { useGetEndpointsQuery } from '~/data-provider';
 import { mapEndpoints, getIconKey } from '~/utils';
-import { useHasAccess } from '~/hooks';
+
 import { icons } from './Icons';
 
 const defaultInterface = getConfigDefaults().interface;
@@ -43,11 +41,6 @@ export const useEndpoints = ({
     [startupConfig?.modelSpecs?.addedEndpoints],
   );
 
-  const hasAgentAccess = useHasAccess({
-    permissionType: PermissionTypes.AGENTS,
-    permission: Permissions.USE,
-  });
-
   const assistants: Assistant[] = useMemo(
     () => Object.values(assistantsMap?.[EModelEndpoint.assistants] ?? {}),
     [assistantsMap],
@@ -64,7 +57,7 @@ export const useEndpoints = ({
     }
     const result: EModelEndpoint[] = [];
     for (let i = 0; i < endpoints.length; i++) {
-      if (endpoints[i] === EModelEndpoint.agents && !hasAgentAccess) {
+      if (endpoints[i] === EModelEndpoint.agents) {
         continue;
       }
       if (includedEndpoints.size > 0 && !includedEndpoints.has(endpoints[i])) {
@@ -81,7 +74,7 @@ export const useEndpoints = ({
     }
 
     return result;
-  }, [endpoints, hasAgentAccess, includedEndpoints, interfaceConfig.modelSelect, modelsQuery.data]);
+  }, [endpoints, includedEndpoints, interfaceConfig.modelSelect, modelsQuery.data]);
 
   const endpointRequiresUserKey = useCallback(
     (ep: string) => {

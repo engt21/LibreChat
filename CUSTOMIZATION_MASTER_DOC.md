@@ -2069,3 +2069,23 @@ Future changes in this customization branch should follow this rule:
 - The LibreChat admin console exposes a dedicated `Loki Explorer` quick link in addition to the Grafana root, derived from the resolved Grafana URL so LAN and Tailscale hosts remain portable.
 - Langfuse password reset uses its supported `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` variables with a VM-local Mailpit inbox. Mailpit binds to loopback port `8025`, is exposed only through Tailscale HTTPS `8448`, requires separate basic auth stored in the mode-`0600` handoff file, and avoids adding an external SMTP account; `AUTH_DISABLE_SIGNUP=true` keeps public Langfuse registration closed.
 - Grafana's right-side time picker is the only usage-range control. `local-services/deploy-vm-observability-fixes.sh` removes the conflicting `Usage window` variable and rewrites cost/token/message/error/user panels to select the exporter bucket from `${__range_s}`.
+
+## 7. Deterministic tools and model-selection controls (2026-07-05)
+
+- Every interactive model initialization receives the credential-free `calculator`, `text_analyzer`, `string_utility`, and `json_utility` structured tools unless an administrator disables an individual tool through `AppSettings.deterministicTools`.
+- The tools use the normal structured-tool callback pipeline, so calls and results render in the same invocation timeline as MCP tools. Exact schemas, limits, validation commands, and merge rules are in `DETERMINISTIC_DEFAULT_TOOLS.md`.
+- The model picker is model-only. `My Agents` is excluded from endpoint grouping and search and remains accessible through the dedicated adjacent Agents button, Marketplace, and Agent Builder/sidebar surfaces.
+- Provider groups use the leading order OpenAI, Anthropic, Azure OpenAI, Google, xAI, Ollama, followed by remaining providers in label order.
+- Anthropic dynamic suggestions reserve two slots: latest Sonnet first and latest Opus second.
+- OpenAI Deep Research is a chat-bar capability rather than a model spec. It enables Responses API mode, native web search, provider-native Code Interpreter, high reasoning effort, detailed reasoning summaries, and bounded research instructions. Legacy Deep Research specs are hidden from the picker.
+
+### Key files
+
+- `packages/api/src/agents/initialize.ts`
+- `api/app/clients/tools/structured/{TextAnalyzer,StringUtility,JsonUtility}.js`
+- `api/server/services/Admin/appSettings.js`
+- `api/server/services/suggestedModelSpecs.js`
+- `client/src/components/Admin/AdminConsole.tsx`
+- `client/src/components/Chat/Menus/AgentsMenu.tsx`
+- `client/src/components/Chat/Menus/Endpoints/ModelSelectorContext.tsx`
+- `client/src/components/Chat/Input/DeepResearch.tsx`

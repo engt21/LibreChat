@@ -58,6 +58,12 @@ export function SearchResults({ results, localize, searchValue }: SearchResultsP
           : localize('com_files_results_found', { count: results.length })}
       </div>
       {results.map((item, i) => {
+        if ('value' in item && isAgentsEndpoint(item.value)) {
+          return null;
+        }
+        if ('preset' in item && isAgentsEndpoint(item.preset?.endpoint)) {
+          return null;
+        }
         if ('name' in item && 'label' in item) {
           // Render model spec
           const spec = item as TModelSpec;

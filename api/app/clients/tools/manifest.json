@@ -1,5 +1,19 @@
 [
   {
+    "name": "String Utility",
+    "pluginKey": "string_utility",
+    "description": "Exact substring counting and replacement, line sorting and deduplication, whitespace normalization, case conversion, and SHA-256/SHA-512 hashing.",
+    "icon": "assets/librechat.svg",
+    "authConfig": []
+  },
+  {
+    "name": "JSON Utility",
+    "pluginKey": "json_utility",
+    "description": "Deterministically validate, format, minify, or query JSON with RFC 6901 JSON Pointer syntax.",
+    "icon": "assets/librechat.svg",
+    "authConfig": []
+  },
+  {
     "name": "Traversaal",
     "pluginKey": "traversaal_search",
     "description": "Traversaal is a robust search API tailored for LLM Agents. Get an API key here: https://api.traversaal.ai",
@@ -88,6 +102,13 @@
     "pluginKey": "calculator",
     "description": "Perform simple and complex mathematical calculations.",
     "icon": "assets/calculator.svg",
+    "authConfig": []
+  },
+  {
+    "name": "Text Analyzer",
+    "pluginKey": "text_analyzer",
+    "description": "Deterministically count words, Unicode characters, code points, bytes, sentences, lines, and non-whitespace characters.",
+    "icon": "assets/librechat.svg",
     "authConfig": []
   },
   {

@@ -1889,6 +1889,8 @@ export enum LocalStorageKeys {
   LAST_CODE_MODE_ = 'LAST_CODE_MODE_',
   /** Last checked toggle for Web Search per conversation ID */
   LAST_WEB_SEARCH_TOGGLE_ = 'LAST_WEB_SEARCH_TOGGLE_',
+  /** Last checked toggle for OpenAI Deep Research per conversation ID */
+  LAST_DEEP_RESEARCH_TOGGLE_ = 'LAST_DEEP_RESEARCH_TOGGLE_',
   /** Last selected web search mode per conversation ID */
   LAST_WEB_SEARCH_MODE_ = 'LAST_WEB_SEARCH_MODE_',
   /** Last checked toggle for File Search per conversation ID */

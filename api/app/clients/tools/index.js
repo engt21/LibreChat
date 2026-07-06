@@ -14,6 +14,9 @@ const TavilySearchResults = require('./structured/TavilySearchResults');
 const createGeminiImageTool = require('./structured/GeminiImageGen');
 const ScientificCalculator = require('./structured/ScientificCalculator');
 const CodeInterpreterMath = require('./structured/CodeInterpreterMath');
+const TextAnalyzer = require('./structured/TextAnalyzer');
+const StringUtility = require('./structured/StringUtility');
+const JsonUtility = require('./structured/JsonUtility');
 
 module.exports = {
   ...manifest,
@@ -31,4 +34,7 @@ module.exports = {
   createGeminiImageTool,
   ScientificCalculator,
   CodeInterpreterMath,
+  TextAnalyzer,
+  StringUtility,
+  JsonUtility,
 };

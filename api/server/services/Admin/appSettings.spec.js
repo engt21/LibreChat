@@ -232,4 +232,59 @@ describe('Admin app settings service', () => {
     );
     expect(settings.mcpPublishedServers).toEqual(['arcade-read']);
   });
+
+  it('defaults deterministic tools to enabled', async () => {
+    mockFindOneDoc(null);
+
+    const settings = await getEffectiveAppSettings();
+
+    expect(settings.deterministicTools).toEqual({
+      calculator: true,
+      textAnalyzer: true,
+      stringUtility: true,
+      jsonUtility: true,
+    });
+  });
+
+  it('persists deterministic tool toggles while preserving unspecified values', async () => {
+    mockFindOneDoc({
+      settingsId: 'global',
+      deterministicTools: { calculator: true, textAnalyzer: true },
+    });
+    mockFindOneAndUpdate.mockResolvedValue({
+      settingsId: 'global',
+      observability: {},
+      deterministicTools: {
+        calculator: false,
+        textAnalyzer: true,
+        stringUtility: true,
+        jsonUtility: true,
+      },
+    });
+
+    const settings = await updateAppSettings({
+      deterministicTools: { calculator: false },
+    });
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { settingsId: 'global' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          deterministicTools: {
+            calculator: false,
+            textAnalyzer: true,
+            stringUtility: true,
+            jsonUtility: true,
+          },
+        }),
+      }),
+      expect.objectContaining({ upsert: true, new: true, lean: true }),
+    );
+    expect(settings.deterministicTools).toEqual({
+      calculator: false,
+      textAnalyzer: true,
+      stringUtility: true,
+      jsonUtility: true,
+    });
+  });
 });

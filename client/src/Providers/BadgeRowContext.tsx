@@ -39,9 +39,11 @@ interface BadgeRowContextType {
   usesNativeWebSearch: boolean;
   usesNativeCodeInterpreter: boolean;
   supportsStructuredToolCalling: boolean;
+  supportsDeepResearch: boolean;
   storageContextKey?: string;
   agentsConfig?: TAgentsEndpoint | null;
   webSearch: ReturnType<typeof useToolToggle>;
+  deepResearch: ReturnType<typeof useToolToggle>;
   webSearchMode: ReturnType<typeof useToolToggle>;
   codeInterpreterMode: ReturnType<typeof useToolToggle>;
   artifacts: ReturnType<typeof useToolToggle>;
@@ -190,7 +192,12 @@ export default function BadgeRowProvider({
       supportsNativeWebSearch:
         nativeSupport.supportsNativeWebSearch && xaiModelCapabilities.supportsWebSearch,
     };
-  }, [anthropicModelCapabilities, nativeToolEndpoint, openAIModelCapabilities, xaiModelCapabilities]);
+  }, [
+    anthropicModelCapabilities,
+    nativeToolEndpoint,
+    openAIModelCapabilities,
+    xaiModelCapabilities,
+  ]);
   const supportsStructuredToolCalling =
     (xaiModelCapabilities?.supportsFunctionCalling ?? true) &&
     (openAIModelCapabilities?.isTextGenerationModel ?? true);
@@ -223,6 +230,7 @@ export default function BadgeRowProvider({
       const codeToggleKey = `${LocalStorageKeys.LAST_CODE_TOGGLE_}${storageSuffix}`;
       const codeModeKey = `${LocalStorageKeys.LAST_CODE_MODE_}${storageSuffix}`;
       const webSearchToggleKey = `${LocalStorageKeys.LAST_WEB_SEARCH_TOGGLE_}${storageSuffix}`;
+      const deepResearchToggleKey = `${LocalStorageKeys.LAST_DEEP_RESEARCH_TOGGLE_}${storageSuffix}`;
       const webSearchModeKey = `${LocalStorageKeys.LAST_WEB_SEARCH_MODE_}${storageSuffix}`;
       const fileSearchToggleKey = `${LocalStorageKeys.LAST_FILE_SEARCH_TOGGLE_}${storageSuffix}`;
       const artifactsToggleKey = `${LocalStorageKeys.LAST_ARTIFACTS_TOGGLE_}${storageSuffix}`;
@@ -230,6 +238,7 @@ export default function BadgeRowProvider({
       const codeToggleValue = getTimestampedValue(codeToggleKey);
       const codeModeValue = getTimestampedValue(codeModeKey);
       const webSearchToggleValue = getTimestampedValue(webSearchToggleKey);
+      const deepResearchToggleValue = getTimestampedValue(deepResearchToggleKey);
       const webSearchModeValue = getTimestampedValue(webSearchModeKey);
       const fileSearchToggleValue = getTimestampedValue(fileSearchToggleKey);
       const artifactsToggleValue = getTimestampedValue(artifactsToggleKey);
@@ -259,6 +268,14 @@ export default function BadgeRowProvider({
           initialValues[Tools.web_search] = JSON.parse(webSearchToggleValue);
         } catch (e) {
           console.error('Failed to parse web search toggle value:', e);
+        }
+      }
+
+      if (deepResearchToggleValue !== null) {
+        try {
+          initialValues[Tools.deep_research] = JSON.parse(deepResearchToggleValue);
+        } catch (e) {
+          console.error('Failed to parse deep research toggle value:', e);
         }
       }
 
@@ -414,6 +431,14 @@ export default function BadgeRowProvider({
       : undefined,
   });
 
+  const deepResearch = useToolToggle({
+    conversationId,
+    storageContextKey,
+    toolKey: Tools.deep_research,
+    localStorageKey: LocalStorageKeys.LAST_DEEP_RESEARCH_TOGGLE_,
+    isAuthenticated: true,
+  });
+
   /** FileSearch hook */
   const fileSearch = useToolToggle({
     conversationId,
@@ -442,6 +467,11 @@ export default function BadgeRowProvider({
   });
 
   const mcpServerManager = useMCPServerManager({ conversationId, storageContextKey });
+  const supportsDeepResearch =
+    nativeToolEndpoint === EModelEndpoint.openAI &&
+    supportsNativeWebSearch &&
+    usesNativeCodeInterpreter &&
+    supportsStructuredToolCalling;
 
   const value: BadgeRowContextType = {
     endpoint,
@@ -450,7 +480,9 @@ export default function BadgeRowProvider({
     usesNativeWebSearch: supportsNativeWebSearch,
     usesNativeCodeInterpreter,
     supportsStructuredToolCalling,
+    supportsDeepResearch,
     webSearch,
+    deepResearch,
     webSearchMode,
     codeInterpreterMode,
     artifacts,

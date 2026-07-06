@@ -111,13 +111,7 @@ describe('suggested model specs', () => {
     expect(
       getSuggestedModelsForEndpoint(
         EModelEndpoint.openAI,
-        [
-          'gpt-5.6-chat-latest',
-          'gpt-chat-latest',
-          'gpt-5.5',
-          'chat-latest',
-          'gpt-5.5-mini',
-        ],
+        ['gpt-5.6-chat-latest', 'gpt-chat-latest', 'gpt-5.5', 'chat-latest', 'gpt-5.5-mini'],
         3,
       ),
     ).toEqual(['chat-latest', 'gpt-5.5', 'gpt-5.5-mini']);
@@ -155,17 +149,19 @@ describe('suggested model specs', () => {
       'gpt-5.3-chat-latest',
       'gpt-5.5',
       'gpt-5.4-mini',
+      'claude-sonnet-4-6',
       'claude-opus-4-7',
     ]);
     expect(result.list.map((spec) => spec.label)).toEqual([
       'Chat Latest',
       'GPT-5.5',
       'GPT-5.4 Mini',
+      'Claude Sonnet 4.6',
       'Claude Opus 4.7',
     ]);
   });
 
-  it('keeps three OpenAI-family suggestions and one top suggestion from each other provider', () => {
+  it('keeps three OpenAI suggestions, Sonnet and Opus for Anthropic, and one for others', () => {
     const result = applyDynamicSuggestedModelSpecs(
       {
         enforce: false,
@@ -207,6 +203,7 @@ describe('suggested model specs', () => {
       'gpt-chat-latest',
       'gpt-5.5',
       'gpt-5.5-mini',
+      'claude-sonnet-4-6',
       'claude-opus-4-7',
       'gemini-3.0-pro',
       'grok-4.20-beta-latest-non-reasoning',

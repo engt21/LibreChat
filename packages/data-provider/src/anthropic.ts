@@ -361,22 +361,38 @@ export function getAnthropicQuickSelectModelNames(
   limit = 4,
 ): string[] {
   const sortedModels = sortAnthropicModels(modelNames, metadataMap);
+  const preferredFamilies = ['sonnet', 'opus'] as const;
   const seenLineages = new Set<string>();
+  const result: string[] = [];
 
-  return sortedModels.reduce<string[]>((acc, model) => {
-    if (acc.length >= limit) {
-      return acc;
+  for (const family of preferredFamilies) {
+    const model = sortedModels.find(
+      (candidate) => parseAnthropicModelName(candidate).family === family,
+    );
+    if (!model) {
+      continue;
     }
+    const lineageKey = parseAnthropicModelName(model).lineageKey;
+    seenLineages.add(lineageKey);
+    result.push(model);
+  }
 
-    const parsed = parseAnthropicModelName(model);
-    if (seenLineages.has(parsed.lineageKey)) {
+  return sortedModels
+    .reduce<string[]>((acc, model) => {
+      if (acc.length >= limit) {
+        return acc;
+      }
+
+      const parsed = parseAnthropicModelName(model);
+      if (seenLineages.has(parsed.lineageKey)) {
+        return acc;
+      }
+
+      seenLineages.add(parsed.lineageKey);
+      acc.push(model);
       return acc;
-    }
-
-    seenLineages.add(parsed.lineageKey);
-    acc.push(model);
-    return acc;
-  }, []);
+    }, result)
+    .slice(0, limit);
 }
 
 export function getAnthropicModelCapabilities(

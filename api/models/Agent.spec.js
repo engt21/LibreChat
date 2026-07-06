@@ -2462,6 +2462,37 @@ describe('models/Agent', () => {
       }
     });
 
+    test('should apply OpenAI Deep Research as a chat-bar mode instead of a model spec', async () => {
+      const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
+      const mockReq = {
+        user: { id: 'user123' },
+        body: {
+          promptPrefix: 'Platform policy',
+          ephemeralAgent: {
+            deep_research: true,
+          },
+        },
+      };
+
+      const result = await loadAgent({
+        req: mockReq,
+        agent_id: EPHEMERAL_AGENT_ID,
+        endpoint: 'openAI',
+        model_parameters: { model: 'gpt-5.5-pro' },
+      });
+
+      expect(result.tools).toEqual(expect.arrayContaining(['web_search', 'execute_code']));
+      expect(result.model_parameters).toEqual(
+        expect.objectContaining({
+          useResponsesApi: true,
+          reasoning_effort: 'high',
+          reasoning_summary: 'detailed',
+        }),
+      );
+      expect(result.instructions).toContain('Platform policy');
+      expect(result.instructions).toContain('Deep Research mode is enabled');
+    });
+
     test('should map Anthropic ephemeral server-tool fields into model parameters', async () => {
       const { EPHEMERAL_AGENT_ID } = require('librechat-data-provider').Constants;
 

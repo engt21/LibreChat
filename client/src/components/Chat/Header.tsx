@@ -4,7 +4,7 @@ import { useOutletContext } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getConfigDefaults, PermissionTypes, Permissions } from 'librechat-data-provider';
 import type { ContextType } from '~/common';
-import { PresetsMenu, HeaderNewChat, OpenSidebar } from './Menus';
+import { AgentsMenu, PresetsMenu, HeaderNewChat, OpenSidebar } from './Menus';
 import ModelSelector from './Menus/Endpoints/ModelSelector';
 import { useGetStartupConfig } from '~/data-provider';
 import ExportAndShareMenu from './ExportAndShareMenu';
@@ -70,6 +70,7 @@ function Header() {
               )}
             >
               <ModelSelector startupConfig={startupConfig} />
+              <AgentsMenu />
               {interfaceConfig.presets === true && interfaceConfig.modelSelect && <PresetsMenu />}
               {hasAccessToBookmarks === true && <BookmarkMenu />}
               {hasAccessToMultiConvo === true && <AddMultiConvo />}

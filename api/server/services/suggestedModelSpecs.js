@@ -30,10 +30,7 @@ const SIMPLE_SPEC_BEHAVIOR_KEYS = [
 const OPENAI_CHAT_LATEST_MODEL = 'chat-latest';
 const OPENAI_CHAT_LATEST_ALIASES = new Set([OPENAI_CHAT_LATEST_MODEL, 'gpt-chat-latest']);
 const OPENAI_VERSIONED_CHAT_LATEST_REGEX = /^gpt-\d+(?:\.\d+)?-chat-latest$/i;
-const OPENAI_SUGGESTION_ENDPOINTS = new Set([
-  EModelEndpoint.openAI,
-  EModelEndpoint.azureOpenAI,
-]);
+const OPENAI_SUGGESTION_ENDPOINTS = new Set([EModelEndpoint.openAI, EModelEndpoint.azureOpenAI]);
 const OPENAI_DATED_SNAPSHOT_REGEX = /(?:-\d{4}-\d{2}-\d{2}|-\d{4}(?:-[a-z]+)?)$/;
 const OPENAI_RELEASE_ORDER = [
   OPENAI_CHAT_LATEST_MODEL,
@@ -239,7 +236,8 @@ function getOpenAISuggestedModels(models, limit) {
     ) ||
     chatLatestCandidates.find(
       (model) => getOpenAIStableModelId(model).toLowerCase() === 'gpt-chat-latest',
-    ) || sortOpenAISuggestions(chatLatestCandidates)[0];
+    ) ||
+    sortOpenAISuggestions(chatLatestCandidates)[0];
   if (chatLatest) {
     suggestions.push(chatLatest);
   }
@@ -376,7 +374,11 @@ function getSuggestedModelsForEndpoint(endpoint, models, limit) {
 }
 
 function getDynamicSuggestionLimit(endpoint, configuredSlotCount) {
-  const maxSuggestions = OPENAI_SUGGESTION_ENDPOINTS.has(endpoint) ? 3 : 1;
+  const maxSuggestions = OPENAI_SUGGESTION_ENDPOINTS.has(endpoint)
+    ? 3
+    : endpoint === EModelEndpoint.anthropic
+      ? 2
+      : 1;
   return Math.min(configuredSlotCount, maxSuggestions);
 }
 

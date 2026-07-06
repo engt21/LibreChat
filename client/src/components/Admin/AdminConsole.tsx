@@ -64,6 +64,12 @@ const DEFAULT_SETTINGS: TAdminSettings = {
     metricsUrl: '',
     prometheusUrl: '',
   },
+  deterministicTools: {
+    calculator: true,
+    textAnalyzer: true,
+    stringUtility: true,
+    jsonUtility: true,
+  },
   byok: {
     providers: {
       openAI: { enabled: false, allowBaseURL: true, fallbackToPlatform: true },
@@ -444,7 +450,24 @@ export default function AdminConsole() {
 
   useEffect(() => {
     if (adminSettingsQuery.data) {
-      setSettingsForm(adminSettingsQuery.data);
+      setSettingsForm({
+        ...DEFAULT_SETTINGS,
+        ...adminSettingsQuery.data,
+        observability: {
+          ...DEFAULT_SETTINGS.observability,
+          ...adminSettingsQuery.data.observability,
+        },
+        byok: {
+          providers: {
+            ...DEFAULT_SETTINGS.byok.providers,
+            ...adminSettingsQuery.data.byok?.providers,
+          },
+        },
+        deterministicTools: {
+          ...DEFAULT_SETTINGS.deterministicTools,
+          ...adminSettingsQuery.data.deterministicTools,
+        },
+      });
     }
   }, [adminSettingsQuery.data]);
 
@@ -628,6 +651,7 @@ export default function AdminConsole() {
       platformPrompt: settingsForm.platformPrompt?.trim() ? settingsForm.platformPrompt : null,
       observability: settingsForm.observability,
       byok: settingsForm.byok,
+      deterministicTools: settingsForm.deterministicTools,
       mcpDomainFilterMode: settingsForm.mcpDomainFilterMode ?? 'denylist',
       mcpAllowedDomains: settingsForm.mcpAllowedDomains ?? [],
     });
@@ -1419,6 +1443,115 @@ export default function AdminConsole() {
                   disabled={!canWriteSettings}
                   aria-label={localize('com_admin_model_steering_enabled')}
                 />
+              </div>
+
+              <div className="rounded-xl border border-border-light bg-surface-primary p-4">
+                <div className="mb-4">
+                  <div className="font-medium text-text-primary">
+                    {localize('com_admin_deterministic_tools')}
+                  </div>
+                  <div className="text-sm text-text-secondary">
+                    {localize('com_admin_deterministic_tools_desc')}
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">
+                        {localize('com_admin_deterministic_calculator')}
+                      </div>
+                      <div className="text-sm text-text-secondary">
+                        {localize('com_admin_deterministic_calculator_desc')}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={settingsForm.deterministicTools.calculator}
+                      onCheckedChange={(checked) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          deterministicTools: {
+                            ...current.deterministicTools,
+                            calculator: checked,
+                          },
+                        }))
+                      }
+                      disabled={!canWriteSettings}
+                      aria-label={localize('com_admin_deterministic_calculator')}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">
+                        {localize('com_admin_deterministic_text_analyzer')}
+                      </div>
+                      <div className="text-sm text-text-secondary">
+                        {localize('com_admin_deterministic_text_analyzer_desc')}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={settingsForm.deterministicTools.textAnalyzer}
+                      onCheckedChange={(checked) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          deterministicTools: {
+                            ...current.deterministicTools,
+                            textAnalyzer: checked,
+                          },
+                        }))
+                      }
+                      disabled={!canWriteSettings}
+                      aria-label={localize('com_admin_deterministic_text_analyzer')}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">
+                        {localize('com_admin_deterministic_string_utility')}
+                      </div>
+                      <div className="text-sm text-text-secondary">
+                        {localize('com_admin_deterministic_string_utility_desc')}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={settingsForm.deterministicTools.stringUtility}
+                      onCheckedChange={(checked) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          deterministicTools: {
+                            ...current.deterministicTools,
+                            stringUtility: checked,
+                          },
+                        }))
+                      }
+                      disabled={!canWriteSettings}
+                      aria-label={localize('com_admin_deterministic_string_utility')}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">
+                        {localize('com_admin_deterministic_json_utility')}
+                      </div>
+                      <div className="text-sm text-text-secondary">
+                        {localize('com_admin_deterministic_json_utility_desc')}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={settingsForm.deterministicTools.jsonUtility}
+                      onCheckedChange={(checked) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          deterministicTools: {
+                            ...current.deterministicTools,
+                            jsonUtility: checked,
+                          },
+                        }))
+                      }
+                      disabled={!canWriteSettings}
+                      aria-label={localize('com_admin_deterministic_json_utility')}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-xl border border-border-light bg-surface-primary p-4">

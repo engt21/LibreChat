@@ -1,6 +1,13 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import * as Ariakit from '@ariakit/react';
-import { Globe, Image as ImageIcon, Settings, Settings2, TerminalSquareIcon } from 'lucide-react';
+import {
+  Globe,
+  Image as ImageIcon,
+  Settings,
+  Settings2,
+  Telescope,
+  TerminalSquareIcon,
+} from 'lucide-react';
 import { TooltipAnchor, DropdownPopup, PinIcon, VectorIcon } from '@librechat/client';
 import type { MenuItemProps } from '~/common';
 import {
@@ -31,6 +38,7 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
   const [isPopoverActive, setIsPopoverActive] = useState(false);
   const {
     webSearch,
+    deepResearch,
     webSearchMode,
     codeInterpreterMode,
     artifacts,
@@ -40,6 +48,7 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
     usesNativeWebSearch,
     usesNativeCodeInterpreter,
     supportsStructuredToolCalling,
+    supportsDeepResearch,
     agentsConfig,
     mcpServerManager,
     codeApiKeyForm,
@@ -69,6 +78,7 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
   } = codeInterpreter;
   const { isPinned: isFileSearchPinned, setIsPinned: setIsFileSearchPinned } = fileSearch;
   const { isPinned: isArtifactsPinned, setIsPinned: setIsArtifactsPinned } = artifacts;
+  const { isPinned: isDeepResearchPinned, setIsPinned: setIsDeepResearchPinned } = deepResearch;
   const { isPinned: isImageGenerationPinned, setIsPinned: setIsImageGenerationPinned } =
     imageGeneration;
 
@@ -136,6 +146,10 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
     const newValue = !webSearch.toggleState;
     webSearch.debouncedChange({ value: newValue });
   }, [webSearch]);
+
+  const handleDeepResearchToggle = useCallback(() => {
+    deepResearch.debouncedChange({ value: !deepResearch.toggleState });
+  }, [deepResearch]);
 
   const handleWebSearchModeChange = useCallback(
     (mode: WebSearchModes) => {
@@ -210,6 +224,38 @@ const ToolsDropdown = ({ disabled }: ToolsDropdownProps) => {
   const mcpPlaceholder = startupConfig?.interface?.mcpServers?.placeholder;
 
   const dropdownItems: MenuItemProps[] = [];
+
+  if (supportsDeepResearch && canUseWebSearch && canRunCode) {
+    dropdownItems.push({
+      onClick: handleDeepResearchToggle,
+      hideOnClick: false,
+      render: (props) => (
+        <div {...props}>
+          <div className="flex items-center gap-2">
+            <Telescope className="icon-md" aria-hidden="true" />
+            <span>{localize('com_ui_deep_research')}</span>
+          </div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsDeepResearchPinned(!isDeepResearchPinned);
+            }}
+            className={cn(
+              'rounded p-1 transition-all duration-200',
+              'hover:bg-surface-secondary hover:shadow-sm',
+              !isDeepResearchPinned && 'text-text-secondary hover:text-text-primary',
+            )}
+            aria-label={isDeepResearchPinned ? 'Unpin' : 'Pin'}
+          >
+            <div className="h-4 w-4">
+              <PinIcon unpin={isDeepResearchPinned} />
+            </div>
+          </button>
+        </div>
+      ),
+    });
+  }
 
   if (fileSearchEnabled && canUseFileSearch && supportsStructuredToolCalling) {
     dropdownItems.push({

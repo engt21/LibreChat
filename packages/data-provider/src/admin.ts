@@ -304,6 +304,17 @@ export const adminBYOKSettingsSchema = z.object({
 
 export type TAdminBYOKSettings = z.infer<typeof adminBYOKSettingsSchema>;
 
+export const adminDeterministicToolSettingsSchema = z.object({
+  calculator: z.boolean().default(true),
+  textAnalyzer: z.boolean().default(true),
+  stringUtility: z.boolean().default(true),
+  jsonUtility: z.boolean().default(true),
+});
+
+export type TAdminDeterministicToolSettings = z.infer<
+  typeof adminDeterministicToolSettingsSchema
+>;
+
 export const adminSettingsSchema = z.object({
   settingsId: z.string(),
   registrationEnabled: z.boolean(),
@@ -311,6 +322,7 @@ export const adminSettingsSchema = z.object({
   platformPrompt: platformPromptSchema,
   observability: observabilityLinksSchema,
   byok: adminBYOKSettingsSchema.default({ providers: {} }),
+  deterministicTools: adminDeterministicToolSettingsSchema.default({}),
   mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),
   mcpAllowedDomains: z.array(z.string()).optional(),
   mcpPublishedServers: z.array(z.string()).optional().nullable(),
@@ -324,6 +336,7 @@ export const adminSettingsUpdateSchema = z.object({
   platformPrompt: platformPromptSchema.optional(),
   observability: observabilityLinksSchema.partial().optional(),
   byok: adminBYOKSettingsSchema.partial().optional(),
+  deterministicTools: adminDeterministicToolSettingsSchema.partial().optional(),
   mcpDomainFilterMode: mcpDomainFilterModeSchema.optional(),
   mcpAllowedDomains: z.array(z.string()).optional(),
   mcpPublishedServers: z.array(z.string()).optional().nullable(),

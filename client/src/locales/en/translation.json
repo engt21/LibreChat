@@ -1751,5 +1751,16 @@
   "com_ui_zoom_in": "Zoom in",
   "com_ui_zoom_level": "Zoom level",
   "com_ui_zoom_out": "Zoom out",
-  "com_user_message": "You"
+  "com_user_message": "You",
+  "com_admin_deterministic_tools": "Deterministic default tools",
+  "com_admin_deterministic_tools_desc": "Automatically attach local, credential-free tools to every interactive LLM request. Calls appear in the chat tool-invocation timeline.",
+  "com_admin_deterministic_calculator": "Calculator",
+  "com_admin_deterministic_calculator_desc": "Let models invoke the built-in calculator for exact arithmetic instead of estimating mentally.",
+  "com_admin_deterministic_text_analyzer": "Text analyzer",
+  "com_admin_deterministic_text_analyzer_desc": "Let models deterministically count words, Unicode characters, code points, bytes, sentences, and lines.",
+  "com_admin_deterministic_string_utility": "String utility",
+  "com_admin_deterministic_string_utility_desc": "Let models perform exact substring operations, line sorting and deduplication, normalization, case conversion, and SHA hashing.",
+  "com_admin_deterministic_json_utility": "JSON utility",
+  "com_admin_deterministic_json_utility_desc": "Let models validate, format, minify, and query JSON with RFC 6901 JSON Pointers.",
+  "com_ui_deep_research": "Deep Research"
 }

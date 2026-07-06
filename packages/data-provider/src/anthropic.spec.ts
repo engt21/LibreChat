@@ -66,8 +66,8 @@ describe('anthropic model helpers', () => {
     ];
 
     expect(getAnthropicQuickSelectModelNames(models)).toEqual([
-      'claude-opus-4-6',
       'claude-sonnet-4-5',
+      'claude-opus-4-6',
       'claude-3-7-sonnet-latest',
     ]);
   });

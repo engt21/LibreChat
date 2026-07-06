@@ -11,6 +11,47 @@ import type { useLocalize } from '~/hooks';
 import SpecIcon from '~/components/Chat/Menus/Endpoints/components/SpecIcon';
 import { Endpoint, SelectedValues } from '~/common';
 
+export function isDeepResearchModelSpec(spec: TModelSpec): boolean {
+  const identity = `${spec.name ?? ''} ${spec.label ?? ''}`.toLowerCase();
+  return /\bdeep[\s_-]*research\b/u.test(identity);
+}
+
+const modelPickerProviderOrder = [
+  EModelEndpoint.openAI,
+  EModelEndpoint.anthropic,
+  EModelEndpoint.azureOpenAI,
+  EModelEndpoint.google,
+];
+
+export function sortModelPickerEndpoints(endpoints: Endpoint[]): Endpoint[] {
+  const getRank = (endpoint: Endpoint) => {
+    const exactRank = modelPickerProviderOrder.indexOf(endpoint.value as EModelEndpoint);
+    if (exactRank !== -1) {
+      return exactRank;
+    }
+
+    const identity = `${endpoint.value} ${endpoint.label}`.toLowerCase();
+    if (identity.includes('google') || identity.includes('gemini') || identity.includes('vertex')) {
+      return 3;
+    }
+    if (identity.includes('xai') || identity.includes('x.ai') || identity.includes('grok')) {
+      return 4;
+    }
+    if (identity.includes('ollama')) {
+      return 5;
+    }
+    return 100;
+  };
+
+  return [...endpoints].sort((left, right) => {
+    const rankDifference = getRank(left) - getRank(right);
+    if (rankDifference !== 0) {
+      return rankDifference;
+    }
+    return left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
 export function isOpenAIAlphaModel(model: string | null | undefined): boolean {
   return typeof model === 'string' && model.toLowerCase().includes('-alpha');
 }

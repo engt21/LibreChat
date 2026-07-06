@@ -1,6 +1,7 @@
 import type { OpenAPIV3 } from 'openapi-types';
 import type { AssistantsEndpoint, AgentProvider } from 'src/schemas';
 import type { Agents, GraphEdge } from './agents';
+import type { CodeInterpreterModes } from '../config';
 import type { ContentTypes } from './runs';
 import type { TFile } from './files';
 import { ArtifactModes } from 'src/artifacts';
@@ -20,6 +21,7 @@ export enum Tools {
   code_interpreter = 'code_interpreter',
   file_search = 'file_search',
   web_search = 'web_search',
+  deep_research = 'deep_research',
   image_generation = 'image_generation',
   retrieval = 'retrieval',
   function = 'function',
@@ -168,6 +170,7 @@ export type AgentModelParameters = {
   frequency_penalty: AgentParameterValue;
   presence_penalty: AgentParameterValue;
   useResponsesApi?: boolean;
+  execute_code_mode?: CodeInterpreterModes;
 };
 
 export interface AgentBaseResource {

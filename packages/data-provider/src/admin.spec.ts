@@ -213,4 +213,30 @@ describe('admin schemas', () => {
       published: false,
     });
   });
+
+  it('defaults and parses deterministic tool settings', () => {
+    const settings = adminSettingsSchema.parse({
+      settingsId: 'global',
+      registrationEnabled: true,
+      modelSteeringEnabled: false,
+      platformPrompt: null,
+      observability: {},
+      byok: { providers: {} },
+    });
+
+    expect(settings.deterministicTools).toEqual({
+      calculator: true,
+      textAnalyzer: true,
+      stringUtility: true,
+      jsonUtility: true,
+    });
+    expect(
+      adminSettingsUpdateSchema.parse({
+        deterministicTools: { calculator: false, jsonUtility: false },
+      }),
+    ).toEqual({
+      deterministicTools: { calculator: false, jsonUtility: false },
+    });
+  });
+
 });

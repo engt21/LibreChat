@@ -47,6 +47,15 @@ const appSettingsSchema = new Schema<IAppSettings>(
       },
       default: { providers: {} },
     },
+    deterministicTools: {
+      type: {
+        calculator: { type: Boolean },
+        textAnalyzer: { type: Boolean },
+        stringUtility: { type: Boolean },
+        jsonUtility: { type: Boolean },
+      },
+      default: {},
+    },
     mcpDomainFilterMode: {
       type: String,
       enum: ['allowlist', 'denylist'],

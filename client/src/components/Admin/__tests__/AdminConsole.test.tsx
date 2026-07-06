@@ -378,6 +378,43 @@ describe('AdminConsole – platform prompt settings', () => {
       );
     });
   });
+
+  it('renders enabled deterministic tools and saves independent toggles', async () => {
+    render(<AdminConsole />);
+
+    const calculator = await screen.findByRole('switch', {
+      name: 'com_admin_deterministic_calculator',
+    });
+    const textAnalyzer = screen.getByRole('switch', {
+      name: 'com_admin_deterministic_text_analyzer',
+    });
+    const stringUtility = screen.getByRole('switch', {
+      name: 'com_admin_deterministic_string_utility',
+    });
+    const jsonUtility = screen.getByRole('switch', {
+      name: 'com_admin_deterministic_json_utility',
+    });
+    expect(calculator).toHaveAttribute('aria-checked', 'true');
+    expect(textAnalyzer).toHaveAttribute('aria-checked', 'true');
+    expect(stringUtility).toHaveAttribute('aria-checked', 'true');
+    expect(jsonUtility).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(calculator);
+    fireEvent.click(screen.getByText('com_admin_save_settings'));
+
+    await waitFor(() => {
+      expect(mockUpdateAdminSettingsMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deterministicTools: {
+            calculator: false,
+            textAnalyzer: true,
+            stringUtility: true,
+            jsonUtility: true,
+          },
+        }),
+      );
+    });
+  });
 });
 
 describe('AdminConsole – model discovery refresh section', () => {

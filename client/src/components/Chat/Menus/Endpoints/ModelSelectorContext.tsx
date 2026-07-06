@@ -1,11 +1,6 @@
 import debounce from 'lodash/debounce';
 import React, { createContext, useContext, useState, useMemo, useCallback } from 'react';
-import {
-  EModelEndpoint,
-  SystemRoles,
-  isAgentsEndpoint,
-  isAssistantsEndpoint,
-} from 'librechat-data-provider';
+import { SystemRoles, isAgentsEndpoint, isAssistantsEndpoint } from 'librechat-data-provider';
 import type * as t from 'librechat-data-provider';
 import type { Endpoint, SelectedValues } from '~/common';
 import {
@@ -24,7 +19,7 @@ import {
 } from '~/data-provider';
 import { useModelSelectorChatContext } from './ModelSelectorChatContext';
 import useSelectMention from '~/hooks/Input/useSelectMention';
-import { filterItems } from './utils';
+import { filterItems, isDeepResearchModelSpec, sortModelPickerEndpoints } from './utils';
 
 type ModelSelectorContextType = {
   // State
@@ -81,24 +76,13 @@ export function ModelSelectorProvider({ children, startupConfig }: ModelSelector
   });
   const isSuperAdmin = adminPermissionsQuery.data?.isSuperAdmin === true;
 
-  const modelSpecs = useMemo(() => {
-    const specs = startupConfig?.modelSpecs?.list ?? [];
-    if (!agentsMap) {
-      return specs;
-    }
-
-    /**
-     * Filter modelSpecs to only include agents the user has access to.
-     * Use agentsMap which already contains permission-filtered agents (consistent with other components).
-     */
-    return specs.filter((spec) => {
-      if (spec.preset?.endpoint === EModelEndpoint.agents && spec.preset?.agent_id) {
-        return spec.preset.agent_id in agentsMap;
-      }
-      /** Keep non-agent modelSpecs */
-      return true;
-    });
-  }, [startupConfig, agentsMap]);
+  const modelSpecs = useMemo(
+    () =>
+      (startupConfig?.modelSpecs?.list ?? []).filter(
+        (spec) => !isAgentsEndpoint(spec.preset?.endpoint) && !isDeepResearchModelSpec(spec),
+      ),
+    [startupConfig],
+  );
 
   const permissionLevel = useAgentDefaultPermissionLevel();
   const { data: agents = null } = useListAgentsQuery(
@@ -108,12 +92,19 @@ export function ModelSelectorProvider({ children, startupConfig }: ModelSelector
     },
   );
 
-  const { mappedEndpoints, endpointRequiresUserKey } = useEndpoints({
+  const { mappedEndpoints: allMappedEndpoints, endpointRequiresUserKey } = useEndpoints({
     agents,
     assistantsMap,
     startupConfig,
     endpointsConfig,
   });
+  const mappedEndpoints = useMemo(
+    () =>
+      sortModelPickerEndpoints(
+        allMappedEndpoints.filter((mappedEndpoint) => !isAgentsEndpoint(mappedEndpoint.value)),
+      ),
+    [allMappedEndpoints],
+  );
 
   const getModelDisplayName = useCallback(
     (endpoint: Endpoint, model: string): string => {

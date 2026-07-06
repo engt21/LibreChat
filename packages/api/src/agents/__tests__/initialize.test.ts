@@ -291,3 +291,64 @@ describe('initializeAgent — maxContextTokens', () => {
     expect(result.maxContextTokens).toBe(userValue);
   });
 });
+
+describe('initializeAgent — deterministic default tools', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('attaches all deterministic utilities to every agent initialization by default', async () => {
+    const { agent, req, res, loadTools, db } = createMocks();
+
+    await initializeAgent(
+      {
+        req,
+        res,
+        agent,
+        loadTools,
+        endpointOption: { endpoint: EModelEndpoint.agents },
+        allowedProviders: new Set([Providers.OPENAI]),
+        isInitialAgent: true,
+      },
+      db,
+    );
+
+    expect(loadTools).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          'calculator',
+          'text_analyzer',
+          'string_utility',
+          'json_utility',
+        ]),
+      }),
+    );
+  });
+
+  it('honors admin tool toggles independently', async () => {
+    const { agent, req, res, loadTools, db } = createMocks();
+    req.appSettings = {
+      settingsId: 'global',
+      deterministicTools: { calculator: false, textAnalyzer: true },
+    };
+
+    await initializeAgent(
+      {
+        req,
+        res,
+        agent,
+        loadTools,
+        endpointOption: { endpoint: EModelEndpoint.agents },
+        allowedProviders: new Set([Providers.OPENAI]),
+        isInitialAgent: true,
+      },
+      db,
+    );
+
+    const requestedTools = loadTools.mock.calls[0][0].tools;
+    expect(requestedTools).toContain('text_analyzer');
+    expect(requestedTools).toContain('string_utility');
+    expect(requestedTools).toContain('json_utility');
+    expect(requestedTools).not.toContain('calculator');
+  });
+});

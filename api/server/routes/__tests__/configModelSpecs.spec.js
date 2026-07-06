@@ -334,12 +334,14 @@ describe('/api/config modelSpecs filtering (VAL-MODEL-003)', () => {
         'chat-latest',
         'gpt-5.5',
         'gpt-5.4-mini',
+        'claude-sonnet-4-6',
         'claude-opus-4-7',
       ]);
       expect(res.body.modelSpecs.list.map((spec) => spec.label)).toEqual([
         'Chat Latest',
         'GPT-5.5',
         'GPT-5.4 Mini',
+        'Claude Sonnet 4.6',
         'Claude Opus 4.7',
       ]);
     });

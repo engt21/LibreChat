@@ -1114,3 +1114,13 @@ Use this order:
 4. the running local worktree conventions in `LibreChat-custom`
 
 If a future merge preserves the feature buckets and preserve-lists in this document, it should preserve the substance of the custom branch.
+
+## Deterministic tools and picker preservation
+
+- Keep all four deterministic tools registered in the manifest, tool exports, constructor map, shared agent initializer, app-settings schema, backend normalization, and Admin Console controls.
+- Missing `AppSettings.deterministicTools` values must default to enabled so upgrades need no data migration.
+- Keep the model picker model-only and preserve the dedicated adjacent Agents button plus defense-in-depth agent filtering.
+- Preserve provider ordering as OpenAI, Anthropic, Azure OpenAI, Google, xAI, Ollama, then remaining providers.
+- Preserve Anthropic quick-selection order as latest Sonnet followed by latest Opus.
+- Keep Deep Research on the chat bar and hide legacy Deep Research model specs.
+- See `DETERMINISTIC_DEFAULT_TOOLS.md` for validation and merge details.

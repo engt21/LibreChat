@@ -23,6 +23,7 @@ import FileSearch from './FileSearch';
 import Artifacts from './Artifacts';
 import MCPSelect from './MCPSelect';
 import WebSearch from './WebSearch';
+import DeepResearch from './DeepResearch';
 import ImageGeneration from './ImageGeneration';
 import store from '~/store';
 
@@ -377,6 +378,7 @@ function BadgeRow({
         {showEphemeralBadges === true && (
           <>
             <WebSearch />
+            <DeepResearch />
             <CodeInterpreter />
             <FileSearch />
             <ImageGeneration />

@@ -379,6 +379,15 @@ export async function initializeAgent(
 
   let toolNames = (agent.tools ?? []).filter((tool) => !nativeToolSelection.stripTools.has(tool));
 
+  const deterministicToolSettings = req.appSettings?.deterministicTools;
+  const defaultDeterministicTools = [
+    ...(deterministicToolSettings?.calculator !== false ? ['calculator'] : []),
+    ...(deterministicToolSettings?.textAnalyzer !== false ? ['text_analyzer'] : []),
+    ...(deterministicToolSettings?.stringUtility !== false ? ['string_utility'] : []),
+    ...(deterministicToolSettings?.jsonUtility !== false ? ['json_utility'] : []),
+  ];
+  toolNames = Array.from(new Set([...toolNames, ...defaultDeterministicTools]));
+
   if (isXAIProvider && xaiModelCapabilities && !xaiModelCapabilities.supportsFunctionCalling) {
     toolNames = [];
   }
