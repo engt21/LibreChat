@@ -360,6 +360,7 @@ export type TGenerationGraftCopyMetadata = {
   kind: 'generation_graft_copy';
   graftId: string;
   clonedFromMessageId: string;
+  usageSourceMessageId?: string;
 };
 
 export type TGenerationGraftErrorCode =

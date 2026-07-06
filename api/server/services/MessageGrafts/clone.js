@@ -152,7 +152,9 @@ function remapEmbeddedMessageIds(value, sourceToCopyMessageId) {
   }
 
   if (value instanceof Set) {
-    return new Set(Array.from(value.values(), (entry) => remapEmbeddedMessageIds(entry, sourceToCopyMessageId)));
+    return new Set(
+      Array.from(value.values(), (entry) => remapEmbeddedMessageIds(entry, sourceToCopyMessageId)),
+    );
   }
 
   if (!isPlainObject(value)) {
@@ -224,7 +226,11 @@ function remapNestedGraftMetadata(record, options = {}) {
   const metadata = hasWrapperMetadata ? { ...clonedRecord.metadata } : { ...clonedRecord };
   const generationGraft = metadata.generationGraft;
 
-  if (generationGraft == null || typeof generationGraft !== 'object' || Array.isArray(generationGraft)) {
+  if (
+    generationGraft == null ||
+    typeof generationGraft !== 'object' ||
+    Array.isArray(generationGraft)
+  ) {
     return hasWrapperMetadata ? { ...clonedRecord, metadata } : metadata;
   }
 
@@ -252,7 +258,10 @@ function remapNestedGraftMetadata(record, options = {}) {
       generationGraft.sourceRootMessageId,
       sourceToCopyMessageId,
     ),
-    sourceMessageIds: remapNestedMessageIds(generationGraft.sourceMessageIds, sourceToCopyMessageId),
+    sourceMessageIds: remapNestedMessageIds(
+      generationGraft.sourceMessageIds,
+      sourceToCopyMessageId,
+    ),
     destinationMessageId: remapNestedMessageId(
       generationGraft.destinationMessageId,
       sourceToCopyMessageId,
@@ -261,7 +270,10 @@ function remapNestedGraftMetadata(record, options = {}) {
       generationGraft.copiedRootMessageId,
       sourceToCopyMessageId,
     ),
-    copiedMessageIds: remapNestedMessageIds(generationGraft.copiedMessageIds, sourceToCopyMessageId),
+    copiedMessageIds: remapNestedMessageIds(
+      generationGraft.copiedMessageIds,
+      sourceToCopyMessageId,
+    ),
     activeCopiedMessageId: remapNestedMessageId(
       generationGraft.activeCopiedMessageId,
       sourceToCopyMessageId,
@@ -437,6 +449,23 @@ function buildBridgeText(sourceState, destinationState) {
   return `${GRAFT_BRIDGE_TEXT}\n\n${PARTIAL_GRAFT_WARNING}`;
 }
 
+function resolveUsageSourceMessageId(message) {
+  const sourceGraftCopy = message?.metadata?.generationGraftCopy;
+  if (
+    typeof sourceGraftCopy?.usageSourceMessageId === 'string' &&
+    sourceGraftCopy.usageSourceMessageId.length > 0
+  ) {
+    return sourceGraftCopy.usageSourceMessageId;
+  }
+  if (
+    typeof sourceGraftCopy?.clonedFromMessageId === 'string' &&
+    sourceGraftCopy.clonedFromMessageId.length > 0
+  ) {
+    return sourceGraftCopy.clonedFromMessageId;
+  }
+  return message.messageId;
+}
+
 function buildClonePlan({
   messages,
   toolCalls = [],
@@ -495,7 +524,9 @@ function buildClonePlan({
 
   const copiedRootMessageId = sourceToCopyMessageId.get(sourceRootMessageId);
   const activeCopiedMessageId = sourceToCopyMessageId.get(activeSourceMessageId);
-  const copiedMessageIds = sourceMessageIds.map((messageId) => sourceToCopyMessageId.get(messageId));
+  const copiedMessageIds = sourceMessageIds.map((messageId) =>
+    sourceToCopyMessageId.get(messageId),
+  );
   const timestampBase = resolveNow(now);
   const nestedGraftIds = new Map();
   const nestedIdempotencyKeys = new Map();
@@ -553,6 +584,7 @@ function buildClonePlan({
       !Array.isArray(remappedMessage.metadata)
         ? { ...remappedMessage.metadata }
         : {};
+    const usageSourceMessageId = resolveUsageSourceMessageId(message);
 
     const files = Array.isArray(remappedMessage.files)
       ? remapEmbeddedMessageIds(remappedMessage.files, sourceToCopyMessageId)
@@ -565,6 +597,7 @@ function buildClonePlan({
       kind: 'generation_graft_copy',
       graftId,
       clonedFromMessageId: message.messageId,
+      usageSourceMessageId,
     };
 
     return {

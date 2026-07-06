@@ -2512,6 +2512,7 @@ This release is a single preservation boundary for every LibreChat customization
 - Cost is never inferred from estimated tokens. Fully recorded turns show their USD amount, partially priced turns use a `>=` indicator, and unavailable pricing renders as unknown rather than `$0.00`.
 - The sidebar does not depend on Langfuse at request time. LibreChat's provider pricing catalog produces the recorded transaction rate and is also the source synchronized into Langfuse.
 - `credits` transactions are excluded. The displayed amount is the recorded LibreChat historical cost, not a provider invoice, and remains partial when a provider/tool charge was not persisted.
+- Grafted generation copies keep an immutable `usageSourceMessageId` pointing to the original generated message. Thread Usage reads that source transaction without cloning debit rows, so nested grafts retain historical usage while accounting totals cannot be duplicated by persistence.
 - The endpoint is user-scoped and accepts visible message IDs. The client derives those IDs from the selected latest-message ancestry so hidden sibling branches are not included in the displayed total.
 
 ### Full generation-tree deletion

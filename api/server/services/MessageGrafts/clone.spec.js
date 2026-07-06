@@ -139,6 +139,7 @@ describe('MessageGrafts clone plan', () => {
           kind: 'generation_graft_copy',
           graftId: 'graft-1',
           clonedFromMessageId: 'source-root',
+          usageSourceMessageId: 'source-root',
         },
       },
     });
@@ -152,6 +153,7 @@ describe('MessageGrafts clone plan', () => {
           kind: 'generation_graft_copy',
           graftId: 'graft-1',
           clonedFromMessageId: 'source-child',
+          usageSourceMessageId: 'source-child',
         },
       },
     });
@@ -314,7 +316,9 @@ describe('MessageGrafts clone plan', () => {
         createMessage({
           messageId: 'source-root',
           files: [{ file_id: 'file-1', filepath: '/tmp/file.txt', messageId: 'source-root' }],
-          attachments: [{ file_id: 'attach-1', filepath: '/tmp/attach.txt', messageId: 'source-root' }],
+          attachments: [
+            { file_id: 'attach-1', filepath: '/tmp/attach.txt', messageId: 'source-root' },
+          ],
           content: [
             {
               type: 'text',
@@ -331,7 +335,9 @@ describe('MessageGrafts clone plan', () => {
       toolCalls: [
         createToolCall({
           messageId: 'source-root',
-          attachments: [{ file_id: 'tool-file-1', filepath: '/tmp/tool.txt', messageId: 'source-root' }],
+          attachments: [
+            { file_id: 'tool-file-1', filepath: '/tmp/tool.txt', messageId: 'source-root' },
+          ],
           result: {
             nested: {
               messageId: 'source-root',
@@ -483,13 +489,7 @@ describe('MessageGrafts clone plan', () => {
 
   it('remaps nested graft metadata with stable nested graft ids and remapped sourceRootMessageId', () => {
     const { buildClonePlan } = loadCloneModule();
-    const ids = [
-      'bridge-1',
-      'copy-root',
-      'copy-child',
-      'nested-graft-1',
-      'nested-idempotency-1',
-    ];
+    const ids = ['bridge-1', 'copy-root', 'copy-child', 'nested-graft-1', 'nested-idempotency-1'];
     const plan = buildClonePlan({
       messages: [
         createMessage({
@@ -561,16 +561,57 @@ describe('MessageGrafts clone plan', () => {
       kind: 'generation_graft_copy',
       graftId: 'graft-1',
       clonedFromMessageId: 'source-root',
+      usageSourceMessageId: 'source-root',
     });
     expect(plan.messages[2].metadata.generationGraftCopy).toEqual({
       kind: 'generation_graft_copy',
       graftId: 'graft-1',
       clonedFromMessageId: 'source-child',
+      usageSourceMessageId: 'source-child',
+    });
+  });
+
+  it('preserves the original usage source when a graft copy is grafted again', () => {
+    const { buildClonePlan } = loadCloneModule();
+    const ids = ['bridge-2', 'copy-second'];
+    const plan = buildClonePlan({
+      messages: [
+        createMessage({
+          messageId: 'copy-first',
+          metadata: {
+            generationGraftCopy: {
+              kind: 'generation_graft_copy',
+              graftId: 'graft-1',
+              clonedFromMessageId: 'source-root',
+              usageSourceMessageId: 'source-original',
+            },
+          },
+        }),
+      ],
+      toolCalls: [],
+      conversationId: 'shared-convo',
+      destinationMessageId: 'dest-assistant',
+      graftId: 'graft-2',
+      idempotencyKey: 'idempotency-2',
+      mode: 'generation',
+      sourceState: 'complete',
+      destinationState: 'complete',
+      userId: 'dest-user',
+      uuid: () => ids.shift(),
+      now: new Date('2026-07-06T16:00:00.000Z'),
+    });
+
+    expect(plan.messages[1].metadata.generationGraftCopy).toEqual({
+      kind: 'generation_graft_copy',
+      graftId: 'graft-2',
+      clonedFromMessageId: 'copy-first',
+      usageSourceMessageId: 'source-original',
     });
   });
 
   it('strips Mongo fields from lean objects and Mongoose-like toObject records', () => {
-    const { stripMongoFields, remapEmbeddedMessageIds, remapNestedGraftMetadata } = loadCloneModule();
+    const { stripMongoFields, remapEmbeddedMessageIds, remapNestedGraftMetadata } =
+      loadCloneModule();
 
     expect(
       stripMongoFields({
@@ -748,7 +789,9 @@ describe('MessageGrafts clone plan', () => {
     );
     expect(plan.messages[1].metadata.typed).toBeInstanceOf(Uint8Array);
     expect(plan.messages[1].metadata.typed).not.toBe(messageSourceTypedArray);
-    expect(Array.from(plan.messages[1].metadata.typed)).toEqual(Array.from(messageSourceTypedArray));
+    expect(Array.from(plan.messages[1].metadata.typed)).toEqual(
+      Array.from(messageSourceTypedArray),
+    );
     expect(messageBsonLike.clone).toHaveBeenCalledTimes(1);
     expect(plan.messages[1].metadata.bsonLike).toEqual({
       kind: 'message-bson-clone',

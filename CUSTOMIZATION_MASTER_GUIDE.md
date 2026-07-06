@@ -1235,6 +1235,8 @@ resetting credentials, and do not roll back to a mutable/stale `librechat-local:
 - Thread Usage cost must come from persisted transaction `tokenValue` in USD-per-million accounting
   units, never from re-pricing estimated tokens. Preserve partial/unavailable states and never render
   missing pricing as `$0.00`; Langfuse is not a runtime dependency for this panel.
+- Generation graft copies preserve `usageSourceMessageId`; resolve usage through that source and
+  never clone transaction/debit rows into the graft.
 - Sandbox TTL prefers session activity metadata and executes active-ID selection/removal under one
   session lock.
 - Deployment fallback abort is time-bounded, and runtime delta must execute an immutable fallback

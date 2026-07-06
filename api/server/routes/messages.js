@@ -386,6 +386,23 @@ function normalizeCostUsd(value) {
   return Number(value.toFixed(12));
 }
 
+function getUsageSourceMessageId(message) {
+  const graftCopy = message?.metadata?.generationGraftCopy;
+  if (
+    typeof graftCopy?.usageSourceMessageId === 'string' &&
+    graftCopy.usageSourceMessageId.length > 0
+  ) {
+    return graftCopy.usageSourceMessageId;
+  }
+  if (
+    typeof graftCopy?.clonedFromMessageId === 'string' &&
+    graftCopy.clonedFromMessageId.length > 0
+  ) {
+    return graftCopy.clonedFromMessageId;
+  }
+  return message?.messageId;
+}
+
 function estimateMessageTokens(message) {
   if (Number.isFinite(message?.tokenCount)) {
     return Math.max(Number(message.tokenCount), 0);
@@ -532,12 +549,15 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
 
     const messages = await Message.find(messageFilter).sort({ createdAt: 1 }).lean();
     const visibleIds = messages.map((message) => message.messageId);
+    const usageSourceIds = [
+      ...new Set(messages.map(getUsageSourceMessageId).filter((messageId) => !!messageId)),
+    ];
     const transactions =
-      visibleIds.length > 0
+      usageSourceIds.length > 0
         ? await getTransactions({
             user: req.user.id,
             conversationId,
-            messageId: { $in: visibleIds },
+            messageId: { $in: usageSourceIds },
           })
         : [];
     const persistedToolCalls =
@@ -613,7 +633,7 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         continue;
       }
 
-      const recorded = usageByMessage.get(message.messageId);
+      const recorded = usageByMessage.get(getUsageSourceMessageId(message));
       const costUsd =
         recorded && recorded.pricedTransactions > 0 ? normalizeCostUsd(recorded.costUsd) : null;
       turns.push({

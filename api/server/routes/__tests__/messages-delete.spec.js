@@ -389,6 +389,64 @@ describe('POST /:conversationId/usage – route handler', () => {
     );
   });
 
+  it('resolves grafted copies to the original transaction source without cloning debits', async () => {
+    Message.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          {
+            messageId: 'assistant-copy',
+            conversationId: 'convo-usage',
+            isCreatedByUser: false,
+            tokenCount: 20,
+            metadata: {
+              generationGraftCopy: {
+                kind: 'generation_graft_copy',
+                graftId: 'graft-1',
+                clonedFromMessageId: 'assistant-source-copy',
+                usageSourceMessageId: 'assistant-source-original',
+              },
+            },
+          },
+        ]),
+      }),
+    });
+    getTransactions.mockResolvedValue([
+      {
+        messageId: 'assistant-source-original',
+        tokenType: 'prompt',
+        rawAmount: -100,
+        tokenValue: -200,
+      },
+      {
+        messageId: 'assistant-source-original',
+        tokenType: 'completion',
+        rawAmount: -25,
+        tokenValue: -750,
+      },
+    ]);
+
+    const response = await request(app)
+      .post('/api/messages/convo-usage/usage')
+      .send({ messageIds: ['assistant-copy'] });
+
+    expect(response.status).toBe(200);
+    expect(getTransactions).toHaveBeenCalledWith({
+      conversationId: 'convo-usage',
+      user: 'usage-user-123',
+      messageId: { $in: ['assistant-source-original'] },
+    });
+    expect(response.body.turns[0]).toEqual(
+      expect.objectContaining({
+        messageId: 'assistant-copy',
+        inputTokens: 100,
+        outputTokens: 25,
+        costUsd: 0.00095,
+        costComplete: true,
+        estimated: false,
+      }),
+    );
+  });
+
   it('merges persisted and embedded tool calls without double-counting matching tools', async () => {
     Message.find.mockReturnValue({
       sort: jest.fn().mockReturnValue({
