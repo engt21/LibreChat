@@ -22,6 +22,12 @@ const appendCreatedMessages = (
   return nextMessages;
 };
 
+export const generationGraftDetailsQueryKeyPrefix = (conversationId: string) =>
+  ['generationGraft', conversationId] as const;
+
+export const generationGraftDetailsQueryKey = (conversationId: string, graftId: string) =>
+  [...generationGraftDetailsQueryKeyPrefix(conversationId), graftId] as const;
+
 const invalidateGenerationGraftQueries = (
   queryClient: ReturnType<typeof useQueryClient>,
   conversationId: string,
@@ -29,10 +35,10 @@ const invalidateGenerationGraftQueries = (
   void queryClient.invalidateQueries({ queryKey: [QueryKeys.messages, conversationId] });
   void queryClient.invalidateQueries({ queryKey: [QueryKeys.toolCalls, conversationId] });
   void queryClient.invalidateQueries({ queryKey: [QueryKeys.conversationUsage, conversationId] });
+  void queryClient.invalidateQueries({
+    queryKey: generationGraftDetailsQueryKeyPrefix(conversationId),
+  });
 };
-
-export const generationGraftDetailsQueryKey = (conversationId: string, graftId: string) =>
-  ['generationGraft', conversationId, graftId] as const;
 
 export function usePreviewGenerationGraft(conversationId: string) {
   return useMutation({

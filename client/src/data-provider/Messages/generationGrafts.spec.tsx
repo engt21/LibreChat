@@ -187,7 +187,11 @@ describe('generation graft client hooks', () => {
 
   it('disables generation graft details queries without both identifiers and retries', () => {
     const useQuerySpy = jest.spyOn(ReactQuery, 'useQuery').mockReturnValue({} as never);
-    const { useGenerationGraftDetails } = loadGenerationGrafts();
+    const {
+      useGenerationGraftDetails,
+      generationGraftDetailsQueryKey,
+      generationGraftDetailsQueryKeyPrefix,
+    } = loadGenerationGrafts();
 
     renderHook(() => useGenerationGraftDetails('', '', true));
 
@@ -197,6 +201,10 @@ describe('generation graft client hooks', () => {
         retry: false,
       }),
     );
+    expect(generationGraftDetailsQueryKey('convo-1', 'graft-1')).toEqual([
+      ...generationGraftDetailsQueryKeyPrefix('convo-1'),
+      'graft-1',
+    ]);
 
     useQuerySpy.mockRestore();
   });
@@ -266,6 +274,12 @@ describe('generation graft client hooks', () => {
     expect(
       wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
         QueryKeys.conversationUsage,
+        'convo-1',
+      ]),
+    ).toBe(true);
+    expect(
+      wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
+        'generationGraft',
         'convo-1',
       ]),
     ).toBe(true);
@@ -341,6 +355,12 @@ describe('generation graft client hooks', () => {
     expect(
       wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
         QueryKeys.conversationUsage,
+        'convo-1',
+      ]),
+    ).toBe(true);
+    expect(
+      wasInvalidated(invalidateSpy.mock.calls as Array<[InvalidateArg]>, [
+        'generationGraft',
         'convo-1',
       ]),
     ).toBe(true);
