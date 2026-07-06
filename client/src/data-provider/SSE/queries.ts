@@ -6,6 +6,8 @@ import { updateConvoInAllQueries } from '~/utils';
 
 export interface StreamStatusResponse {
   active: boolean;
+  provider?: 'assistants' | 'resumable' | null;
+  responseMessageId?: string | null;
   streamId?: string;
   status?: 'running' | 'complete' | 'error' | 'aborted';
   aggregatedContent?: Array<{ type: string; text?: string }>;

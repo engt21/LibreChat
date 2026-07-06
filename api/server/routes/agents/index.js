@@ -10,6 +10,7 @@ const {
   messageUserLimiter,
 } = require('~/server/middleware');
 const { saveMessage } = require('~/models');
+const { getActiveGenerationState } = require('~/server/services/MessageGrafts/active');
 const openai = require('./openai');
 const responses = require('./responses');
 const { v1 } = require('./v1');
@@ -153,28 +154,42 @@ router.get('/chat/active', async (req, res) => {
 router.get('/chat/status/:conversationId', async (req, res) => {
   const { conversationId } = req.params;
 
-  // streamId === conversationId, so we can use getJob directly
   const job = await GenerationJobManager.getJob(conversationId);
+  const activeState = await getActiveGenerationState({
+    userId: req.user.id,
+    conversationId,
+    preloadedResumableJob: job ?? null,
+  });
 
-  if (!job) {
-    return res.json({ active: false });
+  if (job?.metadata?.userId && job.metadata.userId !== req.user.id) {
+    return res.status(403).json({ error: 'Unauthorized' });
   }
 
-  if (job.metadata.userId !== req.user.id) {
-    return res.status(403).json({ error: 'Unauthorized' });
+  if (!activeState.active) {
+    return res.json({ active: false, provider: null, responseMessageId: null });
+  }
+
+  if (activeState.provider === 'assistants') {
+    return res.json({
+      active: true,
+      provider: 'assistants',
+      responseMessageId: activeState.responseMessageId,
+    });
   }
 
   // Get resume state which contains aggregatedContent
   // Avoid calling both getStreamInfo and getResumeState (both fetch content)
   const resumeState = await GenerationJobManager.getResumeState(conversationId);
-  const isActive = job.status === 'running';
+  const isActive = job?.status === 'running';
 
   res.json({
     active: isActive,
+    provider: 'resumable',
+    responseMessageId: activeState.responseMessageId,
     streamId: conversationId,
-    status: job.status,
+    status: job?.status,
     aggregatedContent: resumeState?.aggregatedContent ?? [],
-    createdAt: job.createdAt,
+    createdAt: job?.createdAt,
     resumeState,
   });
 });

@@ -8,9 +8,7 @@ const {
   RunStatus,
   CacheKeys,
   VisionModes,
-  ContentTypes,
   EModelEndpoint,
-  ViolationTypes,
   ImageVisionTool,
   checkOpenAIStorage,
   AssistantStreamEvents,
@@ -19,22 +17,23 @@ const {
   initThread,
   recordUsage,
   saveUserMessage,
-  checkMessageGaps,
   addThreadMetadata,
   saveAssistantMessage,
 } = require('~/server/services/Threads');
 const { runAssistant, createOnTextProgress } = require('~/server/services/AssistantService');
+const { createErrorHandler } = require('~/server/controllers/assistants/errors');
+const { finalizeAssistantCompletion } = require('~/server/controllers/assistants/finalize');
 const validateAuthor = require('~/server/middleware/assistants/validateAuthor');
 const { formatMessage, createVisionPrompt } = require('~/app/clients/prompts');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { createRun, StreamRunManager } = require('~/server/services/Runs');
 const { addTitle } = require('~/server/services/Endpoints/assistants');
 const { createRunBody } = require('~/server/services/createRunBody');
-const { sendResponse } = require('~/server/middleware/error');
 const { getTransactions } = require('~/models/Transaction');
 const { checkBalance } = require('~/models/balanceMethods');
 const { getConvo } = require('~/models/Conversation');
 const getLogStores = require('~/cache/getLogStores');
+const { encodeAssistantRunValue } = require('~/server/services/MessageGrafts/active');
 const { getOpenAIClient } = require('./helpers');
 
 /**
@@ -98,143 +97,23 @@ const chatV1 = async (req, res) => {
 
   /** @type {Run | undefined} - The completed run, undefined if incomplete */
   let completedRun;
+  let finalMessageSaved = false;
 
-  const handleError = async (error) => {
-    const defaultErrorMessage =
-      'The Assistant run failed to initialize. Try sending a message in a new conversation.';
-    const messageData = {
-      thread_id,
-      assistant_id,
-      conversationId,
-      parentMessageId,
-      sender: 'System',
-      user: req.user.id,
-      shouldSaveMessage: false,
-      messageId: responseMessageId,
-      endpoint,
-    };
+  const getContext = () => ({
+    openai,
+    run_id,
+    endpoint,
+    cacheKey,
+    thread_id,
+    completedRun,
+    assistant_id,
+    conversationId,
+    parentMessageId,
+    responseMessageId,
+    finalMessageSaved,
+  });
 
-    if (error.message === 'Run cancelled') {
-      return res.end();
-    } else if (error.message === 'Request closed' && completedRun) {
-      return;
-    } else if (error.message === 'Request closed') {
-      logger.debug('[/assistants/chat/] Request aborted on close');
-    } else if (/Files.*are invalid/.test(error.message)) {
-      const errorMessage = `Files are invalid, or may not have uploaded yet.${
-        endpoint === EModelEndpoint.azureAssistants
-          ? " If using Azure OpenAI, files are only available in the region of the assistant's model at the time of upload."
-          : ''
-      }`;
-      return sendResponse(req, res, messageData, errorMessage);
-    } else if (error?.message?.includes('string too long')) {
-      return sendResponse(
-        req,
-        res,
-        messageData,
-        'Message too long. The Assistants API has a limit of 32,768 characters per message. Please shorten it and try again.',
-      );
-    } else if (error?.message?.includes(ViolationTypes.TOKEN_BALANCE)) {
-      return sendResponse(req, res, messageData, error.message);
-    } else {
-      logger.error('[/assistants/chat/]', error);
-    }
-
-    if (!openai || !thread_id || !run_id) {
-      return sendResponse(req, res, messageData, defaultErrorMessage);
-    }
-
-    await sleep(2000);
-
-    try {
-      const status = await cache.get(cacheKey);
-      if (status === 'cancelled') {
-        logger.debug('[/assistants/chat/] Run already cancelled');
-        return res.end();
-      }
-      await cache.delete(cacheKey);
-      const cancelledRun = await openai.beta.threads.runs.cancel(run_id, { thread_id });
-      logger.debug('[/assistants/chat/] Cancelled run:', cancelledRun);
-    } catch (error) {
-      logger.error('[/assistants/chat/] Error cancelling run', error);
-    }
-
-    await sleep(2000);
-
-    let run;
-    try {
-      run = await openai.beta.threads.runs.retrieve(run_id, { thread_id });
-      await recordUsage({
-        ...run.usage,
-        model: run.model,
-        user: req.user.id,
-        userObject: req.user,
-        endpoint,
-        conversationId,
-      });
-    } catch (error) {
-      logger.error('[/assistants/chat/] Error fetching or processing run', error);
-    }
-
-    let finalEvent;
-    try {
-      const runMessages = await checkMessageGaps({
-        openai,
-        run_id,
-        endpoint,
-        thread_id,
-        conversationId,
-        latestMessageId: responseMessageId,
-      });
-
-      const errorContentPart = {
-        text: {
-          value:
-            error?.message ?? 'There was an error processing your request. Please try again later.',
-        },
-        type: ContentTypes.ERROR,
-      };
-
-      if (!Array.isArray(runMessages[runMessages.length - 1]?.content)) {
-        runMessages[runMessages.length - 1].content = [errorContentPart];
-      } else {
-        const contentParts = runMessages[runMessages.length - 1].content;
-        for (let i = 0; i < contentParts.length; i++) {
-          const currentPart = contentParts[i];
-          /** @type {CodeToolCall | RetrievalToolCall | FunctionToolCall | undefined} */
-          const toolCall = currentPart?.[ContentTypes.TOOL_CALL];
-          if (
-            toolCall &&
-            toolCall?.function &&
-            !(toolCall?.function?.output || toolCall?.function?.output?.length)
-          ) {
-            contentParts[i] = {
-              ...currentPart,
-              [ContentTypes.TOOL_CALL]: {
-                ...toolCall,
-                function: {
-                  ...toolCall.function,
-                  output: 'error processing tool',
-                },
-              },
-            };
-          }
-        }
-        runMessages[runMessages.length - 1].content.push(errorContentPart);
-      }
-
-      finalEvent = {
-        final: true,
-        conversation: await getConvo(req.user.id, conversationId),
-        runMessages,
-      };
-    } catch (error) {
-      logger.error('[/assistants/chat/] Error finalizing error process', error);
-      return sendResponse(req, res, messageData, 'The Assistant run failed');
-    }
-
-    return sendResponse(req, res, finalEvent);
-  };
+  const handleError = createErrorHandler({ req, res, getContext });
 
   try {
     res.on('close', async () => {
@@ -530,7 +409,11 @@ const chatV1 = async (req, res) => {
         });
 
         run_id = run.id;
-        await cache.set(cacheKey, `${thread_id}:${run_id}`, Time.TEN_MINUTES);
+        await cache.set(
+          cacheKey,
+          encodeAssistantRunValue(thread_id, run_id, responseMessageId),
+          Time.TEN_MINUTES,
+        );
         sendInitialResponse();
 
         // todo: retry logic
@@ -541,7 +424,11 @@ const chatV1 = async (req, res) => {
       /** @type {{[AssistantStreamEvents.ThreadRunCreated]: (event: ThreadRunCreated) => Promise<void>}} */
       const handlers = {
         [AssistantStreamEvents.ThreadRunCreated]: async (event) => {
-          await cache.set(cacheKey, `${thread_id}:${event.data.id}`, Time.TEN_MINUTES);
+          await cache.set(
+            cacheKey,
+            encodeAssistantRunValue(thread_id, event.data.id, responseMessageId),
+            Time.TEN_MINUTES,
+          );
           run_id = event.data.id;
           sendInitialResponse();
         },
@@ -610,49 +497,58 @@ const chatV1 = async (req, res) => {
     });
     res.end();
 
-    if (userMessagePromise) {
-      await userMessagePromise;
-    }
-    await saveAssistantMessage(req, { ...responseMessage, model });
+    await finalizeAssistantCompletion({
+      req,
+      responseMessage,
+      model,
+      userMessagePromise,
+      saveAssistantMessage,
+      cache,
+      cacheKey,
+      onPersisted: () => {
+        finalMessageSaved = true;
+      },
+      afterPersist: async () => {
+        if (parentMessageId === Constants.NO_PARENT && !_thread_id) {
+          addTitle(req, {
+            text,
+            responseText: response.text,
+            conversationId,
+          });
+        }
 
-    if (parentMessageId === Constants.NO_PARENT && !_thread_id) {
-      addTitle(req, {
-        text,
-        responseText: response.text,
-        conversationId,
-      });
-    }
-
-    await addThreadMetadata({
-      openai,
-      thread_id,
-      messageId: responseMessage.messageId,
-      messages: response.messages,
-    });
-
-    if (!response.run.usage) {
-      await sleep(3000);
-      completedRun = await openai.beta.threads.runs.retrieve(response.run.id, { thread_id });
-      if (completedRun.usage) {
-        await recordUsage({
-          ...completedRun.usage,
-          user: req.user.id,
-          userObject: req.user,
-          endpoint,
-          model: completedRun.model ?? model,
-          conversationId,
+        await addThreadMetadata({
+          openai,
+          thread_id,
+          messageId: responseMessage.messageId,
+          messages: response.messages,
         });
-      }
-    } else {
-      await recordUsage({
-        ...response.run.usage,
-        user: req.user.id,
-        userObject: req.user,
-        endpoint,
-        model: response.run.model ?? model,
-        conversationId,
-      });
-    }
+
+        if (!response.run.usage) {
+          await sleep(3000);
+          completedRun = await openai.beta.threads.runs.retrieve(response.run.id, { thread_id });
+          if (completedRun.usage) {
+            await recordUsage({
+              ...completedRun.usage,
+              user: req.user.id,
+              userObject: req.user,
+              endpoint,
+              model: completedRun.model ?? model,
+              conversationId,
+            });
+          }
+        } else {
+          await recordUsage({
+            ...response.run.usage,
+            user: req.user.id,
+            userObject: req.user,
+            endpoint,
+            model: response.run.model ?? model,
+            conversationId,
+          });
+        }
+      },
+    });
   } catch (error) {
     await handleError(error);
   }

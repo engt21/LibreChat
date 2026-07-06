@@ -1,11 +1,16 @@
 const { sendEvent } = require('@librechat/api');
 const { logger } = require('@librechat/data-schemas');
-const { CacheKeys, RunStatus, isUUID } = require('librechat-data-provider');
+const { CacheKeys, isUUID } = require('librechat-data-provider');
 const { initializeClient } = require('~/server/services/Endpoints/assistants');
 const { checkMessageGaps, recordUsage } = require('~/server/services/Threads');
 const { deleteMessages } = require('~/models/Message');
 const { getConvo } = require('~/models/Conversation');
 const getLogStores = require('~/cache/getLogStores');
+const {
+  ASSISTANT_RUN_SETTLING_VALUE,
+  clearAssistantRunMarker,
+  parseAssistantRunValue,
+} = require('~/server/services/MessageGrafts/active');
 
 const three_minutes = 1000 * 60 * 3;
 
@@ -32,14 +37,17 @@ async function abortRun(req, res) {
     logger.warn('[abortRun] Run not found in cache', { cacheKey });
     return res.status(204).send({ message: 'Run not found' });
   }
-  const [thread_id, run_id] = runValues.split(':');
+  const runState = parseAssistantRunValue(runValues);
+  const thread_id = runState?.threadId;
+  const run_id = runState?.runId;
+  const responseMessageId = runState?.responseMessageId ?? latestMessageId ?? null;
 
-  if (!run_id) {
-    logger.warn("[abortRun] Couldn't find run for cancel request", { thread_id });
-    return res.status(204).send({ message: 'Run not found' });
-  } else if (run_id === 'cancelled') {
+  if (runState?.settling) {
     logger.warn('[abortRun] Run already cancelled', { thread_id });
     return res.status(204).send({ message: 'Run already cancelled' });
+  } else if (!run_id) {
+    logger.warn("[abortRun] Couldn't find run for cancel request", { thread_id });
+    return res.status(204).send({ message: 'Run not found' });
   }
 
   let runMessages = [];
@@ -47,17 +55,11 @@ async function abortRun(req, res) {
   const { openai } = await initializeClient({ req, res });
 
   try {
-    await cache.set(cacheKey, 'cancelled', three_minutes);
+    await cache.set(cacheKey, ASSISTANT_RUN_SETTLING_VALUE, three_minutes);
     const cancelledRun = await openai.beta.threads.runs.cancel(run_id, { thread_id });
     logger.debug('[abortRun] Cancelled run:', cancelledRun);
   } catch (error) {
     logger.error('[abortRun] Error cancelling run', error);
-    if (
-      error?.message?.includes(RunStatus.CANCELLED) ||
-      error?.message?.includes(RunStatus.CANCELLING)
-    ) {
-      return res.end();
-    }
   }
 
   try {
@@ -84,7 +86,18 @@ async function abortRun(req, res) {
     endpoint,
     thread_id,
     conversationId,
-    latestMessageId,
+    latestMessageId: responseMessageId,
+  });
+  await clearAssistantRunMarker({
+    cache,
+    cacheKey,
+    responseMessageId,
+    logPrefix: '[abortRun]',
+    logContext: {
+      conversationId,
+      thread_id,
+      run_id,
+    },
   });
 
   const finalEvent = {
