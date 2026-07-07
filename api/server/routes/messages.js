@@ -361,25 +361,33 @@ function absoluteNumber(value) {
   return Number.isFinite(number) ? Math.abs(number) : 0;
 }
 
-function getTransactionCostUsd(transaction) {
+function getTransactionCostRecord(transaction) {
+  if (transaction.pricingSource === 'fallback') {
+    return { costUsd: null, verified: false };
+  }
+
+  let costUsd = null;
   if (transaction.tokenValue != null) {
     const tokenValue = Number(transaction.tokenValue);
     if (Number.isFinite(tokenValue)) {
-      return Math.abs(tokenValue) / 1_000_000;
+      costUsd = Math.abs(tokenValue) / 1_000_000;
     }
   }
 
-  if (transaction.rawAmount == null || transaction.rate == null) {
-    return null;
+  if (costUsd == null && transaction.rawAmount != null && transaction.rate != null) {
+    const rawAmount = Number(transaction.rawAmount);
+    const rate = Number(transaction.rate);
+    if (Number.isFinite(rawAmount) && Number.isFinite(rate)) {
+      costUsd = Math.abs(rawAmount * rate) / 1_000_000;
+    }
   }
 
-  const rawAmount = Number(transaction.rawAmount);
-  const rate = Number(transaction.rate);
-  if (!Number.isFinite(rawAmount) || !Number.isFinite(rate)) {
-    return null;
-  }
-
-  return Math.abs(rawAmount * rate) / 1_000_000;
+  return {
+    costUsd,
+    verified:
+      costUsd != null &&
+      (transaction.pricingSource === 'catalog' || transaction.pricingSource === 'endpoint_config'),
+  };
 }
 
 function normalizeCostUsd(value) {
@@ -595,6 +603,7 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         costUsd: 0,
         pricedTransactions: 0,
         unpricedTransactions: 0,
+        unverifiedTransactions: 0,
       };
 
       if (transaction.tokenType === 'prompt') {
@@ -613,12 +622,15 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         usage.outputTokens += absoluteNumber(transaction.rawAmount);
       }
 
-      const transactionCostUsd = getTransactionCostUsd(transaction);
-      if (transactionCostUsd == null) {
+      const transactionCost = getTransactionCostRecord(transaction);
+      if (transactionCost.costUsd == null) {
         usage.unpricedTransactions += 1;
       } else {
-        usage.costUsd += transactionCostUsd;
+        usage.costUsd += transactionCost.costUsd;
         usage.pricedTransactions += 1;
+        if (!transactionCost.verified) {
+          usage.unverifiedTransactions += 1;
+        }
       }
 
       usageByMessage.set(transaction.messageId, usage);
@@ -636,6 +648,11 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
       const recorded = usageByMessage.get(getUsageSourceMessageId(message));
       const costUsd =
         recorded && recorded.pricedTransactions > 0 ? normalizeCostUsd(recorded.costUsd) : null;
+      const toolCalls = mergeToolCallCounts(
+        collectToolCallCounts(message.content),
+        persistedToolCountsByMessage.get(message.messageId) ?? new Map(),
+      );
+      const estimated = recorded == null;
       turns.push({
         messageId: message.messageId,
         createdAt: message.createdAt,
@@ -645,16 +662,16 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         outputTokens: recorded?.outputTokens ?? estimatedMessageTokens,
         cacheReadTokens: recorded?.cacheReadTokens ?? 0,
         cacheWriteTokens: recorded?.cacheWriteTokens ?? 0,
-        toolCalls: mergeToolCallCounts(
-          collectToolCallCounts(message.content),
-          persistedToolCountsByMessage.get(message.messageId) ?? new Map(),
-        ),
-        estimated: recorded == null,
+        toolCalls,
+        estimated,
         costUsd,
         costComplete:
           recorded != null &&
           recorded.pricedTransactions > 0 &&
-          recorded.unpricedTransactions === 0,
+          recorded.unpricedTransactions === 0 &&
+          recorded.unverifiedTransactions === 0 &&
+          !estimated &&
+          toolCalls === 0,
       });
       priorVisibleTokens += estimatedMessageTokens;
     }
@@ -691,6 +708,7 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
       conversationId,
       currency: 'USD',
       costBasis: 'recorded_transactions',
+      costScope: 'token_transactions_only',
       totals,
       turns,
     });

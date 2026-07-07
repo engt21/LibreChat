@@ -7,7 +7,7 @@ usage() {
   cat <<'EOF'
 Usage:
   local-services/run-node-capped.sh <profile>
-  local-services/run-node-capped.sh [--memory-max SIZE] [--heap-mb MB] [--swap-max SIZE] -- <command...>
+  local-services/run-node-capped.sh [--memory-high SIZE] [--memory-max SIZE] [--heap-mb MB] [--swap-max SIZE] -- <command...>
 
 Profiles:
   lint       MemoryMax=3G, Node heap=1024 MB, command: npm run lint
@@ -24,6 +24,7 @@ Overrides:
   LIBRECHAT_NODE_TEST_MEMORY_MAX
   LIBRECHAT_NODE_TEST_HEAP_MB
   LIBRECHAT_NODE_CAP_MEMORY_MAX
+  LIBRECHAT_NODE_CAP_MEMORY_HIGH
   LIBRECHAT_NODE_CAP_HEAP_MB
   LIBRECHAT_NODE_CAP_SWAP_MAX
 
@@ -35,6 +36,7 @@ EOF
 }
 
 memory_max="${LIBRECHAT_NODE_CAP_MEMORY_MAX:-3G}"
+memory_high="${LIBRECHAT_NODE_CAP_MEMORY_HIGH:-none}"
 heap_mb="${LIBRECHAT_NODE_CAP_HEAP_MB:-1024}"
 swap_max="${LIBRECHAT_NODE_CAP_SWAP_MAX:-0}"
 command=()
@@ -90,6 +92,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --memory-max)
       memory_max="${2:?Missing value for --memory-max}"
+      shift 2
+      ;;
+    --memory-high)
+      memory_high="${2:?Missing value for --memory-high}"
       shift 2
       ;;
     --heap-mb)
@@ -155,21 +161,33 @@ if [[ "$memory_max" == "none" ]]; then
 fi
 
 echo "Running capped LibreChat Node command:"
+echo "  MemoryHigh=${memory_high}"
 echo "  MemoryMax=${memory_max}"
 echo "  MemorySwapMax=${swap_max}"
+echo "  Nice=15, IO class=idle"
 echo "  NODE_OPTIONS=${node_options}"
+echo "  LIBRECHAT_ROLLUP_SOURCEMAP=false"
 printf '  Command:'
 printf ' %q' "${command[@]}"
 printf '\n'
+
+memory_properties=(
+  --property=MemoryAccounting=yes
+  --property="MemoryMax=${memory_max}"
+  --property="MemorySwapMax=${swap_max}"
+)
+if [[ "$memory_high" != "none" ]]; then
+  memory_properties+=(--property="MemoryHigh=${memory_high}")
+fi
 
 exec systemd-run \
   --user \
   --scope \
   --collect \
-  --property=MemoryAccounting=yes \
-  --property="MemoryMax=${memory_max}" \
-  --property="MemorySwapMax=${swap_max}" \
+  "${memory_properties[@]}" \
   --working-directory="$ROOT_DIR" \
   --setenv="NODE_OPTIONS=${node_options}" \
+  --setenv=LIBRECHAT_ROLLUP_SOURCEMAP=false \
   --setenv=LIBRECHAT_NODE_CAPPED=1 \
+  nice -n 15 ionice -c 3 \
   "${command[@]}"

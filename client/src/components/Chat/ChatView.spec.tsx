@@ -3,9 +3,10 @@ import ChatView from './ChatView';
 
 const mockUseGetMessagesByConvoId = jest.fn();
 let mockFileMap: Record<string, unknown> | undefined = {};
+let mockConversationId = 'empty-fork-conversation';
 
 jest.mock('react-router-dom', () => ({
-  useParams: () => ({ conversationId: 'empty-fork-conversation' }),
+  useParams: () => ({ conversationId: mockConversationId }),
 }));
 
 jest.mock('recoil', () => ({
@@ -78,6 +79,7 @@ describe('ChatView', () => {
   beforeEach(() => {
     mockUseGetMessagesByConvoId.mockReset();
     mockFileMap = {};
+    mockConversationId = 'empty-fork-conversation';
   });
 
   it('keeps the loading spinner while an existing conversation query is loading', () => {
@@ -117,5 +119,21 @@ describe('ChatView', () => {
     expect(screen.queryByTestId('loading-spinner')).not.toBeInTheDocument();
     expect(screen.getByTestId('empty-conversation')).toHaveTextContent('No messages yet');
     expect(screen.getByTestId('chat-form')).toHaveTextContent('New message');
+  });
+
+  it('renders the header immediately for a new conversation while the disabled query is loading', () => {
+    mockConversationId = 'new';
+    mockUseGetMessagesByConvoId.mockReturnValue({ data: null, isLoading: true });
+
+    render(<ChatView />);
+
+    expect(screen.getByText('Header')).toBeInTheDocument();
+    expect(screen.getByText('Landing')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-form')).toHaveTextContent('New message');
+    expect(screen.queryByTestId('loading-spinner')).not.toBeInTheDocument();
+    expect(mockUseGetMessagesByConvoId).toHaveBeenCalledWith(
+      'new',
+      expect.objectContaining({ enabled: false }),
+    );
   });
 });

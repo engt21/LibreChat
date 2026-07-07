@@ -79,6 +79,7 @@ services:
       NODE_OPTIONS: "--max-old-space-size=${LIBRECHAT_API_NODE_MAX_OLD_SPACE:-4096}"
       MONGO_URI: ${MONGO_URI}
       MEILI_HOST: http://meilisearch:7700
+      DOMAIN_CLIENT: ${DOMAIN_CLIENT:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}
       DOMAIN_SERVER: ${DOMAIN_SERVER:-http://localhost:${LIBRECHAT_HOST_PORT:-3080}}
       PORT: ${LIBRECHAT_CONTAINER_PORT:-3080}
       AZURE_API_KEY: user_provided

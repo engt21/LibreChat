@@ -421,6 +421,7 @@ Frontend/shared:
 - server-side model capability gating for OpenAI/Anthropic native tools so unsupported model/tool combinations remain on the structured/local fallback path instead of being sent as invalid provider-native requests
 - Anthropic server-tool history sanitization drops orphaned or mismatched `server_tool_use` blocks for web search, web fetch, code execution, and advisor when they no longer have a matching provider tool-result block, preventing invalid replay errors on subsequent Claude turns
 - Anthropic thinking-block sanitization drops incomplete `thinking` blocks before DB save and runtime request replay, preventing Claude history requests from failing with `messages.*.content.*.thinking.thinking: Field required` after interrupted native-tool streams
+- Claude Fable 5 and Mythos 5 are always-on adaptive-thinking models. LibreChat must omit the `thinking` field by default rather than serializing `thinking.type: disabled` or a manual budget, keep `output_config.effort`, remove incompatible `temperature`/`top_p`/`top_k` sampling fields, and expose the 128,000-token output limit.
 - dual Anthropic code-interpreter routing: users can keep using the local LibreChat code interpreter or switch to Anthropic-native code execution on a per-chat basis
 - local file uploads remain on LibreChat storage for Anthropic chats, and provider-native code execution automatically falls back to the local code interpreter when local code files are attached
 - file metadata tagging for native-tool flows
@@ -542,6 +543,7 @@ Frontend/shared:
 - 2026-06-04 Anthropic sidebar server-tool expansion: direct Anthropic model chats expose supported server-tool controls in the model-parameter sidebar instead of pretending all Anthropic docs tools are just request flags. Implemented tools are direct Messages API server-side features (`fast_mode`, `web_fetch` with citations, `anthropic_code_execution`, and `anthropic_advisor`). Client-executed Anthropic tools (`memory`, `bash`, `computer use`, `text editor`) deliberately remain non-UI because LibreChat would need a sandbox/executor loop and robust tool-result continuation before those can be safe or useful. History replay filtering now covers web search, web fetch, code execution, and advisor server-tool/result pairs.
 - 2026-06-06 Anthropic web-search/fetch construction regression: direct Anthropic chats and ephemeral agents must use the basic server-tool descriptors by default (`web_search_20250305`, `web_fetch_20250910`). Use the dynamic filtering variants (`web_search_20260209`, `web_fetch_20260209`) only when Anthropic hosted code execution is also enabled and model/provider capability checks allow it. Sending the dynamic variants without code execution can leave Claude without a usable web-search/fetch tool even though the UI toggles are enabled.
 - 2026-06-06 multi-conversation added-agent tool-context regression: primary agents registered a runtime tool context, but `processAddedConvo()` only returned merged MCP auth and not the initialized context for added agents. Added Anthropic/Gemini/OpenAI side responses could therefore reach tool execution with no `toolRegistry`/auth/resource context and claim that web search/fetch tools were unavailable. Fix: return every added agent's initialized execution context, register it in `initializeClient()` under the exact suffixed agent id, and preserve provider selection after `initializeAgent()` normalization.
+- 2026-07-06 Claude Fable/Mythos request-shaping regression: the generic Anthropic defaults serialized `thinking: { type: "disabled" }`, which Fable 5 rejects because adaptive thinking is mandatory. Fix: `hasAlwaysOnAdaptiveThinking()` drives capability metadata and request shaping across data-provider, Bedrock, and direct Anthropic initialization; the final invocation payload omits `thinking` unless the provider requires an explicit supported form and never sends fixed budgets or sampling controls for these models.
 - 2026-06-06 browser/MCP research-loop regression: long browser research runs could hit LangGraph's recursion limit of 50, while Playwright Streamable HTTP sessions could go stale mid-tool-call (`Session not found`, `Failed to open SSE stream`, SDK max reconnect exceeded) and fail the whole agent run. Fix: raise the default agent recursion limit to 100, set local runtime cap/default to 100/200, increase high-level MCP reconnect attempts to 6, and retry exactly one tool call after reconnecting when the failure is classified as stale transport session loss.
 - 2026-06-06 OpenAI CUA browser MCP stale-browser regression: the external `/pool/home/timeng/openai-cua-mcp-server` service could retain a closed Chromium object while `_playwright` remained non-null, causing `Browser.new_context: Target page, context or browser has been closed`. Fix: `BrowserManager.start()` now checks `Browser.is_connected()`, clears stale browser/playwright/session state, and relaunches before creating a new context.
 - 2026-07-05 GPT-5.6 preview reasoning controls: live Responses API probes against `gpt-5.6`, `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` returned HTTP 200 for `reasoning.effort: "max"` and for `reasoning: { effort: "max", mode: "pro" }`. Literal `reasoning.effort: "ultra"` returned HTTP 400, and the API disclosed `reasoning.mode` values `standard` and `pro`; LibreChat therefore presents the product label `Ultra` while translating it to the verified `pro` mode payload.
@@ -1550,7 +1552,8 @@ These are recurring lessons from the focused docs plus past Droid sessions for t
 - the API container's original default `mem_limit` (768m) was too tight for concurrent agent + memory agent processing with image uploads; Node.js auto-detects a ~396 MB heap from a 768m container, which OOMs under load; the fix is per-rail limits in `rail-env.sh` (`LIBRECHAT_API_MEM_LIMIT` and `LIBRECHAT_API_NODE_MAX_OLD_SPACE`) driving `NODE_OPTIONS=--max-old-space-size=<value>` in the compose environment; stable reserves 5120m with a 4096MB heap, while dev stays intentionally smaller; uploaded images are base64-encoded in the request body and can consume tens of MBs of heap per request, so the heap must have significant headroom beyond idle usage
 - the compose fallback now also fails safe at 5120m/4096MB, and every stable runtime-delta deployment runs `verify-api-memory-headroom.sh` before and after restart; a missing rail environment can no longer silently recreate production at crash-prone limits
 - after a verified stable runtime delta, the deploy helper commits the running API filesystem to `librechat-local:runtime-current` without pausing it and persists that image tag as `LIBRECHAT_API_IMAGE`; later container recreation therefore retains code/package hot patches without a full Docker build, while dependency, Dockerfile, and base-image changes still require a normal image build
-- host-side LibreChat build/lint/test jobs can also starve the host because `npm run lint`, `npm run build`, and `npm run frontend` fan out to child Node processes such as ESLint, Rollup, Turbo, Vite, and `tsc`. Use the capped aliases (`lint:capped`, `build:capped`, `frontend:capped`, `test:all:capped`) or `local-services/run-node-capped.sh` so each Node process has a V8 heap cap and the whole command tree is bounded by a user-systemd scope. On this host, `systemd-run --user --scope` cannot be combined with `--wait`; use `--scope --collect` and let `systemd-run` propagate the command exit status.
+- host-side LibreChat build/lint/test jobs can also starve the host because `npm run lint`, `npm run build`, and `npm run frontend` fan out to child Node processes such as ESLint, Rollup, Turbo, Vite, and `tsc`. Use the capped aliases (`lint:capped`, `build:capped`, `frontend:capped`, `test:all:capped`) or `local-services/run-node-capped.sh` so each Node process has a V8 heap cap, the whole command tree is bounded by a user-systemd scope, every capped or uncapped build runs at `nice=15` with idle-class I/O, and capped Rollup scopes explicitly receive `LIBRECHAT_ROLLUP_SOURCEMAP=false`. The wrapper supports a soft `--memory-high` throttle below the hard `--memory-max` ceiling for large package builds. Missing the source-map environment forwarding caused repeated package-API OOM kills even though the shell invoking the wrapper exported the variable. On this host, `systemd-run --user --scope` cannot be combined with `--wait`; use `--scope --collect` and let `systemd-run` propagate the command exit status.
+- isolated Git worktrees must not rely on a top-level `node_modules` symlink without correcting workspace-package links: npm's `@librechat/*` symlinks otherwise resolve back into the source worktree that owns `node_modules`, so a successful build can compile against stale package `dist`. Run `local-services/prepare-worktree-node-modules.sh` in the isolated worktree before package builds/tests; it creates package-local ignored symlinks that take precedence without mutating the shared dependency tree.
 - feature controls should be placed where users naturally interact, not buried in settings or admin pages; for file-related features, the natural location is inline in the chat compose area near the file preview
 - when a workflow pivots from a draft/new conversation into a newly created persisted conversation, clear any stale per-conversation UI state (for example `latestMessage` and file drafts) before navigation; otherwise follow-up input gating and draft restoration can accidentally carry old state into the next chat
 - Langfuse v3 services (ClickHouse, web, worker) need higher container memory limits than the compose defaults; ClickHouse merge operations and the Next.js 15 web frontend both OOM at their defaults (768m and 600m respectively); a container that Docker reports as "Up" but refuses connections is likely restart-looping from OOM — always check `docker logs` before assuming a networking problem
@@ -2203,6 +2206,9 @@ When merging upstream changes, pay special attention to these areas.
 
 ### UX bug fixes and ordering controls (stop button, badge row, pinned model, sidebar groups, presets)
 
+- `client/src/routes/ChatRoute.tsx` and `client/src/data-provider/roles.ts` — authenticated `/c/new` bootstrap never renders a blank page while startup config, USER-role permissions, endpoint/model discovery, or deep-link conversation hydration is pending. The route shows a visible loading/error state, retries transient role failures, preserves usable cached data during refetch failures, initializes a new conversation exactly once, and lets an authoritative deep-link 404 override stale cached conversation data.
+- `client/src/components/Chat/ChatView.tsx` — TanStack Query v4 can report a disabled new-conversation message query as `isLoading: true`; NEW/PENDING conversations must therefore render the header and landing composer instead of suppressing the model picker, Agents button, Presets button, and compose controls behind a spinner.
+- `client/src/routes/__tests__/ChatRoute.spec.tsx` and `client/src/data-provider/__tests__/roles.test.ts` — pin new-chat initialization, deep-link hydration, cached-data continuity, retry behavior, and visible bootstrap failures.
 - `client/src/hooks/SSE/useResumableSSE.ts` — `setSubmission(null)` after final event to clear stop button; `clearDraft` → `clearAllDrafts` fix (the imported function); safety-net catch block that forces UI cleanup if `final` event processing throws; `stream_finalizing` handler that hides Stop as soon as generation has returned and the server is finalizing persistence
 - ~~`client/src/components/Chat/Input/ChatForm.tsx` — `{!isSuperAdmin && <BadgeRow>}` conditional, super admin detection via `useAdminPermissionsQuery`~~ **Removed 2026-04-26.** `BadgeRow` is the tool-toggle row, not a model selector; the gate is gone and tool-row visibility is now governed entirely by per-tool `useHasAccess` checks inside `BadgeRow.tsx`. A regression guard at `client/src/components/Chat/Input/ChatForm.guards.spec.ts` fails CI if any future merge re-wraps `<BadgeRow` in an `isSuperAdmin` gate.
 - `client/src/hooks/useNewConvo.ts`, `client/src/hooks/Input/useSelectMention.ts`, and `client/src/hooks/Conversations/usePresets.ts` — `userHasManualModelSelection` preserves pinned model selection; model, model-spec, endpoint, and preset changes explicitly preserve compose-level local uploads (PDFs, images, and other provider attachments) instead of running actual-New-Chat file cleanup; the New Chat action still clears `filesByIndex`, removes `FILES_DRAFT`, and follows the existing temporary-file cleanup policy
@@ -2219,6 +2225,7 @@ When merging upstream changes, pay special attention to these areas.
 - `client/src/components/Chat/Input/ChatForm.guards.spec.ts` — pins that `<BadgeRow` is never wrapped in any `isSuperAdmin` gate. **Why:** the 2026-04-11 gate hid all tool toggles from super admins; a future upstream-merge could easily reintroduce it.
 - `client/src/components/Chat/Input/MCPSelect.guards.spec.ts` — pins that MCP selector visibility is not gated on empty `mcpValues`. **Why:** users need the selector visible before any MCP server is pinned or selected.
 - `client/src/hooks/__tests__/useNewConvo.spec.tsx` and `client/src/hooks/Conversations/usePresets.spec.tsx` — pin the distinction between configuration switches and an actual New Chat: local compose uploads remain attached when selecting another model/spec/preset, while a real new-chat reset still clears them. **Why:** model and preset selectors reuse `useNewConvo`, whose normal cleanup otherwise removes locally uploaded provider files before the first message is sent.
+- `client/src/routes/__tests__/ChatRoute.spec.tsx` and `client/src/data-provider/__tests__/roles.test.ts` — pin the authenticated `/c/new` startup contract. **Why:** returning `null` while a role or model query refetches produces an apparently dead page even when cached configuration is usable.
 - `packages/api/src/utils/content.spec.ts` — pins malformed content filtering for provider-native history, including Anthropic `thinking` blocks missing required signed fields. **Why:** prevents interrupted Claude native-tool turns from being replayed as invalid Anthropic Messages API payloads.
 
 ### Gemini/Vertex AI service account support
@@ -2265,6 +2272,7 @@ These docs provide deeper detail for specific areas and should be kept consisten
 - `SCHEDULED_RUNS.md`
 - `XAI_CUSTOM_ENDPOINTS.md`
 - `IMAGE_GENERATION.md`
+- `THREAD_USAGE_AND_PRICING.md`
 - `README.local.md`
 - `UPSTREAM_RELEASE_UPDATE.local.md`
 - `LOCAL_UPSTREAM_SYNC_WORKFLOW.local.md`
@@ -2383,7 +2391,13 @@ For small backend/config/runtime-loaded changes, prefer the runtime-delta helper
 - the runtime `librechat.yaml` always includes an `interface` block with `endpointsMenu`, `modelSelect`, `parameters`, `sidePanel`, and `presets` all set to `true`
 - `modelSpecs` in `librechat.yaml` uses `enforce: false` so the quick-selector never blocks free model access; review it separately from `DEFAULT_NON_ADMIN_MODEL_PERMISSIONS`, which is the default access policy source
 - the Ollama local endpoint uses `fetch: false` with an explicit model list; Ollama Cloud uses `user_provided` key with its own default list; these must not be re-merged into a single endpoint
-- `local-services/dev-seed-validation-personas.js` must never be run against the shared runtime `librechat.yaml`; it is dev-rail validation tooling only
+- `local-services/dev-seed-validation-personas.js` must never mutate the shared runtime `.env` or
+  `librechat.yaml`. Runtime-config mutation is now off by default and requires
+  `DEV_SEED_UPDATE_RUNTIME_CONFIG=true` plus explicitly isolated
+  `DEV_VALIDATION_ENV_PATH`/`DEV_VALIDATION_YAML_PATH` targets. Missing targets, the checkout's
+  shared runtime paths, symlinks resolving to those paths, and a single file reused for both formats
+  are rejected before MongoDB is opened. The default operation seeds only an isolated dev MongoDB
+  and writes the ignored validation manifest.
 - secret/runtime-only files remain ignored and not accidentally committed
 
 ---
@@ -2429,7 +2443,7 @@ Future changes in this customization branch should follow this rule:
 - `local-services/verify-vm-observability-access.sh` fails if Grafana anonymous user access returns, the Loki explorer disappears, Loki queries fail, raw ports stop being loopback-only, or Tailscale Serve/admin links drift.
 - The LibreChat admin console exposes a dedicated `Loki Explorer` quick link in addition to the Grafana root, derived from the resolved Grafana URL so LAN and Tailscale hosts remain portable.
 - Langfuse password reset uses its supported `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` variables with a VM-local Mailpit inbox. Mailpit binds to loopback port `8025`, is exposed only through Tailscale HTTPS `8448`, requires separate basic auth stored in the mode-`0600` handoff file, and avoids adding an external SMTP account; `AUTH_DISABLE_SIGNUP=true` keeps public Langfuse registration closed.
-- Production health/recovery is redundant and deployment-aware. The pve2 watchdog checks VM SSH and VM HTTP, captures diagnostics, and can perform cooldown-limited Proxmox VM 112 reboot/reset recovery. The in-VM watchdog checks container state plus loopback HTTP, captures Docker/log/memory/disk diagnostics, restarts only `LibreChat`, and may restore a recent deployment-recorded last-stable snapshot when restart fails. Categorized Azure rules send distinct DOWN, HEALED, and HEAL FAILED email/SMS notifications; ntfy carries immediate detailed push. Maintenance markers suppress paging and self-healing during approved deployments. Stable runtime/client helpers use a verified last-known-good VM fallback on loopback `3082`, switch Tailscale HTTPS `:8443` to it before stable mutation, and switch back only after health/contract checks pass. A pve2 outbound cloud heartbeat is active; its missing-heartbeat rule remains disabled pending final validation, and the invalid tailnet-DNS web-test alert is retired. See `LIBRECHAT_HEALTH_MONITORING.md`.
+- Production health/recovery is redundant and deployment-aware. The pve2 watchdog checks VM SSH and VM HTTP, captures diagnostics, and can perform cooldown-limited Proxmox VM 112 reboot/reset recovery. The in-VM watchdog checks container state plus loopback HTTP, captures container/Mongo state, HTTP timing, load, memory, Linux CPU/I/O pressure, benchmark and Code Interpreter child state, Docker resource use, kernel OOM evidence, and bounded logs; it restarts only `LibreChat` or guarded MongoDB and may restore a recent deployment-recorded last-stable snapshot when restart fails. Categorized Azure rules send distinct DOWN, HEALED, and HEAL FAILED email/SMS notifications; Mongo/restart-blocked events map into the application categories and ntfy carries the full internal event. HEALED email begins with an explicit `HOW IT WAS HEALED` section naming the exact action, actor, and verification, then preserves outage evidence and reports duration, original failure, ordered actions, and before/after RCA snapshots. Maintenance markers suppress paging and self-healing during approved deployments. Stable runtime/client helpers use a verified last-known-good VM fallback on loopback `3082`, switch Tailscale HTTPS `:8443` to it before stable mutation, and switch back only after health/contract checks pass. A pve2 outbound cloud heartbeat and ten-minute missing-heartbeat rule are active, while the invalid tailnet-DNS web-test/Funnel prototype is removed. Last-stable inspection is read-only, and rollback now fails closed unless the literal `execute` subcommand is supplied. See `LIBRECHAT_HEALTH_MONITORING.md`.
 - Grafana's right-side time picker is the only usage-range control. `local-services/deploy-vm-observability-fixes.sh` removes the conflicting `Usage window` variable and rewrites cost/token/message/error/user panels to select the exporter bucket from `${__range_s}`.
 
 ### 2026-07-05 authentication and memory runtime-contract incident
@@ -2506,14 +2520,20 @@ This release is a single preservation boundary for every LibreChat customization
 ### Thread usage side panel
 
 - The right side panel includes `Thread Usage` for the currently visible conversation branch.
-- It shows totals and per-assistant-turn input tokens, output tokens, cache-read tokens, cache-write tokens, tool-call count, and recorded USD cost.
+- It shows totals and per-assistant-turn input tokens, output tokens, cache-read tokens, cache-write tokens, tool-call count, and recorded USD token cost.
 - Provider-recorded transaction data is preferred. When provider usage is unavailable, text token counts are explicitly marked estimated.
 - Historical cost is calculated from the immutable transaction ledger using the same accounting basis as the Grafana exporter: `abs(tokenValue) / 1_000_000`. Older rows may fall back to `abs(rawAmount * rate) / 1_000_000`.
 - Cost is never inferred from estimated tokens. Fully recorded turns show their USD amount, partially priced turns use a `>=` indicator, and unavailable pricing renders as unknown rather than `$0.00`.
 - The sidebar does not depend on Langfuse at request time. LibreChat's provider pricing catalog produces the recorded transaction rate and is also the source synchronized into Langfuse.
-- `credits` transactions are excluded. The displayed amount is the recorded LibreChat historical cost, not a provider invoice, and remains partial when a provider/tool charge was not persisted.
+- New transactions persist `pricingSource` as `catalog`, `endpoint_config`, or `fallback`, plus structured-component provenance and the input-token count used for tiered pricing.
+- `fallback` retains existing generic or family-derived balance accounting but is never presented as official provider cost. Legacy rows without provenance can contribute only a lower bound.
+- Structured cache buckets with no explicit catalog/endpoint cache rate may inherit the input multiplier for balance continuity, but their component provenance remains `fallback`; a nonzero inherited cache bucket cannot make token cost complete.
+- GPT-5.6 currently has no published catalog rate in this snapshot, so its prior GPT-5-family balance rate is preserved but marked `fallback`; Thread Usage remains unavailable rather than displaying a fabricated official price.
+- GPT-5.4/5.5 long-context pricing switches above 272,000 input tokens. Claude Sonnet 5 uses its introductory rates through August 31, 2026 and standard rates starting at September 1, 2026 00:00 UTC.
+- `credits` transactions are excluded. Any detected tool call makes the displayed token amount partial because provider search, image, hosted-container, session, storage, or other tool charges may be billed separately.
 - Grafted generation copies keep an immutable `usageSourceMessageId` pointing to the original generated message. Thread Usage reads that source transaction without cloning debit rows, so nested grafts retain historical usage while accounting totals cannot be duplicated by persistence.
 - The endpoint is user-scoped and accepts visible message IDs. The client derives those IDs from the selected latest-message ancestry so hidden sibling branches are not included in the displayed total.
+- Full pricing, provenance, invoice-boundary, and validation details are in `THREAD_USAGE_AND_PRICING.md`.
 
 ### Full generation-tree deletion
 
@@ -2566,9 +2586,32 @@ future merges and deployments:
   `librechat-local:runtime-current`; fallback/rollback must identify the exact healthy predeployment
   image and reject known-bad snapshots.
 - Runtime delta remains the first deployment classification. Rebuild only affected packages for
-  `packages/*/src/**`, use capped no-source-map Rollup builds, use a complete manifest-verified
-  `client/dist` for frontend changes, and reserve full image rebuilds for dependency/Docker/container
-  shape changes.
+  `packages/*/src/**`, use low-priority no-source-map Rollup/Vite builds, use a complete
+  manifest-verified `client/dist` for frontend changes, and reserve full image rebuilds for
+  dependency/Docker/container shape changes. On July 6, an 8 GB memory plus 2 GB swap cgroup
+  reproducibly OOM-killed Vite during chunk rendering even though the host retained several GB of
+  available memory; the safe build path is `run-node-capped.sh --memory-max none --heap-mb 8192`,
+  which still applies `nice 15`, idle block-I/O priority, and disabled Rollup source maps. Tests and
+  lint remain hard-capped.
+- Dev rail profiles must override both memory limits and reservations inherited from production.
+  The failover profile reserves 512 MB inside a 1280 MB API limit with a 768 MB Node heap; full dev
+  reserves 1 GB inside a 2 GB API limit with a 1536 MB heap and gives isolated MongoDB 512 MB. Run
+  `local-services/test-dev-rail-resource-contracts.sh` after changing rail resources. This prevents
+  Docker from rejecting dev startup with `Minimum memory limit can not be less than memory
+  reservation limit`.
+- Dev API containers must also override both `DOMAIN_CLIENT` and `DOMAIN_SERVER` to
+  `http://127.0.0.1:3081` (or explicit `LIBRECHAT_DEV_DOMAIN_*` values). Inheriting the production
+  tailnet origin causes the dev browser to receive `Origin not allowed by CORS` and repeated
+  `/api/auth/refresh` 500 responses even while `/api/config` is healthy. The dev resource contract
+  test verifies both origin values in rendered compose config.
+- Stable rail resolution pins both origins to `https://librechatvm.tail6e13ff.ts.net:8443` unless
+  explicit `LIBRECHAT_STABLE_DOMAIN_CLIENT`/`LIBRECHAT_STABLE_DOMAIN_SERVER` overrides are supplied.
+  This prevents scheduled-run links and logout redirects from silently falling back to localhost
+  when a shell or copied runtime bundle does not preload `.env`.
+- `local-services/test-dev-rail-resource-contracts.sh` pins the actual failover/full API heap,
+  memory, reservation, CPU, MongoDB, Meilisearch, vector DB, RAG, and Code Interpreter values in
+  addition to checking `limit >= reservation`; documenting larger limits without exact regression
+  assertions is insufficient.
 
 The same release must preserve the cross-layer user features validated during recovery: GPT-5.6
 picker and max/Ultra reasoning, explicit post-response memory routing, direct high/original image
@@ -2589,6 +2632,7 @@ deletion, picker ordering, and local-upload persistence across model/preset/conf
 - Supports both `generation` and `subtree` modes, idempotent create retries keyed to `(source, destination, mode, active leaf, tree revision)`, and safe undo with continuation inspection before destructive deletion, including authoritative copied/continuation count summaries plus concise continuation-id suffixes in the destructive confirmation UI.
 - Stops or waits on canonical stream status at 500 ms intervals, refetches `[QueryKeys.messages, conversationId]` before retrying preview, and times out after 30 seconds with actionable UI copy.
 - After creation, focuses the grafted `activeCopiedMessageId`, updates the chat latest message, fits the full created bridge/copied selection in the tree viewport, and shows a 10-second Undo toast action.
+- Drag/drop preview reads the synchronized selection ref inside `useGenerationGraft()` instead of passing the dialog's render-time destination id. React state updates are asynchronous; passing that stale id made a valid drop render `INVALID_DESTINATION` locally and prevented the preview API request.
 
 #### Key files
 
@@ -2609,3 +2653,4 @@ deletion, picker ordering, and local-upload persistence across model/preset/conf
 - `client`: `jest --config jest.config.cjs --runInBand src/data-provider/Messages/generationGrafts.spec.tsx`
 - `client`: `jest --config jest.config.cjs --runInBand src/components/Chat/Tree/__tests__/useGenerationGraft.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeInspector.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeDialog.spec.tsx`
 - `client`: `jest --config jest.config.cjs --runInBand src/components/Chat/Tree/__tests__/ConversationTreeCanvas.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeList.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeMiniMap.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeViewport.spec.ts src/components/Chat/Tree/__tests__/visibleItems.spec.ts src/components/Chat/Tree/__tests__/ConversationTreeDialog.spec.tsx`
+- Real-browser isolated-dev validation must drag a stopped/aborted/errored or complete source onto a valid destination, receive the server preview, create the graft, focus the copied selection, and undo it back to zero graft/copy records. This caught the stale render-time destination regression that mocked dialog tests did not.

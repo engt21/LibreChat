@@ -15,7 +15,8 @@ This guide is for:
 - branch: `engt21/local-customizations`
 - production deployment host: `timeng@192.168.50.104` (`librechat`)
 - production runtime bundle: `/opt/LibreChat-custom`
-- production app URL: `http://192.168.50.104:3080`
+- production app URL: `https://librechatvm.tail6e13ff.ts.net:8443`
+- emergency LAN fallback: `http://192.168.50.104:3080`
 
 ## Current model
 
@@ -357,6 +358,7 @@ This area overlaps with auth, config, user creation, and route registration. Ups
 - OpenAI/Azure completed reasoning-summary handling and merged Thoughts rendering
 - Anthropic malformed thinking-block filtering in `packages/api/src/utils/content.ts` and the matching `@librechat/agents` runtime patch in `config/apply-runtime-patches.js`
 - Anthropic direct endpoint fields in `packages/data-provider/src/schemas.ts`, `packages/data-provider/src/parameterSettings.ts`, `packages/data-provider/src/anthropic.ts`, and `packages/api/src/endpoints/anthropic/llm.ts`: `fast_mode`, `web_fetch`, `anthropic_code_execution`, `anthropic_advisor`, and `anthropic_advisor_model`
+- Fable/Mythos 5 always-on adaptive-thinking shaping in `packages/data-provider/src/bedrock.ts`, `packages/data-provider/src/anthropic.ts`, and `packages/api/src/endpoints/anthropic/{helpers,llm}.ts`: omit default `thinking`, retain effort, strip incompatible sampling controls, and preserve the 128K output limit.
 - Added multi-conversation agents in `api/server/services/Endpoints/agents/{initialize,addedConvo}.js` must keep their initialized runtime tool contexts registered by suffixed agent id, including `toolRegistry`, `userMCPAuthMap`, and `tool_resources`
 - Anthropic server-tool result filtering for `web_search_tool_result`, `web_fetch_tool_result`, `code_execution_tool_result`, and `advisor_tool_result`
 - The explicit non-support boundary for Anthropic memory, bash, computer-use, and text-editor client tools until LibreChat has an executor/sandbox/tool-result loop for them
@@ -687,12 +689,24 @@ This area is partly documented in `README.md`, but there is no single standalone
 - keep the documented `DOMAIN_SERVER` callback behavior aligned with the MCP section above
 - keep dev shared-stable data mode in `rail-env.sh` (`LIBRECHAT_DEV_USE_STABLE_MONGO=true` by default) and the opt-in isolated fallback (`LIBRECHAT_DEV_USE_STABLE_MONGO=false`)
 - keep failover lifecycle in place: stable systemd startup is explicit, automatic dev startup is owned by `librechat-dev-failover.timer`, and `LIBRECHAT_DEV_PROFILE=failover` starts only minimal dev services without rebuilding
-- preserve the full production recovery/deployment-continuity system in `LIBRECHAT_HEALTH_MONITORING.md`: pve2 and VM watchdogs have disjoint VM/container recovery scopes; categorized alerts include DOWN/HEALED/HEAL FAILED details; explicit maintenance markers suppress deployment noise and self-heal races; stable deployment helpers route `:8443` to the verified VM `3082` last-known-good fallback before mutating stable; rollback pointers must describe the exact healthy pre-deploy snapshot and known-bad repair snapshots must never become automatic targets; keep the outbound pve2 cloud heartbeat and do not restore the invalid tailnet-DNS public web test
+- preserve the full production recovery/deployment-continuity system in `LIBRECHAT_HEALTH_MONITORING.md`: pve2 and VM watchdogs have disjoint VM/container recovery scopes; categorized alerts include DOWN/HEALED/HEAL FAILED details; outage diagnostics retain load, memory, PSI pressure, benchmark/sandbox, Docker/Mongo, OOM, timing, and bounded-log evidence; HEALED notifications must lead with `HOW IT WAS HEALED`, naming the exact action, actor, and verification, then preserve the original snapshot and report duration, recovery ownership, ordered actions, and before/after evidence; Mongo and restart-blocked events map to application pager categories; explicit maintenance markers suppress deployment noise and self-heal races; stable deployment helpers route `:8443` to the verified VM `3082` last-known-good fallback before mutating stable; rollback pointers must describe the exact healthy pre-deploy snapshot and known-bad repair snapshots must never become automatic targets; rollback inspection must remain read-only and mutation must require the literal `execute` subcommand; keep the outbound pve2 cloud heartbeat and active ten-minute missing-heartbeat rule, and do not restore the invalid tailnet-DNS public web test or Funnel
 - keep reduced dev resource defaults; dev is for explicit testing or stable failure fallback, not a second always-on full stack
+- keep dev API/Mongo limits above their explicitly overridden reservations and retain
+  `local-services/test-dev-rail-resource-contracts.sh`; production `.env` reservations must never
+  leak into the smaller dev limits and make Docker reject the dev rail before startup
+- keep explicit dev `DOMAIN_CLIENT`/`DOMAIN_SERVER` overrides in `rail-env.sh` and the API compose
+  environment; production tailnet origins must not leak into dev and break CORS/auth refresh
+- keep stable `DOMAIN_CLIENT`/`DOMAIN_SERVER` defaults pinned to the canonical tailnet HTTPS origin
+  unless an explicit `LIBRECHAT_STABLE_DOMAIN_CLIENT`/`LIBRECHAT_STABLE_DOMAIN_SERVER` override is
+  supplied; scheduled-run links and logout redirects must never fall back to localhost
 - keep `sync-from-stable.sh` from restoring MongoDB or rsyncing uploads when dev already shares stable data
 - keep `health-check.sh` treating shared `uploads/` as an intentional safe shared mount
-- keep `dev-seed-validation-personas.js` refusing shared/stable MongoDB targets unless explicitly overridden; dev testing on shared data should use test accounts and avoid destructive resets
-- keep `local-services/run-node-capped.sh` and the npm capped aliases for host-side LibreChat jobs; lint defaults to a `3G` cgroup and `1024 MB` Node heap, build/frontend use low-priority uncapped host execution with an `8192 MB` Node heap and `LIBRECHAT_ROLLUP_SOURCEMAP=false`, while lint/test profiles remain cgroup-capped; keep the dedicated low-priority host build swap enabled for package builds
+- keep `dev-seed-validation-personas.js` refusing shared/stable MongoDB targets unless explicitly
+  overridden; dev testing on shared data should use test accounts and avoid destructive resets.
+  Runtime `.env`/YAML mutation must remain opt-in and point only at explicitly isolated files so a
+  validation seed cannot replace production picker/modelSpecs configuration. Missing targets and
+  paths resolving to the checkout's shared `.env`/`librechat.yaml` must fail before MongoDB is opened
+- keep `local-services/run-node-capped.sh` and the npm capped aliases for host-side LibreChat jobs; lint defaults to a `3G` cgroup and `1024 MB` Node heap, build/frontend use low-priority uncapped host execution with an `8192 MB` Node heap and `LIBRECHAT_ROLLUP_SOURCEMAP=false`, while lint/test profiles remain cgroup-capped; an 8 GB memory plus 2 GB swap cgroup was confirmed to OOM-kill the full Vite build during chunk rendering, so do not reintroduce a hard cap for the production artifact build; keep the dedicated low-priority host build swap enabled for package builds
 - keep `local-services/deploy-runtime-delta.sh` as the mandatory first path for backend/runtime-loaded code, config helpers, runtime bind files, and already-built `packages/*/dist/**`; it must snapshot old files, apply runtime patches when `config/apply-runtime-patches.js` changes, restart/health-check, require explicit stable approval, verify production memory headroom, and commit the verified filesystem to `librechat-local:runtime-current` so later recreates do not lose hot patches; it must refuse frontend source, individual frontend dist files, package source, dependency, Dockerfile, and compose changes
 - rebuild only the affected package when `packages/*/src/**` changed; use `LIBRECHAT_ROLLUP_SOURCEMAP=false` for production dist builds to avoid unnecessary multi-gigabyte source-map heaps; reserve full Docker image builds for dependencies, Dockerfiles, base images, and incompatible container-shape changes
 - keep `client/scripts/post-build.cjs` generating `.librechat-client-dist-manifest.json` and keep `local-services/deploy-built-client-dist.sh` as the only supported frontend hot-promotion path; it must reject stale/tampered/URL-rewritten bundles, snapshot and atomically swap the complete `client/dist`, restart to clear cached HTML, and rollback on failed health verification
@@ -978,6 +992,7 @@ These are the files and areas most likely to need careful manual review when mer
 - `client/src/utils/convos.ts` — fixed sidebar recency/date buckets: Today, Yesterday, Last week, Last month, current-year month buckets, Last year, Older than last year
 - `client/src/hooks/useNewConvo.ts`, `client/src/hooks/Input/useSelectMention.ts`, and `client/src/hooks/Conversations/usePresets.ts` — model/spec/endpoint/preset switches must pass the compose-file preservation flag so locally uploaded PDFs, images, and other provider attachments remain selected; only an actual New Chat should run file/draft cleanup
 - `client/src/hooks/__tests__/useNewConvo.spec.tsx` and `client/src/hooks/Conversations/usePresets.spec.tsx` — regression coverage for preserved local uploads on configuration switches and cleared uploads on actual New Chat
+- `client/src/routes/ChatRoute.tsx`, `client/src/data-provider/roles.ts`, `client/src/components/Chat/ChatView.tsx`, and their focused tests — `/c/new` must render a visible bootstrap state instead of `null`, preserve usable cached role/config/model data across transient refetch failures, retry transient role failures, initialize new chat once, and still treat a deep-link 404 as authoritative. A disabled NEW-conversation messages query may still report `isLoading`; that state must not hide the header or landing composer.
 - `api/models/Preset.js`
 - `api/server/routes/presets.js`
 - `client/src/hooks/Conversations/usePresets.ts`
@@ -1207,6 +1222,7 @@ Treat these as one inseparable preservation set during merges and deployments:
 - Direct high/original-fidelity provider vision plus original-file local Code Interpreter staging.
 - Immediate Send/Retry status and real provider partial-image streaming with no pixel placeholder.
 - Per-thread/per-turn token, cache, and tool-call usage side panel.
+- Authenticated `/c/new` visibly bootstraps and self-recovers instead of rendering a blank page during transient role/config/model refetches.
 - Full prompt/generation/descendant/tool-call tree deletion.
 - Validated conversation forks preserve parent-before-child tree structure and reject missing,
   unfinished, empty, or circular trees instead of creating a broken fork.
@@ -1218,6 +1234,11 @@ Treat these as one inseparable preservation set during merges and deployments:
   command, and heap headroom.
 
 A backend-only deployment must not replace or downgrade `client/dist`. A frontend deployment must use a fresh complete manifest-verified build. Run the focused tests and all mandatory verifiers named in `CUSTOMIZATION_MASTER_DOC.md` before stable promotion, then validate the designated production test conversations.
+
+In isolated Git worktrees that reuse another checkout's top-level `node_modules`, run
+`local-services/prepare-worktree-node-modules.sh` before package builds and tests. This prevents
+workspace imports from silently resolving stale `@librechat/*` source or `dist` from the checkout
+that owns the shared dependency directory.
 
 The July 6 resource-starvation/authentication RCA and the exact cross-layer preservation requirements
 are recorded in `PRODUCTION_INCIDENT_2026-07-06.md`. Do not diagnose the Mongo timeout path by
@@ -1235,8 +1256,21 @@ resetting credentials, and do not roll back to a mutable/stale `librechat-local:
 - Thread Usage cost must come from persisted transaction `tokenValue` in USD-per-million accounting
   units, never from re-pricing estimated tokens. Preserve partial/unavailable states and never render
   missing pricing as `$0.00`; Langfuse is not a runtime dependency for this panel.
+- Preserve transaction `pricingSource` and structured-component provenance. Only `catalog` and
+  `endpoint_config` can produce a complete recorded token cost; `fallback`, legacy provenance, and
+  detected tool calls must remain partial or unavailable. Do not assign a public price to GPT-5.6
+  until the provider publishes one.
+- If a nonzero cache bucket inherits the input multiplier because no explicit cache rate exists,
+  preserve that component as `fallback`; balance continuity must not be mislabeled as verified cost.
+- Preserve the date-aware Claude Sonnet 5 transition on September 1, 2026 and the GPT-5.4/5.5
+  long-context pricing threshold. The Sonnet cutoff is explicitly `2026-09-01T00:00:00Z`. Preserve
+  GPT-5.6's prior balance rate while marking its unpublished provider price as `fallback`. See
+  `THREAD_USAGE_AND_PRICING.md`.
 - Generation graft copies preserve `usageSourceMessageId`; resolve usage through that source and
   never clone transaction/debit rows into the graft.
+- Generation graft drag/drop preview must call `requestPreview()` without a render-time destination
+  argument so the hook reads its synchronously updated selection ref. Passing the dialog's stale
+  destination state can reject a valid drop before the preview API call.
 - Sandbox TTL prefers session activity metadata and executes active-ID selection/removal under one
   session lock.
 - Deployment fallback abort is time-bounded, and runtime delta must execute an immutable fallback

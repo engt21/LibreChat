@@ -263,7 +263,7 @@ export default function ConversationTreeDialog({
       }}
       onPreviewRequest={() => {
         setStatusText(localize('com_ui_generation_tree_status_preview'));
-        void generationGraft.requestPreview(generationGraft.destinationMessageId);
+        void generationGraft.requestPreview();
         if (isMobile) {
           setMobileSheetOpen(true);
         }
@@ -375,7 +375,7 @@ export default function ConversationTreeDialog({
                   }}
                   onPreviewRequest={() => {
                     setStatusText(localize('com_ui_generation_tree_status_preview'));
-                    void generationGraft.requestPreview(generationGraft.destinationMessageId);
+                    void generationGraft.requestPreview();
                     setMobileSheetOpen(true);
                   }}
                   onManualPositionChange={(messageId, position) =>
@@ -476,7 +476,7 @@ export default function ConversationTreeDialog({
                   }}
                   onPreviewRequest={() => {
                     setStatusText(localize('com_ui_generation_tree_status_preview'));
-                    void generationGraft.requestPreview(generationGraft.destinationMessageId);
+                    void generationGraft.requestPreview();
                     setListOpen(true);
                   }}
                   onManualPositionChange={(messageId, position) =>

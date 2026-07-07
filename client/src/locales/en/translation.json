@@ -1867,8 +1867,8 @@
   "com_sidepanel_usage_by_turn": "Usage by turn",
   "com_sidepanel_usage_turn": "Turn",
   "com_sidepanel_usage_estimated": "Estimated",
-  "com_sidepanel_usage_cost": "Recorded cost",
-  "com_sidepanel_usage_cost_partial": "Partial recorded cost",
-  "com_sidepanel_usage_cost_unavailable": "Pricing unavailable",
-  "com_sidepanel_usage_cost_hint": "USD cost uses the rate recorded when each generation ran. ≥ means some transaction pricing is unavailable."
+  "com_sidepanel_usage_cost": "Recorded token cost",
+  "com_sidepanel_usage_cost_partial": "Partial token-cost lower bound",
+  "com_sidepanel_usage_cost_unavailable": "Official/configured pricing unavailable",
+  "com_sidepanel_usage_cost_hint": "USD token cost uses recorded catalog or endpoint-configured rates. ≥ means legacy pricing or unrecorded tool charges make this a lower bound; provider invoices may differ."
 }

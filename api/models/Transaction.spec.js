@@ -924,8 +924,36 @@ describe('Premium Token Pricing Integration Tests', () => {
     expect(promptTx.pricingSource).toBe('catalog');
     expect(promptTx.pricingSourceDetail).toEqual({
       input: 'catalog',
-      write: 'catalog',
-      read: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
+    });
+  });
+
+  test('structured prompt pricingSource marks inherited cache rates as fallback when used', async () => {
+    const userId = new mongoose.Types.ObjectId();
+    await Balance.create({ user: userId, tokenCredits: 100000000 });
+
+    await spendStructuredTokens(
+      {
+        user: userId,
+        conversationId: 'test-structured-inherited-cache-rate',
+        model: 'gpt-4',
+        context: 'message',
+        endpointTokenConfig: null,
+        balance: { enabled: true },
+      },
+      {
+        promptTokens: { input: 1000, write: 50, read: 25 },
+        completionTokens: 0,
+      },
+    );
+
+    const promptTx = await Transaction.findOne({ user: userId, tokenType: 'prompt' }).lean();
+    expect(promptTx.pricingSource).toBe('fallback');
+    expect(promptTx.pricingSourceDetail).toEqual({
+      input: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
     });
   });
 

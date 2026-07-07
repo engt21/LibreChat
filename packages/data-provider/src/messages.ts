@@ -32,6 +32,7 @@ export type TConversationUsage = {
   conversationId: string;
   currency: 'USD';
   costBasis: 'recorded_transactions';
+  costScope?: 'token_transactions_only';
   totals: TConversationUsageTotals;
   turns: TConversationUsageTurn[];
 };

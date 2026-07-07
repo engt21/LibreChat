@@ -236,6 +236,54 @@ describe('ConversationTreeDialog', () => {
     expect(onExitComplete).toHaveBeenCalledTimes(1);
   });
 
+  it('previews the destination selected by the same drag interaction', async () => {
+    const originalElementsFromPoint = document.elementsFromPoint;
+    renderWithQueryClient(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-1"
+        sourceMessageId="assistant-1"
+        sessionKey="drag-preview"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    document.elementsFromPoint = jest.fn(() => [screen.getByTestId('tree-node-assistant-2')]);
+
+    fireEvent.pointerDown(screen.getByTestId('graft-handle-assistant-1'), {
+      pointerId: 1,
+      clientX: 10,
+      clientY: 10,
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: 220,
+      clientY: 80,
+    });
+
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+
+    fireEvent.pointerUp(window, {
+      pointerId: 1,
+      clientX: 220,
+      clientY: 80,
+    });
+
+    await waitFor(() =>
+      expect(mockPreviewMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceMessageId: 'assistant-1',
+          destinationMessageId: 'assistant-2',
+          mode: 'generation',
+        }),
+      ),
+    );
+
+    document.elementsFromPoint = originalElementsFromPoint;
+  });
+
   it('resets the inspector to a clean selecting state when the same source is reopened with a new session key', async () => {
     const originalElementsFromPoint = document.elementsFromPoint;
     const { rerender } = renderWithQueryClient(

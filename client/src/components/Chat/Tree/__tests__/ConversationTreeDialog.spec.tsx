@@ -308,7 +308,7 @@ describe('ConversationTreeDialog', () => {
 
     document.elementsFromPoint = originalElementsFromPoint;
 
-    expect(requestPreview).toHaveBeenCalled();
+    expect(requestPreview).toHaveBeenCalledWith();
     expect(createGraft).not.toHaveBeenCalled();
   });
 

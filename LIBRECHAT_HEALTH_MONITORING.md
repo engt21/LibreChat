@@ -21,7 +21,7 @@ Current activation state after installation:
 | Azure categorized app/VM Activity Log rules               | Active                                    | Email/SMS for down, healed, and heal-failed events                            |
 | ntfy private topic                                        | Active                                    | Immediate detailed mobile/web push from both watchdogs                        |
 | `librechat-cloud-heartbeat.service` on pve2               | Active/enabled                            | Sends an outbound pve2 heartbeat every 60 seconds                             |
-| `librechat-pve2-cloud-deadman` scheduled-query rule       | Active                                      | Detects ten-minute absence of pve2 heartbeat and auto-resolves after return   |
+| `librechat-pve2-cloud-deadman` scheduled-query rule       | Active                                    | Detects ten-minute absence of pve2 heartbeat and auto-resolves after return   |
 | Old Funnel web-test rule `librechat-pve2-host-down-pager` | Disabled/retired                          | Invalid because public Azure probes cannot resolve tailnet-only DNS           |
 | Deployment fallback on VM loopback `3082`                 | Installed and standalone lifecycle tested | Serves exact last-known-good LibreChat during approved stable deployment      |
 | Automatic last-stable rollback                            | Installed; valid client pointer present   | Explicit `execute` only; current pointer is the verified pre-promotion client |
@@ -279,6 +279,13 @@ Safe pointer validation never changes production:
 
 ```bash
 ~/.local/libexec/librechat-rollback-last-stable status
+```
+
+The repository regression test proves that no argument, an unknown argument, `status`, and `--check`
+cannot invoke Docker, curl, npm, or create a maintenance marker:
+
+```bash
+./local-services/test-rollback-last-stable.sh
 ```
 
 An intentional rollback must be explicit:

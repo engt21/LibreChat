@@ -251,7 +251,7 @@ describe('POST /:conversationId/usage – route handler', () => {
     });
   });
 
-  it('aggregates recorded input, output, cache, and tool usage for visible messages', async () => {
+  it('aggregates recorded usage and marks tool-bearing token cost as partial', async () => {
     Message.find.mockReturnValue({
       sort: jest.fn().mockReturnValue({
         lean: jest.fn().mockResolvedValue([
@@ -266,7 +266,7 @@ describe('POST /:conversationId/usage – route handler', () => {
             conversationId: 'convo-usage',
             isCreatedByUser: false,
             tokenCount: 20,
-            model: 'gpt-5.6-sol',
+            model: 'gpt-5.5',
             content: [{ type: 'tool_call', tool_call_id: 'call-1' }],
           },
         ]),
@@ -280,12 +280,14 @@ describe('POST /:conversationId/usage – route handler', () => {
         readTokens: -40,
         writeTokens: -5,
         tokenValue: -500,
+        pricingSource: 'catalog',
       },
       {
         messageId: 'assistant-1',
         tokenType: 'completion',
         rawAmount: -25,
         tokenValue: -750,
+        pricingSource: 'catalog',
       },
       {
         messageId: 'assistant-1',
@@ -312,19 +314,75 @@ describe('POST /:conversationId/usage – route handler', () => {
       cacheWriteTokens: 5,
       toolCalls: 1,
       costUsd: 0.00125,
-      costComplete: true,
+      costComplete: false,
       pricedTurns: 1,
       unpricedTurns: 0,
     });
     expect(response.body.currency).toBe('USD');
     expect(response.body.costBasis).toBe('recorded_transactions');
+    expect(response.body.costScope).toBe('token_transactions_only');
     expect(response.body.turns[0]).toEqual(
       expect.objectContaining({
         messageId: 'assistant-1',
-        model: 'gpt-5.6-sol',
+        model: 'gpt-5.5',
         estimated: false,
         costUsd: 0.00125,
-        costComplete: true,
+        costComplete: false,
+      }),
+    );
+  });
+
+  it('does not present generic fallback pricing as official cost', async () => {
+    Message.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          {
+            messageId: 'assistant-fallback',
+            conversationId: 'convo-usage',
+            isCreatedByUser: false,
+            tokenCount: 20,
+            model: 'gpt-5.6-sol',
+          },
+        ]),
+      }),
+    });
+    getTransactions.mockResolvedValue([
+      {
+        messageId: 'assistant-fallback',
+        tokenType: 'prompt',
+        rawAmount: -100,
+        tokenValue: -600,
+        pricingSource: 'fallback',
+      },
+      {
+        messageId: 'assistant-fallback',
+        tokenType: 'completion',
+        rawAmount: -25,
+        tokenValue: -450,
+        pricingSource: 'fallback',
+      },
+    ]);
+
+    const response = await request(app)
+      .post('/api/messages/convo-usage/usage')
+      .send({ messageIds: ['assistant-fallback'] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.turns[0]).toEqual(
+      expect.objectContaining({
+        messageId: 'assistant-fallback',
+        model: 'gpt-5.6-sol',
+        estimated: false,
+        costUsd: null,
+        costComplete: false,
+      }),
+    );
+    expect(response.body.totals).toEqual(
+      expect.objectContaining({
+        costUsd: null,
+        costComplete: false,
+        pricedTurns: 0,
+        unpricedTurns: 1,
       }),
     );
   });
@@ -416,12 +474,14 @@ describe('POST /:conversationId/usage – route handler', () => {
         tokenType: 'prompt',
         rawAmount: -100,
         tokenValue: -200,
+        pricingSource: 'catalog',
       },
       {
         messageId: 'assistant-source-original',
         tokenType: 'completion',
         rawAmount: -25,
         tokenValue: -750,
+        pricingSource: 'catalog',
       },
     ]);
 

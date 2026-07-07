@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import englishTranslations from '../../../locales/en/translation.json';
 import ThreadUsagePanel, { getVisibleBranchMessageIds } from './ThreadUsagePanel';
 
 const mockUseGetConversationUsage = jest.fn();
@@ -44,7 +45,7 @@ describe('ThreadUsagePanel', () => {
           outputTokens: 300,
           cacheReadTokens: 800,
           cacheWriteTokens: 25,
-          toolCalls: 4,
+          toolCalls: 0,
           costUsd: 0.00125,
           costComplete: true,
           pricedTurns: 1,
@@ -52,15 +53,16 @@ describe('ThreadUsagePanel', () => {
         },
         currency: 'USD',
         costBasis: 'recorded_transactions',
+        costScope: 'token_transactions_only',
         turns: [
           {
             messageId: 'assistant-1',
-            model: 'gpt-5.6-sol',
+            model: 'gpt-5.5',
             inputTokens: 1200,
             outputTokens: 300,
             cacheReadTokens: 800,
             cacheWriteTokens: 25,
-            toolCalls: 4,
+            toolCalls: 0,
             estimated: false,
             costUsd: 0.00125,
             costComplete: true,
@@ -74,9 +76,8 @@ describe('ThreadUsagePanel', () => {
     render(<ThreadUsagePanel />);
 
     expect(screen.getByText('com_sidepanel_usage_by_turn')).toBeInTheDocument();
-    expect(screen.getByText('gpt-5.6-sol')).toBeInTheDocument();
+    expect(screen.getByText('gpt-5.5')).toBeInTheDocument();
     expect(screen.getAllByText('1.2K')).toHaveLength(2);
-    expect(screen.getAllByText('4')).toHaveLength(2);
     expect(screen.getAllByText('$0.00125')).toHaveLength(2);
     expect(mockUseGetConversationUsage).toHaveBeenCalledWith(
       'conversation-1',
@@ -95,12 +96,13 @@ describe('ThreadUsagePanel', () => {
         conversationId: 'conversation-1',
         currency: 'USD',
         costBasis: 'recorded_transactions',
+        costScope: 'token_transactions_only',
         totals: {
           inputTokens: 1200,
           outputTokens: 300,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          toolCalls: 0,
+          toolCalls: 2,
           costUsd: 0.0002,
           costComplete: false,
           pricedTurns: 1,
@@ -114,7 +116,7 @@ describe('ThreadUsagePanel', () => {
             outputTokens: 300,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
-            toolCalls: 0,
+            toolCalls: 2,
             estimated: false,
             costUsd: 0.0002,
             costComplete: false,
@@ -126,6 +128,7 @@ describe('ThreadUsagePanel', () => {
     render(<ThreadUsagePanel />);
 
     expect(screen.getAllByText('≥$0.0002')).toHaveLength(2);
+    expect(screen.getAllByText('2')).toHaveLength(2);
     expect(screen.getByText('com_sidepanel_usage_cost_partial')).toBeInTheDocument();
   });
 
@@ -138,6 +141,7 @@ describe('ThreadUsagePanel', () => {
         conversationId: 'conversation-1',
         currency: 'USD',
         costBasis: 'recorded_transactions',
+        costScope: 'token_transactions_only',
         totals: {
           inputTokens: 1200,
           outputTokens: 300,
@@ -171,6 +175,19 @@ describe('ThreadUsagePanel', () => {
     expect(screen.getAllByText('—')).toHaveLength(2);
     expect(screen.getByText('com_sidepanel_usage_cost_unavailable')).toBeInTheDocument();
     expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+  });
+
+  it('pins the token-only cost scope in the English UI copy', () => {
+    expect(englishTranslations.com_sidepanel_usage_cost).toBe('Recorded token cost');
+    expect(englishTranslations.com_sidepanel_usage_cost_partial).toBe(
+      'Partial token-cost lower bound',
+    );
+    expect(englishTranslations.com_sidepanel_usage_cost_unavailable).toBe(
+      'Official/configured pricing unavailable',
+    );
+    expect(englishTranslations.com_sidepanel_usage_cost_hint).toContain(
+      'provider invoices may differ',
+    );
   });
 });
 

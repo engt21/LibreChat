@@ -101,6 +101,10 @@ jest.mock('~/server/services/ToolService', () => ({
   loadToolsForExecution: jest.fn().mockResolvedValue([]),
 }));
 
+jest.mock('~/cache', () => ({
+  getLogStores: jest.fn(),
+}));
+
 jest.mock('~/models/spendTokens', () => ({
   spendTokens: mockSpendTokens,
   spendStructuredTokens: mockSpendStructuredTokens,

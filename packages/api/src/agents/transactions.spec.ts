@@ -272,8 +272,31 @@ describe('prepareStructuredTokenSpend', () => {
     expect(prompt!.doc.pricingSource).toBe('catalog');
     expect(prompt!.doc.pricingSourceDetail).toEqual({
       input: 'catalog',
-      write: 'catalog',
-      read: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
+    });
+  });
+
+  it('should mark inherited input pricing for a nonzero cache bucket as fallback', () => {
+    const pricingWithSource: PricingFns = {
+      ...mockPricing,
+      getRateInfo: jest.fn().mockReturnValue({ rate: 2, source: 'catalog' }),
+      getCacheRateInfo: jest.fn().mockReturnValue({ rate: null, source: 'fallback' }),
+    };
+
+    const entries = prepareStructuredTokenSpend(
+      baseTxData,
+      { promptTokens: { input: 100, write: 50, read: 0 }, completionTokens: 0 },
+      pricingWithSource,
+    );
+    const prompt = entries.find((entry) => entry.doc.tokenType === 'prompt');
+
+    expect(prompt).toBeDefined();
+    expect(prompt!.doc.pricingSource).toBe('fallback');
+    expect(prompt!.doc.pricingSourceDetail).toEqual({
+      input: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
     });
   });
 
@@ -302,7 +325,7 @@ describe('prepareStructuredTokenSpend', () => {
     expect(prompt!.doc.pricingSourceDetail).toEqual({
       input: 'catalog',
       write: 'fallback',
-      read: 'catalog',
+      read: 'fallback',
     });
   });
 

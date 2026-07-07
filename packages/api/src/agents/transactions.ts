@@ -118,10 +118,7 @@ function normalizeInputTokenCount(inputTokenCount?: number): number | undefined 
   return Number.isFinite(inputTokenCount) ? inputTokenCount : undefined;
 }
 
-function resolveRateInfo(
-  pricing: PricingFns,
-  params: GetMultiplierParams,
-): ResolvedRateInfo {
+function resolveRateInfo(pricing: PricingFns, params: GetMultiplierParams): ResolvedRateInfo {
   if (pricing.getRateInfo) {
     return pricing.getRateInfo(params);
   }
@@ -221,8 +218,8 @@ function calculateStructuredTokenValue(
     const totalPromptTokens = inputAbs + writeAbs + readAbs;
     const pricingSourceDetail = {
       input: inputRateInfo.source,
-      write: writeRateInfo.rate == null ? inputRateInfo.source : writeRateInfo.source,
-      read: readRateInfo.rate == null ? inputRateInfo.source : readRateInfo.source,
+      write: writeRateInfo.source,
+      read: readRateInfo.source,
     } satisfies Record<string, TransactionPricingSource>;
     const appliedSources: TransactionPricingSource[] = [];
     if (inputAbs > 0) {

@@ -64,8 +64,9 @@ function ChatView({ index = 0 }: { index?: number }) {
   const isLandingPage =
     (!messagesTree || messagesTree.length === 0) &&
     (conversationId === Constants.NEW_CONVO || !conversationId);
+  const isNewConversation = conversationId === Constants.NEW_CONVO || !conversationId;
 
-  if (isLoading && conversationId !== Constants.NEW_CONVO) {
+  if (isLoading && !isNewConversation) {
     content = <LoadingSpinner />;
   } else if (!isLandingPage) {
     content = <MessagesView messagesTree={messagesTree} />;
@@ -79,7 +80,7 @@ function ChatView({ index = 0 }: { index?: number }) {
         <AddedChatContext.Provider value={addedChatHelpers}>
           <Presentation>
             <div className="relative flex h-full w-full flex-col">
-              {!isLoading && <Header />}
+              {(!isLoading || isNewConversation) && <Header />}
               <>
                 <div
                   className={cn(

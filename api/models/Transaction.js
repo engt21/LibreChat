@@ -184,8 +184,8 @@ function calculateStructuredTokenValue(txn) {
     const readAbs = Math.abs(txn.readTokens || 0);
     const pricingSourceDetail = {
       input: inputRateInfo.source,
-      write: writeRateInfo.rate == null ? inputRateInfo.source : writeRateInfo.source,
-      read: readRateInfo.rate == null ? inputRateInfo.source : readRateInfo.source,
+      write: writeRateInfo.source,
+      read: readRateInfo.source,
     };
     const appliedSources = [];
     if (inputAbs > 0) {
