@@ -992,7 +992,7 @@ These are the files and areas most likely to need careful manual review when mer
 - `client/src/utils/convos.ts` — fixed sidebar recency/date buckets: Today, Yesterday, Last week, Last month, current-year month buckets, Last year, Older than last year
 - `client/src/hooks/useNewConvo.ts`, `client/src/hooks/Input/useSelectMention.ts`, and `client/src/hooks/Conversations/usePresets.ts` — model/spec/endpoint/preset switches must pass the compose-file preservation flag so locally uploaded PDFs, images, and other provider attachments remain selected; only an actual New Chat should run file/draft cleanup
 - `client/src/hooks/__tests__/useNewConvo.spec.tsx` and `client/src/hooks/Conversations/usePresets.spec.tsx` — regression coverage for preserved local uploads on configuration switches and cleared uploads on actual New Chat
-- `client/src/routes/ChatRoute.tsx`, `client/src/data-provider/roles.ts`, `client/src/components/Chat/ChatView.tsx`, and their focused tests — `/c/new` must render a visible bootstrap state instead of `null`, preserve usable cached role/config/model data across transient refetch failures, retry transient role failures, initialize new chat once, and still treat a deep-link 404 as authoritative. A disabled NEW-conversation messages query may still report `isLoading`; that state must not hide the header or landing composer.
+- `client/src/routes/ChatRoute.tsx`, `client/src/data-provider/roles.ts`, `client/src/components/Chat/ChatView.tsx`, and their focused tests — `/c/new` must render a visible bootstrap state instead of `null`, preserve usable cached role/config/model data across transient refetch failures, retry transient role failures, initialize new chat once, and still treat a deep-link 404 as authoritative. A disabled NEW-conversation messages query may still report `isLoading`; that state must not hide the header or landing composer. The valid first-message transition where Recoil already contains the server UUID but the route is still `/c/new` must keep `ChatView` mounted so the SSE `final` event can finish and navigate.
 - `api/models/Preset.js`
 - `api/server/routes/presets.js`
 - `client/src/hooks/Conversations/usePresets.ts`
@@ -1223,6 +1223,7 @@ Treat these as one inseparable preservation set during merges and deployments:
 - Immediate Send/Retry status and real provider partial-image streaming with no pixel placeholder.
 - Per-thread/per-turn token, cache, and tool-call usage side panel.
 - Authenticated `/c/new` visibly bootstraps and self-recovers instead of rendering a blank page during transient role/config/model refetches.
+- First-message SSE creation may briefly put the server UUID in conversation state while the route remains `/c/new`; preserve that transition instead of replacing `ChatView` with a bootstrap spinner and unmounting the stream.
 - Full prompt/generation/descendant/tool-call tree deletion.
 - Validated conversation forks preserve parent-before-child tree structure and reject missing,
   unfinished, empty, or circular trees instead of creating a broken fork.

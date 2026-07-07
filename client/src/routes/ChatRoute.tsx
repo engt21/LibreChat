@@ -367,8 +367,15 @@ export default function ChatRoute() {
   if (conversation?.conversationId === Constants.SEARCH) {
     return null;
   }
+  const isNewConversationTransition =
+    conversationId === Constants.NEW_CONVO &&
+    conversation?.conversationId != null &&
+    conversation.conversationId !== Constants.NEW_CONVO;
   // if conversationId not match
-  if (!conversation || conversation.conversationId !== conversationId) {
+  if (
+    !conversation ||
+    (conversation.conversationId !== conversationId && !isNewConversationTransition)
+  ) {
     return <BootstrapLoading label={loadingLabel} />;
   }
   // if conversationId is null

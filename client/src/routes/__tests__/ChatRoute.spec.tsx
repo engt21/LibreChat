@@ -213,6 +213,17 @@ describe('ChatRoute bootstrap handling', () => {
     expect(mockNewConversation).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the active chat mounted while a new conversation receives its server ID', () => {
+    mockRouteState.hasSetConversation.current = true;
+    mockRouteState.conversation = { conversationId: 'server-conversation-id' };
+
+    renderRoute('/c/new');
+
+    expect(screen.getByTestId('chat-view')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(mockNewConversation).not.toHaveBeenCalled();
+  });
+
   it('preserves deep links by hydrating the requested conversation', async () => {
     mockInitialConvoQuery = createQuery(
       {

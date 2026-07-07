@@ -126,7 +126,11 @@ Classify every change before building:
    for large Rollup builds; external source maps are not required by production.
 3. **Complete frontend promotion:** any `client/src/**` change requires a fresh complete
    manifest-verified `client/dist` and `deploy-built-client-dist.sh`. Never copy source or edit a
-   hashed asset in place.
+   hashed asset in place. Full Vite/Rollup production builds use
+   `./local-services/run-node-capped.sh --memory-max none --heap-mb 8192 -- npm run build:client`;
+   the wrapper still applies low CPU and idle I/O priority. Do not restore the obsolete 8 GiB
+   no-swap frontend build cap: it can OOM-kill during chunk rendering even though production is
+   healthy.
 4. **Full image rebuild/recreate:** reserve this for dependency, lockfile, Dockerfile, base-image, or
    incompatible compose/container-shape changes. A rebuild is not the default way to make a runtime
    hotfix durable.
@@ -217,6 +221,12 @@ frontend assets and partial runtime promotion:
   an immutable staged fallback helper, so updating the helper itself cannot change cleanup behavior
   mid-deploy. Memory-headroom failures no longer bypass the gate merely because a local compose
   override exists.
+- The authenticated first-message loading regression was caused by the stricter `ChatRoute`
+  conversation-ID mismatch guard. The SSE `created` event correctly replaced the local `new` ID
+  with the server UUID before the `final` event navigated `/c/new`; the guard then replaced
+  `ChatView` with the bootstrap spinner, unmounting the resumable SSE hook so `final` could never
+  arrive. `ChatRoute` now preserves only this valid new-chat transition while retaining mismatch
+  protection for ordinary deep links, and `ChatRoute.spec.tsx` pins the stream-mount contract.
 
 Authenticated production validation on July 6, 2026 confirmed:
 
@@ -225,6 +235,11 @@ Authenticated production validation on July 6, 2026 confirmed:
   re-enrollment or a login redirect.
 - New-chat generation showed visible status in about 219 ms; Retry showed status in about 116 ms and
   completed as sibling `2 / 2`.
+- The post-promotion route hotfix was reproduced with independent production test conversations
+  `5d8bdbba-4d48-43ea-9079-f17bc9997f0d` and
+  `58acc031-a95d-4998-9d29-53703d530d43`: Send status appeared in 81 ms and 48 ms, both `/c/new`
+  routes changed to their server UUID and completed, Retry appeared in 59 ms and completed as
+  sibling `2 / 2`, and MongoDB contained zero unfinished or error messages for either test.
 - GPT-5.6 appeared as a suggested OpenAI model under its own spec identity; Agents remained a
   separate adjacent button.
 - Code Interpreter and Image both remained enabled across an OpenAI GPT-5.6 to GPT-5.6-family model

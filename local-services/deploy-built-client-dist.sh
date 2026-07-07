@@ -25,7 +25,7 @@ Options:
   -h, --help             Show this help
 
 Required build workflow before deployment:
-  ./local-services/run-node-capped.sh --memory-max 8G --heap-mb 4096 -- npm run build:client
+  ./local-services/run-node-capped.sh --memory-max none --heap-mb 8192 -- npm run build:client
 
 Stable example after explicit user approval:
   LIBRECHAT_STABLE_CLIENT_APPROVAL=YES ./local-services/deploy-built-client-dist.sh stable --approve-stable
