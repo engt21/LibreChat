@@ -16,15 +16,21 @@ import type {
 } from '@tanstack/react-query';
 import type * as t from 'librechat-data-provider';
 
+const isRetryableRoleError = (error: unknown) => {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  return status == null || status === 408 || status === 425 || status === 429 || status >= 500;
+};
+
 export const useGetRole = (
   roleName: string,
   config?: UseQueryOptions<t.TRole>,
 ): QueryObserverResult<t.TRole> => {
   return useQuery<t.TRole>([QueryKeys.roles, roleName], () => dataService.getRole(roleName), {
     refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchOnMount: false,
-    retry: false,
+    refetchOnReconnect: true,
+    refetchOnMount: 'always',
+    retry: (failureCount, error) => failureCount < 3 && isRetryableRoleError(error),
+    retryDelay: (attemptIndex) => Math.min(5_000, 1_000 * 2 ** attemptIndex),
     ...config,
   });
 };

@@ -27,7 +27,7 @@ const { createToolEndCallback } = require('~/server/controllers/agents/callbacks
 const { maybeRefreshGoogleVertexModelAccess } = require('~/server/controllers/agents/googleVertexRefresh');
 const { findAccessibleResources } = require('~/server/services/PermissionService');
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
-const { getMultiplier, getCacheMultiplier } = require('~/models/tx');
+const { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo } = require('~/models/tx');
 const { getConvoFiles, getConvo } = require('~/models/Conversation');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { getAgent, getAgents } = require('~/models/Agent');
@@ -535,7 +535,7 @@ const OpenAIChatCompletionController = async (req, res) => {
       {
         spendTokens,
         spendStructuredTokens,
-        pricing: { getMultiplier, getCacheMultiplier },
+        pricing: { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo },
         bulkWriteOps: { insertMany: db.bulkInsertTransactions, updateBalance: db.updateBalance },
       },
       {

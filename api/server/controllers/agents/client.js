@@ -51,7 +51,7 @@ const { filterFilesByAgentAccess } = require('~/server/services/Files/permission
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { updateBalance, bulkInsertTransactions } = require('~/models');
-const { getMultiplier, getCacheMultiplier } = require('~/models/tx');
+const { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo } = require('~/models/tx');
 const { createContextHandlers } = require('~/app/clients/prompts');
 const { getConvoFiles } = require('~/models/Conversation');
 const BaseClient = require('~/app/clients/BaseClient');
@@ -888,7 +888,7 @@ ${assistantContext}` : '',
       {
         spendTokens,
         spendStructuredTokens,
-        pricing: { getMultiplier, getCacheMultiplier },
+        pricing: { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo },
         bulkWriteOps: { insertMany: bulkInsertTransactions, updateBalance },
       },
       {

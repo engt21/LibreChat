@@ -5,6 +5,13 @@ const { recordUsage, checkMessageGaps } = require('~/server/services/Threads');
 const { sendResponse } = require('~/server/middleware/error');
 const { getConvo } = require('~/models/Conversation');
 const getLogStores = require('~/cache/getLogStores');
+const {
+  ASSISTANT_RUN_SETTLING_VALUE,
+  clearAssistantRunMarker,
+  parseAssistantRunValue,
+} = require('~/server/services/MessageGrafts/active');
+
+const three_minutes = 1000 * 60 * 3;
 
 /**
  * @typedef {Object} ErrorHandlerContext
@@ -18,6 +25,7 @@ const getLogStores = require('~/cache/getLogStores');
  * @property {string} responseMessageId - The response message ID
  * @property {string} endpoint - The endpoint being used
  * @property {string} cacheKey - The cache key for the current request
+ * @property {boolean} [finalMessageSaved] - Whether the final assistant message is already persisted
  */
 
 /**
@@ -53,6 +61,7 @@ const createErrorHandler = ({ req, res, getContext, originPath = '/assistants/ch
       conversationId,
       parentMessageId,
       responseMessageId,
+      finalMessageSaved,
     } = getContext();
 
     const defaultErrorMessage =
@@ -95,6 +104,10 @@ const createErrorHandler = ({ req, res, getContext, originPath = '/assistants/ch
       logger.error(`[${originPath}]`, error);
     }
 
+    if (finalMessageSaved) {
+      return;
+    }
+
     if (!openai || !thread_id || !run_id) {
       return sendResponse(req, res, messageData, defaultErrorMessage);
     }
@@ -102,12 +115,13 @@ const createErrorHandler = ({ req, res, getContext, originPath = '/assistants/ch
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     try {
-      const status = await cache.get(cacheKey);
-      if (status === 'cancelled') {
+      const runState = parseAssistantRunValue(await cache.get(cacheKey));
+      if (runState?.settling) {
         logger.debug(`[${originPath}] Run already cancelled`);
         return res.end();
       }
-      await cache.delete(cacheKey);
+
+      await cache.set(cacheKey, ASSISTANT_RUN_SETTLING_VALUE, three_minutes);
       const cancelledRun = await openai.beta.threads.runs.cancel(run_id, { thread_id });
       logger.debug(`[${originPath}] Cancelled run:`, cancelledRun);
     } catch (error) {
@@ -187,6 +201,18 @@ const createErrorHandler = ({ req, res, getContext, originPath = '/assistants/ch
       logger.error(`[${originPath}] Error finalizing error process`, error);
       return sendResponse(req, res, messageData, 'The Assistant run failed');
     }
+
+    await clearAssistantRunMarker({
+      cache,
+      cacheKey,
+      responseMessageId,
+      logPrefix: `[${originPath}]`,
+      logContext: {
+        conversationId,
+        thread_id,
+        run_id,
+      },
+    });
 
     return sendResponse(req, res, finalEvent);
   };

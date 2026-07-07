@@ -3,8 +3,8 @@
  * dev-seed-validation-personas.js
  *
  * Seeds deterministic validation personas into the **dev** rail MongoDB,
- * clears auth-abuse lockouts and stale sessions, ensures deterministic
- * modelSpecs are present in the active librechat.yaml, and writes a
+ * clears auth-abuse lockouts and stale sessions, optionally provisions
+ * deterministic runtime config, and writes a
  * local-only manifest so automated validators can authenticate without
  * hitting rate-limit or ban walls.
  *
@@ -21,7 +21,7 @@
  *   2. Drops ban, violation, and rate-limiter Keyv entries
  *   3. Creates or resets five validation personas (see PERSONAS below)
  *   4. Clears stale refresh-token sessions for those personas
- *   5. Ensures deterministic modelSpecs in librechat.yaml
+ *   5. Optionally updates an explicitly isolated .env/librechat.yaml
  *   6. Writes .dev-validation-manifest.local.json (gitignored)
  *
  * IMPORTANT: This script must NOT be used against the stable/prod rail.
@@ -42,8 +42,12 @@ const { getDefaultModelPermissionsForRole } = require('../api/server/services/Mo
 
 const DEV_MONGO_URI = process.env.DEV_MONGO_URI || 'mongodb://127.0.0.1:27018/LibreChat';
 const ALLOW_SHARED_PROD_DB_SEED = process.env.DEV_SEED_ALLOW_SHARED_PROD_DB === 'true';
+const UPDATE_RUNTIME_CONFIG = process.env.DEV_SEED_UPDATE_RUNTIME_CONFIG === 'true';
 const MANIFEST_PATH = path.resolve(__dirname, '.dev-validation-manifest.local.json');
-const LIBRECHAT_YAML_PATH = path.resolve(__dirname, '..', 'librechat.yaml');
+const VALIDATION_ENV_PATH = process.env.DEV_VALIDATION_ENV_PATH?.trim();
+const VALIDATION_YAML_PATH = process.env.DEV_VALIDATION_YAML_PATH?.trim();
+const ENV_PATH = VALIDATION_ENV_PATH ? path.resolve(VALIDATION_ENV_PATH) : null;
+const LIBRECHAT_YAML_PATH = VALIDATION_YAML_PATH ? path.resolve(VALIDATION_YAML_PATH) : null;
 
 /**
  * Deterministic modelSpecs that cover a mix of allowed and blocked models
@@ -181,12 +185,56 @@ function assertSafeSeedTarget(uri) {
   }
 }
 
+function realpathIfExists(targetPath) {
+  try {
+    return fs.realpathSync(targetPath);
+  } catch {
+    return targetPath;
+  }
+}
+
+function assertSafeRuntimeConfigTargets() {
+  if (!UPDATE_RUNTIME_CONFIG) {
+    return;
+  }
+
+  if (!ENV_PATH || !LIBRECHAT_YAML_PATH) {
+    throw new Error(
+      'DEV_SEED_UPDATE_RUNTIME_CONFIG=true requires explicit DEV_VALIDATION_ENV_PATH and DEV_VALIDATION_YAML_PATH targets.',
+    );
+  }
+
+  const rootDir = path.resolve(__dirname, '..');
+  const protectedTargets = new Set(
+    [path.join(rootDir, '.env'), path.join(rootDir, 'librechat.yaml')].map(realpathIfExists),
+  );
+  const requestedTargets = [
+    ['DEV_VALIDATION_ENV_PATH', ENV_PATH],
+    ['DEV_VALIDATION_YAML_PATH', LIBRECHAT_YAML_PATH],
+  ];
+
+  for (const [name, targetPath] of requestedTargets) {
+    if (protectedTargets.has(realpathIfExists(targetPath))) {
+      throw new Error(
+        `${name} must point to an isolated validation copy, not the shared runtime path: ${targetPath}`,
+      );
+    }
+  }
+
+  if (realpathIfExists(ENV_PATH) === realpathIfExists(LIBRECHAT_YAML_PATH)) {
+    throw new Error(
+      'DEV_VALIDATION_ENV_PATH and DEV_VALIDATION_YAML_PATH must be separate isolated files.',
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
   assertSafeSeedTarget(DEV_MONGO_URI);
+  assertSafeRuntimeConfigTargets();
   console.log(`[dev-seed] Connecting to dev MongoDB: ${DEV_MONGO_URI}`);
   await mongoose.connect(DEV_MONGO_URI, { bufferCommands: false });
   console.log('[dev-seed] Connected.');
@@ -304,45 +352,46 @@ async function main() {
   // Step 3: Ensure val-superadmin@dev.local is in SUPERADMIN_EMAILS
   // ------------------------------------------------------------------
   const VAL_SUPERADMIN_EMAIL = 'val-superadmin@dev.local';
-  const envPath = path.resolve(__dirname, '..', '.env');
-  console.log(`[dev-seed] Ensuring ${VAL_SUPERADMIN_EMAIL} is in SUPERADMIN_EMAILS…`);
+  if (UPDATE_RUNTIME_CONFIG) {
+    console.log(`[dev-seed] Ensuring ${VAL_SUPERADMIN_EMAIL} is in SUPERADMIN_EMAILS…`);
 
-  try {
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const superadminLine = envContent.match(/^SUPERADMIN_EMAILS=(.*)$/m);
+    try {
+      const envContent = fs.readFileSync(ENV_PATH, 'utf8');
+      const superadminLine = envContent.match(/^SUPERADMIN_EMAILS=(.*)$/m);
 
-    if (superadminLine) {
-      const currentEmails = superadminLine[1]
-        .split(/[\s,]+/)
-        .map((e) => e.trim().toLowerCase())
-        .filter(Boolean);
+      if (superadminLine) {
+        const currentEmails = superadminLine[1]
+          .split(/[\s,]+/)
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean);
 
-      if (!currentEmails.includes(VAL_SUPERADMIN_EMAIL.toLowerCase())) {
-        // Append the validation email to the existing list
-        const newValue = superadminLine[1]
-          ? `${superadminLine[1].trim()},${VAL_SUPERADMIN_EMAIL}`
-          : VAL_SUPERADMIN_EMAIL;
-        const updatedContent = envContent.replace(
-          /^SUPERADMIN_EMAILS=(.*)$/m,
-          `SUPERADMIN_EMAILS=${newValue}`,
-        );
-        fs.writeFileSync(envPath, updatedContent);
-        console.log(`  Added ${VAL_SUPERADMIN_EMAIL} to SUPERADMIN_EMAILS in .env`);
-        console.log('  IMPORTANT: Restart the dev API to pick up the updated .env:');
-        console.log('    docker restart librechat-dev-api');
+        if (!currentEmails.includes(VAL_SUPERADMIN_EMAIL.toLowerCase())) {
+          const newValue = superadminLine[1]
+            ? `${superadminLine[1].trim()},${VAL_SUPERADMIN_EMAIL}`
+            : VAL_SUPERADMIN_EMAIL;
+          const updatedContent = envContent.replace(
+            /^SUPERADMIN_EMAILS=(.*)$/m,
+            `SUPERADMIN_EMAILS=${newValue}`,
+          );
+          fs.writeFileSync(ENV_PATH, updatedContent);
+          console.log(`  Added ${VAL_SUPERADMIN_EMAIL} to SUPERADMIN_EMAILS in ${ENV_PATH}`);
+          console.log('  IMPORTANT: Restart the dev API to pick up the updated environment.');
+        } else {
+          console.log(`  ${VAL_SUPERADMIN_EMAIL} is already in SUPERADMIN_EMAILS`);
+        }
       } else {
-        console.log(`  ${VAL_SUPERADMIN_EMAIL} is already in SUPERADMIN_EMAILS`);
+        fs.appendFileSync(ENV_PATH, `\nSUPERADMIN_EMAILS=${VAL_SUPERADMIN_EMAIL}\n`);
+        console.log(`  Added SUPERADMIN_EMAILS=${VAL_SUPERADMIN_EMAIL} to ${ENV_PATH}`);
+        console.log('  IMPORTANT: Restart the dev API to pick up the updated environment.');
       }
-    } else {
-      // No SUPERADMIN_EMAILS line found — append one
-      fs.appendFileSync(envPath, `\nSUPERADMIN_EMAILS=${VAL_SUPERADMIN_EMAIL}\n`);
-      console.log(`  Added SUPERADMIN_EMAILS=${VAL_SUPERADMIN_EMAIL} to .env`);
-      console.log('  IMPORTANT: Restart the dev API to pick up the updated .env:');
-      console.log('    docker restart librechat-dev-api');
+    } catch (envErr) {
+      console.warn(`  Warning: Could not update ${ENV_PATH}: ${envErr.message}`);
+      console.log(`  Manually ensure ${VAL_SUPERADMIN_EMAIL} is in SUPERADMIN_EMAILS.`);
     }
-  } catch (envErr) {
-    console.warn(`  Warning: Could not update .env: ${envErr.message}`);
-    console.log(`  Manually ensure ${VAL_SUPERADMIN_EMAIL} is in SUPERADMIN_EMAILS.`);
+  } else {
+    console.log(
+      '[dev-seed] Skipping runtime .env mutation. Set DEV_SEED_UPDATE_RUNTIME_CONFIG=true with an isolated DEV_VALIDATION_ENV_PATH to opt in.',
+    );
   }
 
   // ------------------------------------------------------------------
@@ -365,44 +414,51 @@ async function main() {
   // ------------------------------------------------------------------
   // Step 5: Ensure deterministic modelSpecs in librechat.yaml
   // ------------------------------------------------------------------
-  console.log('[dev-seed] Ensuring deterministic modelSpecs in librechat.yaml…');
-  try {
-    if (fs.existsSync(LIBRECHAT_YAML_PATH)) {
-      const yamlContent = fs.readFileSync(LIBRECHAT_YAML_PATH, 'utf8');
-      const config = yaml.load(yamlContent) || {};
+  if (UPDATE_RUNTIME_CONFIG) {
+    console.log(`[dev-seed] Ensuring deterministic modelSpecs in ${LIBRECHAT_YAML_PATH}…`);
+    try {
+      if (fs.existsSync(LIBRECHAT_YAML_PATH)) {
+        const yamlContent = fs.readFileSync(LIBRECHAT_YAML_PATH, 'utf8');
+        const config = yaml.load(yamlContent) || {};
 
-      const existingSpecs = config.modelSpecs;
-      if (
-        existingSpecs &&
-        existingSpecs.list &&
-        Array.isArray(existingSpecs.list) &&
-        existingSpecs.list.length > 0
-      ) {
-        console.log(`  modelSpecs already present (${existingSpecs.list.length} specs). Skipping.`);
+        const existingSpecs = config.modelSpecs;
+        if (
+          existingSpecs &&
+          existingSpecs.list &&
+          Array.isArray(existingSpecs.list) &&
+          existingSpecs.list.length > 0
+        ) {
+          console.log(
+            `  modelSpecs already present (${existingSpecs.list.length} specs). Skipping.`,
+          );
+        } else {
+          config.modelSpecs = VALIDATION_MODEL_SPECS;
+          const updatedYaml = yaml.dump(config, {
+            lineWidth: -1,
+            noRefs: true,
+            quotingType: "'",
+            forceQuotes: false,
+          });
+          fs.writeFileSync(LIBRECHAT_YAML_PATH, updatedYaml);
+          console.log(
+            `  Added ${VALIDATION_MODEL_SPECS.list.length} deterministic modelSpecs to ${LIBRECHAT_YAML_PATH}`,
+          );
+          console.log('  IMPORTANT: Restart the dev API to pick up the updated config.');
+        }
       } else {
-        config.modelSpecs = VALIDATION_MODEL_SPECS;
-        const updatedYaml = yaml.dump(config, {
-          lineWidth: -1,
-          noRefs: true,
-          quotingType: "'",
-          forceQuotes: false,
-        });
-        fs.writeFileSync(LIBRECHAT_YAML_PATH, updatedYaml);
-        console.log(
-          `  Added ${VALIDATION_MODEL_SPECS.list.length} deterministic modelSpecs to librechat.yaml`,
+        console.warn(
+          `  Warning: ${LIBRECHAT_YAML_PATH} not found. Skipping modelSpecs provisioning.`,
         );
-        console.log('  IMPORTANT: Restart the dev API to pick up the updated config:');
-        console.log('    docker restart librechat-dev-api');
+        console.log('  Create an isolated librechat.yaml or set DEV_VALIDATION_YAML_PATH.');
       }
-    } else {
-      console.warn(
-        `  Warning: ${LIBRECHAT_YAML_PATH} not found. Skipping modelSpecs provisioning.`,
-      );
-      console.log('  Create librechat.yaml or run ensure-runtime-files.sh first.');
+    } catch (yamlErr) {
+      console.warn(`  Warning: Could not update ${LIBRECHAT_YAML_PATH}: ${yamlErr.message}`);
+      console.log('  Add modelSpecs manually if needed for validation.');
     }
-  } catch (yamlErr) {
-    console.warn(`  Warning: Could not update librechat.yaml: ${yamlErr.message}`);
-    console.log('  Add modelSpecs manually if needed for VAL-MODEL-003 validation.');
+  } else {
+    console.log(
+      '[dev-seed] Skipping runtime librechat.yaml mutation. Set DEV_SEED_UPDATE_RUNTIME_CONFIG=true with an isolated DEV_VALIDATION_YAML_PATH to opt in.',
+    );
   }
 
   // ------------------------------------------------------------------
@@ -412,6 +468,7 @@ async function main() {
     _comment: 'DEV VALIDATION ONLY — DO NOT COMMIT. Generated by dev-seed-validation-personas.js',
     _generated: new Date().toISOString(),
     devRailUrl: 'http://127.0.0.1:3081',
+    runtimeConfigUpdated: UPDATE_RUNTIME_CONFIG,
     personas: manifestEntries,
   };
 

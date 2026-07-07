@@ -6,6 +6,8 @@ import { updateConvoInAllQueries } from '~/utils';
 
 export interface StreamStatusResponse {
   active: boolean;
+  provider?: 'assistants' | 'resumable' | null;
+  responseMessageId?: string | null;
   streamId?: string;
   status?: 'running' | 'complete' | 'error' | 'aborted';
   aggregatedContent?: Array<{ type: string; text?: string }>;
@@ -21,7 +23,11 @@ export const fetchStreamStatus = async (conversationId: string): Promise<StreamS
   );
 };
 
-export function useStreamStatus(conversationId: string | undefined, enabled = true) {
+export function useStreamStatus(
+  conversationId: string | undefined,
+  enabled = true,
+  refetchInterval: number | false = false,
+) {
   return useQuery({
     queryKey: streamStatusQueryKey(conversationId || ''),
     queryFn: () => fetchStreamStatus(conversationId!),
@@ -29,6 +35,7 @@ export function useStreamStatus(conversationId: string | undefined, enabled = tr
     staleTime: 1000,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
+    refetchInterval,
     retry: false,
   });
 }

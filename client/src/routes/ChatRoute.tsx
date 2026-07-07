@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
 import { Spinner, useToastContext } from '@librechat/client';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Constants, EModelEndpoint } from 'librechat-data-provider';
+import { Constants, EModelEndpoint, SystemRoles } from 'librechat-data-provider';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import type { TPreset } from 'librechat-data-provider';
 import {
@@ -12,7 +12,12 @@ import {
   useIdChangeEffect,
   useLocalize,
 } from '~/hooks';
-import { useGetConvoIdQuery, useGetStartupConfig, useGetEndpointsQuery } from '~/data-provider';
+import {
+  useGetConvoIdQuery,
+  useGetStartupConfig,
+  useGetEndpointsQuery,
+  useGetRole,
+} from '~/data-provider';
 import {
   getDefaultModelSpec,
   getModelSpecPreset,
@@ -27,9 +32,55 @@ import useAuthRedirect from './useAuthRedirect';
 import temporaryStore from '~/store/temporary';
 import store from '~/store';
 
+function BootstrapLoading({ label }: { label: string }) {
+  return (
+    <div className="flex h-screen items-center justify-center" aria-live="polite" role="status">
+      <div className="flex flex-col items-center gap-3">
+        <Spinner className="text-text-primary" />
+        <p className="text-sm text-text-secondary">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function BootstrapError({
+  message,
+  retryLabel,
+  onRetry,
+  isRetrying,
+}: {
+  message: string;
+  retryLabel: string;
+  onRetry: () => void;
+  isRetrying?: boolean;
+}) {
+  return (
+    <div className="flex h-screen items-center justify-center px-6">
+      <div className="max-w-md rounded-2xl border border-border-medium bg-surface-primary p-6 text-center shadow-lg">
+        <p className="text-sm font-medium text-text-primary" role="alert">
+          {message}
+        </p>
+        <button
+          type="button"
+          className="mt-4 inline-flex items-center justify-center rounded-lg border border-border-medium px-4 py-2 text-sm font-medium text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={onRetry}
+          disabled={isRetrying}
+        >
+          {retryLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatRoute() {
-  const { data: startupConfig } = useGetStartupConfig();
-  const { isAuthenticated, user, roles } = useAuthRedirect();
+  const { isAuthenticated, user } = useAuthRedirect();
+  const startupConfigQuery = useGetStartupConfig({
+    enabled: isAuthenticated,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
+  });
+  const { data: startupConfig } = startupConfigQuery;
 
   const defaultTemporaryChat = useRecoilValue(temporaryStore.defaultTemporaryChat);
   const setIsTemporary = useRecoilCallback(
@@ -49,19 +100,124 @@ export default function ChatRoute() {
   const { newConversation } = useNewConvo();
   const { showToast } = useToastContext();
   const localize = useLocalize();
+  const userRoleQuery = useGetRole(SystemRoles.USER, {
+    enabled: !!(isAuthenticated && user?.role),
+  });
 
   const modelsQuery = useGetModelsQuery({
     enabled: isAuthenticated,
     refetchOnMount: 'always',
+    refetchOnReconnect: true,
   });
   const initialConvoQuery = useGetConvoIdQuery(conversationId, {
     enabled:
       isAuthenticated && conversationId !== Constants.NEW_CONVO && !hasSetConversation.current,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
   });
-  const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
+  const endpointsQuery = useGetEndpointsQuery({
+    enabled: isAuthenticated,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
+  });
   const assistantListMap = useAssistantListMap();
 
   const isTemporaryChat = conversation && conversation.expiredAt ? true : false;
+  const hasInitialModels = Array.isArray(modelsQuery.data?.initial);
+  const hasLoadedModels = modelsQuery.data != null && !hasInitialModels;
+  const rolesLoaded = userRoleQuery.data != null;
+  const isUserRolePending = isAuthenticated && user?.role && !rolesLoaded && !userRoleQuery.isError;
+  const isStartupPending =
+    isAuthenticated && (startupConfigQuery.isLoading || startupConfig == null);
+  const isModelsPending = !!(
+    isAuthenticated &&
+    (modelsQuery.isLoading || (hasInitialModels && !modelsQuery.isError))
+  );
+  const isEndpointsPending = !!(isAuthenticated && endpointsQuery.isLoading);
+  const isInitialConversationPending = !!(
+    isAuthenticated &&
+    conversationId !== Constants.NEW_CONVO &&
+    initialConvoQuery.isLoading
+  );
+  const loadingLabel = localize('com_ui_loading');
+  const retryLabel = localize('com_ui_retry');
+
+  let bootstrapError: { message: string; onRetry: () => void; isRetrying?: boolean } | undefined;
+
+  if (isAuthenticated && startupConfig == null && startupConfigQuery.isError) {
+    bootstrapError = {
+      message: localize('com_ui_error_generic'),
+      onRetry: () => {
+        void startupConfigQuery.refetch();
+      },
+      isRetrying: startupConfigQuery.isFetching,
+    };
+  } else if (isAuthenticated && userRoleQuery.data == null && userRoleQuery.isError) {
+    bootstrapError = {
+      message: localize('com_ui_permissions_failed_load'),
+      onRetry: () => {
+        void userRoleQuery.refetch();
+      },
+      isRetrying: userRoleQuery.isFetching,
+    };
+  } else if (isAuthenticated && endpointsQuery.data == null && endpointsQuery.isError) {
+    bootstrapError = {
+      message: localize('com_ui_error_generic'),
+      onRetry: () => {
+        void endpointsQuery.refetch();
+      },
+      isRetrying: endpointsQuery.isFetching,
+    };
+  } else if (isAuthenticated && !hasLoadedModels && modelsQuery.isError) {
+    bootstrapError = {
+      message: localize('com_error_models_not_loaded'),
+      onRetry: () => {
+        void modelsQuery.refetch();
+      },
+      isRetrying: modelsQuery.isFetching,
+    };
+  } else if (
+    isAuthenticated &&
+    initialConvoQuery.data == null &&
+    initialConvoQuery.isError &&
+    !isNotFoundError(initialConvoQuery.error)
+  ) {
+    bootstrapError = {
+      message: localize('com_ui_error_generic'),
+      onRetry: () => {
+        void initialConvoQuery.refetch();
+      },
+      isRetrying: initialConvoQuery.isFetching,
+    };
+  }
+
+  const canInitializeConversation = !!(
+    startupConfig &&
+    rolesLoaded &&
+    endpointsQuery.data &&
+    hasLoadedModels
+  );
+  const isConversationBootstrapPending = !!(
+    isAuthenticated &&
+    !conversation &&
+    conversationId &&
+    canInitializeConversation &&
+    !bootstrapError &&
+    (conversationId === Constants.NEW_CONVO ||
+      initialConvoQuery.isLoading ||
+      initialConvoQuery.data ||
+      initialConvoQuery.isError)
+  );
+  const shouldShowBootstrapLoading =
+    isAuthenticated &&
+    !conversation &&
+    !bootstrapError &&
+    (isStartupPending ||
+      isUserRolePending ||
+      isModelsPending ||
+      isEndpointsPending ||
+      isInitialConversationPending ||
+      isConversationBootstrapPending);
 
   useEffect(() => {
     if (conversationId === Constants.NEW_CONVO) {
@@ -77,11 +233,8 @@ export default function ChatRoute() {
    *  Adjusting this may have unintended consequences on the conversation state.
    */
   useEffect(() => {
-    // Wait for roles to load so hasAgentAccess has a definitive value in useNewConvo
-    const rolesLoaded = roles?.USER != null;
     const shouldSetConvo =
-      (startupConfig && rolesLoaded && !hasSetConversation.current && !modelsQuery.data?.initial) ??
-      false;
+      (startupConfig && rolesLoaded && !hasSetConversation.current && !hasInitialModels) ?? false;
     /* Early exit if startupConfig is not loaded and conversation is already set and only initial models have loaded */
     if (!shouldSetConvo) {
       return;
@@ -118,16 +271,6 @@ export default function ChatRoute() {
       });
 
       hasSetConversation.current = true;
-    } else if (initialConvoQuery.data && endpointsQuery.data && modelsQuery.data) {
-      logger.log('conversation', 'ChatRoute initialConvoQuery', initialConvoQuery.data);
-      newConversation({
-        template: initialConvoQuery.data,
-        /* this is necessary to load all existing settings */
-        preset: initialConvoQuery.data as TPreset,
-        modelsData: modelsQuery.data,
-        keepLatestMessage: true,
-      });
-      hasSetConversation.current = true;
     } else if (
       conversationId &&
       endpointsQuery.data &&
@@ -149,6 +292,16 @@ export default function ChatRoute() {
       newConversation({
         modelsData: modelsQuery.data,
         ...(spec ? { preset: getModelSpecPreset(spec) } : {}),
+      });
+      hasSetConversation.current = true;
+    } else if (initialConvoQuery.data && endpointsQuery.data && modelsQuery.data) {
+      logger.log('conversation', 'ChatRoute initialConvoQuery', initialConvoQuery.data);
+      newConversation({
+        template: initialConvoQuery.data,
+        /* this is necessary to load all existing settings */
+        preset: initialConvoQuery.data as TPreset,
+        modelsData: modelsQuery.data,
+        keepLatestMessage: true,
       });
       hasSetConversation.current = true;
     } else if (
@@ -181,20 +334,28 @@ export default function ChatRoute() {
     /* Creates infinite render if all dependencies included due to newConversation invocations exceeding call stack before hasSetConversation.current becomes truthy */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    roles,
+    userRoleQuery.data,
     startupConfig,
     initialConvoQuery.data,
     initialConvoQuery.isError,
     endpointsQuery.data,
+    hasInitialModels,
     modelsQuery.data,
     assistantListMap,
   ]);
 
-  if (endpointsQuery.isLoading || modelsQuery.isLoading) {
+  if (shouldShowBootstrapLoading) {
+    return <BootstrapLoading label={loadingLabel} />;
+  }
+
+  if (isAuthenticated && !conversation && bootstrapError) {
     return (
-      <div className="flex h-screen items-center justify-center" aria-live="polite" role="status">
-        <Spinner className="text-text-primary" />
-      </div>
+      <BootstrapError
+        message={bootstrapError.message}
+        retryLabel={retryLabel}
+        onRetry={bootstrapError.onRetry}
+        isRetrying={bootstrapError.isRetrying}
+      />
     );
   }
 
@@ -207,12 +368,12 @@ export default function ChatRoute() {
     return null;
   }
   // if conversationId not match
-  if (conversation?.conversationId !== conversationId && !conversation) {
-    return null;
+  if (!conversation || conversation.conversationId !== conversationId) {
+    return <BootstrapLoading label={loadingLabel} />;
   }
   // if conversationId is null
   if (!conversationId) {
-    return null;
+    return <BootstrapLoading label={loadingLabel} />;
   }
 
   return (

@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { apiBaseUrl, request } from 'librechat-data-provider';
+import { apiBaseUrl, EndpointURLs, isAssistantsEndpoint, request } from 'librechat-data-provider';
 
 export interface AbortStreamParams {
   /** The stream ID to abort (if known) */
@@ -12,6 +12,12 @@ export interface AbortStreamResponse {
   success: boolean;
   aborted?: string;
   error?: string;
+}
+
+export interface StopGenerationParams {
+  conversationId: string;
+  endpoint?: string;
+  latestMessageId?: string;
 }
 
 /**
@@ -31,6 +37,22 @@ export const abortStream = async (params: AbortStreamParams): Promise<AbortStrea
   return result;
 };
 
+export const stopGeneration = async ({
+  conversationId,
+  endpoint,
+  latestMessageId,
+}: StopGenerationParams): Promise<unknown> => {
+  if (isAssistantsEndpoint(endpoint)) {
+    const assistantEndpoint = endpoint as 'assistants' | 'azureAssistants';
+    return request.post(`${EndpointURLs[assistantEndpoint]}/abort`, {
+      abortKey: `${conversationId}:${latestMessageId ?? ''}`,
+      endpoint,
+    });
+  }
+
+  return abortStream({ conversationId });
+};
+
 /**
  * React Query mutation hook for aborting a generation stream.
  * Use this when the user explicitly clicks the stop button.
@@ -38,5 +60,11 @@ export const abortStream = async (params: AbortStreamParams): Promise<AbortStrea
 export function useAbortStreamMutation() {
   return useMutation({
     mutationFn: abortStream,
+  });
+}
+
+export function useStopGenerationMutation() {
+  return useMutation({
+    mutationFn: stopGeneration,
   });
 }

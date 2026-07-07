@@ -71,6 +71,12 @@ export const conversationUsage = (conversationId: string) =>
 export const messagesBranch = () => `${messagesRoot}/branch`;
 export const messagesBranchDelete = (conversationId: string, messageId: string) =>
   `${messagesRoot}/${conversationId}/${messageId}/branch`;
+export const generationGrafts = (conversationId: string) =>
+  `${messagesRoot}/${encodeURIComponent(conversationId)}/grafts`;
+export const generationGraftPreview = (conversationId: string) =>
+  `${generationGrafts(conversationId)}/preview`;
+export const generationGraft = (conversationId: string, graftId: string) =>
+  `${generationGrafts(conversationId)}/${encodeURIComponent(graftId)}`;
 
 const shareRoot = `${BASE_URL}/api/share`;
 export const shareMessages = (shareId: string) => `${shareRoot}/${shareId}`;

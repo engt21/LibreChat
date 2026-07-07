@@ -2,12 +2,28 @@ import { useAtom } from 'jotai';
 import { useRef, useEffect } from 'react';
 import type { TShowToast } from '~/common';
 import { NotificationSeverity } from '~/common';
-import { toastState, type ToastState } from '~/store';
+import { createToastState, toastState } from '~/store';
 
 export default function useToast(showDelay = 100) {
   const [toast, setToast] = useAtom(toastState);
   const showTimerRef = useRef<number | null>(null);
   const hideTimerRef = useRef<number | null>(null);
+
+  const clearTimers = () => {
+    if (showTimerRef.current !== null) {
+      clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
+    }
+    if (hideTimerRef.current !== null) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  const closeToast = () => {
+    clearTimers();
+    setToast(createToastState());
+  };
 
   useEffect(() => {
     return () => {
@@ -26,33 +42,41 @@ export default function useToast(showDelay = 100) {
     showIcon = true,
     duration = 3000, // default duration for the toast to be visible
     status,
+    actionLabel,
+    onAction,
   }: TShowToast) => {
-    // Clear existing timeouts
-    if (showTimerRef.current !== null) {
-      clearTimeout(showTimerRef.current);
-    }
-    if (hideTimerRef.current !== null) {
-      clearTimeout(hideTimerRef.current);
-    }
+    clearTimers();
 
-    // Timeout to show the toast
     showTimerRef.current = window.setTimeout(() => {
-      setToast({
-        open: true,
-        message,
-        severity: (status as NotificationSeverity) ?? severity,
-        showIcon,
-      });
-      // Hides the toast after the specified duration
+      showTimerRef.current = null;
+      setToast(
+        createToastState({
+          open: true,
+          message,
+          severity: (status as NotificationSeverity) ?? severity,
+          showIcon,
+          actionLabel,
+          onAction,
+        }),
+      );
       hideTimerRef.current = window.setTimeout(() => {
-        setToast((prevToast: ToastState) => ({ ...prevToast, open: false }));
+        hideTimerRef.current = null;
+        setToast(createToastState());
       }, duration);
     }, showDelay);
   };
 
   return {
     toast,
-    onOpenChange: (open: boolean) => setToast({ ...toast, open }),
+    onOpenChange: (open: boolean) => {
+      if (open) {
+        setToast((prevToast) => ({ ...prevToast, open }));
+        return;
+      }
+
+      closeToast();
+    },
+    closeToast,
     showToast,
   };
 }

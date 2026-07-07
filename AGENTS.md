@@ -36,12 +36,12 @@ Routine read-only VM status commands:
 
 ```
 
-Package builds are not the default deployment path. For ordinary `api/**/*.js`, config helper, runtime patch, or already-built package-dist changes, classify and use `deploy-runtime-delta.sh` first. Rebuild only the affected package when source under `packages/*/src/**` changed. For large Rollup package builds, disable source maps to avoid multi-gigabyte build heaps:
+Package builds are not the default deployment path. For ordinary `api/**/*.js`, config helper, runtime patch, or already-built package-dist changes, classify and use `deploy-runtime-delta.sh` first. Rebuild only the affected package when source under `packages/*/src/**` changed. Large Rollup/Vite builds can exceed an 8-12 GB cgroup because native bundler memory and filesystem cache sit outside the V8 heap. Run those builds uncapped but at low CPU/block-I/O priority with source maps disabled; keep tests and lint cgroup-capped:
 
 ```bash
-LIBRECHAT_ROLLUP_SOURCEMAP=false \
-  ./local-services/run-node-capped.sh --memory-max 12G --heap-mb 8192 -- npm run build:api
-```bash
+./local-services/run-node-capped.sh --memory-max none --heap-mb 8192 -- npm run build:api
+```
+
 ssh timeng@192.168.50.104 'cd /opt/LibreChat-custom && docker compose -p librechat-stable -f docker-compose.yml -f docker-compose.local.override.yml ps'
 ssh timeng@192.168.50.104 'docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"'
 curl -I https://librechatvm.tail6e13ff.ts.net:8443/
@@ -177,7 +177,7 @@ For any frontend change under `client/src/**`, use this enforced workflow:
 
 ```bash
 # Produce a complete dist tree plus its integrity manifest on the host.
-./local-services/run-node-capped.sh --memory-max 8G --heap-mb 4096 -- npm run build:client
+./local-services/run-node-capped.sh --memory-max none --heap-mb 8192 -- npm run build:client
 
 # Deploy the complete manifest-verified dist tree to dev.
 ./local-services/deploy-built-client-dist.sh dev

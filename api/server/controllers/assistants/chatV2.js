@@ -22,6 +22,7 @@ const {
 } = require('~/server/services/Threads');
 const { runAssistant, createOnTextProgress } = require('~/server/services/AssistantService');
 const { createErrorHandler } = require('~/server/controllers/assistants/errors');
+const { finalizeAssistantCompletion } = require('~/server/controllers/assistants/finalize');
 const validateAuthor = require('~/server/middleware/assistants/validateAuthor');
 const { createRun, StreamRunManager } = require('~/server/services/Runs');
 const { addTitle } = require('~/server/services/Endpoints/assistants');
@@ -30,6 +31,7 @@ const { getTransactions } = require('~/models/Transaction');
 const { checkBalance } = require('~/models/balanceMethods');
 const { getConvo } = require('~/models/Conversation');
 const getLogStores = require('~/cache/getLogStores');
+const { encodeAssistantRunValue } = require('~/server/services/MessageGrafts/active');
 const { getOpenAIClient } = require('./helpers');
 
 /**
@@ -91,6 +93,7 @@ const chatV2 = async (req, res) => {
 
   /** @type {Run | undefined} - The completed run, undefined if incomplete */
   let completedRun;
+  let finalMessageSaved = false;
 
   const getContext = () => ({
     openai,
@@ -103,6 +106,7 @@ const chatV2 = async (req, res) => {
     conversationId,
     parentMessageId,
     responseMessageId,
+    finalMessageSaved,
   });
 
   const handleError = createErrorHandler({ req, res, getContext });
@@ -354,7 +358,11 @@ const chatV2 = async (req, res) => {
         });
 
         run_id = run.id;
-        await cache.set(cacheKey, `${thread_id}:${run_id}`, Time.TEN_MINUTES);
+        await cache.set(
+          cacheKey,
+          encodeAssistantRunValue(thread_id, run_id, responseMessageId),
+          Time.TEN_MINUTES,
+        );
         sendInitialResponse();
 
         // todo: retry logic
@@ -365,7 +373,11 @@ const chatV2 = async (req, res) => {
       /** @type {{[AssistantStreamEvents.ThreadRunCreated]: (event: ThreadRunCreated) => Promise<void>}} */
       const handlers = {
         [AssistantStreamEvents.ThreadRunCreated]: async (event) => {
-          await cache.set(cacheKey, `${thread_id}:${event.data.id}`, Time.TEN_MINUTES);
+          await cache.set(
+            cacheKey,
+            encodeAssistantRunValue(thread_id, event.data.id, responseMessageId),
+            Time.TEN_MINUTES,
+          );
           run_id = event.data.id;
           sendInitialResponse();
         },
@@ -442,49 +454,58 @@ const chatV2 = async (req, res) => {
     });
     res.end();
 
-    if (userMessagePromise) {
-      await userMessagePromise;
-    }
-    await saveAssistantMessage(req, { ...responseMessage, model });
+    await finalizeAssistantCompletion({
+      req,
+      responseMessage,
+      model,
+      userMessagePromise,
+      saveAssistantMessage,
+      cache,
+      cacheKey,
+      onPersisted: () => {
+        finalMessageSaved = true;
+      },
+      afterPersist: async () => {
+        if (parentMessageId === Constants.NO_PARENT && !_thread_id) {
+          addTitle(req, {
+            text,
+            responseText: response.text,
+            conversationId,
+          });
+        }
 
-    if (parentMessageId === Constants.NO_PARENT && !_thread_id) {
-      addTitle(req, {
-        text,
-        responseText: response.text,
-        conversationId,
-      });
-    }
-
-    await addThreadMetadata({
-      openai,
-      thread_id,
-      messageId: responseMessage.messageId,
-      messages: response.messages,
-    });
-
-    if (!response.run.usage) {
-      await sleep(3000);
-      completedRun = await openai.beta.threads.runs.retrieve(response.run.id, { thread_id });
-      if (completedRun.usage) {
-        await recordUsage({
-          ...completedRun.usage,
-          user: req.user.id,
-          userObject: req.user,
-          endpoint,
-          model: completedRun.model ?? model,
-          conversationId,
+        await addThreadMetadata({
+          openai,
+          thread_id,
+          messageId: responseMessage.messageId,
+          messages: response.messages,
         });
-      }
-    } else {
-      await recordUsage({
-        ...response.run.usage,
-        user: req.user.id,
-        userObject: req.user,
-        endpoint,
-        model: response.run.model ?? model,
-        conversationId,
-      });
-    }
+
+        if (!response.run.usage) {
+          await sleep(3000);
+          completedRun = await openai.beta.threads.runs.retrieve(response.run.id, { thread_id });
+          if (completedRun.usage) {
+            await recordUsage({
+              ...completedRun.usage,
+              user: req.user.id,
+              userObject: req.user,
+              endpoint,
+              model: completedRun.model ?? model,
+              conversationId,
+            });
+          }
+        } else {
+          await recordUsage({
+            ...response.run.usage,
+            user: req.user.id,
+            userObject: req.user,
+            endpoint,
+            model: response.run.model ?? model,
+            conversationId,
+          });
+        }
+      },
+    });
   } catch (error) {
     await handleError(error);
   }

@@ -959,6 +959,37 @@ export const deleteMessageBranch = async ({
   return request.delete(endpoints.messagesBranchDelete(conversationId, messageId));
 };
 
+export function previewGenerationGraft(
+  conversationId: string,
+  payload: t.TGenerationGraftPreviewRequest,
+): Promise<t.TGenerationGraftPreviewResponse> {
+  return request.post(endpoints.generationGraftPreview(conversationId), payload);
+}
+
+export function createGenerationGraft(
+  conversationId: string,
+  payload: t.TGenerationGraftCreateRequest,
+): Promise<t.TGenerationGraftCreateResponse> {
+  return request.post(endpoints.generationGrafts(conversationId), payload);
+}
+
+export function getGenerationGraft(
+  conversationId: string,
+  graftId: string,
+): Promise<t.TGenerationGraftDetailsResponse> {
+  return request.get(endpoints.generationGraft(conversationId, graftId));
+}
+
+export function undoGenerationGraft(
+  conversationId: string,
+  graftId: string,
+  payload: t.TGenerationGraftUndoRequest,
+): Promise<t.TGenerationGraftUndoResponse> {
+  return request.deleteWithOptions(endpoints.generationGraft(conversationId, graftId), {
+    data: payload,
+  });
+}
+
 export function getMessagesByConvoId(conversationId: string): Promise<s.TMessage[]> {
   if (
     conversationId === config.Constants.NEW_CONVO ||

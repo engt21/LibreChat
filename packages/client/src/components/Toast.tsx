@@ -3,7 +3,7 @@ import { NotificationSeverity } from '~/common';
 import { useToast } from '~/hooks';
 
 export function Toast() {
-  const { toast, onOpenChange } = useToast();
+  const { toast, onOpenChange, closeToast } = useToast();
   const severityClassName = {
     /* Going up by 100 units in terms of darkness (eg bg-green-500 to bg-green-600) for
      * bg colors produces colors that are too visually dissimilar to LibreChat's standard color palette.
@@ -16,6 +16,7 @@ export function Toast() {
     [NotificationSeverity.WARNING]: 'border-[#C75209] bg-[#C75209]',
     [NotificationSeverity.ERROR]: 'border-[#E02F1F] bg-[#E02F1F]',
   };
+  const showAction = Boolean(toast.actionLabel && toast.onAction);
 
   return (
     <RadixToast.Root
@@ -56,6 +57,23 @@ export function Toast() {
           <RadixToast.Description className="flex-1 justify-center gap-2">
             <div className="whitespace-pre-wrap text-left">{toast.message}</div>
           </RadixToast.Description>
+          {showAction && (
+            <RadixToast.Action altText={toast.actionLabel} asChild>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-md border border-white/60 px-2 py-1 text-xs font-semibold text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-transparent"
+                onClick={() => {
+                  try {
+                    toast.onAction?.();
+                  } finally {
+                    closeToast();
+                  }
+                }}
+              >
+                {toast.actionLabel}
+              </button>
+            </RadixToast.Action>
+          )}
         </div>
       </div>
     </RadixToast.Root>

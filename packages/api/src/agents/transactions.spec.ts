@@ -5,7 +5,7 @@ import {
   createMethods,
   balanceSchema,
   transactionSchema,
-} from '@librechat/data-schemas';
+} from '../../../data-schemas/dist/index.cjs';
 import type { PricingFns, TxMetadata, PreparedEntry } from './transactions';
 import {
   prepareStructuredTokenSpend,
@@ -137,6 +137,25 @@ describe('prepareTokenSpend', () => {
     expect(entries[1].doc.tokenValue).toBe(-50 * 3);
   });
 
+  it('should persist pricingSource from pricing metadata when available', () => {
+    const pricingWithSource: PricingFns = {
+      ...mockPricing,
+      getRateInfo: jest.fn(({ tokenType }) => ({
+        rate: tokenType === 'completion' ? 4 : 2,
+        source: tokenType === 'completion' ? 'fallback' : 'catalog',
+      })),
+    };
+
+    const entries = prepareTokenSpend(
+      baseTxData,
+      { promptTokens: 100, completionTokens: 50 },
+      pricingWithSource,
+    );
+
+    expect(entries[0].doc.pricingSource).toBe('catalog');
+    expect(entries[1].doc.pricingSource).toBe('fallback');
+  });
+
   it('should pass valueKey to getMultiplier', () => {
     prepareTokenSpend(baseTxData, { promptTokens: 100 }, mockPricing);
     expect(mockPricing.getMultiplier).toHaveBeenCalledWith(
@@ -235,6 +254,106 @@ describe('prepareStructuredTokenSpend', () => {
     expect(prompt!.doc.rateDetail).toEqual({ input: 2, write: 5, read: 0.5 });
   });
 
+  it('should keep catalog pricing when only the input bucket is used', () => {
+    const pricingWithSource: PricingFns = {
+      ...mockPricing,
+      getRateInfo: jest.fn().mockReturnValue({ rate: 2, source: 'catalog' }),
+      getCacheRateInfo: jest.fn().mockReturnValue({ rate: null, source: 'fallback' }),
+    };
+
+    const entries = prepareStructuredTokenSpend(
+      baseTxData,
+      { promptTokens: { input: 100, write: 0, read: 0 }, completionTokens: 0 },
+      pricingWithSource,
+    );
+    const prompt = entries.find((entry) => entry.doc.tokenType === 'prompt');
+
+    expect(prompt).toBeDefined();
+    expect(prompt!.doc.pricingSource).toBe('catalog');
+    expect(prompt!.doc.pricingSourceDetail).toEqual({
+      input: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
+    });
+  });
+
+  it('should mark inherited input pricing for a nonzero cache bucket as fallback', () => {
+    const pricingWithSource: PricingFns = {
+      ...mockPricing,
+      getRateInfo: jest.fn().mockReturnValue({ rate: 2, source: 'catalog' }),
+      getCacheRateInfo: jest.fn().mockReturnValue({ rate: null, source: 'fallback' }),
+    };
+
+    const entries = prepareStructuredTokenSpend(
+      baseTxData,
+      { promptTokens: { input: 100, write: 50, read: 0 }, completionTokens: 0 },
+      pricingWithSource,
+    );
+    const prompt = entries.find((entry) => entry.doc.tokenType === 'prompt');
+
+    expect(prompt).toBeDefined();
+    expect(prompt!.doc.pricingSource).toBe('fallback');
+    expect(prompt!.doc.pricingSourceDetail).toEqual({
+      input: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
+    });
+  });
+
+  it('should only mark fallback when a nonzero bucket actually uses a fallback multiplier', () => {
+    const pricingWithSource: PricingFns = {
+      ...mockPricing,
+      getRateInfo: jest.fn().mockReturnValue({ rate: 2, source: 'catalog' }),
+      getCacheRateInfo: jest
+        .fn()
+        .mockImplementation(({ cacheType }) =>
+          cacheType === 'write'
+            ? { rate: 7, source: 'fallback' }
+            : { rate: null, source: 'fallback' },
+        ),
+    };
+
+    const entries = prepareStructuredTokenSpend(
+      baseTxData,
+      { promptTokens: { input: 100, write: 50, read: 0 }, completionTokens: 0 },
+      pricingWithSource,
+    );
+    const prompt = entries.find((entry) => entry.doc.tokenType === 'prompt');
+
+    expect(prompt).toBeDefined();
+    expect(prompt!.doc.pricingSource).toBe('fallback');
+    expect(prompt!.doc.pricingSourceDetail).toEqual({
+      input: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
+    });
+  });
+
+  it('should pass total structured inputTokenCount to cache pricing for long-context models', () => {
+    prepareStructuredTokenSpend(
+      baseTxData,
+      { promptTokens: { input: 200000, write: 50000, read: 30000 }, completionTokens: 80 },
+      mockPricing,
+    );
+
+    expect(mockPricing.getCacheMultiplier).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        cacheType: 'write',
+        model: 'gpt-4',
+        inputTokenCount: 280000,
+      }),
+    );
+    expect(mockPricing.getCacheMultiplier).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        cacheType: 'read',
+        model: 'gpt-4',
+        inputTokenCount: 280000,
+      }),
+    );
+  });
+
   it('should return empty when transactions disabled', () => {
     const txData = { ...baseTxData, transactions: { enabled: false } };
     const entries = prepareStructuredTokenSpend(
@@ -307,6 +426,47 @@ describe('bulkWriteTransactions (real DB)', () => {
       'completion',
       'prompt',
     ]);
+  });
+
+  it('should persist pricingSource metadata through the shared transaction schema', async () => {
+    const docs: PreparedEntry[] = [
+      {
+        doc: {
+          user: testUserId,
+          conversationId: 'c1',
+          tokenType: 'prompt',
+          tokenValue: -200,
+          rate: 2,
+          rawAmount: -100,
+          inputTokenCount: 100,
+          rateDetail: { input: 2, write: 2, read: 2 },
+          pricingSource: 'fallback',
+          pricingSourceDetail: { input: 'catalog', write: 'fallback', read: 'fallback' },
+        },
+        tokenValue: -200,
+        balance: { enabled: true },
+      },
+    ];
+    const dbOps = {
+      insertMany: dbMethods.bulkInsertTransactions,
+      updateBalance: dbMethods.updateBalance,
+    };
+
+    await bulkWriteTransactions({ user: testUserId, docs }, dbOps);
+
+    const saved = (await Transaction.findOne({ user: testUserId }).lean()) as Record<
+      string,
+      unknown
+    > | null;
+    expect(saved).toBeDefined();
+    expect(saved!.inputTokenCount).toBe(100);
+    expect(saved!.rateDetail).toEqual({ input: 2, write: 2, read: 2 });
+    expect(saved!.pricingSource).toBe('fallback');
+    expect(saved!.pricingSourceDetail).toEqual({
+      input: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
+    });
   });
 
   it('should create balance document and update credits', async () => {

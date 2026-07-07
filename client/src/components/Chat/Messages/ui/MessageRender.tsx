@@ -15,6 +15,7 @@ import { cn, getMessageAriaLabel } from '~/utils';
 import { fontSizeAtom } from '~/store/fontSize';
 import { MessageContext } from '~/Providers';
 import store from '~/store';
+import { isGenerationGraftBridgeMessage } from '~/components/Chat/Tree/GraftBridgeCard';
 
 type MessageRenderProps = {
   message?: TMessage;
@@ -93,6 +94,7 @@ const MessageRender = memo(function MessageRender({
   );
 
   const { hasParallelContent } = useContentMetadata(msg);
+  const isGenerationGraftBridge = isGenerationGraftBridgeMessage(msg);
   const messageId = msg?.messageId ?? '';
   const messageContextValue = useMemo(
     () => ({
@@ -139,7 +141,7 @@ const MessageRender = memo(function MessageRender({
         'message-render',
       )}
     >
-      {!hasParallelContent && (
+      {!hasParallelContent && !isGenerationGraftBridge && (
         <div className="relative flex flex-shrink-0 flex-col items-center">
           <div className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full">
             <MessageIcon iconData={iconData} assistant={assistant} agent={agent} />
@@ -150,11 +152,11 @@ const MessageRender = memo(function MessageRender({
       <div
         className={cn(
           'relative flex flex-col',
-          hasParallelContent ? 'w-full' : 'w-11/12',
+          hasParallelContent || isGenerationGraftBridge ? 'w-full' : 'w-11/12',
           msg.isCreatedByUser ? 'user-turn' : 'agent-turn',
         )}
       >
-        {!hasParallelContent && (
+        {!hasParallelContent && !isGenerationGraftBridge && (
           <h2 className={cn('select-none font-semibold', fontSize)}>{messageLabel}</h2>
         )}
 
@@ -188,20 +190,22 @@ const MessageRender = memo(function MessageRender({
                 siblingCount={siblingCount}
                 setSiblingIdx={setSiblingIdx}
               />
-              <HoverButtons
-                index={index}
-                isEditing={edit}
-                message={msg}
-                enterEdit={enterEdit}
-                isSubmitting={isSubmitting}
-                conversation={conversation ?? null}
-                regenerate={handleRegenerateMessage}
-                copyToClipboard={copyToClipboard}
-                handleContinue={handleContinue}
-                latestMessageId={latestMessageId}
-                handleFeedback={handleFeedback}
-                isLast={isLast}
-              />
+              {!isGenerationGraftBridge ? (
+                <HoverButtons
+                  index={index}
+                  isEditing={edit}
+                  message={msg}
+                  enterEdit={enterEdit}
+                  isSubmitting={isSubmitting}
+                  conversation={conversation ?? null}
+                  regenerate={handleRegenerateMessage}
+                  copyToClipboard={copyToClipboard}
+                  handleContinue={handleContinue}
+                  latestMessageId={latestMessageId}
+                  handleFeedback={handleFeedback}
+                  isLast={isLast}
+                />
+              ) : null}
             </SubRow>
           )}
         </div>

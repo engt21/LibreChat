@@ -39,7 +39,7 @@ const { loadAgentTools, loadToolsForExecution } = require('~/server/services/Too
 const { findAccessibleResources } = require('~/server/services/PermissionService');
 const { getConvoFiles, saveConvo, getConvo } = require('~/models/Conversation');
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
-const { getMultiplier, getCacheMultiplier } = require('~/models/tx');
+const { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo } = require('~/models/tx');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { getAgent, getAgents } = require('~/models/Agent');
 const getStream = require('get-stream');
@@ -570,7 +570,7 @@ const createResponse = async (req, res) => {
         {
           spendTokens,
           spendStructuredTokens,
-          pricing: { getMultiplier, getCacheMultiplier },
+          pricing: { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo },
           bulkWriteOps: { insertMany: db.bulkInsertTransactions, updateBalance: db.updateBalance },
         },
         {
@@ -726,7 +726,7 @@ const createResponse = async (req, res) => {
         {
           spendTokens,
           spendStructuredTokens,
-          pricing: { getMultiplier, getCacheMultiplier },
+          pricing: { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo },
           bulkWriteOps: { insertMany: db.bulkInsertTransactions, updateBalance: db.updateBalance },
         },
         {

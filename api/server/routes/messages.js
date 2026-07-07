@@ -13,13 +13,86 @@ const {
   deleteMessageBranch,
 } = require('~/models');
 const { findAllArtifacts, replaceArtifactContent } = require('~/server/services/Artifacts/update');
-const { requireJwtAuth, validateMessageReq } = require('~/server/middleware');
+const { requireJwtAuth, validateMessageReq, createGraftLimiters } = require('~/server/middleware');
 const { getConvosQueried } = require('~/models/Conversation');
 const { Message, ToolCall } = require('~/db/models');
 const { getTransactions } = require('~/models/Transaction');
 
+const {
+  previewGenerationGraft,
+  createGenerationGraft,
+  getGenerationGraft,
+  undoGenerationGraft,
+} = require('~/server/services/MessageGrafts');
+const { MAX_GRAFT_MESSAGES } = require('~/server/services/MessageGrafts/constants');
+
 const router = express.Router();
 router.use(requireJwtAuth);
+
+function requireFunction(name, value) {
+  if (typeof value !== 'function') {
+    throw new TypeError(`messages router requires ${name} to be a function`);
+  }
+
+  return value;
+}
+
+const {
+  graftPreviewIpLimiter,
+  graftPreviewUserLimiter,
+  graftMutationIpLimiter,
+  graftMutationUserLimiter,
+} = requireFunction('createGraftLimiters', createGraftLimiters)();
+
+requireFunction('previewGenerationGraft', previewGenerationGraft);
+requireFunction('createGenerationGraft', createGenerationGraft);
+requireFunction('getGenerationGraft', getGenerationGraft);
+requireFunction('undoGenerationGraft', undoGenerationGraft);
+
+function sanitizeMessageIdArray(values, maxItems = MAX_GRAFT_MESSAGES) {
+  if (!Array.isArray(values)) {
+    return undefined;
+  }
+
+  const sanitizedValues = [];
+  const seenValues = new Set();
+
+  for (const value of values) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+
+    const trimmedValue = value.trim();
+    if (trimmedValue.length === 0 || seenValues.has(trimmedValue)) {
+      continue;
+    }
+
+    seenValues.add(trimmedValue);
+    sanitizedValues.push(trimmedValue);
+
+    if (sanitizedValues.length >= maxItems) {
+      break;
+    }
+  }
+
+  return sanitizedValues.length > 0 ? sanitizedValues : undefined;
+}
+
+function sendGraftError(res, error) {
+  const statusCode = error?.statusCode ?? 500;
+
+  if (statusCode === 500) {
+    return res.status(statusCode).json({ error: 'Internal server error' });
+  }
+
+  return res.status(statusCode).json({
+    error: error.message,
+    code: error.code,
+    activeMessageIds: error.activeMessageIds,
+    conversationActiveWithoutMessageId: error.conversationActiveWithoutMessageId === true,
+    continuationMessageIds: sanitizeMessageIdArray(error.continuationMessageIds),
+  });
+}
 
 router.get('/', async (req, res) => {
   try {
@@ -288,6 +361,56 @@ function absoluteNumber(value) {
   return Number.isFinite(number) ? Math.abs(number) : 0;
 }
 
+function getTransactionCostRecord(transaction) {
+  if (transaction.pricingSource === 'fallback') {
+    return { costUsd: null, verified: false };
+  }
+
+  let costUsd = null;
+  if (transaction.tokenValue != null) {
+    const tokenValue = Number(transaction.tokenValue);
+    if (Number.isFinite(tokenValue)) {
+      costUsd = Math.abs(tokenValue) / 1_000_000;
+    }
+  }
+
+  if (costUsd == null && transaction.rawAmount != null && transaction.rate != null) {
+    const rawAmount = Number(transaction.rawAmount);
+    const rate = Number(transaction.rate);
+    if (Number.isFinite(rawAmount) && Number.isFinite(rate)) {
+      costUsd = Math.abs(rawAmount * rate) / 1_000_000;
+    }
+  }
+
+  return {
+    costUsd,
+    verified:
+      costUsd != null &&
+      (transaction.pricingSource === 'catalog' || transaction.pricingSource === 'endpoint_config'),
+  };
+}
+
+function normalizeCostUsd(value) {
+  return Number(value.toFixed(12));
+}
+
+function getUsageSourceMessageId(message) {
+  const graftCopy = message?.metadata?.generationGraftCopy;
+  if (
+    typeof graftCopy?.usageSourceMessageId === 'string' &&
+    graftCopy.usageSourceMessageId.length > 0
+  ) {
+    return graftCopy.usageSourceMessageId;
+  }
+  if (
+    typeof graftCopy?.clonedFromMessageId === 'string' &&
+    graftCopy.clonedFromMessageId.length > 0
+  ) {
+    return graftCopy.clonedFromMessageId;
+  }
+  return message?.messageId;
+}
+
 function estimateMessageTokens(message) {
   if (Number.isFinite(message?.tokenCount)) {
     return Math.max(Number(message.tokenCount), 0);
@@ -346,6 +469,79 @@ function mergeToolCallCounts(embeddedCounts, persistedCounts) {
   return total;
 }
 
+router.post(
+  '/:conversationId/grafts/preview',
+  graftPreviewIpLimiter,
+  graftPreviewUserLimiter,
+  async (req, res) => {
+    try {
+      const result = await previewGenerationGraft({
+        userId: req.user.id,
+        conversationId: req.params.conversationId,
+        payload: req.body ?? {},
+      });
+
+      res.status(200).json(result);
+    } catch (error) {
+      logger.error('Error previewing generation graft:', error);
+      sendGraftError(res, error);
+    }
+  },
+);
+
+router.post(
+  '/:conversationId/grafts',
+  graftMutationIpLimiter,
+  graftMutationUserLimiter,
+  async (req, res) => {
+    try {
+      const result = await createGenerationGraft({
+        userId: req.user.id,
+        conversationId: req.params.conversationId,
+        payload: req.body ?? {},
+      });
+
+      res.status(201).json(result);
+    } catch (error) {
+      logger.error('Error creating generation graft:', error);
+      sendGraftError(res, error);
+    }
+  },
+);
+
+router.get('/:conversationId/grafts/:graftId', async (req, res) => {
+  try {
+    const result = await getGenerationGraft({
+      userId: req.user.id,
+      conversationId: req.params.conversationId,
+      graftId: req.params.graftId,
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    sendGraftError(res, error);
+  }
+});
+
+router.delete(
+  '/:conversationId/grafts/:graftId',
+  graftMutationIpLimiter,
+  graftMutationUserLimiter,
+  async (req, res) => {
+    try {
+      const result = await undoGenerationGraft({
+        userId: req.user.id,
+        conversationId: req.params.conversationId,
+        graftId: req.params.graftId,
+        includeContinuations: req.body?.includeContinuations === true,
+      });
+
+      res.status(200).json(result);
+    } catch (error) {
+      sendGraftError(res, error);
+    }
+  },
+);
 
 router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
   try {
@@ -361,12 +557,15 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
 
     const messages = await Message.find(messageFilter).sort({ createdAt: 1 }).lean();
     const visibleIds = messages.map((message) => message.messageId);
+    const usageSourceIds = [
+      ...new Set(messages.map(getUsageSourceMessageId).filter((messageId) => !!messageId)),
+    ];
     const transactions =
-      visibleIds.length > 0
+      usageSourceIds.length > 0
         ? await getTransactions({
             user: req.user.id,
             conversationId,
-            messageId: { $in: visibleIds },
+            messageId: { $in: usageSourceIds },
           })
         : [];
     const persistedToolCalls =
@@ -390,7 +589,10 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
 
     const usageByMessage = new Map();
     for (const transaction of transactions) {
-      if (!transaction.messageId) {
+      if (
+        !transaction.messageId ||
+        (transaction.tokenType !== 'prompt' && transaction.tokenType !== 'completion')
+      ) {
         continue;
       }
       const usage = usageByMessage.get(transaction.messageId) ?? {
@@ -398,6 +600,10 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         outputTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
+        costUsd: 0,
+        pricedTransactions: 0,
+        unpricedTransactions: 0,
+        unverifiedTransactions: 0,
       };
 
       if (transaction.tokenType === 'prompt') {
@@ -416,6 +622,17 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         usage.outputTokens += absoluteNumber(transaction.rawAmount);
       }
 
+      const transactionCost = getTransactionCostRecord(transaction);
+      if (transactionCost.costUsd == null) {
+        usage.unpricedTransactions += 1;
+      } else {
+        usage.costUsd += transactionCost.costUsd;
+        usage.pricedTransactions += 1;
+        if (!transactionCost.verified) {
+          usage.unverifiedTransactions += 1;
+        }
+      }
+
       usageByMessage.set(transaction.messageId, usage);
     }
 
@@ -428,7 +645,14 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         continue;
       }
 
-      const recorded = usageByMessage.get(message.messageId);
+      const recorded = usageByMessage.get(getUsageSourceMessageId(message));
+      const costUsd =
+        recorded && recorded.pricedTransactions > 0 ? normalizeCostUsd(recorded.costUsd) : null;
+      const toolCalls = mergeToolCallCounts(
+        collectToolCallCounts(message.content),
+        persistedToolCountsByMessage.get(message.messageId) ?? new Map(),
+      );
+      const estimated = recorded == null;
       turns.push({
         messageId: message.messageId,
         createdAt: message.createdAt,
@@ -438,27 +662,56 @@ router.post('/:conversationId/usage', validateMessageReq, async (req, res) => {
         outputTokens: recorded?.outputTokens ?? estimatedMessageTokens,
         cacheReadTokens: recorded?.cacheReadTokens ?? 0,
         cacheWriteTokens: recorded?.cacheWriteTokens ?? 0,
-        toolCalls: mergeToolCallCounts(
-          collectToolCallCounts(message.content),
-          persistedToolCountsByMessage.get(message.messageId) ?? new Map(),
-        ),
-        estimated: recorded == null,
+        toolCalls,
+        estimated,
+        costUsd,
+        costComplete:
+          recorded != null &&
+          recorded.pricedTransactions > 0 &&
+          recorded.unpricedTransactions === 0 &&
+          recorded.unverifiedTransactions === 0 &&
+          !estimated &&
+          toolCalls === 0,
       });
       priorVisibleTokens += estimatedMessageTokens;
     }
 
-    const totals = turns.reduce(
+    const numericTotals = turns.reduce(
       (total, turn) => ({
         inputTokens: total.inputTokens + turn.inputTokens,
         outputTokens: total.outputTokens + turn.outputTokens,
         cacheReadTokens: total.cacheReadTokens + turn.cacheReadTokens,
         cacheWriteTokens: total.cacheWriteTokens + turn.cacheWriteTokens,
         toolCalls: total.toolCalls + turn.toolCalls,
+        costUsd: total.costUsd + (turn.costUsd ?? 0),
+        pricedTurns: total.pricedTurns + (turn.costUsd == null ? 0 : 1),
+        unpricedTurns: total.unpricedTurns + (turn.costUsd == null ? 1 : 0),
       }),
-      { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, toolCalls: 0 },
+      {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: 0,
+        costUsd: 0,
+        pricedTurns: 0,
+        unpricedTurns: 0,
+      },
     );
+    const totals = {
+      ...numericTotals,
+      costUsd: numericTotals.pricedTurns > 0 ? normalizeCostUsd(numericTotals.costUsd) : null,
+      costComplete: turns.length > 0 && turns.every((turn) => turn.costComplete),
+    };
 
-    res.status(200).json({ conversationId, totals, turns });
+    res.status(200).json({
+      conversationId,
+      currency: 'USD',
+      costBasis: 'recorded_transactions',
+      costScope: 'token_transactions_only',
+      totals,
+      turns,
+    });
   } catch (error) {
     logger.error('Error fetching conversation usage:', error);
     res.status(500).json({ error: 'Internal server error' });

@@ -3,6 +3,7 @@ import { useRecoilState } from 'recoil';
 import type { TConversation, TMessage, TFeedback } from 'librechat-data-provider';
 import { EditIcon, Clipboard, CheckMark, ContinueIcon, RegenerateIcon } from '@librechat/client';
 import { useGenerationsByLatest, useLocalize } from '~/hooks';
+import GenerationTreeActions from '~/components/Chat/Tree/GenerationTreeActions';
 import { Fork } from '~/components/Conversations';
 import MessageAudio from './MessageAudio';
 import Feedback from './Feedback';
@@ -162,7 +163,8 @@ const HoverButtons = ({
 
   if (error === true) {
     return (
-      <div className="visible flex justify-center self-end lg:justify-start">
+      <div className="group visible flex justify-center gap-0.5 self-end focus-within:outline-none lg:justify-start">
+        <GenerationTreeActions message={message} isLast={isLast} />
         {regenerateEnabled && (
           <HoverButton
             onClick={regenerate}
@@ -242,6 +244,8 @@ const HoverButtons = ({
         latestMessageId={latestMessageId}
         isLast={isLast}
       />
+
+      <GenerationTreeActions message={message} isLast={isLast} />
 
       {/* Feedback Buttons */}
       {!isCreatedByUser && handleFeedback != null && (

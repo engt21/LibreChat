@@ -1,6 +1,6 @@
 import { CANCEL_RATE } from '@librechat/data-schemas';
 import type { TCustomConfig, TTransactionsConfig } from 'librechat-data-provider';
-import type { TransactionData } from '@librechat/data-schemas';
+import type { TransactionData, TransactionPricingSource } from '@librechat/data-schemas';
 import type { EndpointTokenConfig } from '~/types/tokens';
 
 interface GetMultiplierParams {
@@ -15,11 +15,24 @@ interface GetCacheMultiplierParams {
   cacheType: 'write' | 'read';
   model?: string;
   endpointTokenConfig?: EndpointTokenConfig;
+  inputTokenCount?: number;
+}
+
+interface ResolvedRateInfo {
+  rate: number;
+  source: TransactionPricingSource;
+}
+
+interface ResolvedCacheRateInfo {
+  rate: number | null;
+  source: TransactionPricingSource;
 }
 
 export interface PricingFns {
   getMultiplier: (params: GetMultiplierParams) => number;
   getCacheMultiplier: (params: GetCacheMultiplierParams) => number | null;
+  getRateInfo?: (params: GetMultiplierParams) => ResolvedRateInfo;
+  getCacheRateInfo?: (params: GetCacheMultiplierParams) => ResolvedCacheRateInfo;
 }
 
 interface BaseTxData {
@@ -89,51 +102,135 @@ export interface BulkWriteDeps {
   updateBalance: (params: { user: string; incrementValue: number }) => Promise<unknown>;
 }
 
+function aggregatePricingSource(sources: TransactionPricingSource[]): TransactionPricingSource {
+  if (sources.includes('fallback')) {
+    return 'fallback';
+  }
+
+  if (sources.includes('endpoint_config')) {
+    return 'endpoint_config';
+  }
+
+  return 'catalog';
+}
+
+function normalizeInputTokenCount(inputTokenCount?: number): number | undefined {
+  return Number.isFinite(inputTokenCount) ? inputTokenCount : undefined;
+}
+
+function resolveRateInfo(pricing: PricingFns, params: GetMultiplierParams): ResolvedRateInfo {
+  if (pricing.getRateInfo) {
+    return pricing.getRateInfo(params);
+  }
+
+  return {
+    rate: pricing.getMultiplier(params),
+    source: 'fallback',
+  };
+}
+
+function resolveCacheRateInfo(
+  pricing: PricingFns,
+  params: GetCacheMultiplierParams,
+): ResolvedCacheRateInfo {
+  if (pricing.getCacheRateInfo) {
+    return pricing.getCacheRateInfo(params);
+  }
+
+  return {
+    rate: pricing.getCacheMultiplier(params),
+    source: 'fallback',
+  };
+}
+
 function calculateTokenValue(
   txData: StandardTxData,
   pricing: PricingFns,
-): { tokenValue: number; rate: number } {
-  const { tokenType, model, endpointTokenConfig, inputTokenCount, rawAmount, valueKey } = txData;
-  const multiplier = Math.abs(
-    pricing.getMultiplier({ valueKey, tokenType, model, endpointTokenConfig, inputTokenCount }),
-  );
+): { tokenValue: number; rate: number; pricingSource: TransactionPricingSource } {
+  const { tokenType, model, endpointTokenConfig, rawAmount, valueKey } = txData;
+  const inputTokenCount = normalizeInputTokenCount(txData.inputTokenCount);
+  const rateInfo = resolveRateInfo(pricing, {
+    valueKey,
+    tokenType,
+    model,
+    endpointTokenConfig,
+    inputTokenCount,
+  });
+  const multiplier = Math.abs(rateInfo.rate);
   let rate = multiplier;
   let tokenValue = rawAmount * multiplier;
   if (txData.context === 'incomplete' && tokenType === 'completion') {
     tokenValue = Math.ceil(tokenValue * CANCEL_RATE);
     rate *= CANCEL_RATE;
   }
-  return { tokenValue, rate };
+  return { tokenValue, rate, pricingSource: rateInfo.source };
 }
 
 function calculateStructuredTokenValue(
   txData: StructuredTxData,
   pricing: PricingFns,
-): { tokenValue: number; rate: number; rawAmount: number; rateDetail?: Record<string, number> } {
-  const { tokenType, model, endpointTokenConfig, inputTokenCount } = txData;
+): {
+  tokenValue: number;
+  rate: number;
+  rawAmount: number;
+  rateDetail?: Record<string, number>;
+  pricingSource: TransactionPricingSource;
+  pricingSourceDetail?: Record<string, TransactionPricingSource>;
+} {
+  const { tokenType, model, endpointTokenConfig } = txData;
+  const inputTokenCount = normalizeInputTokenCount(txData.inputTokenCount);
 
   if (!tokenType) {
-    return { tokenValue: txData.rawAmount ?? 0, rate: 0, rawAmount: txData.rawAmount ?? 0 };
+    return {
+      tokenValue: txData.rawAmount ?? 0,
+      rate: 0,
+      rawAmount: txData.rawAmount ?? 0,
+      pricingSource: 'fallback',
+    };
   }
 
   if (tokenType === 'prompt') {
-    const inputMultiplier = pricing.getMultiplier({
+    const inputRateInfo = resolveRateInfo(pricing, {
       tokenType: 'prompt',
       model,
       endpointTokenConfig,
       inputTokenCount,
     });
-    const writeMultiplier =
-      pricing.getCacheMultiplier({ cacheType: 'write', model, endpointTokenConfig }) ??
-      inputMultiplier;
-    const readMultiplier =
-      pricing.getCacheMultiplier({ cacheType: 'read', model, endpointTokenConfig }) ??
-      inputMultiplier;
+    const writeRateInfo = resolveCacheRateInfo(pricing, {
+      cacheType: 'write',
+      model,
+      endpointTokenConfig,
+      inputTokenCount,
+    });
+    const readRateInfo = resolveCacheRateInfo(pricing, {
+      cacheType: 'read',
+      model,
+      endpointTokenConfig,
+      inputTokenCount,
+    });
+    const inputMultiplier = inputRateInfo.rate;
+    const writeMultiplier = writeRateInfo.rate ?? inputMultiplier;
+    const readMultiplier = readRateInfo.rate ?? inputMultiplier;
 
     const inputAbs = Math.abs(txData.inputTokens ?? 0);
     const writeAbs = Math.abs(txData.writeTokens ?? 0);
     const readAbs = Math.abs(txData.readTokens ?? 0);
     const totalPromptTokens = inputAbs + writeAbs + readAbs;
+    const pricingSourceDetail = {
+      input: inputRateInfo.source,
+      write: writeRateInfo.source,
+      read: readRateInfo.source,
+    } satisfies Record<string, TransactionPricingSource>;
+    const appliedSources: TransactionPricingSource[] = [];
+    if (inputAbs > 0) {
+      appliedSources.push(pricingSourceDetail.input);
+    }
+    if (writeAbs > 0) {
+      appliedSources.push(pricingSourceDetail.write);
+    }
+    if (readAbs > 0) {
+      appliedSources.push(pricingSourceDetail.read);
+    }
 
     const rate =
       totalPromptTokens > 0
@@ -154,25 +251,30 @@ function calculateStructuredTokenValue(
       rate,
       rawAmount: -totalPromptTokens,
       rateDetail: { input: inputMultiplier, write: writeMultiplier, read: readMultiplier },
+      pricingSource:
+        appliedSources.length > 0
+          ? aggregatePricingSource(appliedSources)
+          : pricingSourceDetail.input,
+      pricingSourceDetail,
     };
   }
 
-  const multiplier = pricing.getMultiplier({
+  const rateInfo = resolveRateInfo(pricing, {
     tokenType,
     model,
     endpointTokenConfig,
     inputTokenCount,
   });
   const rawAmount = -Math.abs(txData.rawAmount ?? 0);
-  let rate = Math.abs(multiplier);
-  let tokenValue = rawAmount * multiplier;
+  let rate = Math.abs(rateInfo.rate);
+  let tokenValue = rawAmount * rateInfo.rate;
 
   if (txData.context === 'incomplete' && tokenType === 'completion') {
     tokenValue = Math.ceil(tokenValue * CANCEL_RATE);
     rate *= CANCEL_RATE;
   }
 
-  return { tokenValue, rate, rawAmount };
+  return { tokenValue, rate, rawAmount, pricingSource: rateInfo.source };
 }
 
 function prepareStandardTx(
@@ -190,9 +292,12 @@ function prepareStandardTx(
     return null;
   }
 
-  const { tokenValue, rate } = calculateTokenValue(txData, pricing);
+  const normalizedInputTokenCount = normalizeInputTokenCount(txData.inputTokenCount);
+  const normalizedTxData = { ...txData, inputTokenCount: normalizedInputTokenCount };
+
+  const { tokenValue, rate, pricingSource } = calculateTokenValue(normalizedTxData, pricing);
   return {
-    doc: { ...txData, tokenValue, rate },
+    doc: { ...normalizedTxData, tokenValue, rate, pricingSource },
     tokenValue,
     balance,
   };
@@ -210,17 +315,19 @@ function prepareStructuredTx(
     return null;
   }
 
-  const { tokenValue, rate, rawAmount, rateDetail } = calculateStructuredTokenValue(
-    txData,
-    pricing,
-  );
+  const normalizedInputTokenCount = normalizeInputTokenCount(txData.inputTokenCount);
+  const normalizedTxData = { ...txData, inputTokenCount: normalizedInputTokenCount };
+  const { tokenValue, rate, rawAmount, rateDetail, pricingSource, pricingSourceDetail } =
+    calculateStructuredTokenValue(normalizedTxData, pricing);
   return {
     doc: {
-      ...txData,
+      ...normalizedTxData,
       tokenValue,
       rate,
       rawAmount,
+      pricingSource,
       ...(rateDetail && { rateDetail }),
+      ...(pricingSourceDetail && { pricingSourceDetail }),
     },
     tokenValue,
     balance,

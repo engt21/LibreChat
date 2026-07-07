@@ -14,6 +14,9 @@ import HoverButtons from './HoverButtons';
 import SubRow from './SubRow';
 import { cn, getMessageAriaLabel } from '~/utils';
 import store from '~/store';
+import GraftBridgeCard, {
+  isGenerationGraftBridgeMessage,
+} from '~/components/Chat/Tree/GraftBridgeCard';
 
 export default function Message(props: TMessageProps) {
   const localize = useLocalize();
@@ -43,6 +46,7 @@ export default function Message(props: TMessageProps) {
   const fontSize = useAtomValue(fontSizeAtom);
   const maximizeChatSpace = useRecoilValue(store.maximizeChatSpace);
   const { children, messageId = null, isCreatedByUser } = message ?? {};
+  const isGenerationGraftBridge = isGenerationGraftBridgeMessage(message);
 
   const name = useMemo(() => {
     let result = '';
@@ -111,7 +115,7 @@ export default function Message(props: TMessageProps) {
             aria-label={getMessageAriaLabel(message, localize)}
             className={cn(baseClasses.common, baseClasses.chat, 'message-render')}
           >
-            {!hasParallelContent && (
+            {!hasParallelContent && !isGenerationGraftBridge && (
               <div className="relative flex flex-shrink-0 flex-col items-center">
                 <div className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full pt-0.5">
                   <MessageIcon iconData={iconData} assistant={assistant} agent={agent} />
@@ -121,33 +125,37 @@ export default function Message(props: TMessageProps) {
             <div
               className={cn(
                 'relative flex flex-col',
-                hasParallelContent ? 'w-full' : 'w-11/12',
+                hasParallelContent || isGenerationGraftBridge ? 'w-full' : 'w-11/12',
                 isCreatedByUser ? 'user-turn' : 'agent-turn',
               )}
             >
-              {!hasParallelContent && (
+              {!hasParallelContent && !isGenerationGraftBridge && (
                 <h2 className={cn('select-none font-semibold text-text-primary', fontSize)}>
                   {name}
                 </h2>
               )}
               <div className="flex flex-col gap-1">
                 <div className="flex min-h-[20px] max-w-full flex-grow flex-col gap-0">
-                  <ContentParts
-                    edit={edit}
-                    isLast={isLast}
-                    enterEdit={enterEdit}
-                    siblingIdx={siblingIdx}
-                    attachments={attachments}
-                    messageMetadata={message.metadata}
-                    isSubmitting={isSubmitting}
-                    searchResults={searchResults}
-                    messageId={message.messageId}
-                    setSiblingIdx={setSiblingIdx}
-                    isCreatedByUser={message.isCreatedByUser}
-                    conversationId={conversation?.conversationId}
-                    isLatestMessage={messageId === latestMessageId}
-                    content={message.content as Array<TMessageContentParts | undefined>}
-                  />
+                  {isGenerationGraftBridge ? (
+                    <GraftBridgeCard message={message} />
+                  ) : (
+                    <ContentParts
+                      edit={edit}
+                      isLast={isLast}
+                      enterEdit={enterEdit}
+                      siblingIdx={siblingIdx}
+                      attachments={attachments}
+                      messageMetadata={message.metadata}
+                      isSubmitting={isSubmitting}
+                      searchResults={searchResults}
+                      messageId={message.messageId}
+                      setSiblingIdx={setSiblingIdx}
+                      isCreatedByUser={message.isCreatedByUser}
+                      conversationId={conversation?.conversationId}
+                      isLatestMessage={messageId === latestMessageId}
+                      content={message.content as Array<TMessageContentParts | undefined>}
+                    />
+                  )}
                   {isLast &&
                     isSubmitting &&
                     !message.text &&
@@ -172,19 +180,21 @@ export default function Message(props: TMessageProps) {
                       siblingCount={siblingCount}
                       setSiblingIdx={setSiblingIdx}
                     />
-                    <HoverButtons
-                      index={index}
-                      isEditing={edit}
-                      message={message}
-                      enterEdit={enterEdit}
-                      isSubmitting={isSubmitting}
-                      conversation={conversation ?? null}
-                      regenerate={() => regenerateMessage()}
-                      copyToClipboard={copyToClipboard}
-                      handleContinue={handleContinue}
-                      latestMessageId={latestMessageId}
-                      isLast={isLast}
-                    />
+                    {!isGenerationGraftBridge ? (
+                      <HoverButtons
+                        index={index}
+                        isEditing={edit}
+                        message={message}
+                        enterEdit={enterEdit}
+                        isSubmitting={isSubmitting}
+                        conversation={conversation ?? null}
+                        regenerate={() => regenerateMessage()}
+                        copyToClipboard={copyToClipboard}
+                        handleContinue={handleContinue}
+                        latestMessageId={latestMessageId}
+                        isLast={isLast}
+                      />
+                    ) : null}
                   </SubRow>
                 )}
               </div>

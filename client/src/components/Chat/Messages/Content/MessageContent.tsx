@@ -16,6 +16,9 @@ import { injectGroundingCitations } from '~/utils/googleGrounding';
 import { shouldHideOllamaReasoning } from '~/utils/ollamaReasoning';
 import { cn } from '~/utils';
 import store from '~/store';
+import GraftBridgeCard, {
+  getGenerationGraftMetadata,
+} from '~/components/Chat/Tree/GraftBridgeCard';
 
 const ERROR_CONNECTION_TEXT = 'Error connecting to server, try refreshing the page.';
 const DELAYED_ERROR_TIMEOUT = 5500;
@@ -151,6 +154,7 @@ const MessageContent = ({
 }) => {
   const { message } = props;
   const { messageId } = message;
+  const generationGraft = getGenerationGraftMetadata(message);
   const messagesViewContext = useContext(MessagesViewContext);
   const hideOllamaReasoning = shouldHideOllamaReasoning(messagesViewContext?.conversation);
 
@@ -172,6 +176,10 @@ const MessageContent = ({
       ) : null,
     [isSubmitting, unfinished, message],
   );
+
+  if (generationGraft != null) {
+    return <GraftBridgeCard message={message} />;
+  }
 
   if (error) {
     return <ErrorMessage message={message} text={text} />;

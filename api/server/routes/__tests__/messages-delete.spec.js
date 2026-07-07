@@ -13,6 +13,7 @@ jest.mock(
   () => ({
     unescapeLaTeX: jest.fn((x) => x),
     countTokens: jest.fn().mockResolvedValue(10),
+    limiterCache: jest.fn(() => undefined),
   }),
   { virtual: true },
 );
@@ -46,11 +47,25 @@ jest.mock('~/server/services/Artifacts/update', () => ({
   replaceArtifactContent: jest.fn(),
 }));
 
+jest.mock('~/cache/logViolation', () => jest.fn().mockResolvedValue(undefined));
+
 jest.mock('~/server/middleware/requireJwtAuth', () => (req, res, next) => next());
 
-jest.mock('~/server/middleware', () => ({
-  requireJwtAuth: (req, res, next) => next(),
-  validateMessageReq: (req, res, next) => next(),
+jest.mock('~/server/middleware', () => {
+  const { createGraftLimiters } = jest.requireActual('~/server/middleware/limiters/graftLimiters');
+
+  return {
+    requireJwtAuth: (req, res, next) => next(),
+    validateMessageReq: (req, res, next) => next(),
+    createGraftLimiters,
+  };
+});
+
+jest.mock('~/server/services/MessageGrafts', () => ({
+  previewGenerationGraft: jest.fn(),
+  createGenerationGraft: jest.fn(),
+  getGenerationGraft: jest.fn(),
+  undoGenerationGraft: jest.fn(),
 }));
 
 jest.mock('~/models/Conversation', () => ({
@@ -236,7 +251,7 @@ describe('POST /:conversationId/usage – route handler', () => {
     });
   });
 
-  it('aggregates recorded input, output, cache, and tool usage for visible messages', async () => {
+  it('aggregates recorded usage and marks tool-bearing token cost as partial', async () => {
     Message.find.mockReturnValue({
       sort: jest.fn().mockReturnValue({
         lean: jest.fn().mockResolvedValue([
@@ -251,7 +266,7 @@ describe('POST /:conversationId/usage – route handler', () => {
             conversationId: 'convo-usage',
             isCreatedByUser: false,
             tokenCount: 20,
-            model: 'gpt-5.6-sol',
+            model: 'gpt-5.5',
             content: [{ type: 'tool_call', tool_call_id: 'call-1' }],
           },
         ]),
@@ -264,8 +279,22 @@ describe('POST /:conversationId/usage – route handler', () => {
         inputTokens: -100,
         readTokens: -40,
         writeTokens: -5,
+        tokenValue: -500,
+        pricingSource: 'catalog',
       },
-      { messageId: 'assistant-1', tokenType: 'completion', rawAmount: -25 },
+      {
+        messageId: 'assistant-1',
+        tokenType: 'completion',
+        rawAmount: -25,
+        tokenValue: -750,
+        pricingSource: 'catalog',
+      },
+      {
+        messageId: 'assistant-1',
+        tokenType: 'credits',
+        rawAmount: 1000000,
+        tokenValue: 1000000,
+      },
     ]);
 
     const response = await request(app)
@@ -284,11 +313,195 @@ describe('POST /:conversationId/usage – route handler', () => {
       cacheReadTokens: 40,
       cacheWriteTokens: 5,
       toolCalls: 1,
+      costUsd: 0.00125,
+      costComplete: false,
+      pricedTurns: 1,
+      unpricedTurns: 0,
     });
+    expect(response.body.currency).toBe('USD');
+    expect(response.body.costBasis).toBe('recorded_transactions');
+    expect(response.body.costScope).toBe('token_transactions_only');
     expect(response.body.turns[0]).toEqual(
       expect.objectContaining({
         messageId: 'assistant-1',
+        model: 'gpt-5.5',
+        estimated: false,
+        costUsd: 0.00125,
+        costComplete: false,
+      }),
+    );
+  });
+
+  it('does not present generic fallback pricing as official cost', async () => {
+    Message.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          {
+            messageId: 'assistant-fallback',
+            conversationId: 'convo-usage',
+            isCreatedByUser: false,
+            tokenCount: 20,
+            model: 'gpt-5.6-sol',
+          },
+        ]),
+      }),
+    });
+    getTransactions.mockResolvedValue([
+      {
+        messageId: 'assistant-fallback',
+        tokenType: 'prompt',
+        rawAmount: -100,
+        tokenValue: -600,
+        pricingSource: 'fallback',
+      },
+      {
+        messageId: 'assistant-fallback',
+        tokenType: 'completion',
+        rawAmount: -25,
+        tokenValue: -450,
+        pricingSource: 'fallback',
+      },
+    ]);
+
+    const response = await request(app)
+      .post('/api/messages/convo-usage/usage')
+      .send({ messageIds: ['assistant-fallback'] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.turns[0]).toEqual(
+      expect.objectContaining({
+        messageId: 'assistant-fallback',
         model: 'gpt-5.6-sol',
+        estimated: false,
+        costUsd: null,
+        costComplete: false,
+      }),
+    );
+    expect(response.body.totals).toEqual(
+      expect.objectContaining({
+        costUsd: null,
+        costComplete: false,
+        pricedTurns: 0,
+        unpricedTurns: 1,
+      }),
+    );
+  });
+
+  it('uses the recorded rate fallback and marks incomplete pricing without reporting zero cost', async () => {
+    Message.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          {
+            messageId: 'assistant-priced',
+            conversationId: 'convo-usage',
+            isCreatedByUser: false,
+            tokenCount: 20,
+          },
+          {
+            messageId: 'assistant-unpriced',
+            conversationId: 'convo-usage',
+            isCreatedByUser: false,
+            tokenCount: 15,
+          },
+        ]),
+      }),
+    });
+    getTransactions.mockResolvedValue([
+      {
+        messageId: 'assistant-priced',
+        tokenType: 'prompt',
+        rawAmount: -100,
+        rate: 2,
+      },
+      {
+        messageId: 'assistant-priced',
+        tokenType: 'completion',
+        rawAmount: -25,
+      },
+    ]);
+
+    const response = await request(app)
+      .post('/api/messages/convo-usage/usage')
+      .send({ messageIds: ['assistant-priced', 'assistant-unpriced'] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.turns).toEqual([
+      expect.objectContaining({
+        messageId: 'assistant-priced',
+        costUsd: 0.0002,
+        costComplete: false,
+      }),
+      expect.objectContaining({
+        messageId: 'assistant-unpriced',
+        costUsd: null,
+        costComplete: false,
+      }),
+    ]);
+    expect(response.body.totals).toEqual(
+      expect.objectContaining({
+        costUsd: 0.0002,
+        costComplete: false,
+        pricedTurns: 1,
+        unpricedTurns: 1,
+      }),
+    );
+  });
+
+  it('resolves grafted copies to the original transaction source without cloning debits', async () => {
+    Message.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          {
+            messageId: 'assistant-copy',
+            conversationId: 'convo-usage',
+            isCreatedByUser: false,
+            tokenCount: 20,
+            metadata: {
+              generationGraftCopy: {
+                kind: 'generation_graft_copy',
+                graftId: 'graft-1',
+                clonedFromMessageId: 'assistant-source-copy',
+                usageSourceMessageId: 'assistant-source-original',
+              },
+            },
+          },
+        ]),
+      }),
+    });
+    getTransactions.mockResolvedValue([
+      {
+        messageId: 'assistant-source-original',
+        tokenType: 'prompt',
+        rawAmount: -100,
+        tokenValue: -200,
+        pricingSource: 'catalog',
+      },
+      {
+        messageId: 'assistant-source-original',
+        tokenType: 'completion',
+        rawAmount: -25,
+        tokenValue: -750,
+        pricingSource: 'catalog',
+      },
+    ]);
+
+    const response = await request(app)
+      .post('/api/messages/convo-usage/usage')
+      .send({ messageIds: ['assistant-copy'] });
+
+    expect(response.status).toBe(200);
+    expect(getTransactions).toHaveBeenCalledWith({
+      conversationId: 'convo-usage',
+      user: 'usage-user-123',
+      messageId: { $in: ['assistant-source-original'] },
+    });
+    expect(response.body.turns[0]).toEqual(
+      expect.objectContaining({
+        messageId: 'assistant-copy',
+        inputTokens: 100,
+        outputTokens: 25,
+        costUsd: 0.00095,
+        costComplete: true,
         estimated: false,
       }),
     );
@@ -336,9 +549,7 @@ describe('POST /:conversationId/usage – route handler', () => {
     expect(response.body.turns[0].toolCalls).toBe(3);
     expect(response.body.totals.toolCalls).toBe(3);
   });
-
 });
-
 
 describe('DELETE /:conversationId/:messageId/branch – route handler', () => {
   let app;

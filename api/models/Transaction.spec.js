@@ -2,7 +2,14 @@ const mongoose = require('mongoose');
 const { recordCollectedUsage } = require('@librechat/api');
 const { createMethods } = require('@librechat/data-schemas');
 const { MongoMemoryServer } = require('mongodb-memory-server');
-const { getMultiplier, getCacheMultiplier, premiumTokenValues, tokenValues } = require('./tx');
+const {
+  getMultiplier,
+  getCacheMultiplier,
+  getRateInfo,
+  getCacheRateInfo,
+  premiumTokenValues,
+  tokenValues,
+} = require('./tx');
 const { createTransaction, createStructuredTransaction } = require('./Transaction');
 const { spendTokens, spendStructuredTokens } = require('./spendTokens');
 const { Balance, Transaction } = require('~/db/models');
@@ -825,6 +832,159 @@ describe('Premium Token Pricing Integration Tests', () => {
     expect(updatedBalance.tokenCredits).toBeCloseTo(initialBalance - expectedTotalCost, 0);
   });
 
+  test('spendStructuredTokens should apply long-context cache pricing for gpt-5.5 above 272K input', async () => {
+    const userId = new mongoose.Types.ObjectId();
+    const initialBalance = 100000000;
+    await Balance.create({ user: userId, tokenCredits: initialBalance });
+
+    const model = 'gpt-5.5';
+    const txData = {
+      user: userId,
+      conversationId: 'test-gpt55-long-context',
+      model,
+      context: 'message',
+      endpointTokenConfig: null,
+      balance: { enabled: true },
+    };
+
+    const tokenUsage = {
+      promptTokens: {
+        input: 200000,
+        write: 50000,
+        read: 30000,
+      },
+      completionTokens: 1000,
+    };
+
+    const totalInput =
+      tokenUsage.promptTokens.input + tokenUsage.promptTokens.write + tokenUsage.promptTokens.read;
+
+    await spendStructuredTokens(txData, tokenUsage);
+
+    const promptMultiplier = getMultiplier({
+      model,
+      tokenType: 'prompt',
+      inputTokenCount: totalInput,
+    });
+    const completionMultiplier = getMultiplier({
+      model,
+      tokenType: 'completion',
+      inputTokenCount: totalInput,
+    });
+    const writeMultiplier = getCacheMultiplier({
+      model,
+      cacheType: 'write',
+      inputTokenCount: totalInput,
+    });
+    const readMultiplier = getCacheMultiplier({
+      model,
+      cacheType: 'read',
+      inputTokenCount: totalInput,
+    });
+
+    const expectedPromptCost =
+      tokenUsage.promptTokens.input * promptMultiplier +
+      tokenUsage.promptTokens.write * writeMultiplier +
+      tokenUsage.promptTokens.read * readMultiplier;
+    const expectedCompletionCost = tokenUsage.completionTokens * completionMultiplier;
+    const expectedTotalCost = expectedPromptCost + expectedCompletionCost;
+
+    const updatedBalance = await Balance.findOne({ user: userId });
+    const promptTx = await Transaction.findOne({ user: userId, tokenType: 'prompt' }).lean();
+
+    expect(totalInput).toBeGreaterThan(premiumTokenValues[model].threshold);
+    expect(promptTx.rateDetail).toEqual({
+      input: promptMultiplier,
+      write: writeMultiplier,
+      read: readMultiplier,
+    });
+    expect(updatedBalance.tokenCredits).toBeCloseTo(initialBalance - expectedTotalCost, 0);
+  });
+
+  test('structured prompt pricingSource stays catalog when only input tokens are used', async () => {
+    const userId = new mongoose.Types.ObjectId();
+    await Balance.create({ user: userId, tokenCredits: 100000000 });
+
+    await spendStructuredTokens(
+      {
+        user: userId,
+        conversationId: 'test-structured-input-only',
+        model: 'gpt-4',
+        context: 'message',
+        endpointTokenConfig: null,
+        balance: { enabled: true },
+      },
+      {
+        promptTokens: { input: 1000, write: 0, read: 0 },
+        completionTokens: 0,
+      },
+    );
+
+    const promptTx = await Transaction.findOne({ user: userId, tokenType: 'prompt' }).lean();
+    expect(promptTx.pricingSource).toBe('catalog');
+    expect(promptTx.pricingSourceDetail).toEqual({
+      input: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
+    });
+  });
+
+  test('structured prompt pricingSource marks inherited cache rates as fallback when used', async () => {
+    const userId = new mongoose.Types.ObjectId();
+    await Balance.create({ user: userId, tokenCredits: 100000000 });
+
+    await spendStructuredTokens(
+      {
+        user: userId,
+        conversationId: 'test-structured-inherited-cache-rate',
+        model: 'gpt-4',
+        context: 'message',
+        endpointTokenConfig: null,
+        balance: { enabled: true },
+      },
+      {
+        promptTokens: { input: 1000, write: 50, read: 25 },
+        completionTokens: 0,
+      },
+    );
+
+    const promptTx = await Transaction.findOne({ user: userId, tokenType: 'prompt' }).lean();
+    expect(promptTx.pricingSource).toBe('fallback');
+    expect(promptTx.pricingSourceDetail).toEqual({
+      input: 'catalog',
+      write: 'fallback',
+      read: 'fallback',
+    });
+  });
+
+  test('unknown gpt-5.6 models persist fallback pricingSource metadata', async () => {
+    const userId = new mongoose.Types.ObjectId();
+    await Balance.create({ user: userId, tokenCredits: 100000000 });
+
+    await spendTokens(
+      {
+        user: userId,
+        conversationId: 'test-gpt56-fallback',
+        model: 'gpt-5.6-terra',
+        context: 'message',
+        endpointTokenConfig: null,
+        balance: { enabled: true },
+      },
+      {
+        promptTokens: 100,
+        completionTokens: 50,
+      },
+    );
+
+    const txns = await Transaction.find({ user: userId }).sort({ tokenType: 1 }).lean();
+    expect(txns).toHaveLength(2);
+    expect(txns.every((txn) => txn.pricingSource === 'fallback')).toBe(true);
+    expect(txns.map((txn) => ({ tokenType: txn.tokenType, rate: txn.rate }))).toEqual([
+      { tokenType: 'completion', rate: 10 },
+      { tokenType: 'prompt', rate: 1.25 },
+    ]);
+  });
+
   test('spendTokens should apply standard pricing for gemini-3.1-pro-preview below threshold', async () => {
     const userId = new mongoose.Types.ObjectId();
     const initialBalance = 100000000;
@@ -1002,7 +1162,7 @@ describe('Bulk path parity', () => {
     bulkDeps = {
       spendTokens: () => Promise.resolve(),
       spendStructuredTokens: () => Promise.resolve(),
-      pricing: { getMultiplier, getCacheMultiplier },
+      pricing: { getMultiplier, getCacheMultiplier, getRateInfo, getCacheRateInfo },
       bulkWriteOps: {
         insertMany: methods.bulkInsertTransactions,
         updateBalance: methods.updateBalance,

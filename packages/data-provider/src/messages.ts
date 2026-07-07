@@ -12,14 +12,28 @@ export type TConversationUsageTurn = {
   cacheWriteTokens: number;
   toolCalls: number;
   estimated: boolean;
+  costUsd: number | null;
+  costComplete: boolean;
+};
+
+export type TConversationUsageTotals = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  toolCalls: number;
+  costUsd: number | null;
+  costComplete: boolean;
+  pricedTurns: number;
+  unpricedTurns: number;
 };
 
 export type TConversationUsage = {
   conversationId: string;
-  totals: Omit<
-    TConversationUsageTurn,
-    'messageId' | 'createdAt' | 'model' | 'endpoint' | 'estimated'
-  >;
+  currency: 'USD';
+  costBasis: 'recorded_transactions';
+  costScope?: 'token_transactions_only';
+  totals: TConversationUsageTotals;
   turns: TConversationUsageTurn[];
 };
 

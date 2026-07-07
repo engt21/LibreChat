@@ -1,5 +1,6 @@
 const createTTSLimiters = require('./ttsLimiters');
 const createSTTLimiters = require('./sttLimiters');
+const { createGraftLimiters } = require('./graftLimiters');
 
 const loginLimiter = require('./loginLimiter');
 const loginAccountLimiter = require('./loginAccountLimiter');
@@ -25,6 +26,7 @@ module.exports = {
   toolCallLimiter,
   createTTSLimiters,
   createSTTLimiters,
+  createGraftLimiters,
   verifyEmailLimiter,
   resetPasswordLimiter,
 };
