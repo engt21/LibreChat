@@ -127,7 +127,7 @@ the broader verifier.
 | Dependencies/Dockerfile                | Cached image rebuild from current complete source; both auth verifiers in builder and live runtime |
 | Builder cloned from production         | Synchronize complete affected source subtrees before any package build                             |
 
-Before choosing any build, run `deploy-runtime-delta.sh --dry-run`. Auth controller/runtime JS changes do not require a package or Docker build. When a complete `packages/api` dist is required, production artifacts should normally be built with `LIBRECHAT_ROLLUP_SOURCEMAP=false` and `run-node-capped.sh --memory-max 12G --heap-mb 8192`; the current bundle can exceed a 4 GB heap even without source maps. External source maps are debugging artifacts and are not required by the deployed runtime. After a verified stable runtime delta, `librechat-local:runtime-current` becomes the durable recreation image, preventing a later compose recreate from reverting to stale auth/package code.
+Before choosing any build, run `deploy-runtime-delta.sh --dry-run`. Auth controller/runtime JS changes do not require a package or Docker build. When a complete `packages/api` dist is required, production artifacts should normally be built with `LIBRECHAT_ROLLUP_SOURCEMAP=false` and `run-node-capped.sh --memory-max 12G --heap-mb 8192`; the current bundle can exceed a 4 GB heap even without source maps. External source maps are debugging artifacts and are not required by the deployed runtime. After a verified stable runtime delta or complete frontend promotion, `librechat-local:runtime-current` becomes the durable recreation image, preventing a later compose recreate from reverting to stale auth, package, or client code.
 
 ## Forbidden shortcuts
 

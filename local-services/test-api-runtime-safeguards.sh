@@ -81,6 +81,15 @@ for guarded_script in \
   }
 done
 
+grep -q 'docker commit --pause=false' "$ROOT_DIR/local-services/deploy-built-client-dist.sh" || {
+  echo "ERROR: stable frontend promotion does not persist the verified runtime image" >&2
+  exit 1
+}
+grep -q 'LIBRECHAT_API_IMAGE=' "$ROOT_DIR/local-services/deploy-built-client-dist.sh" || {
+  echo "ERROR: stable frontend promotion does not persist the recreation image tag" >&2
+  exit 1
+}
+
 grep -q "envPath = '/app/.env'" "$ROOT_DIR/local-services/verify-auth-memory-runtime-contracts.sh" || {
   echo "ERROR: auth verifier does not compare running secrets with persistent /app/.env" >&2
   exit 1

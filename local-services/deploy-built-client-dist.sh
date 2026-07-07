@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_DIST_DIR="$ROOT_DIR/client/dist"
 MANIFEST_FILENAME=".librechat-client-dist-manifest.json"
 DEPLOYMENT_POLICY="complete-built-client-dist-v1"
+stable_runtime_image="${LIBRECHAT_STABLE_RUNTIME_IMAGE:-librechat-local:runtime-current}"
 
 usage() {
   cat <<'USAGE'
@@ -28,6 +29,10 @@ Required build workflow before deployment:
 
 Stable example after explicit user approval:
   LIBRECHAT_STABLE_CLIENT_APPROVAL=YES ./local-services/deploy-built-client-dist.sh stable --approve-stable
+
+A verified stable promotion snapshots the running filesystem into
+librechat-local:runtime-current so a later container recreation keeps the
+deployed frontend without a full image rebuild.
 USAGE
 }
 
@@ -323,6 +328,13 @@ if [[ "$rail" == "stable" ]]; then
   "$ROOT_DIR/local-services/verify-api-runtime-contract.sh" --container "$container"
   echo "Re-validating API memory headroom after stable frontend promotion..."
   "$ROOT_DIR/local-services/verify-api-memory-headroom.sh" --container "$container"
+  echo "Snapshotting verified frontend runtime image for rebuild-free container recreation..."
+  docker commit --pause=false "$container" "$stable_runtime_image" >/dev/null
+  if grep -q '^LIBRECHAT_API_IMAGE=' "$ROOT_DIR/.env"; then
+    sed -i "s|^LIBRECHAT_API_IMAGE=.*|LIBRECHAT_API_IMAGE=$stable_runtime_image|" "$ROOT_DIR/.env"
+  else
+    printf '%s\n' "LIBRECHAT_API_IMAGE=$stable_runtime_image" >> "$ROOT_DIR/.env"
+  fi
 fi
 
 if [[ "$rail" == "stable" ]]; then

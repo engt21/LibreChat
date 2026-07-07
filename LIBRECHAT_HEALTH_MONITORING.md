@@ -260,7 +260,7 @@ It writes the pointer:
 
 ### Frontend deployment
 
-Before a full client dist swap, `deploy-built-client-dist.sh` stores the complete previous `client/dist` tree and records it as last stable. Individual hashed assets are never restored separately.
+Before a full client dist swap, `deploy-built-client-dist.sh` stores the complete previous `client/dist` tree and records it as last stable. Individual hashed assets are never restored separately. After the replacement passes HTTP, auth, runtime, reasoning, and memory-headroom checks, the helper snapshots the verified container to `librechat-local:runtime-current` and persists that recreation image in `.env`.
 
 ### Automatic use
 
@@ -429,7 +429,7 @@ Durable rules:
   `run-benchmark-production-priority.sh`; the supervisor must pause the complete benchmark unit as
   soon as LibreChat or MongoDB loses its healthy streak.
 - Never treat a mutable image tag alone as rollback proof. `librechat-local:runtime-current` is created only
-  after a verified runtime delta, while the fallback marker records the immutable image ID produced from
+  after a verified runtime delta or complete frontend promotion, while the fallback marker records the immutable image ID produced from
   the exact healthy predeployment container. Invalidate known-bad rollback pointers.
 - Keep Langfuse, ClickHouse, MinIO, and metrics in lower-priority bounded resource classes so tracing
   cannot starve the production API or MongoDB.
