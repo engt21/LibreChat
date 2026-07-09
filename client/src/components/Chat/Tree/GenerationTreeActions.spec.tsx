@@ -15,7 +15,11 @@ jest.mock('~/hooks/useLocalize', () => ({
   default: () => (key: string) =>
     ({
       com_ui_view_in_conversation_tree: 'View in conversation tree',
-      com_ui_graft_generation: 'Graft generation',
+      com_ui_view_in_conversation_tree_description:
+        'Open the full conversation tree and focus this response.',
+      com_ui_graft_generation: 'Append response or branch',
+      com_ui_graft_generation_description:
+        'Copy this response or its later branch and append it after another response.',
     })[key] ?? key,
 }));
 
@@ -36,7 +40,7 @@ describe('GenerationTreeActions', () => {
     await user.click(screen.getByRole('button', { name: 'View in conversation tree' }));
     expect(mockOpenTree).toHaveBeenNthCalledWith(1, { focusMessageId: 'assistant-1' });
 
-    await user.click(screen.getByRole('button', { name: 'Graft generation' }));
+    await user.click(screen.getByRole('button', { name: 'Append response or branch' }));
     expect(mockOpenTree).toHaveBeenNthCalledWith(2, {
       focusMessageId: 'assistant-1',
       sourceMessageId: 'assistant-1',
@@ -54,7 +58,9 @@ describe('GenerationTreeActions', () => {
 
     rerender(<GenerationTreeActions message={{ isCreatedByUser: false }} />);
 
-    expect(screen.queryByRole('button', { name: 'Graft generation' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Append response or branch' }),
+    ).not.toBeInTheDocument();
   });
 
   it('keeps actions available for partial and errored assistant messages', () => {
@@ -70,7 +76,7 @@ describe('GenerationTreeActions', () => {
     );
 
     expect(screen.getByRole('button', { name: 'View in conversation tree' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Graft generation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Append response or branch' })).toBeInTheDocument();
   });
 
   it('keeps final-message actions visible without hover-only opacity classes', () => {
@@ -84,7 +90,7 @@ describe('GenerationTreeActions', () => {
     expect(screen.getByRole('button', { name: 'View in conversation tree' })).not.toHaveClass(
       'md:opacity-0',
     );
-    expect(screen.getByRole('button', { name: 'Graft generation' })).not.toHaveClass(
+    expect(screen.getByRole('button', { name: 'Append response or branch' })).not.toHaveClass(
       'md:opacity-0',
     );
   });

@@ -15,7 +15,7 @@ function isLocalPasswordUser(user) {
 }
 
 function requiresMFAEnrollment(user, now = new Date()) {
-  if (!isLocalPasswordUser(user) || user.twoFactorEnabled) {
+  if (!isLocalPasswordUser(user) || user.twoFactorEnabled || user.mfaEnrollmentExempt === true) {
     return false;
   }
 

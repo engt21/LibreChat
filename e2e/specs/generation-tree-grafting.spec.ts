@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { expect, test as base, type Page, type Response } from '@playwright/test';
 import {
   COMPLETE_GRAFT_BRIDGE_TEXT,
@@ -14,6 +15,10 @@ import {
   type SeededMessageInput,
 } from '../helpers/generationTreeGrafting';
 
+const storageStatePath = path.resolve(
+  process.env.E2E_STORAGE_STATE ?? path.join(process.cwd(), 'e2e/storageState.json'),
+);
+
 const test = base.extend<{ grafting: GenerationTreeGraftingApi }>({
   grafting: async ({ page }, use) => {
     const grafting = new GenerationTreeGraftingApi(page);
@@ -21,7 +26,14 @@ const test = base.extend<{ grafting: GenerationTreeGraftingApi }>({
     try {
       await use(grafting);
     } finally {
-      await grafting.cleanupTrackedConversations();
+      try {
+        await grafting.cleanupTrackedConversations();
+      } finally {
+        const cookies = await page.context().cookies();
+        if (cookies.some((cookie) => cookie.name === 'refreshToken')) {
+          await page.context().storageState({ path: storageStatePath });
+        }
+      }
     }
   },
 });
@@ -224,7 +236,17 @@ async function waitForCreateResponse(
   );
 
   await trigger();
-  return parseJson<TGenerationGraftCreateResponse>(await responsePromise);
+  const response = await responsePromise;
+  const body = await parseJson<TGenerationGraftCreateResponse & { message?: string }>(response);
+  if (response.status() !== 201) {
+    throw new Error(
+      `Expected graft creation to return 201. Received ${response.status()}: ${
+        body.message ?? JSON.stringify(body)
+      }`,
+    );
+  }
+
+  return body;
 }
 
 async function previewByDrag(
@@ -240,6 +262,7 @@ async function previewByDrag(
 }
 
 async function previewByKeyboard(page: Page) {
+  await page.getByRole('button', { name: 'Browse list' }).click();
   const source = page.getByRole('treeitem', { name: /generation 2/i });
   const destination = page.getByRole('treeitem', { name: /generation 1/i });
 
@@ -248,6 +271,18 @@ async function previewByKeyboard(page: Page) {
   await destination.click();
   await destination.press('Enter');
   await expect(page.getByTestId('generation-tree-list-status')).toContainText('Preview requested');
+}
+
+async function previewByGuidedTap(
+  page: Page,
+  sourceMessageId: string,
+  destinationMessageId: string,
+) {
+  await page.getByTestId(`tree-node-${sourceMessageId}`).click();
+  await page.getByRole('button', { name: 'Use as source' }).click();
+  await page.getByTestId(`tree-node-${destinationMessageId}`).click();
+  await page.getByRole('button', { name: 'Append here' }).click();
+  await expect(page.getByTestId('generation-tree-mobile-sheet')).toBeVisible();
 }
 
 async function assertLifecyclePreview(
@@ -275,10 +310,22 @@ async function assertLifecyclePreview(
   await expect(inspector).not.toContainText(PARTIAL_GRAFT_WARNING_TEXT);
 }
 
-async function createFromInspector(page: Page, conversationId: string) {
+async function createFromInspector(
+  page: Page,
+  conversationId: string,
+  mode: GraftMode = 'generation',
+) {
+  const modeLabel = mode === 'subtree' ? 'Whole branch from here' : 'Only this response';
+  await page.getByLabel(modeLabel, { exact: false }).check();
+
+  const appendButton = page.getByRole('button', { name: 'Append branch' });
+  if (await appendButton.isDisabled()) {
+    await page.getByRole('button', { name: 'Preview append' }).click();
+    await expect(appendButton).toBeEnabled();
+  }
+
   return waitForCreateResponse(page, conversationId, async () => {
-    await page.getByLabel('Generation only').check();
-    await page.getByRole('button', { name: 'Create graft' }).click();
+    await appendButton.click();
   });
 }
 
@@ -304,6 +351,40 @@ async function expectTranscriptGraftCard(page: Page, copiedText: string, copiedC
   await expect(page.getByText(copiedCountText)).toBeVisible();
   await expect(page.getByText(COMPLETE_GRAFT_BRIDGE_TEXT)).toHaveCount(0);
 }
+
+async function openHelpAndStartGuidedAppend(page: Page) {
+  await page.getByRole('button', { name: 'How to append' }).first().click();
+
+  const help = page.getByTestId('generation-tree-help');
+  await expect(help).toBeVisible();
+  await expect(
+    help.getByRole('heading', {
+      name: 'Example: append the full 2 of 2 branch after the 1 of 2 branch',
+    }),
+  ).toBeVisible();
+  await expect(help).toContainText(
+    'Tap the first Generation 2 of 2 response and select Whole branch from here.',
+  );
+  await expect(help).toContainText(
+    'Tap the final response at the end of the complete Generation 1 of 2 branch.',
+  );
+
+  await help.getByRole('button', { name: 'Start guided append' }).click();
+  await expect(help).toHaveCount(0);
+}
+
+test('help explains the full 2 of 2 after 1 of 2 workflow and starts guided append', async ({
+  page,
+  grafting,
+}) => {
+  const scenario = await seedScenario(grafting, { includeSubtree: true });
+
+  await gotoConversation(page, scenario.conversationId, scenario.latestVisibleText);
+  await openConversationTree(page);
+  await openHelpAndStartGuidedAppend(page);
+
+  await expect(page.getByLabel('Whole branch from here', { exact: false })).toBeChecked();
+});
 
 test('desktop drag and drop creates a generation-only graft and renders provenance instead of raw bridge text', async ({
   page,
@@ -383,6 +464,7 @@ test('guarded undo deletes copied continuations but preserves the original sourc
   );
 
   await page.reload();
+  await page.getByRole('button', { name: 'Previous sibling message' }).click();
   await expect(page.getByRole('heading', { name: 'Grafted generation' })).toBeVisible();
 
   const detailsPromise = page.waitForResponse((response) =>
@@ -509,11 +591,7 @@ test('subtree graft copies the descendant branch and keeps the copied leaf as th
   });
 
   await openAndPreviewDesktop(page, scenario);
-  await page.getByLabel('Generation and subtree').check();
-
-  const createResponse = await waitForCreateResponse(page, scenario.conversationId, async () => {
-    await page.getByRole('button', { name: 'Create graft' }).click();
-  });
+  const createResponse = await createFromInspector(page, scenario.conversationId, 'subtree');
 
   expect(createResponse.copiedMessageCount).toBe(3);
   expect(createResponse.activeCopiedMessageId).not.toBe(createResponse.copiedRootMessageId);
@@ -564,16 +642,16 @@ test.describe('mobile', () => {
     isMobile: true,
   });
 
-  test('mobile touch path opens the inspector sheet, creates a graft, and supports undo', async ({
-    page,
-    grafting,
-  }) => {
-    const scenario = await seedScenario(grafting);
+  test('mobile guided taps append a whole branch and support undo', async ({ page, grafting }) => {
+    const scenario = await seedScenario(grafting, { includeSubtree: true });
 
-    await openAndPreviewDesktop(page, scenario, 'touch');
-    await expect(page.getByTestId('generation-tree-mobile-sheet')).toBeVisible();
+    await gotoConversation(page, scenario.conversationId, scenario.latestVisibleText);
+    await openConversationTree(page);
+    await openHelpAndStartGuidedAppend(page);
+    await previewByGuidedTap(page, scenario.source.messageId, scenario.destination.messageId);
 
-    const createResponse = await createFromInspector(page, scenario.conversationId);
+    const createResponse = await createFromInspector(page, scenario.conversationId, 'subtree');
+    expect(createResponse.copiedMessageCount).toBeGreaterThan(1);
     await closeConversationTree(page);
     await expectTranscriptGraftCard(
       page,

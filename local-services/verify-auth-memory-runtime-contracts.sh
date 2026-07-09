@@ -65,7 +65,35 @@ const requirements = [
   },
   {
     file: 'api/server/controllers/auth/LoginController.js',
-    patterns: [/setMFAPendingCookie/, /mfa_pending/, /cookiePaths = \['\/'/, /clearCookie/],
+    patterns: [
+      /setMFAPendingCookie/,
+      /mfa_pending/,
+      /cookiePaths = \['\/'/,
+      /clearCookie/,
+      /mfaEnrollmentExempt:\s*_m/,
+    ],
+  },
+  {
+    file: 'api/server/services/mfaPolicy.js',
+    patterns: [/mfaEnrollmentExempt === true/],
+  },
+  {
+    file: 'api/strategies/localStrategy.js',
+    patterns: [/\+password \+mfaEnrollmentExempt/],
+  },
+  {
+    file: 'packages/data-schemas/src/schema/user.ts',
+    patterns: [/mfaEnrollmentExempt/, /select:\s*false/],
+  },
+  {
+    file: 'local-services/dev-seed-validation-personas.js',
+    patterns: [
+      /playwright@test\.local/,
+      /mfaEnrollmentExempt:\s*true/,
+      /twoFactorEnabled:\s*false/,
+      /pendingTotpSecret:\s*''/,
+      /pendingBackupCodes:\s*''/,
+    ],
   },
   {
     file: 'api/server/controllers/auth/TwoFactorAuthController.js',
@@ -237,7 +265,18 @@ const runtimeRequirements = [
       /sessionId \? \{ sessionId \} : \{ refreshToken \}/,
     ],
   },
-  { file: '/app/api/server/controllers/auth/LoginController.js', patterns: [/mfa_pending/, /clearCookie/, /path:\s*'\/'/] },
+  {
+    file: '/app/api/server/controllers/auth/LoginController.js',
+    patterns: [/mfa_pending/, /clearCookie/, /path:\s*'\/'/, /mfaEnrollmentExempt:\s*_m/],
+  },
+  {
+    file: '/app/api/server/services/mfaPolicy.js',
+    patterns: [/mfaEnrollmentExempt === true/],
+  },
+  {
+    file: '/app/api/strategies/localStrategy.js',
+    patterns: [/\+password \+mfaEnrollmentExempt/],
+  },
   { file: '/app/api/server/controllers/auth/TwoFactorAuthController.js', patterns: [/mfa_pending/, /path:\s*'\/'/] },
   { file: '/app/api/server/middleware/checkBan.js', patterns: [/Role\.ADMIN|ADMIN/] },
   { file: '/app/api/cache/banViolation.js', patterns: [/Role\.ADMIN|ADMIN/] },
@@ -256,6 +295,7 @@ const runtimeRequirements = [
       /JWT_REFRESH_AUDIENCE/,
       /librechat-refresh/,
       /jwtId:\s*session\._id\.toString\(\)/,
+      /mfaEnrollmentExempt/,
     ],
   },
   { file: '/app/local-services/deploy-vm-auth-hardening.sh', forbidden: [/collection\(["']sessions["']\)\.deleteMany\(\{\}\)/] },

@@ -1,7 +1,13 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Constants, QueryKeys, isAssistantsEndpoint } from 'librechat-data-provider';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRecoilState, useRecoilValue, useResetRecoilState, useSetRecoilState } from 'recoil';
+import {
+  useRecoilCallback,
+  useRecoilState,
+  useRecoilValue,
+  useResetRecoilState,
+  useSetRecoilState,
+} from 'recoil';
 import type { TMessage } from 'librechat-data-provider';
 import {
   useGetStartupConfig,
@@ -10,6 +16,7 @@ import {
   type ActiveJobsResponse,
 } from '~/data-provider';
 import useChatFunctions from '~/hooks/Chat/useChatFunctions';
+import { getMessageBranchSelections } from '~/hooks/Messages/messageBranchSelection';
 import useNewConvo from '~/hooks/useNewConvo';
 import store from '~/store';
 
@@ -60,6 +67,32 @@ export default function useChatHelpers(index = 0, paramId?: string) {
   const getMessages = useCallback(() => {
     return queryClient.getQueryData<TMessage[]>([QueryKeys.messages, queryParam]);
   }, [queryParam, queryClient]);
+
+  const selectMessageBranch = useRecoilCallback(
+    ({ set }) =>
+      (targetMessageId: string, supplementalMessages: TMessage[] = []) => {
+        const currentMessages =
+          queryClient.getQueryData<TMessage[]>([QueryKeys.messages, queryParam]) ?? [];
+        const messagesById = new Map(
+          currentMessages.map((message) => [message.messageId, message]),
+        );
+
+        for (const message of supplementalMessages) {
+          messagesById.set(message.messageId, message);
+        }
+
+        const rootAtomKey =
+          conversationId && conversationId !== Constants.NEW_CONVO ? conversationId : queryParam;
+        for (const selection of getMessageBranchSelections(
+          Array.from(messagesById.values()),
+          targetMessageId,
+          rootAtomKey,
+        )) {
+          set(store.messagesSiblingIdxFamily(selection.atomKey), selection.siblingIndex);
+        }
+      },
+    [conversationId, queryClient, queryParam],
+  );
 
   /* Conversation */
   // const setActiveConvos = useSetRecoilState(store.activeConversations);
@@ -265,6 +298,7 @@ export default function useChatHelpers(index = 0, paramId?: string) {
       setIsSubmitting,
       getMessages,
       setMessages,
+      selectMessageBranch,
       setSiblingIdx,
       latestMessageId,
       latestMessageDepth,
@@ -300,6 +334,7 @@ export default function useChatHelpers(index = 0, paramId?: string) {
       setIsSubmitting,
       getMessages,
       setMessages,
+      selectMessageBranch,
       setSiblingIdx,
       latestMessageId,
       latestMessageDepth,

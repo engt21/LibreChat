@@ -14,6 +14,7 @@ function createGraph(): ConversationTreeGraph {
           role: 'user',
           lifecycle: 'complete',
           generationIndex: 0,
+          generationCount: 0,
           searchableText: 'root',
         },
       ],
@@ -27,6 +28,7 @@ function createGraph(): ConversationTreeGraph {
           role: 'assistant',
           lifecycle: 'complete',
           generationIndex: 1,
+          generationCount: 2,
           searchableText: 'child',
         },
       ],
@@ -40,6 +42,7 @@ function createGraph(): ConversationTreeGraph {
           role: 'assistant',
           lifecycle: 'complete',
           generationIndex: 2,
+          generationCount: 2,
           searchableText: 'orphan',
         },
       ],
@@ -79,6 +82,7 @@ describe('buildVisibleTreeItems', () => {
         role: 'assistant',
         lifecycle: 'complete',
         generationIndex: index + 3,
+        generationCount: 12,
         searchableText: id,
       });
       orderedIds.push(id);

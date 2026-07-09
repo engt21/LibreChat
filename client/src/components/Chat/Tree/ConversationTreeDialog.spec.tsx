@@ -13,18 +13,44 @@ jest.mock('~/hooks/useLocalize', () => ({
     ({
       com_sidepanel_conversation_tree: 'Conversation Tree',
       com_ui_conversation_tree_description:
-        'Browse conversation branches and choose a generation to graft.',
+        'Append one response or a whole branch after another response without changing the original.',
+      com_ui_generation_tree_help: 'How to append',
+      com_ui_generation_tree_guide_title: 'Append a branch',
+      com_ui_generation_tree_guide_description:
+        'Use normal taps to choose both ends. Dragging is optional.',
+      com_ui_generation_tree_focused_response: 'Focused response',
+      com_ui_generation_tree_tap_response_first: 'Tap an assistant response in the tree first.',
+      com_ui_generation_tree_source_step: 'Branch to copy',
+      com_ui_generation_tree_source_instruction:
+        'Tap the first response in the branch you want to copy.',
+      com_ui_generation_tree_destination_step: 'Append after',
+      com_ui_generation_tree_destination_instruction:
+        'Tap the final response in the branch that should come first.',
+      com_ui_generation_tree_use_focused_source: 'Use focused response as source',
+      com_ui_generation_tree_use_focused_destination: 'Append after focused response',
+      com_ui_generation_tree_change: 'Change',
+      com_ui_generation_tree_scope: 'What should be copied?',
+      com_ui_generation_tree_mode_generation_desc: 'Copies the selected assistant response only.',
+      com_ui_generation_tree_mode_subtree_desc:
+        'Copies this response and every later message below it.',
+      com_ui_generation_tree_recommended: 'Recommended for full threads',
+      com_ui_generation_tree_preview_append: 'Preview append',
+      com_ui_generation_tree_refresh_preview: 'Refresh preview',
+      com_ui_generation_tree_preview_details: 'Preview details',
       com_ui_generation_tree_source: 'Source',
       com_ui_generation_tree_destination: 'Destination',
       com_ui_generation_tree_generation_label: `Generation ${options?.index ?? ''}`.trim(),
+      com_ui_generation_tree_generation_position:
+        `Generation ${options?.index ?? ''} of ${options?.count ?? ''}`.trim(),
       com_ui_generation_tree_before_after: 'Branch preview',
       com_ui_generation_tree_preview_pending: 'Preview pending',
-      com_ui_generation_tree_create: 'Create graft',
-      com_ui_generation_tree_created_success: 'Generation graft created.',
+      com_ui_generation_tree_append: 'Append branch',
+      com_ui_generation_tree_created_success: 'Branch appended.',
       com_ui_generation_tree_undo: 'Undo',
-      com_ui_generation_tree_mode_generation: 'Generation only',
-      com_ui_generation_tree_mode_subtree: 'Generation and subtree',
-      com_ui_generation_tree_list: 'Tree list',
+      com_ui_generation_tree_mode_generation: 'Only this response',
+      com_ui_generation_tree_mode_subtree: 'Whole branch from here',
+      com_ui_generation_tree_list: 'Browse list',
+      com_ui_generation_tree_hide_list: 'Hide list',
       com_ui_generation_tree_status_preview: 'Preview requested',
       com_ui_generation_tree_state_complete: 'Complete',
       com_ui_generation_tree_counts_messages: 'Messages',
@@ -178,7 +204,7 @@ describe('ConversationTreeDialog', () => {
 
     const dialog = screen.getByRole('dialog');
     const description = screen.getByText(
-      'Browse conversation branches and choose a generation to graft.',
+      'Append one response or a whole branch after another response without changing the original.',
     );
 
     expect(dialog).toHaveAttribute('aria-describedby', description.getAttribute('id'));
@@ -343,8 +369,8 @@ describe('ConversationTreeDialog', () => {
 
     document.elementsFromPoint = originalElementsFromPoint;
 
-    expect(screen.getByRole('button', { name: 'Create graft' })).toBeDisabled();
-    expect(screen.getByText('Preview pending')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Append branch' })).toBeDisabled();
+    expect(screen.getByTestId('generation-tree-selection-guide')).toBeInTheDocument();
     expect(screen.queryByText('Assistant 1 → Assistant 2')).not.toBeInTheDocument();
   });
 });

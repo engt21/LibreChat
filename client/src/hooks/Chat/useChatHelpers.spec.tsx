@@ -56,6 +56,7 @@ let mockIsSubmitting = true;
 let mockShowStopButton = true;
 
 jest.mock('recoil', () => ({
+  useRecoilCallback: jest.fn((factory) => factory({ set: jest.fn() })),
   useRecoilState: jest.fn(),
   useRecoilValue: jest.fn(),
   useResetRecoilState: jest.fn(),

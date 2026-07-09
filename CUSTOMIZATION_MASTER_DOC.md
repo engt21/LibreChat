@@ -958,6 +958,7 @@ Frontend/shared:
 - preserve `deploy-runtime-delta.sh` as the supported fast path for backend/runtime-loaded code, config helpers, runtime bind files, and already-built `packages/*/dist/**` artifacts; it must keep refusing `client/src/**`, individual `client/dist/**`, `packages/*/src/**`, dependency, Dockerfile, and compose changes because those surfaces need built artifacts, image rebuilds, or container recreation
 - preserve `sync-from-stable.sh` behavior that skips Mongo restore/upload rsync when dev already shares stable data, and `health-check.sh` allowance for shared `uploads/`
 - preserve `dev-seed-validation-personas.js` refusal to seed/reset validation personas against stable/shared MongoDB unless `DEV_SEED_ALLOW_SHARED_PROD_DB=true` is explicitly set
+- preserve deterministic isolated-dev MFA reset for every validation persona: hidden `mfaEnrollmentExempt=true`, `twoFactorEnabled=false`, current/pending TOTP and backup-code removal, refresh-session cleanup, and inclusion of `playwright@test.local`
 - preserve host memory guardrails: stable LibreChat containers stay constrained by `docker-compose.local.override.yml`/`rail-env.sh`; host-side build/lint/test commands should use `npm run lint:capped`, `npm run build:capped`, `npm run frontend:capped`, or `local-services/run-node-capped.sh`; adjacent non-stable workloads must not run uncapped. Current non-stable caps are `oss-llama.service` `MemoryHigh=4G` / `MemoryMax=5G` / `MemorySwapMax=0`; `librechat-official-rag=512m`, `librechat-official-vectordb=512m`, `librechat-official-mongodb=1g`, `librechat-official-meili=768m`; `grafana-loki-stable-loki=512m`, `grafana-loki-stable-grafana=512m`, `grafana-loki-stable-promtail=256m`; `prometheus-stable-prometheus=1g`, `prometheus-stable-blackbox=128m`; `touchdown-r1=768m`; and `touchdown-backwards-r1=768m`, all with `memswap_limit` equal to `mem_limit`
 - if the host is near OOM, stop non-production/non-stable containers instead of deleting them. On pve2, do not stop VM production by mistake; on the VM, do not stop `LibreChat`, `chat-mongodb`, `chat-meilisearch`, `code-interpreter-local`, `rag-api-*`, `vectordb`, or `librechat-stable-*` containers without explicit production-maintenance approval.
 - `librechat-official-mongodb` and `librechat-official-meili` may restart-loop from `/tmp/librechat-upstream-param` permission errors (`/data/db/journal` and Meili data path). Keep them stopped unless intentionally debugging the upstream/offical stack, and reapply caps after recreating those containers because the labeled compose file under `/tmp/librechat-upstream-param/docker-compose.yml` is not durable.
@@ -991,7 +992,7 @@ This policy exists because the user depends on the VM stable rail for daily use.
 #### Dev shared-stable data guardrails
 
 - Default dev runtime can read/write the same MongoDB database and uploaded files as stable. This is intentional for fallback access, but it means dev testing must use test accounts and avoid destructive data resets.
-- Existing test accounts such as `playwright@test.local` should be used for browser automation and validation on dev. Persona seeding/reset tooling is for isolated dev Mongo only unless deliberately overridden.
+- Existing test accounts such as `playwright@test.local` should be used for browser automation and validation on dev. On isolated dev, the persona seeder resets these accounts to a deterministic no-MFA state; on shared data, seeding/reset remains forbidden unless deliberately overridden.
 - Stable containers still remain protected: dev may connect to the stable MongoDB backend, but missions must not restart, rebuild, stop, or mutate VM stable containers without explicit promotion approval.
 - Dev should normally be stopped while stable is healthy. The watchdog only stops dev instances it started itself, leaving manually started dev alone for explicit testing unless `LIBRECHAT_FAILOVER_STOP_MANUAL_DEV_ON_RECOVERY=true` is set.
 
@@ -2195,6 +2196,7 @@ When merging upstream changes, pay special attention to these areas.
 - `api/strategies/localStrategy.js`, `api/server/middleware/requireLocalAuth.js`, and `api/strategies/validators.js` return generic credential failures, perform dummy bcrypt work for unknown/passwordless accounts, avoid logging submitted request bodies, and keep the new-password minimum separate from existing-user login.
 - `api/server/controllers/auth/{LoginController,TwoFactorAuthController}.js`, `api/server/services/{twoFactorService,mfaPolicy}.js`, `api/server/middleware/limiters/mfaLimiter.js`, and `client/src/components/Auth/TwoFactorScreen.tsx` use a five-minute path-scoped HttpOnly pending cookie, standard RFC 6238 authenticator enrollment, backup codes, account/IP MFA attempt limits, normalized-email login throttling, atomic one-time backup-code consumption, and no MFA token in browser URLs.
 - Local-password MFA can be enforced for admins or all local accounts; OIDC, Microsoft Entra ID, SAML, and other federated providers keep provider-native MFA. Enforced local users cannot disable MFA, and `scripts/admin-reset-user-mfa.js` provides a session-revoking recovery path.
+- Isolated-dev synthetic accounts seeded by `local-services/dev-seed-validation-personas.js`, including `playwright@test.local`, receive the hidden `mfaEnrollmentExempt` flag, `twoFactorEnabled=false`, complete current/pending TOTP and backup-code cleanup, and cleared sessions. `api/strategies/localStrategy.js` selects the hidden flag only for password verification, `api/server/services/mfaPolicy.js` skips forced enrollment for that flag, and `LoginController` removes it from the response. The exemption is absent from public update types and must never be set on shared or production accounts.
 - `packages/data-schemas/src/{methods,crypto,types}`, `api/strategies/jwtStrategy.js`, `api/server/controllers/AuthController.js`, `api/server/middleware/validateImageRequest.js`, and `api/server/services/Realtime/auth.js` bind local JWTs to access/refresh/openid-user purposes with issuer/audience validation while preserving server-side hashed refresh sessions and rotation.
 - `packages/api/src/oauth/csrf.ts` supports `FORCE_SECURE_COOKIES=true` behind an HTTPS proxy. `packages/api/src/mcp/oauth/handler.ts` uses `MCP_OAUTH_CALLBACK_BASE_URL` so the public app can use Tailscale HTTPS while Arcade/Microsoft MCP OAuth retains its loopback callback.
 - `api/server/middleware/securityHeaders.js` and the server bootstrap add anti-framing, MIME, referrer, permissions, CSP, auth no-store, HSTS-on-HTTPS, and explicit-origin CORS protections.
@@ -2622,17 +2624,21 @@ deletion, picker ordering, and local-upload persistence across model/preset/conf
 
 ---
 
-### 3.25 Interactive generation-tree graft preview stabilization and undo flow
+### 3.25 Guided generation-tree branch appending, preview, stabilization, and undo
 
 #### What it does
 
-- Replaces the Task 11 placeholder inspector with an authoritative graft workflow for the conversation tree dialog and bottom-sheet variant.
+- Presents generation grafting as plain-language branch appending while retaining the existing API and persistence terminology internally.
+- Adds a tap-first guided workflow to the conversation tree dialog: focus an assistant response, use it as the source, focus the final destination response, append there, choose one response or the whole later branch, preview, and confirm.
+- Adds a sticky mobile action bar and responsive bottom-sheet inspector so the complete workflow is usable without precision drag gestures on a phone.
+- Adds an in-app **How to append** page with the exact full Generation 2 of 2 after Generation 1 of 2 example, scope guidance, drag/drop, keyboard-list, and undo descriptions.
+- Labels sibling assistant responses as **Generation X of Y**, gives toolbar controls visible text labels, and exposes descriptive message-menu tooltips instead of relying on unexplained icons.
 - Adds a client-side `useGenerationGraft()` state machine with explicit phases for selection, preview, stabilization, create, created, undo-preview, undoing, and recoverable error handling.
 - Treats complete, stopped partial, aborted partial, and errored partial assistant generations as valid graft endpoints. Only actively streaming selections require stabilization.
 - Uses server preview responses as the source of truth for copied counts, warnings, source/destination lifecycle badges, create eligibility, and the compact source/destination before/after summary in the inspector, including deduped rendering of server warnings alongside the generic partial-context warning. Task 13 owns transcript bridge rendering.
 - Supports both `generation` and `subtree` modes, idempotent create retries keyed to `(source, destination, mode, active leaf, tree revision)`, and safe undo with continuation inspection before destructive deletion, including authoritative copied/continuation count summaries plus concise continuation-id suffixes in the destructive confirmation UI.
 - Stops or waits on canonical stream status at 500 ms intervals, refetches `[QueryKeys.messages, conversationId]` before retrying preview, and times out after 30 seconds with actionable UI copy.
-- After creation, focuses the grafted `activeCopiedMessageId`, updates the chat latest message, fits the full created bridge/copied selection in the tree viewport, and shows a 10-second Undo toast action.
+- After creation, focuses the grafted `activeCopiedMessageId`, updates every ancestor sibling selector so the transcript immediately switches to the copied branch, updates the chat latest message, fits the full created bridge/copied selection in the tree viewport, and shows a 10-second Undo toast action. Setting only the latest message is insufficient when the destination begins on a non-active sibling.
 - Drag/drop preview reads the synchronized selection ref inside `useGenerationGraft()` instead of passing the dialog's render-time destination id. React state updates are asynchronous; passing that stale id made a valid drop render `INVALID_DESTINATION` locally and prevented the preview API request.
 
 #### Key files
@@ -2640,13 +2646,26 @@ deletion, picker ordering, and local-upload persistence across model/preset/conf
 - `client/src/components/Chat/Tree/useGenerationGraft.ts`
 - `client/src/components/Chat/Tree/ConversationTreeDialog.tsx`
 - `client/src/components/Chat/Tree/ConversationTreeInspector.tsx`
+- `client/src/components/Chat/Tree/ConversationTreeSelectionGuide.tsx`
+- `client/src/components/Chat/Tree/ConversationTreeMobileGuideBar.tsx`
+- `client/src/components/Chat/Tree/ConversationTreeHelp.tsx`
 - `client/src/components/Chat/Tree/ConversationTreeCanvas.tsx`
+- `client/src/components/Chat/Tree/ConversationTreeNode.tsx`
+- `client/src/components/Chat/Tree/ConversationTreeToolbar.tsx`
+- `client/src/components/Chat/Tree/treeLabels.ts`
 - `client/src/components/Chat/Tree/types.ts`
+- `client/src/hooks/Chat/useChatHelpers.ts`
+- `client/src/hooks/Messages/messageBranchSelection.ts`
+- `client/src/hooks/Messages/messageBranchSelection.spec.ts`
+- `client/src/components/Chat/Tree/{ConversationTreeDialog,GenerationTreeActions}.spec.tsx`
+- `client/src/components/Chat/Tree/graph.spec.ts`
 - `client/src/components/Chat/Tree/__tests__/{useGenerationGraft,ConversationTreeInspector,ConversationTreeDialog}.spec.tsx`
 - `client/src/locales/en/translation.json`
+- `e2e/specs/generation-tree-grafting.spec.ts`
 - `packages/data-provider/src/types.ts`
 - `client/src/data-provider/Messages/generationGrafts.spec.tsx`
 - `api/server/routes/{messages.js,__tests__/messages-grafts.spec.js}`
+- `GENERATION_TREE_GRAFTING.md`
 
 #### Validation
 
@@ -2654,4 +2673,7 @@ deletion, picker ordering, and local-upload persistence across model/preset/conf
 - `client`: `jest --config jest.config.cjs --runInBand src/data-provider/Messages/generationGrafts.spec.tsx`
 - `client`: `jest --config jest.config.cjs --runInBand src/components/Chat/Tree/__tests__/useGenerationGraft.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeInspector.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeDialog.spec.tsx`
 - `client`: `jest --config jest.config.cjs --runInBand src/components/Chat/Tree/__tests__/ConversationTreeCanvas.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeList.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeMiniMap.spec.tsx src/components/Chat/Tree/__tests__/ConversationTreeViewport.spec.ts src/components/Chat/Tree/__tests__/visibleItems.spec.ts src/components/Chat/Tree/__tests__/ConversationTreeDialog.spec.tsx`
-- Real-browser isolated-dev validation must drag a stopped/aborted/errored or complete source onto a valid destination, receive the server preview, create the graft, focus the copied selection, and undo it back to zero graft/copy records. This caught the stale render-time destination regression that mocked dialog tests did not.
+- `client`: `jest --config jest.config.cjs --runInBand src/components/Chat/Tree/GenerationTreeActions.spec.tsx src/components/Chat/Tree/graph.spec.ts`
+- Real-browser isolated-dev validation must cover desktop and phone-sized guided taps, the whole-branch scope, preview, create, copied-selection focus, and undo. Drag/drop remains a required advanced-flow check because it caught the stale render-time destination regression that mocked dialog tests did not.
+- The serial grafting E2E fixture persists the latest authenticated browser state after each test. Refresh cookies rotate during API-backed setup and cleanup; reusing one unchanged storage-state file logs later isolated contexts out even though the synthetic account itself remains valid.
+- Start the complete 11-case E2E matrix after a fresh isolated-dev API restart or a completed graft-limiter window. The matrix deliberately exercises enough creates and undos to approach the default 10-user-mutation one-minute limit, and its create helper must surface HTTP 429 directly instead of reporting a misleading missing-card failure.

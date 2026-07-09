@@ -29,6 +29,7 @@ const mockCreateMutateAsync = jest.fn();
 const mockUndoMutateAsync = jest.fn();
 const mockStopGenerating = jest.fn();
 const mockSetLatestMessage = jest.fn();
+const mockSelectMessageBranch = jest.fn();
 const mockShowToast = jest.fn();
 const mockFetchStreamStatus = jest.fn();
 const mockUuid = jest.fn();
@@ -68,6 +69,7 @@ jest.mock('~/Providers/ChatContext', () => ({
   useChatContext: () => ({
     stopGenerating: mockStopGenerating,
     setLatestMessage: mockSetLatestMessage,
+    selectMessageBranch: mockSelectMessageBranch,
   }),
 }));
 
@@ -313,6 +315,7 @@ describe('useGenerationGraft', () => {
     mockUndoMutateAsync.mockReset();
     mockStopGenerating.mockReset();
     mockSetLatestMessage.mockReset();
+    mockSelectMessageBranch.mockReset();
     mockShowToast.mockReset();
     mockFetchStreamStatus.mockReset();
     mockUuid.mockReset();
@@ -840,6 +843,7 @@ describe('useGenerationGraft', () => {
     expect(mockSetLatestMessage).toHaveBeenCalledWith(
       expect.objectContaining({ messageId: 'copy-3' }),
     );
+    expect(mockSelectMessageBranch).toHaveBeenCalledWith('copy-3', createResult.createdMessages);
     expect(onFocusMessage).toHaveBeenCalledWith('copy-3');
     expect(onFitCreated).toHaveBeenCalledWith(['bridge-1', 'copy-1', 'copy-2', 'copy-3']);
     expect(mockShowToast).toHaveBeenCalledWith(

@@ -58,11 +58,18 @@ Deterministic validation personas are seeded by `local-services/dev-seed-validat
 
 1. Connects to isolated dev MongoDB at `mongodb://127.0.0.1:27018/LibreChat`
 2. Clears all ban entries, violation logs, and rate-limiter state from the `logs` and `keyv` collections
-3. Creates or resets five validation personas with known passwords and correct role/adminRoleIds
-4. Clears stale sessions for those personas
+3. Creates or resets six validation personas, including `playwright@test.local`, with known passwords
+   and correct role/adminRoleIds
+4. Resets every persona to deterministic no-MFA state: hidden enrollment exemption, disabled TOTP,
+   removed current/pending secrets and backup codes, and cleared stale sessions
 5. Writes a gitignored local manifest at `local-services/.dev-validation-manifest.local.json`
 
-The current default dev rail shares stable/prod MongoDB and `uploads/`. In that mode, do **not** run the seed/reset script; use existing test accounts such as `playwright@test.local` or already-provisioned validation accounts. The script refuses stable/shared MongoDB targets by default; `DEV_SEED_ALLOW_SHARED_PROD_DB=true` is an intentional override only for explicitly approved shared-DB seeding.
+The current default dev rail shares stable/prod MongoDB and `uploads/`. In that mode, do **not** run the
+seed/reset script or alter existing account MFA. Use already-provisioned test accounts with their
+current authentication policy. For deterministic no-MFA browser automation, switch dev to isolated
+MongoDB and run this seeder. The script refuses stable/shared MongoDB targets by default;
+`DEV_SEED_ALLOW_SHARED_PROD_DB=true` is an intentional override only for explicitly approved
+shared-DB seeding.
 
 ### Usage
 
@@ -85,6 +92,7 @@ cat local-services/.dev-validation-manifest.local.json
 
 | Email | Role | adminRoleIds | Purpose |
 |-------|------|-------------|---------|
+| `playwright@test.local` | USER | `[]` | Disposable no-MFA browser automation account |
 | `val-user@dev.local` | USER | `[]` | Non-admin with default model restrictions |
 | `val-superadmin@dev.local` | ADMIN | `[]` | Superadmin (full permissions, isSuperAdmin=true) |
 | `val-workspace-admin@dev.local` | USER | `[workspace_admin]` | Lower-tier: users.read, users.delete, usage.read, settings.read/write, observability.read |

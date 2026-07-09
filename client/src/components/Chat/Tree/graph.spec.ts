@@ -284,9 +284,13 @@ describe('conversation tree graph normalization', () => {
     ]);
 
     expect(graph.nodes.get('assistant-1')?.generationIndex).toBe(1);
+    expect(graph.nodes.get('assistant-1')?.generationCount).toBe(2);
     expect(graph.nodes.get('bridge')?.generationIndex).toBe(0);
+    expect(graph.nodes.get('bridge')?.generationCount).toBe(0);
     expect(graph.nodes.get('assistant-2')?.generationIndex).toBe(2);
+    expect(graph.nodes.get('assistant-2')?.generationCount).toBe(2);
     expect(graph.nodes.get('user-follow-up')?.generationIndex).toBe(0);
+    expect(graph.nodes.get('user-follow-up')?.generationCount).toBe(0);
   });
 
   it('returns stable graft validation reasons for missing ids, invalid roles, same-node, and overlap', () => {

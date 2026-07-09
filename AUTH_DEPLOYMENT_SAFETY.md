@@ -26,6 +26,9 @@ missing any claim.
 - Preserve the existing password hash and TOTP enrollment during recovery.
 - A platform administrator is still authenticated normally but must not be automatically banned by
   login/violation counters.
+- The hidden `mfaEnrollmentExempt` flag is reserved for deterministic accounts created by
+  `dev-seed-validation-personas.js` in an isolated dev MongoDB. Never set it on a real, shared, or
+  production account.
 - Treat `password accepted -> MFA accepted -> returned to password page` as a refresh-token contract
   failure until disproved.
 

@@ -97,12 +97,16 @@ export async function gotoConversation(page: Page, conversationId: string, expec
 }
 
 export async function openConversationTree(page: Page) {
-  await page.getByRole('button', { name: 'Open conversation tree' }).click();
+  await page.getByRole('button', { name: 'View in conversation tree' }).last().click();
   await expect(page.getByTestId('generation-tree-dialog')).toBeVisible();
 }
 
 export async function closeConversationTree(page: Page) {
-  await page.keyboard.press('Escape');
+  await page
+    .getByTestId('generation-tree-dialog')
+    .getByRole('button', { name: 'Close' })
+    .last()
+    .click();
   await expect(page.getByTestId('generation-tree-dialog')).toBeHidden();
 }
 

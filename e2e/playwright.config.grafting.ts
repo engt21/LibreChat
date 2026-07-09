@@ -40,6 +40,9 @@ export default defineConfig({
       },
     ],
   ],
+  expect: {
+    timeout: 15_000,
+  },
   use: {
     baseURL: defaultBaseUrl,
     storageState: defaultStorageState,

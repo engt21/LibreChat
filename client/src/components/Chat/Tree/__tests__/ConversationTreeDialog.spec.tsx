@@ -67,7 +67,71 @@ jest.mock('~/hooks/useLocalize', () => ({
     ({
       com_sidepanel_conversation_tree: 'Conversation Tree',
       com_ui_conversation_tree_description:
-        'Browse conversation branches and choose a generation to graft.',
+        'Append one response or a whole branch after another response without changing the original.',
+      com_ui_generation_tree_help: 'How to append',
+      com_ui_generation_tree_help_title: 'How branch appending works',
+      com_ui_generation_tree_help_intro:
+        'Copy a response or a complete branch onto the end of another branch.',
+      com_ui_generation_tree_help_quick_title: 'The guided flow',
+      com_ui_generation_tree_help_source_title: 'Choose the branch to copy',
+      com_ui_generation_tree_help_source_desc:
+        'Tap its first assistant response, then choose Use focused response as source.',
+      com_ui_generation_tree_help_destination_title: 'Choose the append point',
+      com_ui_generation_tree_help_destination_desc:
+        'Tap the final assistant response in the branch that should come first, then choose Append after focused response.',
+      com_ui_generation_tree_help_scope_title: 'Choose the copy scope',
+      com_ui_generation_tree_help_scope_desc:
+        'Use Whole branch from here for a complete thread, or Only this response for one answer.',
+      com_ui_generation_tree_help_review_title: 'Preview and append',
+      com_ui_generation_tree_help_review_desc:
+        'Check the message, tool, file, image, and token counts.',
+      com_ui_generation_tree_help_example_title:
+        'Example: append the full 2 of 2 branch after the 1 of 2 branch',
+      com_ui_generation_tree_help_branch_copy: 'Branch to copy',
+      com_ui_generation_tree_help_branch_copy_desc:
+        'Tap the first Generation 2 of 2 response and select Whole branch from here.',
+      com_ui_generation_tree_help_branch_keep: 'Branch that comes first',
+      com_ui_generation_tree_help_branch_keep_desc:
+        'Tap the final response at the end of the complete Generation 1 of 2 branch.',
+      com_ui_generation_tree_help_result:
+        'LibreChat copies the full 2 of 2 branch after that final 1 of 2 response.',
+      com_ui_generation_tree_help_advanced_title: 'Advanced controls',
+      com_ui_generation_tree_help_drag_title: 'Drag and drop',
+      com_ui_generation_tree_help_drag_desc: 'Drag the Append handle to open the same preview.',
+      com_ui_generation_tree_help_keyboard_title: 'Keyboard and list',
+      com_ui_generation_tree_help_keyboard_desc: 'Open Browse list.',
+      com_ui_generation_tree_help_undo_title: 'Safe undo',
+      com_ui_generation_tree_help_undo_desc: 'Undo removes only the copied branch.',
+      com_ui_generation_tree_help_start: 'Start guided append',
+      com_ui_back: 'Back',
+      com_ui_generation_tree_guide_title: 'Append a branch',
+      com_ui_generation_tree_guide_description:
+        'Use normal taps to choose both ends. Dragging is optional.',
+      com_ui_generation_tree_focused_response: 'Focused response',
+      com_ui_generation_tree_tap_response_first: 'Tap an assistant response in the tree first.',
+      com_ui_generation_tree_source_step: 'Branch to copy',
+      com_ui_generation_tree_source_instruction:
+        'Tap the first response in the branch you want to copy.',
+      com_ui_generation_tree_destination_step: 'Append after',
+      com_ui_generation_tree_destination_instruction:
+        'Tap the final response in the branch that should come first.',
+      com_ui_generation_tree_use_focused_source: 'Use focused response as source',
+      com_ui_generation_tree_use_focused_destination: 'Append after focused response',
+      com_ui_generation_tree_use_as_source_short: 'Use as source',
+      com_ui_generation_tree_append_here: 'Append here',
+      com_ui_generation_tree_review_append: 'Review append',
+      com_ui_generation_tree_source_selected: 'Source selected',
+      com_ui_generation_tree_change: 'Change',
+      com_ui_generation_tree_scope: 'What should be copied?',
+      com_ui_generation_tree_mode_generation: 'Only this response',
+      com_ui_generation_tree_mode_generation_desc: 'Copies the selected assistant response only.',
+      com_ui_generation_tree_mode_subtree: 'Whole branch from here',
+      com_ui_generation_tree_mode_subtree_desc:
+        'Copies this response and every later message below it.',
+      com_ui_generation_tree_recommended: 'Recommended for full threads',
+      com_ui_generation_tree_preview_append: 'Preview append',
+      com_ui_generation_tree_refresh_preview: 'Refresh preview',
+      com_ui_generation_tree_preview_details: 'Preview details',
       com_ui_generation_tree_source: 'Source',
       com_ui_generation_tree_destination: 'Destination',
       com_ui_generation_tree_fit: 'Fit tree',
@@ -93,12 +157,16 @@ jest.mock('~/hooks/useLocalize', () => ({
       com_ui_none: 'None',
       com_ui_generation_tree_mobile_summary: 'Tree summary',
       com_ui_generation_tree_open_sheet: 'Open tree details',
-      com_ui_generation_tree_list: 'Tree list',
+      com_ui_close: 'Close',
+      com_ui_generation_tree_list: 'Browse list',
+      com_ui_generation_tree_hide_list: 'Hide list',
       com_ui_generation_tree_status_preview: 'Preview requested',
       com_ui_generation_tree_preview_pending: 'Preview pending',
       com_ui_generation_tree_layout_horizontal: 'Horizontal layout',
       com_ui_generation_tree_layout_vertical: 'Vertical layout',
       com_ui_generation_tree_generation_label: `Generation ${options?.index ?? ''}`.trim(),
+      com_ui_generation_tree_generation_position:
+        `Generation ${options?.index ?? ''} of ${options?.count ?? ''}`.trim(),
       com_ui_generation_tree_node_graft_bridge: 'Graft bridge',
       com_ui_generation_tree_node_prompt: 'Prompt',
       com_ui_generation_tree_node_empty: 'No content',
@@ -107,13 +175,15 @@ jest.mock('~/hooks/useLocalize', () => ({
       com_ui_generation_tree_badge_image: 'Image',
       com_ui_generation_tree_badge_reasoning: 'Reasoning',
       com_ui_generation_tree_badge_provenance: 'Provenance',
-      com_ui_graft_generation: 'Graft generation',
+      com_ui_graft_generation: 'Append response or branch',
+      com_ui_generation_tree_drag: 'Append',
+      com_ui_generation_tree_drag_to_append: 'Drag to append',
       com_ui_generation_tree_state_complete: 'Complete',
       com_ui_generation_tree_state_stopped_partial: 'Stopped partial',
       com_ui_generation_tree_state_aborted_partial: 'Aborted partial',
       com_ui_generation_tree_state_errored_partial: 'Errored partial',
       com_ui_generation_tree_state_streaming: 'Streaming',
-      com_ui_generation_tree_create: 'Create graft',
+      com_ui_generation_tree_append: 'Append branch',
       com_ui_generation_tree_undo: 'Undo',
       com_ui_generation_tree_stop_and_graft: 'Stop and graft',
       com_ui_generation_tree_undo_destructive: 'Undo graft and delete later continuation',
@@ -251,8 +321,15 @@ describe('ConversationTreeDialog', () => {
     expect(dialog).toHaveAttribute('data-focused-message-id', 'assistant-a');
     expect(dialog).toHaveAttribute('data-source-message-id', 'assistant-b');
     expect(screen.getByRole('button', { name: 'Fit tree' })).toBeInTheDocument();
+    expect(screen.getByTestId('generation-tree-toolbar')).toHaveClass('overflow-x-auto');
+    expect(screen.getByTestId('generation-tree-toolbar')).not.toHaveClass('flex-wrap');
+    expect(screen.getByTestId('generation-tree-sidebar')).toHaveClass('overflow-hidden');
+    expect(screen.getByTestId('generation-tree-inspector-scroll')).toHaveClass('overflow-y-auto');
+    expect(screen.getByTestId('generation-tree-actions')).toHaveClass('shrink-0');
     expect(
-      screen.getByText('Browse conversation branches and choose a generation to graft.'),
+      screen.getByText(
+        'Append one response or a whole branch after another response without changing the original.',
+      ),
     ).toBeInTheDocument();
   });
 
@@ -353,7 +430,7 @@ describe('ConversationTreeDialog', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Create graft' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Append branch' })).toBeDisabled();
   });
 
   it('persists orientation and collapsed ids across reopen for the same conversation', () => {
@@ -436,6 +513,14 @@ describe('ConversationTreeDialog', () => {
 
   it('renders a mobile summary bar and bottom-sheet list treatment on narrow screens', () => {
     mockIsMobile = true;
+    const selectDestinationMessage = jest.fn();
+    const requestPreview = jest.fn();
+    mockUseGenerationGraft.mockReturnValue(
+      createGenerationGraftState({
+        selectDestinationMessage,
+        requestPreview,
+      }),
+    );
 
     renderWithQueryClient(
       <ConversationTreeDialog
@@ -449,10 +534,72 @@ describe('ConversationTreeDialog', () => {
     expect(screen.getByTestId('generation-tree-mobile-summary')).toBeInTheDocument();
     expect(screen.queryByTestId('generation-tree-sidebar')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open tree details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Append here' }));
 
     expect(screen.getByTestId('generation-tree-mobile-sheet')).toBeInTheDocument();
-    expect(screen.getByRole('tree')).toBeInTheDocument();
+    expect(screen.getByTestId('generation-tree-mobile-sheet')).toHaveClass(
+      'max-h-[calc(100%-0.75rem)]',
+      'overflow-hidden',
+    );
+    expect(selectDestinationMessage).toHaveBeenCalledWith('assistant-a');
+    expect(requestPreview).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('generation-tree-mobile-backdrop'));
+    expect(screen.queryByTestId('generation-tree-mobile-sheet')).not.toBeInTheDocument();
+  });
+
+  it('opens a worked help page and starts the recommended whole-branch flow', () => {
+    const setMode = jest.fn();
+    mockUseGenerationGraft.mockReturnValue(createGenerationGraftState({ setMode }));
+
+    renderWithQueryClient(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId="assistant-b"
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'How to append' })[0]);
+
+    expect(screen.getByTestId('generation-tree-help')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', {
+        name: 'Example: append the full 2 of 2 branch after the 1 of 2 branch',
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start guided append' }));
+
+    expect(setMode).toHaveBeenCalledWith('subtree');
+    expect(screen.queryByTestId('generation-tree-help')).not.toBeInTheDocument();
+  });
+
+  it('uses a normal tap plus explicit action to choose a source response', () => {
+    const selectDestinationMessage = jest.fn();
+    const selectSourceMessage = jest.fn();
+    mockUseGenerationGraft.mockReturnValue(
+      createGenerationGraftState({
+        sourceMessageId: null,
+        selectDestinationMessage,
+        selectSourceMessage,
+      }),
+    );
+
+    renderWithQueryClient(
+      <ConversationTreeDialog
+        open={true}
+        focusMessageId="assistant-a"
+        sourceMessageId={null}
+        onOpenChange={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use focused response as source' }));
+
+    expect(selectDestinationMessage).toHaveBeenCalledWith(null);
+    expect(selectSourceMessage).toHaveBeenCalledWith('assistant-a');
   });
 
   it('never calls createGenerationGraft on a valid drop during task 11 preview flow', () => {
@@ -558,7 +705,10 @@ describe('ConversationTreeDialog', () => {
       />,
     );
 
-    expect(screen.getByTestId('generation-tree-mobile-summary')).toHaveTextContent('assistant-a');
+    expect(screen.getByTestId('generation-tree-mobile-summary')).toHaveTextContent(
+      'Generation 1 of 2',
+    );
+    expect(screen.getByRole('button', { name: 'Append here' })).toBeInTheDocument();
   });
 
   it('resets manual positions after close and reopen within the same conversation', () => {
@@ -682,6 +832,7 @@ describe('ConversationTreeDialog', () => {
     expect(screen.getByTestId('generation-tree-minimap')).toHaveAttribute('focusable', 'false');
     expect(screen.queryByRole('button', { name: /graft generation/i })).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: 'Browse list' }));
     const source = screen.getAllByRole('treeitem', { name: /generation 1/i })[0];
     await user.click(source);
     await user.keyboard(' ');

@@ -59,7 +59,7 @@ const loginController = async (req, res) => {
         .json({ twoFAPending: true, mfaEnrollmentRequired: enrollmentRequired });
     }
 
-    const { password: _p, totpSecret: _t, __v, ...user } = req.user;
+    const { password: _p, totpSecret: _t, mfaEnrollmentExempt: _m, __v, ...user } = req.user;
     user.id = user._id.toString();
 
     clearPendingCookie(res);

@@ -43,6 +43,7 @@ describe('loginController', () => {
         password: 'hashed-password',
         totpSecret: 'secret',
         twoFactorEnabled: false,
+        mfaEnrollmentExempt: true,
       },
     };
     res = {
@@ -101,5 +102,6 @@ describe('loginController', () => {
         email: req.user.email,
       }),
     });
+    expect(res.send.mock.calls[0][0].user).not.toHaveProperty('mfaEnrollmentExempt');
   });
 });

@@ -390,32 +390,28 @@ export function normalizeConversationGraph(
       role,
       lifecycle,
       generationIndex: 0,
+      generationCount: 0,
       graftId,
       clonedFromMessageId,
       searchableText,
     });
   }
 
-  for (const id of orderedIds) {
-    const node = nodes.get(id);
-    if (node == null) {
-      continue;
-    }
+  for (const childIds of childrenByParent.values()) {
+    const assistantChildIds = childIds.filter(
+      (childId) => nodes.get(childId)?.role === 'assistant',
+    );
+    const generationCount = assistantChildIds.length;
 
-    let assistantIndex = 0;
-    for (const childId of node.childIds) {
+    assistantChildIds.forEach((childId, index) => {
       const childNode = nodes.get(childId);
       if (childNode == null) {
-        continue;
+        return;
       }
 
-      if (childNode.role === 'assistant') {
-        assistantIndex += 1;
-        childNode.generationIndex = assistantIndex;
-      } else {
-        childNode.generationIndex = 0;
-      }
-    }
+      childNode.generationIndex = index + 1;
+      childNode.generationCount = generationCount;
+    });
   }
 
   return {

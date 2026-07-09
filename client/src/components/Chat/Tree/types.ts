@@ -22,6 +22,7 @@ export type ConversationTreeNode = {
   role: ConversationTreeRole;
   lifecycle: TGenerationGraftLifecycleState;
   generationIndex: number;
+  generationCount: number;
   graftId?: string;
   clonedFromMessageId?: string;
   searchableText: string;

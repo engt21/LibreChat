@@ -85,6 +85,7 @@ export interface IUser extends Document {
   appleId?: string;
   plugins?: string[];
   twoFactorEnabled?: boolean;
+  mfaEnrollmentExempt?: boolean;
   totpSecret?: string;
   backupCodes?: Array<{
     codeHash: string;

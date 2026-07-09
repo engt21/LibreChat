@@ -6,23 +6,19 @@ import type {
   InvalidGraftReason,
 } from './types';
 import { getInvalidGraftReason } from './graph';
+import { getTreeNodeLabel } from './treeLabels';
 import { buildVisibleTreeItems } from './visibleItems';
+
+const STABILIZABLE_REASONS = new Set<InvalidGraftReason>([
+  'GRAFT_BUSY',
+  'GRAFT_REQUIRES_STABILIZATION',
+]);
 
 function getItemTitle(
   localize: ReturnType<typeof useLocalize>,
   item: ConversationTreeVisibleItem,
 ): string {
-  if (item.node.role === 'assistant' && item.node.generationIndex > 0) {
-    return localize('com_ui_generation_tree_generation_label', {
-      index: item.node.generationIndex,
-    });
-  }
-
-  if (item.node.role === 'graft_bridge') {
-    return localize('com_ui_generation_tree_node_graft_bridge');
-  }
-
-  return item.node.message.text?.toString() || localize('com_ui_generation_tree_node_prompt');
+  return getTreeNodeLabel(localize, item.node);
 }
 
 type ConversationTreeListProps = {
@@ -114,7 +110,7 @@ export default function ConversationTreeList({
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="text-xs text-text-secondary">{localize('com_ui_generation_tree_list')}</div>
-      <div className="rounded-xl border border-border-medium p-2">
+      <div className="min-w-0 overflow-hidden rounded-lg border border-border-medium p-2">
         <div role="tree" className="flex flex-col gap-1">
           {items.map((item) => (
             <button
@@ -128,8 +124,9 @@ export default function ConversationTreeList({
               aria-level={item.depth}
               aria-expanded={item.hasChildren ? item.expanded : undefined}
               aria-selected={activeId === item.id}
-              className="rounded-lg px-3 py-2 text-left text-sm text-text-primary hover:bg-surface-hover"
-              style={{ paddingLeft: `${item.depth * 12}px` }}
+              className="min-h-10 min-w-0 truncate rounded-md px-3 py-2 text-left text-sm text-text-primary hover:bg-surface-hover"
+              style={{ paddingLeft: `${Math.min(item.depth * 12, 48)}px` }}
+              title={getItemTitle(localize, item)}
               onFocus={() => {
                 setActiveId(item.id);
                 onFocusMessage(item.id);
@@ -188,12 +185,6 @@ export default function ConversationTreeList({
                       updateStatusText(getInvalidReasonText(localize, 'INVALID_SOURCE'));
                       break;
                     }
-                    if (item.node.lifecycle === 'streaming') {
-                      updateStatusText(
-                        getInvalidReasonText(localize, 'GRAFT_REQUIRES_STABILIZATION'),
-                      );
-                      break;
-                    }
                     onSelectSource(item.id);
                     updateStatusText(localize('com_ui_generation_tree_status_source_selected'));
                     break;
@@ -206,7 +197,7 @@ export default function ConversationTreeList({
 
                     {
                       const invalidReason = getInvalidGraftReason(graph, sourceMessageId, item.id);
-                      if (invalidReason != null) {
+                      if (invalidReason != null && !STABILIZABLE_REASONS.has(invalidReason)) {
                         updateStatusText(getInvalidReasonText(localize, invalidReason));
                         break;
                       }

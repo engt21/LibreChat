@@ -19,7 +19,8 @@
  * The script:
  *   1. Connects to isolated dev MongoDB at mongodb://127.0.0.1:27018/LibreChat
  *   2. Drops ban, violation, and rate-limiter Keyv entries
- *   3. Creates or resets five validation personas (see PERSONAS below)
+ *   3. Creates or resets six validation personas (see PERSONAS below)
+ *      with forced MFA enrollment disabled
  *   4. Clears stale refresh-token sessions for those personas
  *   5. Optionally updates an explicitly isolated .env/librechat.yaml
  *   6. Writes .dev-validation-manifest.local.json (gitignored)
@@ -101,6 +102,14 @@ const VALIDATION_MODEL_SPECS = {
 
 const PERSONAS = [
   {
+    email: 'playwright@test.local',
+    username: 'playwright_bot',
+    name: 'Playwright Bot',
+    password: 'PlaywrightBot123!',
+    role: 'USER',
+    adminRoleIds: [],
+  },
+  {
     email: 'val-user@dev.local',
     username: 'val_user',
     name: 'Validation User',
@@ -159,6 +168,41 @@ function hashPassword(plain) {
  */
 function defaultNonAdminModelPermissions() {
   return getDefaultModelPermissionsForRole('USER');
+}
+
+function buildPersonaUpdate({ persona, hashedPassword, modelPermissions }) {
+  return {
+    $set: {
+      username: persona.username,
+      name: persona.name,
+      password: hashedPassword,
+      provider: 'local',
+      role: persona.role,
+      adminRoleIds: persona.adminRoleIds,
+      emailVerified: true,
+      twoFactorEnabled: false,
+      mfaEnrollmentExempt: true,
+      termsAccepted: true,
+      modelPermissions,
+      refreshToken: [],
+    },
+    $unset: {
+      totpSecret: '',
+      backupCodes: '',
+      pendingTotpSecret: '',
+      pendingBackupCodes: '',
+    },
+    $setOnInsert: {
+      email: persona.email,
+      avatar: null,
+      plugins: [],
+      favorites: [],
+      notifications: { email: {}, sms: {}, push: { subscriptions: [] } },
+      personalization: { memories: true },
+      createdAt: new Date(),
+    },
+    $currentDate: { updatedAt: true },
+  };
 }
 
 function assertSafeSeedTarget(uri) {
@@ -302,32 +346,11 @@ async function main() {
       ? { enabled: false, rules: [] }
       : defaultNonAdminModelPermissions();
 
-    const upsertDoc = {
-      $set: {
-        username: persona.username,
-        name: persona.name,
-        password: hashedPassword,
-        provider: 'local',
-        role: persona.role,
-        adminRoleIds: persona.adminRoleIds,
-        emailVerified: true,
-        twoFactorEnabled: false,
-        termsAccepted: true,
-        modelPermissions,
-        // Clear stale session/token state
-        refreshToken: [],
-      },
-      $setOnInsert: {
-        email: persona.email,
-        avatar: null,
-        plugins: [],
-        favorites: [],
-        notifications: { email: {}, sms: {}, push: { subscriptions: [] } },
-        personalization: { memories: true },
-        createdAt: new Date(),
-      },
-      $currentDate: { updatedAt: true },
-    };
+    const upsertDoc = buildPersonaUpdate({
+      persona,
+      hashedPassword,
+      modelPermissions,
+    });
 
     const result = await usersCollection.updateOne({ email: persona.email }, upsertDoc, {
       upsert: true,
@@ -345,6 +368,7 @@ async function main() {
       adminRoleIds: persona.adminRoleIds,
       username: persona.username,
       name: persona.name,
+      mfaEnrollmentExempt: true,
     });
   }
 
@@ -484,7 +508,15 @@ async function main() {
   await mongoose.disconnect();
 }
 
-main().catch((err) => {
-  console.error('[dev-seed] Fatal error:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[dev-seed] Fatal error:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  PERSONAS,
+  assertSafeSeedTarget,
+  buildPersonaUpdate,
+};

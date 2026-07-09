@@ -275,7 +275,7 @@ export default function useGenerationGraft({
   const localize = useLocalize();
   const queryClient = useQueryClient();
   const { showToast } = useToastContext();
-  const { stopGenerating, setLatestMessage } = useChatContext();
+  const { stopGenerating, setLatestMessage, selectMessageBranch } = useChatContext();
   const previewMutation = usePreviewGenerationGraft(conversationId);
   const createMutation = useCreateGenerationGraft(conversationId);
   const sessionIdentity = sessionKey ?? `${conversationId}::${initialSourceMessageId ?? ''}`;
@@ -1000,6 +1000,7 @@ export default function useGenerationGraft({
           conversationId,
         } as TMessage);
       setLatestMessage?.(latestMessage);
+      selectMessageBranch?.(createdResponse.activeCopiedMessageId, createdResponse.createdMessages);
       onFocusMessage?.(createdResponse.activeCopiedMessageId);
       onFitCreated?.(getCreatedFitMessageIds(createdResponse));
       showToast({
@@ -1041,6 +1042,7 @@ export default function useGenerationGraft({
     onFocusMessage,
     preview,
     previewMatchesCurrentSelection,
+    selectMessageBranch,
     setLatestMessage,
     showToast,
     undoSpecificGraft,

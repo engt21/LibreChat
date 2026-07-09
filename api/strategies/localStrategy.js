@@ -23,7 +23,7 @@ async function passportLogin(req, email, password, done) {
       return done(null, false, invalidCredentials);
     }
 
-    const user = await findUser({ email: email.trim() }, '+password');
+    const user = await findUser({ email: email.trim() }, '+password +mfaEnrollmentExempt');
     if (!user) {
       await comparePassword({ password: DUMMY_PASSWORD_HASH }, password);
       logger.error(`[Login] [Login failed] [Username: ${email}] [Request-IP: ${req.ip}]`);

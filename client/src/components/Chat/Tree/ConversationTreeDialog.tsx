@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { CircleHelp } from 'lucide-react';
 import {
   OGDialog,
   OGDialogContent,
@@ -17,14 +18,43 @@ import {
   saveTreeOrientation,
 } from './storage';
 import ConversationTreeCanvas from './ConversationTreeCanvas';
+import ConversationTreeHelp from './ConversationTreeHelp';
 import ConversationTreeInspector from './ConversationTreeInspector';
 import ConversationTreeList from './ConversationTreeList';
+import ConversationTreeMobileGuideBar from './ConversationTreeMobileGuideBar';
 import ConversationTreeToolbar from './ConversationTreeToolbar';
+import { getInvalidGraftReason } from './graph';
 import useConversationTreeViewModel from './useConversationTreeViewModel';
 import useGenerationGraft from './useGenerationGraft';
+import type { InvalidGraftReason } from './types';
 
 const EXIT_RESET_DELAY_MS = 200;
 const EMPTY_MESSAGES: ReturnType<ReturnType<typeof useChatContext>['getMessages']> = [];
+const STABILIZABLE_REASONS = new Set<InvalidGraftReason>([
+  'GRAFT_BUSY',
+  'GRAFT_REQUIRES_STABILIZATION',
+]);
+
+function getInvalidReasonText(
+  localize: ReturnType<typeof useLocalize>,
+  reason: InvalidGraftReason,
+): string | null {
+  switch (reason) {
+    case null:
+      return null;
+    case 'INVALID_SOURCE':
+      return localize('com_ui_generation_tree_error_source');
+    case 'INVALID_DESTINATION':
+      return localize('com_ui_generation_tree_error_destination');
+    case 'GRAFT_BUSY':
+    case 'GRAFT_REQUIRES_STABILIZATION':
+      return localize('com_ui_generation_tree_error_busy');
+    case 'OVERLAPPING_BRANCHES':
+      return localize('com_ui_generation_tree_error_overlap');
+    default:
+      return localize('com_ui_generation_tree_error_invalid');
+  }
+}
 
 type ConversationTreeDialogProps = {
   open: boolean;
@@ -53,10 +83,9 @@ export default function ConversationTreeDialog({
   const orientationConversationIdRef = useRef('');
   const previousOpenRef = useRef(open);
   const latestMessageIdRef = useRef<string | null>(null);
-  const isMobileRef = useRef(false);
   const { conversation, getMessages, latestMessageId, isSubmitting } = useChatContext();
   const conversationId = conversation?.conversationId ?? '';
-  const isMobile = useMediaQuery('(max-width: 767px)');
+  const isMobile = useMediaQuery('(max-width: 1023px)');
   const [orientation, setOrientation] = useState<TreeOrientation>(() =>
     loadTreeOrientation(conversationId),
   );
@@ -69,6 +98,7 @@ export default function ConversationTreeDialog({
   const [arrangeMode, setArrangeMode] = useState(false);
   const [listOpen, setListOpen] = useState(true);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [autoFitToken, setAutoFitToken] = useState(0);
   const { data: streamStatus } = useStreamStatus(conversationId, open, open ? 1_000 : false);
   const rawMessages = getMessages() ?? EMPTY_MESSAGES;
@@ -96,7 +126,6 @@ export default function ConversationTreeDialog({
   );
 
   latestMessageIdRef.current = latestMessageId;
-  isMobileRef.current = isMobile;
 
   const finishExit = useCallback(() => {
     if (exitCompletedRef.current || onExitComplete == null) {
@@ -188,8 +217,9 @@ export default function ConversationTreeDialog({
     setArrangeMode(false);
     setManualPositions(new Map());
     setStatusText(localize('com_ui_generation_tree_announcer_opened'));
-    setListOpen(!isMobileRef.current);
+    setListOpen(false);
     setMobileSheetOpen(false);
+    setHelpOpen(false);
     setAutoFitToken((currentToken) => currentToken + 1);
   }, [focusMessageId, localize, open, sessionIdentity, sourceMessageId]);
 
@@ -240,10 +270,61 @@ export default function ConversationTreeDialog({
     generationGraft.destinationMessageId != null
       ? (layout.nodes.get(generationGraft.destinationMessageId) ?? null)
       : null;
+  const focusedNode = focusedNodeId != null ? (layout.nodes.get(focusedNodeId) ?? null) : null;
+  const focusedDestinationReason =
+    generationGraft.sourceMessageId != null && focusedNode != null
+      ? getInvalidGraftReason(graph, generationGraft.sourceMessageId, focusedNode.id)
+      : null;
+  const canUseFocusedAsSource = focusedNode?.role === 'assistant';
+  const canUseFocusedAsDestination =
+    generationGraft.sourceMessageId != null &&
+    focusedNode?.role === 'assistant' &&
+    (focusedDestinationReason == null || STABILIZABLE_REASONS.has(focusedDestinationReason));
+  const focusedSelectionError =
+    generationGraft.sourceMessageId != null && focusedNode != null
+      ? getInvalidReasonText(localize, focusedDestinationReason)
+      : null;
 
   const updateCollapsedIds = useCallback((nextCollapsedIds: Set<string>) => {
     setCollapsedIds(new Set(nextCollapsedIds));
   }, []);
+
+  const clearSourceSelection = useCallback(() => {
+    generationGraft.selectDestinationMessage(null);
+    generationGraft.selectSourceMessage(null);
+    setStatusText(localize('com_ui_generation_tree_source_instruction'));
+  }, [generationGraft, localize]);
+
+  const clearDestinationSelection = useCallback(() => {
+    generationGraft.selectDestinationMessage(null);
+    setStatusText(localize('com_ui_generation_tree_status_source_selected'));
+  }, [generationGraft, localize]);
+
+  const useFocusedAsSource = useCallback(() => {
+    if (!canUseFocusedAsSource || focusedNode == null) {
+      return;
+    }
+
+    generationGraft.selectDestinationMessage(null);
+    generationGraft.selectSourceMessage(focusedNode.id);
+    setStatusText(localize('com_ui_generation_tree_status_source_selected'));
+    setMobileSheetOpen(false);
+  }, [canUseFocusedAsSource, focusedNode, generationGraft, localize]);
+
+  const requestPreview = useCallback(() => {
+    setStatusText(localize('com_ui_generation_tree_status_preview'));
+    void generationGraft.requestPreview();
+    setMobileSheetOpen(true);
+  }, [generationGraft, localize]);
+
+  const useFocusedAsDestination = useCallback(() => {
+    if (!canUseFocusedAsDestination || focusedNode == null) {
+      return;
+    }
+
+    generationGraft.selectDestinationMessage(focusedNode.id);
+    requestPreview();
+  }, [canUseFocusedAsDestination, focusedNode, generationGraft, requestPreview]);
 
   const listContent = (
     <ConversationTreeList
@@ -262,11 +343,7 @@ export default function ConversationTreeDialog({
         setFocusedNodeId(messageId);
       }}
       onPreviewRequest={() => {
-        setStatusText(localize('com_ui_generation_tree_status_preview'));
-        void generationGraft.requestPreview();
-        if (isMobile) {
-          setMobileSheetOpen(true);
-        }
+        requestPreview();
       }}
       onCollapsedIdsChange={updateCollapsedIds}
       onCancelSelection={() => {
@@ -298,7 +375,7 @@ export default function ConversationTreeDialog({
           }
         }}
       >
-        <div className="grid h-full grid-rows-[auto_auto_1fr]">
+        <div className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden">
           <div
             id={liveRegionId}
             role="status"
@@ -308,13 +385,26 @@ export default function ConversationTreeDialog({
           >
             {statusText}
           </div>
-          <div className="border-b border-border-light px-4 py-3">
-            <OGDialogTitle className="text-base font-semibold">
-              {localize('com_sidepanel_conversation_tree')}
-            </OGDialogTitle>
-            <OGDialogDescription id={descriptionId} className="mt-1 text-sm text-text-secondary">
-              {localize('com_ui_conversation_tree_description')}
-            </OGDialogDescription>
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-light px-4 py-2.5">
+            <div className="min-w-0">
+              <OGDialogTitle className="text-base font-semibold">
+                {localize('com_sidepanel_conversation_tree')}
+              </OGDialogTitle>
+              <OGDialogDescription
+                id={descriptionId}
+                className="mt-0.5 hidden text-sm text-text-secondary sm:block"
+              >
+                {localize('com_ui_conversation_tree_description')}
+              </OGDialogDescription>
+            </div>
+            <button
+              type="button"
+              className="flex min-h-10 shrink-0 items-center gap-2 rounded-md border border-border-medium px-3 py-2 text-sm font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              onClick={() => setHelpOpen(true)}
+            >
+              <CircleHelp className="size-4" aria-hidden="true" />
+              {localize('com_ui_generation_tree_help')}
+            </button>
           </div>
 
           <ConversationTreeToolbar
@@ -347,9 +437,12 @@ export default function ConversationTreeDialog({
             }}
           />
 
-          <div className="relative min-h-0">
+          <div
+            data-layout={isMobile ? 'compact' : 'desktop'}
+            className="relative min-h-0 overflow-hidden"
+          >
             {isMobile ? (
-              <div className="grid h-full grid-rows-[1fr_auto]">
+              <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
                 <ConversationTreeCanvas
                   graph={graph}
                   layout={layout}
@@ -374,9 +467,7 @@ export default function ConversationTreeDialog({
                     setFocusedNodeId(messageId);
                   }}
                   onPreviewRequest={() => {
-                    setStatusText(localize('com_ui_generation_tree_status_preview'));
-                    void generationGraft.requestPreview();
-                    setMobileSheetOpen(true);
+                    requestPreview();
                   }}
                   onManualPositionChange={(messageId, position) =>
                     setManualPositions((currentPositions) => {
@@ -391,66 +482,72 @@ export default function ConversationTreeDialog({
                     viewportCommandsRef.current = commands;
                   }}
                 />
-                <div
-                  data-testid="generation-tree-mobile-summary"
-                  className="flex items-center justify-between gap-3 border-t border-border-light px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-xs text-text-secondary">
-                      {localize('com_ui_generation_tree_source')}:{' '}
-                      {generationGraft.sourceMessageId ?? localize('com_ui_none')}
-                    </div>
-                    <div className="truncate text-sm text-text-primary">
-                      {localize('com_ui_generation_tree_destination')}:{' '}
-                      {generationGraft.destinationMessageId ??
-                        focusMessageId ??
-                        localize('com_ui_none')}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-border-medium px-3 py-2 text-sm text-text-secondary"
-                    onClick={() => setMobileSheetOpen((current) => !current)}
-                  >
-                    {localize('com_ui_generation_tree_open_sheet')}
-                  </button>
-                </div>
+                <ConversationTreeMobileGuideBar
+                  focusedNode={focusedNode}
+                  sourceNode={sourceNode}
+                  destinationNode={destinationNode}
+                  canUseFocusedAsSource={canUseFocusedAsSource}
+                  canUseFocusedAsDestination={canUseFocusedAsDestination}
+                  onUseFocusedAsSource={useFocusedAsSource}
+                  onUseFocusedAsDestination={useFocusedAsDestination}
+                  onOpenDetails={() => setMobileSheetOpen(true)}
+                />
                 {mobileSheetOpen ? (
-                  <div
-                    data-testid="generation-tree-mobile-sheet"
-                    className="absolute inset-x-0 bottom-0 z-10 max-h-[55vh] rounded-t-3xl border border-border-light bg-surface-primary shadow-2xl"
-                  >
-                    <ConversationTreeInspector
-                      sourceNode={sourceNode}
-                      destinationNode={destinationNode}
-                      statusText={statusText}
-                      phase={generationGraft.phase}
-                      pendingAction={generationGraft.pendingAction}
-                      mode={generationGraft.mode}
-                      preview={generationGraft.preview}
-                      created={generationGraft.created}
-                      pendingUndoTarget={generationGraft.pendingUndoTarget}
-                      error={generationGraft.error}
-                      stabilization={generationGraft.stabilization}
-                      listOpen={true}
-                      onToggleList={() => setMobileSheetOpen(false)}
-                      listContent={listContent}
-                      onModeChange={generationGraft.setMode}
-                      onCreate={() => void generationGraft.createGraft()}
-                      onUndo={() => void generationGraft.undoGraft()}
-                      onConfirmUndoContinuations={() =>
-                        void generationGraft.confirmUndoContinuations()
-                      }
-                      onCancelPendingUndoTarget={generationGraft.cancelPendingUndoTarget}
-                      onStopAndGraft={() => void generationGraft.stopAndGraft()}
-                      onWaitForCompletion={() => void generationGraft.waitForCompletion()}
-                      onCancelStabilization={generationGraft.cancelStabilization}
+                  <>
+                    <button
+                      type="button"
+                      data-testid="generation-tree-mobile-backdrop"
+                      aria-label={localize('com_ui_close')}
+                      className="absolute inset-0 z-10 cursor-default bg-black/25"
+                      onClick={() => setMobileSheetOpen(false)}
                     />
-                  </div>
+                    <div
+                      data-testid="generation-tree-mobile-sheet"
+                      className="absolute inset-x-0 bottom-0 z-20 h-[min(82dvh,720px)] max-h-[calc(100%-0.75rem)] overflow-hidden rounded-t-lg border border-border-light bg-surface-primary shadow-2xl"
+                    >
+                      <ConversationTreeInspector
+                        focusedNode={focusedNode}
+                        sourceNode={sourceNode}
+                        destinationNode={destinationNode}
+                        statusText={statusText}
+                        phase={generationGraft.phase}
+                        pendingAction={generationGraft.pendingAction}
+                        mode={generationGraft.mode}
+                        preview={generationGraft.preview}
+                        created={generationGraft.created}
+                        pendingUndoTarget={generationGraft.pendingUndoTarget}
+                        error={generationGraft.error}
+                        stabilization={generationGraft.stabilization}
+                        canUseFocusedAsSource={canUseFocusedAsSource}
+                        canUseFocusedAsDestination={canUseFocusedAsDestination}
+                        focusedSelectionError={focusedSelectionError}
+                        listOpen={listOpen}
+                        onToggleList={() => setListOpen((current) => !current)}
+                        onClose={() => setMobileSheetOpen(false)}
+                        listContent={listContent}
+                        onUseFocusedAsSource={useFocusedAsSource}
+                        onUseFocusedAsDestination={useFocusedAsDestination}
+                        onClearSource={clearSourceSelection}
+                        onClearDestination={clearDestinationSelection}
+                        onRequestPreview={requestPreview}
+                        onOpenHelp={() => setHelpOpen(true)}
+                        onModeChange={generationGraft.setMode}
+                        onCreate={() => void generationGraft.createGraft()}
+                        onUndo={() => void generationGraft.undoGraft()}
+                        onConfirmUndoContinuations={() =>
+                          void generationGraft.confirmUndoContinuations()
+                        }
+                        onCancelPendingUndoTarget={generationGraft.cancelPendingUndoTarget}
+                        onStopAndGraft={() => void generationGraft.stopAndGraft()}
+                        onWaitForCompletion={() => void generationGraft.waitForCompletion()}
+                        onCancelStabilization={generationGraft.cancelStabilization}
+                      />
+                    </div>
+                  </>
                 ) : null}
               </div>
             ) : (
-              <div className="grid h-full min-h-0 md:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_clamp(320px,32vw,440px)] overflow-hidden">
                 <ConversationTreeCanvas
                   graph={graph}
                   layout={layout}
@@ -475,8 +572,7 @@ export default function ConversationTreeDialog({
                     setFocusedNodeId(messageId);
                   }}
                   onPreviewRequest={() => {
-                    setStatusText(localize('com_ui_generation_tree_status_preview'));
-                    void generationGraft.requestPreview();
+                    requestPreview();
                     setListOpen(true);
                   }}
                   onManualPositionChange={(messageId, position) =>
@@ -494,9 +590,10 @@ export default function ConversationTreeDialog({
                 />
                 <aside
                   data-testid="generation-tree-sidebar"
-                  className="min-h-0 border-l border-border-light"
+                  className="min-h-0 min-w-0 overflow-hidden border-l border-border-light"
                 >
                   <ConversationTreeInspector
+                    focusedNode={focusedNode}
                     sourceNode={sourceNode}
                     destinationNode={destinationNode}
                     statusText={statusText}
@@ -508,9 +605,18 @@ export default function ConversationTreeDialog({
                     pendingUndoTarget={generationGraft.pendingUndoTarget}
                     error={generationGraft.error}
                     stabilization={generationGraft.stabilization}
+                    canUseFocusedAsSource={canUseFocusedAsSource}
+                    canUseFocusedAsDestination={canUseFocusedAsDestination}
+                    focusedSelectionError={focusedSelectionError}
                     listOpen={listOpen}
                     onToggleList={() => setListOpen((current) => !current)}
                     listContent={listContent}
+                    onUseFocusedAsSource={useFocusedAsSource}
+                    onUseFocusedAsDestination={useFocusedAsDestination}
+                    onClearSource={clearSourceSelection}
+                    onClearDestination={clearDestinationSelection}
+                    onRequestPreview={requestPreview}
+                    onOpenHelp={() => setHelpOpen(true)}
                     onModeChange={generationGraft.setMode}
                     onCreate={() => void generationGraft.createGraft()}
                     onUndo={() => void generationGraft.undoGraft()}
@@ -526,6 +632,17 @@ export default function ConversationTreeDialog({
               </div>
             )}
           </div>
+          {helpOpen ? (
+            <ConversationTreeHelp
+              onClose={() => setHelpOpen(false)}
+              onStartGuided={() => {
+                setHelpOpen(false);
+                setListOpen(false);
+                setMobileSheetOpen(false);
+                generationGraft.setMode('subtree');
+              }}
+            />
+          ) : null}
         </div>
       </OGDialogContent>
     </OGDialog>

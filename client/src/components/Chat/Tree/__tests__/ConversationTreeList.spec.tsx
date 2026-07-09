@@ -25,6 +25,8 @@ jest.mock('~/hooks/useLocalize', () => ({
       com_ui_generation_tree_status_preview: 'Preview requested',
       com_ui_generation_tree_announcer_closed: 'Conversation tree closed.',
       com_ui_generation_tree_generation_label: `Generation ${options?.index ?? ''}`.trim(),
+      com_ui_generation_tree_generation_position:
+        `Generation ${options?.index ?? ''} of ${options?.count ?? ''}`.trim(),
       com_ui_generation_tree_node_graft_bridge: 'Graft bridge',
       com_ui_generation_tree_node_prompt: 'Prompt',
     })[key] ?? key,
@@ -221,7 +223,7 @@ describe('ConversationTreeList', () => {
     );
   });
 
-  it('blocks actively streaming generations while keeping the status visible', async () => {
+  it('selects an actively streaming source so preview can enter stabilization', async () => {
     const user = userEvent.setup();
     const graph = createLifecycleGraph();
     const onSelectSource = jest.fn();
@@ -246,9 +248,42 @@ describe('ConversationTreeList', () => {
     await user.click(streamingNode);
     await user.keyboard(' ');
 
-    expect(onSelectSource).not.toHaveBeenCalled();
+    expect(onSelectSource).toHaveBeenCalledWith('assistant-streaming');
     expect(screen.getByTestId('generation-tree-list-status')).toHaveTextContent(
-      'The conversation is still changing. Try again shortly.',
+      'Source selected. Choose a destination generation.',
+    );
+  });
+
+  it('previews an actively streaming destination so the inspector can offer stop or wait', async () => {
+    const user = userEvent.setup();
+    const graph = createLifecycleGraph();
+    const onSelectDestination = jest.fn();
+    const onPreviewRequest = jest.fn();
+
+    render(
+      <ConversationTreeList
+        graph={graph}
+        collapsedIds={new Set()}
+        focusedMessageId="assistant-streaming"
+        sourceMessageId="assistant-stopped"
+        destinationMessageId={null}
+        onFocusMessage={jest.fn()}
+        onSelectSource={jest.fn()}
+        onSelectDestination={onSelectDestination}
+        onPreviewRequest={onPreviewRequest}
+        onCollapsedIdsChange={jest.fn()}
+        onCancelSelection={jest.fn()}
+      />,
+    );
+
+    const streamingNode = screen.getByRole('treeitem', { name: /generation 3/i });
+    await user.click(streamingNode);
+    await user.keyboard('{Enter}');
+
+    expect(onSelectDestination).toHaveBeenCalledWith('assistant-streaming');
+    expect(onPreviewRequest).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('generation-tree-list-status')).toHaveTextContent(
+      'Preview requested',
     );
   });
 

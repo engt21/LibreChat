@@ -416,7 +416,7 @@ export default function ConversationTreeCanvas({
         </TransformComponent>
       </TransformWrapper>
 
-      <div className="bg-surface-primary/95 pointer-events-none absolute bottom-4 left-4 rounded-xl border border-border-medium px-3 py-2 text-xs text-text-secondary">
+      <div className="bg-surface-primary/95 pointer-events-none absolute bottom-3 left-3 max-w-[calc(100%-1.5rem)] truncate rounded-md border border-border-medium px-3 py-2 text-xs text-text-secondary sm:max-w-[60%]">
         <span
           data-testid="generation-tree-status"
           role={announceStatus ? 'status' : undefined}
@@ -427,7 +427,7 @@ export default function ConversationTreeCanvas({
         </span>
       </div>
 
-      <div className="absolute bottom-4 right-4">
+      <div className="absolute bottom-3 right-3 hidden lg:block">
         <ConversationTreeMiniMap
           layout={layout}
           activeBranchIds={activeBranchIds}

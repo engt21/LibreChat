@@ -1,34 +1,9 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, CircleAlert, Dot, Grip, LoaderCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleAlert, Dot, GitMerge, LoaderCircle } from 'lucide-react';
 import useLocalize from '~/hooks/useLocalize';
 import { cn } from '~/utils';
 import type { InvalidGraftReason, PositionedTreeNode, TreeSemanticDetail } from './types';
-
-function getNodeTitle(localize: ReturnType<typeof useLocalize>, node: PositionedTreeNode): string {
-  if (node.role === 'assistant' && node.generationIndex > 0) {
-    return localize('com_ui_generation_tree_generation_label', {
-      index: node.generationIndex,
-    });
-  }
-
-  if (node.role === 'graft_bridge') {
-    return localize('com_ui_generation_tree_node_graft_bridge');
-  }
-
-  return localize('com_ui_generation_tree_node_prompt');
-}
-
-function getExcerpt(localize: ReturnType<typeof useLocalize>, node: PositionedTreeNode): string {
-  if (typeof node.message.text === 'string' && node.message.text.trim().length > 0) {
-    return node.message.text.trim();
-  }
-
-  if (typeof node.message.content === 'string' && node.message.content.trim().length > 0) {
-    return node.message.content.trim();
-  }
-
-  return localize('com_ui_generation_tree_node_empty');
-}
+import { getTreeNodeExcerpt, getTreeNodeLabel } from './treeLabels';
 
 function getLifecycleClass(lifecycle: PositionedTreeNode['lifecycle']) {
   switch (lifecycle) {
@@ -206,9 +181,9 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
   onPointerDownBody,
 }: ConversationTreeNodeProps) {
   const localize = useLocalize();
-  const excerpt = getExcerpt(localize, node);
+  const excerpt = getTreeNodeExcerpt(localize, node);
   const badges = getBadges(node);
-  const title = getNodeTitle(localize, node);
+  const title = getTreeNodeLabel(localize, node);
   const hasChildren = node.childIds.length > 0;
   const isCollapsed = hasChildren && hiddenDescendantCount > 0;
   const indicator = getNodeIndicator(invalidReason, node.lifecycle);
@@ -283,15 +258,20 @@ const ConversationTreeNode = React.memo(function ConversationTreeNode({
             <button
               type="button"
               data-testid={`graft-handle-${node.id}`}
-              className="graft-handle tree-node-control rounded-lg border border-border-medium p-1 text-text-secondary hover:text-text-primary"
+              className="graft-handle tree-node-control flex items-center gap-1 rounded-md border border-border-medium px-1.5 py-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary"
               tabIndex={-1}
               onPointerDown={(event) => {
                 event.stopPropagation();
                 onPointerDownHandle(event);
               }}
-              aria-label={`${localize('com_ui_graft_generation')}: ${title}`}
+              aria-label={`${localize('com_ui_generation_tree_drag_to_append')}: ${title}`}
             >
-              <Grip className="h-4 w-4" />
+              <GitMerge className="h-4 w-4" aria-hidden="true" />
+              {detail === 'near' ? (
+                <span className="text-[10px] font-medium">
+                  {localize('com_ui_generation_tree_drag')}
+                </span>
+              ) : null}
             </button>
           ) : null}
         </div>

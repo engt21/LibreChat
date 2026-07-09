@@ -311,6 +311,11 @@ const userSchema = new Schema<IUser>(
       type: Boolean,
       default: false,
     },
+    mfaEnrollmentExempt: {
+      type: Boolean,
+      default: false,
+      select: false,
+    },
     totpSecret: {
       type: String,
       select: false,

@@ -1,4 +1,5 @@
 import { GitMerge, Network } from 'lucide-react';
+import { TooltipAnchor } from '@librechat/client';
 import type { TMessage } from 'librechat-data-provider';
 import useLocalize from '~/hooks/useLocalize';
 import { useGenerationTree } from '~/Providers';
@@ -34,29 +35,39 @@ export default function GenerationTreeActions({
 
   return (
     <>
-      <button
-        type="button"
-        className={buttonClassName}
-        title={localize('com_ui_view_in_conversation_tree')}
-        aria-label={localize('com_ui_view_in_conversation_tree')}
-        onClick={() => openTree({ focusMessageId: messageId })}
-      >
-        <Network size={19} />
-      </button>
-      <button
-        type="button"
-        className={buttonClassName}
-        title={localize('com_ui_graft_generation')}
-        aria-label={localize('com_ui_graft_generation')}
-        onClick={() =>
-          openTree({
-            focusMessageId: messageId,
-            sourceMessageId: messageId,
-          })
+      <TooltipAnchor
+        description={localize('com_ui_view_in_conversation_tree_description')}
+        render={
+          <button
+            type="button"
+            className={buttonClassName}
+            title={localize('com_ui_view_in_conversation_tree')}
+            aria-label={localize('com_ui_view_in_conversation_tree')}
+            onClick={() => openTree({ focusMessageId: messageId })}
+          />
         }
       >
-        <GitMerge size={19} />
-      </button>
+        <Network size={19} aria-hidden="true" />
+      </TooltipAnchor>
+      <TooltipAnchor
+        description={localize('com_ui_graft_generation_description')}
+        render={
+          <button
+            type="button"
+            className={buttonClassName}
+            title={localize('com_ui_graft_generation')}
+            aria-label={localize('com_ui_graft_generation')}
+            onClick={() =>
+              openTree({
+                focusMessageId: messageId,
+                sourceMessageId: messageId,
+              })
+            }
+          />
+        }
+      >
+        <GitMerge size={19} aria-hidden="true" />
+      </TooltipAnchor>
     </>
   );
 }

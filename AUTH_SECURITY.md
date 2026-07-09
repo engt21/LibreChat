@@ -38,6 +38,20 @@ LOGIN_ACCOUNT_WINDOW=15
 
 Existing local users are guided through enrollment immediately after the correct password and receive no long-lived session until setup succeeds.
 
+### Isolated validation accounts
+
+`local-services/dev-seed-validation-personas.js` creates deterministic synthetic accounts only in an
+isolated dev MongoDB. Each seed explicitly disables TOTP, removes current and pending TOTP secrets and
+backup codes, clears refresh sessions, and sets the hidden `mfaEnrollmentExempt` flag so
+`MFA_ENFORCEMENT=all_local` does not force browser automation into enrollment. The documented
+`playwright@test.local` account is part of this seeded set.
+
+The exemption only skips forced enrollment. An account with `twoFactorEnabled=true` still receives the
+normal TOTP challenge. The field is excluded from ordinary user queries and login responses, is not
+part of the public user-update contract, and must only be set by the isolated validation seeder. The
+seeder refuses shared or production MongoDB targets unless an operator supplies the explicit dangerous
+override; production accounts remain subject to the full MFA policy.
+
 ## Token policy
 
 ```dotenv

@@ -56,7 +56,7 @@ The custom work falls into these main buckets:
 16. UX preservation fixes and ordering controls, including local-upload persistence across model/preset switches, fixed sidebar chat recency/month buckets, user-sortable presets, and safe preset duplication
 17. Owner-only linked-chat references that let normal chats and Agents resolve explicitly pasted LibreChat `/c/<UUID>` URLs and owned `/share/<shareId>` snapshots into bounded, ephemeral historical context
 18. Admin-controlled deterministic default `calculator`, `text_analyzer`, `string_utility`, and `json_utility` structured tools attached server-side to every interactive model request
-19. Interactive generation-tree graft preview stabilization, create, focus, and undo flow in the conversation tree dialog
+19. Guided, phone-friendly generation-tree branch appending with in-app help, preview stabilization, create, focus, and undo
 
 ---
 
@@ -706,6 +706,10 @@ This area is partly documented in `README.md`, but there is no single standalone
   Runtime `.env`/YAML mutation must remain opt-in and point only at explicitly isolated files so a
   validation seed cannot replace production picker/modelSpecs configuration. Missing targets and
   paths resolving to the checkout's shared `.env`/`librechat.yaml` must fail before MongoDB is opened
+- keep isolated-dev validation personas deterministic and automation-ready: the seeder must set the
+  hidden `mfaEnrollmentExempt` flag, disable TOTP, remove current and pending secrets/backup codes,
+  clear sessions, and include `playwright@test.local`. The exemption must remain excluded from public
+  update contracts and login responses, and it must never be applied to shared or production accounts
 - keep `local-services/run-node-capped.sh` and the npm capped aliases for host-side LibreChat jobs; lint defaults to a `3G` cgroup and `1024 MB` Node heap, build/frontend use low-priority uncapped host execution with an `8192 MB` Node heap and `LIBRECHAT_ROLLUP_SOURCEMAP=false`, while lint/test profiles remain cgroup-capped; an 8 GB memory plus 2 GB swap cgroup was confirmed to OOM-kill the full Vite build during chunk rendering, so do not reintroduce a hard cap for the production artifact build; keep the dedicated low-priority host build swap enabled for package builds
 - keep `local-services/deploy-runtime-delta.sh` as the mandatory first path for backend/runtime-loaded code, config helpers, runtime bind files, and already-built `packages/*/dist/**`; it must snapshot old files, apply runtime patches when `config/apply-runtime-patches.js` changes, restart/health-check, require explicit stable approval, verify production memory headroom, and commit the verified filesystem to `librechat-local:runtime-current` so later recreates do not lose hot patches; it must refuse frontend source, individual frontend dist files, package source, dependency, Dockerfile, and compose changes
 - rebuild only the affected package when `packages/*/src/**` changed; use `LIBRECHAT_ROLLUP_SOURCEMAP=false` for production dist builds to avoid unnecessary multi-gigabyte source-map heaps; reserve full Docker image builds for dependencies, Dockerfiles, base images, and incompatible container-shape changes
@@ -978,9 +982,14 @@ These are the files and areas most likely to need careful manual review when mer
 
 ### Generation-tree grafting
 
-- `client/src/components/Chat/Tree/{ConversationTreeDialog,ConversationTreeInspector,ConversationTreeCanvas,useGenerationGraft,types}.tsx`
+- `GENERATION_TREE_GRAFTING.md`
+- `client/src/components/Chat/Tree/{ConversationTreeDialog,ConversationTreeInspector,ConversationTreeSelectionGuide,ConversationTreeMobileGuideBar,ConversationTreeHelp,ConversationTreeCanvas,ConversationTreeNode,ConversationTreeToolbar}.tsx`
+- `client/src/components/Chat/Tree/{useGenerationGraft,treeLabels,types}.ts`
+- `client/src/components/Chat/Tree/{ConversationTreeDialog,GenerationTreeActions}.spec.tsx`
+- `client/src/components/Chat/Tree/graph.spec.ts`
 - `client/src/components/Chat/Tree/__tests__/{ConversationTreeDialog,ConversationTreeInspector,useGenerationGraft}.spec.tsx`
 - `client/src/locales/en/translation.json`
+- `e2e/specs/generation-tree-grafting.spec.ts`
 - `client/src/data-provider/Messages/generationGrafts.ts`
 - `client/src/data-provider/Messages/generationGrafts.spec.tsx`
 - `packages/data-provider/src/types.ts`
@@ -1272,6 +1281,15 @@ resetting credentials, and do not roll back to a mutable/stale `librechat-local:
 - Generation graft drag/drop preview must call `requestPreview()` without a render-time destination
   argument so the hook reads its synchronously updated selection ref. Passing the dialog's stale
   destination state can reject a valid drop before the preview API call.
+- Preserve the tap-first append path independently of drag/drop: focus source, **Use as source**,
+  focus destination, **Append here**, choose scope, preview, and confirm. Phones must retain the
+  sticky action bar and bottom-sheet details; desktop must retain the same guided controls.
+- Preserve the in-app **How to append** page, **Generation X of Y** labels, visible toolbar text,
+  descriptive message-menu actions, and the exact full 2 of 2 after 1 of 2 example. These are the
+  discoverability contract for the graft API, not optional decoration.
+- After create, preserve `messageBranchSelection.ts` and the `useChatHelpers()` callback that updates
+  every ancestor sibling selector for the copied message. Updating only `latestMessage` can leave the
+  transcript showing the original sibling even while the tree focuses the new append.
 - Sandbox TTL prefers session activity metadata and executes active-ID selection/removal under one
   session lock.
 - Deployment fallback abort is time-bounded, and runtime delta must execute an immutable fallback

@@ -9,11 +9,38 @@ jest.mock('~/hooks/useLocalize', () => ({
   default: () => (key: string, options?: Record<string, unknown>) =>
     ({
       com_sidepanel_conversation_tree: 'Conversation Tree',
+      com_ui_generation_tree_guide_title: 'Append a branch',
+      com_ui_generation_tree_guide_description:
+        'Use normal taps to choose both ends. Dragging is optional.',
+      com_ui_generation_tree_help: 'How to append',
+      com_ui_generation_tree_focused_response: 'Focused response',
+      com_ui_generation_tree_tap_response_first: 'Tap an assistant response in the tree first.',
+      com_ui_generation_tree_source_step: 'Branch to copy',
+      com_ui_generation_tree_source_instruction:
+        'Tap the first response in the branch you want to copy.',
+      com_ui_generation_tree_destination_step: 'Append after',
+      com_ui_generation_tree_destination_instruction:
+        'Tap the final response in the branch that should come first.',
+      com_ui_generation_tree_use_focused_source: 'Use focused response as source',
+      com_ui_generation_tree_use_focused_destination: 'Append after focused response',
+      com_ui_generation_tree_change: 'Change',
+      com_ui_generation_tree_scope: 'What should be copied?',
+      com_ui_generation_tree_mode_generation_desc: 'Copies the selected assistant response only.',
+      com_ui_generation_tree_mode_subtree_desc:
+        'Copies this response and every later message below it.',
+      com_ui_generation_tree_recommended: 'Recommended for full threads',
+      com_ui_generation_tree_preview_append: 'Preview append',
+      com_ui_generation_tree_refresh_preview: 'Refresh preview',
+      com_ui_generation_tree_preview_details: 'Preview details',
+      com_ui_generation_tree_generation_label: `Generation ${options?.index ?? ''}`.trim(),
+      com_ui_generation_tree_generation_position:
+        `Generation ${options?.index ?? ''} of ${options?.count ?? ''}`.trim(),
       com_ui_generation_tree_source: 'Source',
       com_ui_generation_tree_destination: 'Destination',
       com_ui_generation_tree_list: 'Tree list',
-      com_ui_generation_tree_mode_generation: 'Generation only',
-      com_ui_generation_tree_mode_subtree: 'Generation and subtree',
+      com_ui_generation_tree_hide_list: 'Hide list',
+      com_ui_generation_tree_mode_generation: 'Only this response',
+      com_ui_generation_tree_mode_subtree: 'Whole branch from here',
       com_ui_generation_tree_state_complete: 'Complete',
       com_ui_generation_tree_state_stopped_partial: 'Stopped partial',
       com_ui_generation_tree_partial_warning:
@@ -24,7 +51,7 @@ jest.mock('~/hooks/useLocalize', () => ({
       com_ui_generation_tree_counts_images: 'Images',
       com_ui_generation_tree_counts_tokens: 'Approximate tokens',
       com_ui_generation_tree_before_after: 'Branch preview',
-      com_ui_generation_tree_create: 'Create graft',
+      com_ui_generation_tree_append: 'Append branch',
       com_ui_generation_tree_copied_counts: 'Copied by graft',
       com_ui_generation_tree_continuation_counts: 'Later continuations',
       com_ui_generation_tree_undo_scope_title: 'Undo scope',
@@ -67,11 +94,24 @@ const graph = normalizeConversationGraph([
 const layout = layoutConversationTree(graph, { orientation: 'horizontal' });
 const sourceNode = layout.nodes.get('source') ?? null;
 const destinationNode = layout.nodes.get('destination') ?? null;
+const guidedProps = {
+  focusedNode: sourceNode,
+  canUseFocusedAsSource: true,
+  canUseFocusedAsDestination: true,
+  focusedSelectionError: null,
+  onUseFocusedAsSource: jest.fn(),
+  onUseFocusedAsDestination: jest.fn(),
+  onClearSource: jest.fn(),
+  onClearDestination: jest.fn(),
+  onRequestPreview: jest.fn(),
+  onOpenHelp: jest.fn(),
+};
 
 describe('ConversationTreeInspector', () => {
   it('renders authoritative badges, counts, warnings, and disables create outside the ready phase', () => {
     render(
       <ConversationTreeInspector
+        {...guidedProps}
         sourceNode={sourceNode}
         destinationNode={destinationNode}
         statusText="Preview requested"
@@ -133,9 +173,12 @@ describe('ConversationTreeInspector', () => {
       screen.getAllByText('Partial generations are copied as incomplete prior context.'),
     ).toHaveLength(1);
     expect(screen.getAllByText('Server warning')).toHaveLength(1);
-    expect(screen.getByRole('radio', { name: 'Generation only' })).not.toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Generation and subtree' })).toBeChecked();
-    expect(screen.getByRole('button', { name: 'Create graft' })).toBeDisabled();
+    expect(screen.getByTestId('generation-tree-inspector')).toHaveClass('overflow-hidden');
+    expect(screen.getByTestId('generation-tree-inspector-scroll')).toHaveClass('overflow-y-auto');
+    expect(screen.getByTestId('generation-tree-actions')).toHaveClass('shrink-0');
+    expect(screen.getByRole('radio', { name: /Only this response/ })).not.toBeChecked();
+    expect(screen.getByRole('radio', { name: /Whole branch from here/ })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Append branch' })).toBeDisabled();
   });
 
   it('renders stabilization controls and the destructive undo label when continuation details are loaded', () => {
@@ -147,6 +190,7 @@ describe('ConversationTreeInspector', () => {
 
     render(
       <ConversationTreeInspector
+        {...guidedProps}
         sourceNode={sourceNode}
         destinationNode={destinationNode}
         statusText="Preview requested"
@@ -256,6 +300,7 @@ describe('ConversationTreeInspector', () => {
   it('labels the exact destructive undo target when the current created graft differs from the pending continuation details', () => {
     render(
       <ConversationTreeInspector
+        {...guidedProps}
         sourceNode={sourceNode}
         destinationNode={destinationNode}
         statusText="Preview requested"
@@ -327,6 +372,7 @@ describe('ConversationTreeInspector', () => {
 
     render(
       <ConversationTreeInspector
+        {...guidedProps}
         sourceNode={sourceNode}
         destinationNode={destinationNode}
         statusText="Preview requested"
@@ -396,6 +442,7 @@ describe('ConversationTreeInspector', () => {
   it('disables destructive controls and exposes busy state while an action is already pending', () => {
     render(
       <ConversationTreeInspector
+        {...guidedProps}
         sourceNode={sourceNode}
         destinationNode={destinationNode}
         statusText="Preview requested"
@@ -484,7 +531,7 @@ describe('ConversationTreeInspector', () => {
     );
 
     expect(screen.getByTestId('generation-tree-inspector')).toHaveAttribute('aria-busy', 'true');
-    expect(screen.getByRole('button', { name: 'Create graft' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Append branch' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
     expect(
       screen.getByRole('button', { name: 'Undo graft and delete later continuation' }),
