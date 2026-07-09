@@ -320,7 +320,7 @@ async function createFromInspector(
 
   const appendButton = page.getByRole('button', { name: 'Append branch' });
   if (await appendButton.isDisabled()) {
-    await page.getByRole('button', { name: 'Preview append' }).click();
+    await page.getByRole('button', { name: /^(Preview append|Refresh preview)$/ }).click();
     await expect(appendButton).toBeEnabled();
   }
 
